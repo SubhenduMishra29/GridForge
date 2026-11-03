@@ -135,10 +135,16 @@ class UpdateGridCommand(Command):
                  clear_impedance_base: bool = False, clear_neutral_grounding_impedance: bool = False,
                  in_service: bool | None = None, grounded: bool | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        clear_flags = (clear_impedance_base, clear_neutral_grounding_impedance)
+        if any(not isinstance(value, bool) for value in clear_flags):
+            raise TypeError("Grid clear flags must be bool.")
+        if clear_impedance_base and any(value is not None for value in (impedance_base_mva, impedance_base_voltage_kv)):
+            raise ValueError("Specify Grid impedance base values or clear_impedance_base, not both.")
+        if clear_neutral_grounding_impedance and neutral_grounding_impedance_ohm is not None:
+            raise ValueError("Specify neutral_grounding_impedance_ohm or clear_neutral_grounding_impedance, not both.")
         values = (name, nominal_voltage_kv, frequency_hz, voltage_pu, angle_deg, p_mw, q_mvar, short_circuit_mva, x_over_r, z1_pu, z2_pu, z0_pu, impedance_base_mva, impedance_base_voltage_kv, neutral_grounding_impedance_ohm, in_service, grounded)
-        if any((clear_impedance_base, clear_neutral_grounding_impedance)) and all(v is None for v in values):
-            values = (clear_impedance_base, clear_neutral_grounding_impedance)
-        if all(v is None for v in values): raise ValueError("UpdateGridCommand requires at least one mutable Grid field.")
+        if all(value is None for value in values) and not any(clear_flags):
+            raise ValueError("UpdateGridCommand requires at least one mutable Grid field.")
         super().__init__(**_command(UPDATE_GRID, {"grid_id": grid_id, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
             "frequency_hz": frequency_hz, "voltage_pu": voltage_pu, "angle_deg": angle_deg, "p_mw": p_mw, "q_mvar": q_mvar,
             "short_circuit_mva": short_circuit_mva, "x_over_r": x_over_r, "z1_pu": z1_pu, "z2_pu": z2_pu, "z0_pu": z0_pu,
