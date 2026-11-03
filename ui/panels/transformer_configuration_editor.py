@@ -286,7 +286,7 @@ class TransformerConfigurationEditor(QWidget):
     def _submit_winding(self) -> None:
         try:
             self._submit(self._winding_values(), "Winding and zero-sequence test configuration accepted.")
-        except (TypeError, ValueError, OverflowError) as exc:
+        except (RuntimeError, TypeError, ValueError, OverflowError) as exc:
             self._status.setText(f"Transformer configuration rejected: {exc}")
 
     def _submit_multiport(self) -> None:
@@ -308,7 +308,7 @@ class TransformerConfigurationEditor(QWidget):
                 "replace_phase_domain_multiport_configuration": True,
             })
             self._submit(values, "Transformer multiport and evidence configuration accepted.")
-        except (TypeError, ValueError, OverflowError) as exc:
+        except (RuntimeError, TypeError, ValueError, OverflowError) as exc:
             self._status.setText(f"Transformer multiport rejected: {exc}")
 
     def _optional_float(self, field: str) -> float | None:
@@ -329,7 +329,7 @@ class TransformerConfigurationEditor(QWidget):
         result = self._editor.submit(intent)
         if not getattr(result, "success", False):
             raise ValueError(getattr(result, "message", None) or "Application rejected the Transformer update.")
-        self._status.setText(success_message + " Waiting for the canonical projection refresh.")
+        self._status.setText(success_message + " The Application command completed; the projected read model remains authoritative.")
         
     def _restore_projection(self) -> None:
         self._load_projection()
