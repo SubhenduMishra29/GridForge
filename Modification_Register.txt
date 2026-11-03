@@ -20835,3 +20835,6 @@ No tests, CI, syntax checks, imports, or runtime checks were run.
 - Application now transactionally recomposes ProtectionRuntime after canonical CT/CVT/PT/Relay create/update/delete/service-state commands, in addition to Protection configuration and measurement-binding commands. This prevents legitimate canonical equipment mutations from leaving the runtime permanently stale; failed recomposition remains within the command transaction rollback path.
 - This closes the previously recorded pre-evaluation stale-composition gap for the listed canonical commands and detects direct equipment mutations before evaluation. Direct mutations still do not publish Application revision counters; they are detected by the runtime state fingerprint.
 - No tests, CI, syntax checks, import checks, or runtime checks were run. Source edits were reviewed by targeted fetch only.
+
+[2026-11-03] Protection runtime fingerprint scope refinement
+- Composition identity includes Relay configuration and service availability (type, plugin, settings, in_service, enabled, blocked), but deliberately excludes transient Relay outputs picked_up/tripped. Those are runtime/evaluation state, not configuration identity, and must not invalidate the composed runtime merely because a Protection cycle changes them.
