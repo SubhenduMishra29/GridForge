@@ -692,6 +692,26 @@ class Application:
         captured_channel_service = service
         captured_revision = self.revision
 
+        def relay_state_fingerprint(network: Any) -> tuple[tuple[Any, ...], ...]:
+            """Capture mutable Relay equipment state without treating it as topology."""
+            relays = getattr(network, "relays", ())
+            return tuple(sorted((
+                (
+                    str(getattr(relay, "id", "")),
+                    str(getattr(relay, "relay_type", "")),
+                    getattr(relay, "plugin_id", None),
+                    repr(getattr(relay, "settings", {})),
+                    bool(getattr(relay, "in_service", False)),
+                    bool(getattr(relay, "enabled", False)),
+                    bool(getattr(relay, "blocked", False)),
+                    bool(getattr(relay, "picked_up", False)),
+                    bool(getattr(relay, "tripped", False)),
+                )
+                for relay in relays
+            ), key=lambda item: item[0]))
+
+        captured_relay_state = relay_state_fingerprint(captured_network)
+
         def ensure_current_protection_provenance() -> None:
             current_lifecycle = self.project_lifecycle
             current_project = current_lifecycle.context
@@ -720,14 +740,15 @@ class Application:
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
+                or relay_state_fingerprint(captured_network) != captured_relay_state
                 or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
                 or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
                 or self.revision.protection_configuration_revision != captured_revision.protection_configuration_revision
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
-                    "measurement-channel authority, or instrumentation/Protection equipment/configuration "
-                    "revision changed after evaluation."
+                    "measurement-channel authority, Relay equipment state, or instrumentation/Protection "
+                    "equipment/configuration revision changed after evaluation."
                 )
 
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
