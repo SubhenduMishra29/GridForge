@@ -177,15 +177,17 @@ class TransformerModelService(ModelServiceSupport):
             hv_winding_connection, lv_winding_connection,
             hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm,
             hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm,
-            hv_phase_roles, lv_phase_roles, replace_physical_conductor_configuration,
+            hv_phase_roles, lv_phase_roles,
             hv_terminal_role, lv_terminal_role, impedance_reference_winding,
             zero_sequence_resistance_ohm, zero_sequence_reactance_ohm,
             core_construction, zero_sequence_test_basis,
             vector_group_configuration, zero_sequence_test_configuration,
             zero_sequence_two_winding_test_data,
         )
-        if all(value is None for value in values):
+        if all(value is None for value in values) and not replace_physical_conductor_configuration:
             raise ValueError("At least one Transformer configuration field must be specified.")
+        if not isinstance(replace_physical_conductor_configuration, bool):
+            raise TypeError("replace_physical_conductor_configuration must be a bool.")
         if in_service is not None and not isinstance(in_service, bool):
             raise TypeError("in_service must be a bool.")
 
@@ -204,10 +206,10 @@ class TransformerModelService(ModelServiceSupport):
             "lv_winding_connection": transformer.lv_winding_connection,
             "hv_neutral_grounding_impedance_ohm": transformer.hv_neutral_grounding_impedance_ohm,
             "lv_neutral_grounding_impedance_ohm": transformer.lv_neutral_grounding_impedance_ohm,
-            "hv_neutral_earth_return_impedance_ohm": transformer._hv_neutral_earth_return_impedance_ohm,
-            "lv_neutral_earth_return_impedance_ohm": transformer._lv_neutral_earth_return_impedance_ohm,
-            "hv_phase_roles": transformer._hv_phase_roles,
-            "lv_phase_roles": transformer._lv_phase_roles,
+            "hv_neutral_earth_return_impedance_ohm": transformer.hv_neutral_earth_return_impedance_ohm,
+            "lv_neutral_earth_return_impedance_ohm": transformer.lv_neutral_earth_return_impedance_ohm,
+            "hv_phase_roles": transformer.hv_phase_roles,
+            "lv_phase_roles": transformer.lv_phase_roles,
             "hv_terminal_role": transformer.hv_terminal_role,
             "lv_terminal_role": transformer.lv_terminal_role,
             "impedance_reference_winding": transformer.impedance_reference_winding,
