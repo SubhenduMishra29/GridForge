@@ -19,6 +19,9 @@ class ProjectRevision:
     topology_revision: int = 0
     presentation_revision: int = 0
     persisted_revision: int = 0
+    instrumentation_revision: int = 0
+    protection_equipment_revision: int = 0
+    protection_configuration_revision: int = 0
 
     def matches_study_state(self, other: object) -> bool:
         """Whether two snapshots describe the same numerical study input state.
@@ -40,6 +43,9 @@ class ProjectRevision:
             "topology_revision",
             "presentation_revision",
             "persisted_revision",
+            "instrumentation_revision",
+            "protection_equipment_revision",
+            "protection_configuration_revision",
         ):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool):
