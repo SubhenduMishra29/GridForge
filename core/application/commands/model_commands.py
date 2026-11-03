@@ -251,6 +251,8 @@ class CreateTransformerCommand(Command):
                  lv_neutral_grounding_impedance_ohm: complex | None = None,
                  hv_neutral_earth_return_impedance_ohm: complex | None = None,
                  lv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 hv_neutral_terminal_role: str | None = None,
+                 lv_neutral_terminal_role: str | None = None,
                  hv_phase_roles: tuple[str, ...] | None = None,
                  lv_phase_roles: tuple[str, ...] | None = None,
                  hv_terminal_role: str | None = None,
@@ -289,6 +291,8 @@ class CreateTransformerCommand(Command):
             "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
             "hv_neutral_earth_return_impedance_ohm": hv_neutral_earth_return_impedance_ohm,
             "lv_neutral_earth_return_impedance_ohm": lv_neutral_earth_return_impedance_ohm,
+            "hv_neutral_terminal_role": hv_neutral_terminal_role,
+            "lv_neutral_terminal_role": lv_neutral_terminal_role,
             "hv_phase_roles": hv_phase_roles,
             "lv_phase_roles": lv_phase_roles,
             "hv_terminal_role": hv_terminal_role,
@@ -319,6 +323,8 @@ class UpdateTransformerCommand(Command):
                  lv_neutral_grounding_impedance_ohm: complex | None = None,
                  hv_neutral_earth_return_impedance_ohm: complex | None | object = ...,
                  lv_neutral_earth_return_impedance_ohm: complex | None | object = ...,
+                 hv_neutral_terminal_role: str | None | object = ...,
+                 lv_neutral_terminal_role: str | None | object = ...,
                  hv_phase_roles: tuple[str, ...] | None | object = ...,
                  lv_phase_roles: tuple[str, ...] | None | object = ...,
                  replace_physical_conductor_configuration: bool = False,
@@ -335,11 +341,11 @@ class UpdateTransformerCommand(Command):
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         if not isinstance(replace_physical_conductor_configuration, bool):
             raise TypeError("replace_physical_conductor_configuration must be a bool.")
-        physical_fields = (hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_phase_roles, lv_phase_roles)
+        physical_fields = (hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles)
         if replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
             raise ValueError("Physical conductor replacement requires all four HV/LV earth-return and phase-role fields, including explicit None values.")
         if not replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
-            hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_phase_roles, lv_phase_roles = (
+            hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles = (
                 None if field is ... else field for field in physical_fields
             )
         values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_phase_roles, lv_phase_roles, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
@@ -360,6 +366,8 @@ class UpdateTransformerCommand(Command):
             "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
             "hv_neutral_earth_return_impedance_ohm": hv_neutral_earth_return_impedance_ohm,
             "lv_neutral_earth_return_impedance_ohm": lv_neutral_earth_return_impedance_ohm,
+            "hv_neutral_terminal_role": hv_neutral_terminal_role,
+            "lv_neutral_terminal_role": lv_neutral_terminal_role,
             "hv_phase_roles": hv_phase_roles,
             "lv_phase_roles": lv_phase_roles,
             "replace_physical_conductor_configuration": replace_physical_conductor_configuration,
