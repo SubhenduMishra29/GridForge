@@ -1140,6 +1140,7 @@ __all__ = [
     "ProjectPanelWidget",
     "EquipmentPanelWidget",
     "PropertiesPanelWidget",
+    "TransformerConfigurationEditor",
     "ElementListPanelWidget",
     "MessagesPanelWidget",
     "StudyCasesPanelWidget",
