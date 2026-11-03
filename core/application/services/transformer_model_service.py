@@ -232,6 +232,32 @@ class TransformerModelService(ModelServiceSupport):
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
         )
+        physical_topology_changed = any(
+            value is not None and value != old_state[key]
+            for key, value in (
+                ("hv_winding_connection", hv_winding_connection),
+                ("lv_winding_connection", lv_winding_connection),
+                ("hv_neutral_earth_return_impedance_ohm", hv_neutral_earth_return_impedance_ohm),
+                ("lv_neutral_earth_return_impedance_ohm", lv_neutral_earth_return_impedance_ohm),
+                ("hv_neutral_terminal_role", hv_neutral_terminal_role),
+                ("lv_neutral_terminal_role", lv_neutral_terminal_role),
+                ("hv_phase_roles", hv_phase_roles),
+                ("lv_phase_roles", lv_phase_roles),
+            )
+        ) or (
+            replace_physical_conductor_configuration
+            and any(
+                old_state[key] != value
+                for key, value in (
+                    ("hv_neutral_earth_return_impedance_ohm", hv_neutral_earth_return_impedance_ohm),
+                    ("lv_neutral_earth_return_impedance_ohm", lv_neutral_earth_return_impedance_ohm),
+                    ("hv_neutral_terminal_role", hv_neutral_terminal_role),
+                    ("lv_neutral_terminal_role", lv_neutral_terminal_role),
+                    ("hv_phase_roles", hv_phase_roles),
+                    ("lv_phase_roles", lv_phase_roles),
+                )
+            )
+        )
 
         # Transformer.update_configuration validates the complete candidate
         # and restores its prior state if the candidate is invalid.
@@ -269,7 +295,7 @@ class TransformerModelService(ModelServiceSupport):
             zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
         )
 
-        if service_state_changed:
+        if service_state_changed or physical_topology_changed:
             self._network.invalidate_topology()
 
         def restore() -> None:
