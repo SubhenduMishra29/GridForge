@@ -92,6 +92,16 @@ class MeasurementChannelService:
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
+        self._sample_published_handler: Callable[[str, float, float], Any] | None = None
+
+    def bind_sample_published_handler(
+        self,
+        handler: Callable[[str, float, float], Any] | None,
+    ) -> None:
+        """Bind the Application-owned protection trigger to trusted sample ingress."""
+        if handler is not None and not callable(handler):
+            raise TypeError("sample-published handler must be callable or None.")
+        self._sample_published_handler = handler
 
     def bind_execution_lock(self, execution_lock: Any) -> None:
         """Use the Application command lock so publication cannot race breaker authorization."""
@@ -138,7 +148,7 @@ class MeasurementChannelService:
         attestation: MeasurementSampleAttestation,
         quality: MeasurementQuality,
         available: bool = True,
-    ) -> None:
+    ) -> Any:
         """Publish only a signed, project-bound sample with trusted clock validation.
 
         The deployment verifier must authenticate producer identity and the
@@ -192,6 +202,14 @@ class MeasurementChannelService:
                 available=available,
                 sample_sequence=attestation.sample_sequence,
             )
+            handler = self._sample_published_handler
+            if handler is not None:
+                return handler(
+                    channel.id,
+                    float(attestation.timestamp),
+                    float(trusted_now),
+                )
+            return None
 
     def activate(
         self,

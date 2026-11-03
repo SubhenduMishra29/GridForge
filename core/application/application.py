@@ -528,6 +528,91 @@ class Application:
         supervision: Mapping[str, Any] | None = None,
         network_state: TopologySnapshot | None = None,
     ) -> ProtectionExecutionResult:
+        """Serialize one protection cycle and publish its read-side change event."""
+        with self._execution_lock:
+            result = self._evaluate_protection_cycle_unlocked(
+                evaluation_time,
+                action_resolver=action_resolver,
+                evaluation_metadata=evaluation_metadata,
+                evaluation_timestep=evaluation_timestep,
+                event_id=event_id,
+                event_type=event_type,
+                supervision=supervision,
+                network_state=network_state,
+            )
+            lifecycle = self.project_lifecycle
+            project = lifecycle.context
+            self._event_bus.publish(ProtectionChanged(
+                operation="cycle_evaluated",
+                metadata={
+                    "project_id": None if project is None else str(project.project_id),
+                    "activation_generation": lifecycle.activation_generation,
+                    "evaluation_time": float(evaluation_time),
+                    "decision_count": len(result.decisions),
+                    "command_count": len(result.commands),
+                    "outcome_statuses": tuple(item.status for item in result.outcomes),
+                    "physical_acknowledgement": "unknown/unavailable",
+                },
+            ))
+            return result
+
+    def _on_measurement_sample_published(
+        self,
+        channel_id: str,
+        sample_timestamp: float,
+        trusted_evaluation_time: float,
+    ) -> ProtectionExecutionResult | None:
+        """Drive protection using trusted time, not the source sample's age-zero timestamp."""
+        lifecycle = self._project_lifecycle
+        if lifecycle is None or lifecycle.state != "ACTIVE" or not lifecycle.has_project:
+            return None
+        if (
+            isinstance(trusted_evaluation_time, bool)
+            or not isinstance(trusted_evaluation_time, (int, float))
+            or not isfinite(trusted_evaluation_time)
+        ):
+            raise ValueError("Trusted protection evaluation time must be finite.")
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        configuration = getattr(configuration_service, "configuration", None)
+        if configuration is None:
+            return None
+        if not any(
+            element.enabled and channel_id in element.input_channel_ids.values()
+            for element in configuration.elements
+        ):
+            return None
+        try:
+            return self.evaluate_protection_cycle(float(trusted_evaluation_time))
+        except Exception as exc:
+            project = lifecycle.context
+            self._event_bus.publish(ProtectionChanged(
+                operation="cycle_failed",
+                metadata={
+                    "project_id": None if project is None else str(project.project_id),
+                    "activation_generation": lifecycle.activation_generation,
+                    "channel_id": channel_id,
+                    "sample_timestamp": float(sample_timestamp),
+                    "evaluation_time": float(trusted_evaluation_time),
+                    "diagnostic": f"{type(exc).__name__}: {exc}",
+                    "physical_acknowledgement": "unknown/unavailable",
+                },
+            ))
+            return ProtectionExecutionResult(
+                diagnostics=(f"Measurement-triggered protection cycle failed: {type(exc).__name__}: {exc}",)
+            )
+
+    def _evaluate_protection_cycle_unlocked(
+        self,
+        evaluation_time: float,
+        *,
+        action_resolver: Any | None = None,
+        evaluation_metadata: Mapping[str, Any] | None = None,
+        evaluation_timestep: float | None = None,
+        event_id: str | None = None,
+        event_type: str | None = None,
+        supervision: Mapping[str, Any] | None = None,
+        network_state: TopologySnapshot | None = None,
+    ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
         Required configured inputs fail closed before any protection element
@@ -1566,6 +1651,9 @@ class Application:
                 return measurement_service.activate(context, network, definitions, generation)
 
             service.compose_project_state_activator(activate_measurement_channels)
+            measurement_service.bind_sample_published_handler(
+                self._on_measurement_sample_published
+            )
             self._measurement_lifecycle_service = service
         if self._sld_service is not None:
             service.configure_presentation_activator(

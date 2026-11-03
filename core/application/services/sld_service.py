@@ -206,6 +206,7 @@ class SLDService:
             str(connection.connection_id): connection
             for connection in original_connections
         }
+        previous_modified = bool(self.document.modified)
         core_connections = tuple(network.connectivity.connections)
         core_by_id = {str(connection.connection_id): connection for connection in core_connections}
         created_connections = {}
@@ -261,16 +262,27 @@ class SLDService:
                 else:
                     collisions.append(connection_id)
 
+            # Restore only original identities whose serialized state actually
+            # changed or disappeared. Untouched engineer-owned connections keep
+            # both their object identity and all externally held references.
             for connection_id, snapshot in previous.items():
                 original = original_by_id[connection_id]
                 current = self.document.model.get_connection_optional(connection_id)
-                if current is None:
+                if current is original:
+                    if current.to_dict() != snapshot:
+                        restore_original_fields(current, snapshot)
+                elif current is None:
                     self._restore_connection_snapshot(snapshot)
-                elif current is not original:
-                    collisions.append(connection_id)
                 else:
-                    restore_original_fields(current, snapshot)
-            self.document.mark_modified()
+                    collisions.append(connection_id)
+
+            # Reconciliation is a projection repair. Its compensation must
+            # restore the document's pre-activation dirty marker, not make an
+            # otherwise clean document dirty merely because rollback ran.
+            if previous_modified:
+                self.document.mark_modified()
+            else:
+                self.document.mark_clean()
             if collisions:
                 raise ValueError(
                     "SLD wire reconciliation rollback encountered conflicting identity owners: "
@@ -397,8 +409,19 @@ class SLDService:
 
             if changed:
                 self.document.mark_modified()
-        except Exception:
-            rollback()
+        except BaseException as primary:
+            try:
+                rollback()
+            except BaseException as recovery_error:
+                # Preserve the activation/reconciliation failure as the primary
+                # exception. A compensation failure is additional diagnostic
+                # evidence and must not replace the cause that triggered rollback.
+                add_note = getattr(primary, "add_note", None)
+                if callable(add_note):
+                    add_note(
+                        "SLD Simple Wire reconciliation compensation also failed: "
+                        f"{type(recovery_error).__name__}: {recovery_error}"
+                    )
             raise
 
         return rollback
@@ -1507,6 +1530,29 @@ class SLDService:
             target.properties.clear()
             target.properties.update(deepcopy(dict(connection_snapshot.get("properties", {}))))
 
+        def preflight_restore_identities(
+            node_snapshot: Mapping[str, Any],
+            original_node: Any,
+            connection_snapshots: tuple[Mapping[str, Any], ...],
+            original_connections: Mapping[str, Any],
+        ) -> None:
+            """Reject every reused identity before a multi-object restore mutates anything."""
+            current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
+            if current_node is not None and current_node is not original_node:
+                raise ValueError(
+                    "Cannot restore deleted/orphaned SLD node; a different object "
+                    f"owns identity {node_snapshot['node_id']!r}."
+                )
+            for item in connection_snapshots:
+                connection_id = str(item["connection_id"])
+                current = self.document.model.get_connection_optional(connection_id)
+                original = original_connections[connection_id]
+                if current is not None and current is not original:
+                    raise ValueError(
+                        "Cannot restore deleted/orphaned SLD node; a different "
+                        f"connection object owns identity {connection_id!r}."
+                    )
+
         if not self.has_engineer_presentation_overrides(node):
             annotation_snapshot = [
                 block.to_dict() for block in self.document.annotation_blocks
@@ -1523,6 +1569,9 @@ class SLDService:
                 original_connections=original_connections,
                 annotation_snapshot=annotation_snapshot,
             ) -> None:
+                preflight_restore_identities(
+                    node_snapshot, original_node, connection_snapshots, original_connections
+                )
                 current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
                 if current_node is None:
                     self.document.model.create_node(
@@ -1573,6 +1622,9 @@ class SLDService:
             connection_snapshots=connection_snapshots,
             original_connections=original_connections,
         ) -> None:
+            preflight_restore_identities(
+                node_snapshot, original_node, connection_snapshots, original_connections
+            )
             current_node = self.document.model.get_node_optional(node_snapshot["node_id"])
             if current_node is None:
                 self.document.model.create_node(
