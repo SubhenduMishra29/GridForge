@@ -71,6 +71,11 @@ class TransformerModelService(ModelServiceSupport):
         vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
         zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+        phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
+        zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None = None,
+        phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] = (),
+        phase_domain_multiport_tap_ratio: float | None = None,
+        phase_domain_multiport_phase_shift_rad: float | None = None,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -130,6 +135,11 @@ class TransformerModelService(ModelServiceSupport):
             vector_group_configuration=vector_group_configuration,
             zero_sequence_test_configuration=zero_sequence_test_configuration,
             zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
+            phase_domain_terminal_admittance_siemens=phase_domain_terminal_admittance_siemens,
+            zero_sequence_multiport_evidence=zero_sequence_multiport_evidence,
+            phase_domain_delta_loop_states=phase_domain_delta_loop_states,
+            phase_domain_multiport_tap_ratio=phase_domain_multiport_tap_ratio,
+            phase_domain_multiport_phase_shift_rad=phase_domain_multiport_phase_shift_rad,
         )
         self._network.add_transformer(transformer)
         transaction.record_undo(lambda transformer=transformer: self._network.remove_transformer(transformer))
@@ -170,6 +180,12 @@ class TransformerModelService(ModelServiceSupport):
         vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
         zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+        phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None | object = ...,
+        zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None | object = ...,
+        phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] | object = ...,
+        phase_domain_multiport_tap_ratio: float | None | object = ...,
+        phase_domain_multiport_phase_shift_rad: float | None | object = ...,
+        replace_phase_domain_multiport_configuration: bool = False,
         transaction: Transaction,
     ) -> ApplicationResult[Transformer]:
         self._require_transaction(transaction)
@@ -202,9 +218,20 @@ class TransformerModelService(ModelServiceSupport):
             core_construction, zero_sequence_test_basis,
             vector_group_configuration, zero_sequence_test_configuration,
             zero_sequence_two_winding_test_data,
+            phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence,
+            phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad,
         )
-        if all(value is None for value in values) and not replace_physical_conductor_configuration:
+        if all(value is None for value in values) and not replace_physical_conductor_configuration and not replace_phase_domain_multiport_configuration:
             raise ValueError("At least one Transformer configuration field must be specified.")
+        if not isinstance(replace_phase_domain_multiport_configuration, bool):
+            raise TypeError("replace_phase_domain_multiport_configuration must be a bool.")
+        multiport_fields = (phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence, phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad)
+        if replace_phase_domain_multiport_configuration and any(value is ... for value in multiport_fields):
+            raise ValueError("Multiport replacement requires all five fields, including explicit None or empty values.")
+        if not replace_phase_domain_multiport_configuration and any(value is ... for value in multiport_fields):
+            phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence, phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad = (
+                None if value is ... else value for value in multiport_fields
+            )
         if in_service is not None and not isinstance(in_service, bool):
             raise TypeError("in_service must be a bool.")
 
@@ -239,6 +266,11 @@ class TransformerModelService(ModelServiceSupport):
             "vector_group_configuration": transformer.vector_group_configuration,
             "zero_sequence_test_configuration": transformer.zero_sequence_test_configuration,
             "zero_sequence_two_winding_test_data": transformer.zero_sequence_two_winding_test_data,
+            "phase_domain_terminal_admittance_siemens": transformer.phase_domain_terminal_admittance_siemens,
+            "zero_sequence_multiport_evidence": transformer.zero_sequence_multiport_evidence,
+            "phase_domain_delta_loop_states": transformer.phase_domain_delta_loop_states,
+            "phase_domain_multiport_tap_ratio": transformer.phase_domain_multiport_tap_ratio,
+            "phase_domain_multiport_phase_shift_rad": transformer.phase_domain_multiport_phase_shift_rad,
         }
         service_state_changed = (
             in_service is not None and in_service != old_state["in_service"]
@@ -304,6 +336,12 @@ class TransformerModelService(ModelServiceSupport):
             vector_group_configuration=vector_group_configuration,
             zero_sequence_test_configuration=zero_sequence_test_configuration,
             zero_sequence_two_winding_test_data=zero_sequence_two_winding_test_data,
+            phase_domain_terminal_admittance_siemens=phase_domain_terminal_admittance_siemens,
+            zero_sequence_multiport_evidence=zero_sequence_multiport_evidence,
+            phase_domain_delta_loop_states=phase_domain_delta_loop_states,
+            phase_domain_multiport_tap_ratio=phase_domain_multiport_tap_ratio,
+            phase_domain_multiport_phase_shift_rad=phase_domain_multiport_phase_shift_rad,
+            _replace_phase_domain_multiport_configuration=replace_phase_domain_multiport_configuration,
         )
 
         if service_state_changed or physical_topology_changed:
@@ -313,6 +351,7 @@ class TransformerModelService(ModelServiceSupport):
             transformer.update_configuration(
                 **old_state,
                 _replace_physical_conductor_configuration=True,
+                _replace_phase_domain_multiport_configuration=True,
                 _replace_winding_configuration=True,
             )
             if service_state_changed or physical_topology_changed:
