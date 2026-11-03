@@ -153,7 +153,7 @@ class GridModelService(ModelServiceSupport):
             if impedance_base_voltage_kv is not None:
                 grid.impedance_base_voltage_kv = impedance_base_voltage_kv
             if neutral_grounding_impedance_ohm is not None:
-                grid.neutral_grounding_impedance_ohm = neutral_grounding_impedance_ohm
+                grid.set_neutral_grounding_impedance(neutral_grounding_impedance_ohm)
             if in_service is not None:
                 grid.set_in_service(in_service)
 
