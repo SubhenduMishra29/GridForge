@@ -623,10 +623,12 @@ class Application:
             "potentialtransformer": "potential_transformer",
         }.get(source_type, source_type)
         if source_type not in {
+            "ct",
+            "cvt",
+            "pt",
             "current_transformer",
             "capacitive_voltage_transformer",
             "potential_transformer",
-            "pt",
         }:
             return None
 
