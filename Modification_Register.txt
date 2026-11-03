@@ -20634,3 +20634,66 @@ FETCH -> AUDIT -> RECONCILE -> CORRECT -> CHECK -> FREEZE
 
 Documentation-only update. No tests/CI, syntax/import checks, runtime
 simulation or numerical validation were performed.
+
+
+======================================================================
+PROTECTION REVISION CONTRACT — IMPLEMENTATION PHASE 1
+======================================================================
+
+Branch:
+    feat/protection-independent-revisions
+
+Issue:
+    #1070 — Separate instrumentation and Protection-equipment revisions
+    from physical topology.
+
+Files changed:
+    core/application/revision.py
+    core/application/revision_service.py
+    core/application/application.py
+
+Implemented:
+    ProjectRevision now exposes independent counters:
+        instrumentation_revision
+        protection_equipment_revision
+        protection_configuration_revision
+
+    RevisionService advances instrumentation_revision for CT/PT/CVT
+    create/update/delete command families, protection_equipment_revision
+    for Relay model command families, and
+    protection_configuration_revision for Protection configuration
+    commands. These counters do not advance topology_revision.
+
+    Persisted snapshots preserve all revision dimensions.
+
+    User undo/redo advances the affected instrumentation/Protection
+    freshness generation monotonically. Transaction rollback continues
+    to restore the exact captured RevisionService snapshot, because an
+    uncommitted mutation must not become a committed revision transition.
+
+    Application Protection evaluation-to-dispatch provenance captures
+    the three independent revision dimensions and rejects dispatch if
+    any changes during the evaluation interval.
+
+Not yet implemented / follow-up required:
+    Direct mutation paths that bypass canonical Application commands
+    must be inventoried and either prohibited or covered by a canonical
+    lifecycle fingerprint/revision publisher.
+
+    Verify all concrete CT/PT/CVT command identifiers and Relay command
+    identifiers against command registration and service call sites.
+
+    Add per-Protection-element dependency-scoped instrumentation and
+    Relay fingerprints; the current revision guard is project-wide and
+    intentionally conservative.
+
+    Review study provenance, save/load compatibility, and revision
+    snapshot serialization consumers before merge.
+
+Verification boundary:
+    Source edits only. No tests or CI were run. No runtime behavior,
+    syntax, import integrity, or complete command coverage is claimed.
+    This PR is a partial implementation of #1070 and must not close the
+    issue until the follow-up items above are resolved.
+
+======================================================================
