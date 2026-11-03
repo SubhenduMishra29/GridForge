@@ -249,6 +249,10 @@ class CreateTransformerCommand(Command):
                  lv_winding_connection: TransformerWindingConnection | str | None = None,
                  hv_neutral_grounding_impedance_ohm: complex | None = None,
                  lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 hv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 lv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 hv_phase_roles: tuple[str, ...] | None = None,
+                 lv_phase_roles: tuple[str, ...] | None = None,
                  hv_terminal_role: str | None = None,
                  lv_terminal_role: str | None = None,
                  impedance_reference_winding: str | None = None,
@@ -283,6 +287,10 @@ class CreateTransformerCommand(Command):
             "lv_winding_connection": lv_winding_connection,
             "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
             "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
+            "hv_neutral_earth_return_impedance_ohm": hv_neutral_earth_return_impedance_ohm,
+            "lv_neutral_earth_return_impedance_ohm": lv_neutral_earth_return_impedance_ohm,
+            "hv_phase_roles": hv_phase_roles,
+            "lv_phase_roles": lv_phase_roles,
             "hv_terminal_role": hv_terminal_role,
             "lv_terminal_role": lv_terminal_role,
             "impedance_reference_winding": impedance_reference_winding,
@@ -309,6 +317,11 @@ class UpdateTransformerCommand(Command):
                  lv_winding_connection: TransformerWindingConnection | str | None = None,
                  hv_neutral_grounding_impedance_ohm: complex | None = None,
                  lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 hv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 lv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 hv_phase_roles: tuple[str, ...] | None = None,
+                 lv_phase_roles: tuple[str, ...] | None = None,
+                 replace_physical_conductor_configuration: bool = False,
                  hv_terminal_role: str | None = None,
                  lv_terminal_role: str | None = None,
                  impedance_reference_winding: str | None = None,
@@ -320,7 +333,14 @@ class UpdateTransformerCommand(Command):
                  zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
                  command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
+        if not isinstance(replace_physical_conductor_configuration, bool):
+            raise TypeError("replace_physical_conductor_configuration must be a bool.")
+        physical_fields = (hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_phase_roles, lv_phase_roles)
+        if replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
+            raise ValueError("Physical conductor replacement requires the complete HV/LV earth-return and phase-role group.")
+        if not replace_physical_conductor_configuration and any(value is not None for value in physical_fields):
+            pass
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_phase_roles, lv_phase_roles, replace_physical_conductor_configuration, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
         if all(value is None for value in values):
             raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
         normalized_basis = None
@@ -336,6 +356,11 @@ class UpdateTransformerCommand(Command):
             "hv_winding_connection": hv_winding_connection, "lv_winding_connection": lv_winding_connection,
             "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
             "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
+            "hv_neutral_earth_return_impedance_ohm": hv_neutral_earth_return_impedance_ohm,
+            "lv_neutral_earth_return_impedance_ohm": lv_neutral_earth_return_impedance_ohm,
+            "hv_phase_roles": hv_phase_roles,
+            "lv_phase_roles": lv_phase_roles,
+            "replace_physical_conductor_configuration": replace_physical_conductor_configuration,
             "hv_terminal_role": hv_terminal_role,
             "lv_terminal_role": lv_terminal_role,
             "impedance_reference_winding": impedance_reference_winding,
