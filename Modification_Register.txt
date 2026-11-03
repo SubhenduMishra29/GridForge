@@ -20777,3 +20777,16 @@ The same topology/revision separation defect was present in RelayModelService. C
 This ports the topology separation part of PR #1071 into the broader independent-revisions branch. PR #1071 remains open and should now be reconciled against PR #1072 rather than merged independently without review. The separate live-execution freshness guard from PR #1071 must be checked against the broader revision-based provenance guard already on this branch before deciding whether PR #1071 can be closed as superseded.
 
 No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — PR #1071 RECONCILIATION (2026-11-03)
+
+Reconciled the remaining PR #1071 behavior into `feat/protection-independent-revisions`:
+
+- Ported Relay service-state topology separation into RelayModelService: Relay in-service/out-of-service transitions no longer call `Network.invalidate_topology()`, including rollback inverses.
+- Ported the direct Relay-state fingerprint guard into Application live Protection execution. It captures Relay identity/type/plugin/settings/service/enabled/blocked/pickup/trip state before evaluation and rechecks the same Network before dispatch. This protects the evaluation-to-dispatch interval against direct service mutations that bypass canonical command revision publication.
+- Kept the independent instrumentation, Protection-equipment, and Protection-configuration revision checks already present in this branch. The fingerprint is complementary, not a replacement: revision counters protect canonical command mutations; the fingerprint protects direct Relay object changes during the critical interval.
+
+PR #1071's two substantive source changes (Relay topology separation and live Relay-state fingerprint) are now represented in PR #1072's branch, with the latter combined with the independent revision guard. PR #1071 should not be merged separately; after a fresh exact diff review, close it as superseded by PR #1072 or retain only if a non-overlapping change is discovered. PR #1072 remains draft pending broader audit/implementation closure.
+
+No tests, CI, syntax checks, imports, or runtime checks were run.
