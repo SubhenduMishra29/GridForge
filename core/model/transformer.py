@@ -444,6 +444,22 @@ class Transformer(Branch):
         )
 
     @property
+    def hv_neutral_earth_return_impedance_ohm(self) -> complex | None:
+        return self._hv_neutral_earth_return_impedance_ohm
+
+    @property
+    def lv_neutral_earth_return_impedance_ohm(self) -> complex | None:
+        return self._lv_neutral_earth_return_impedance_ohm
+
+    @property
+    def hv_phase_roles(self) -> tuple[str, ...] | None:
+        return self._hv_phase_roles
+
+    @property
+    def lv_phase_roles(self) -> tuple[str, ...] | None:
+        return self._lv_phase_roles
+
+    @property
     def hv_neutral_grounding_impedance_ohm(self) -> complex | None:
         return self._hv_neutral_grounding_impedance_ohm
 
