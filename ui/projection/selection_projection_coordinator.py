@@ -200,6 +200,12 @@ class SelectionProjectionCoordinator:
             self.clear_projection()
             return
 
+        try:
+            catalogue_definition = creation_definition_for(element.element_type)
+            metadata_by_id = {item.parameter_id: item for item in catalogue_definition.parameter_definitions}
+        except (KeyError, TypeError, ValueError):
+            metadata_by_id = {}
+
         state = ProjectionState(
             object_id=element.object_id,
             display_type=element.element_type,
@@ -220,6 +226,11 @@ class SelectionProjectionCoordinator:
                     coupling_group=item.coupling_group,
                     topology_impact=item.topology_impact,
                     study_impact=item.study_impact,
+                    display_name=metadata_by_id[item.parameter_id].display_name if item.parameter_id in metadata_by_id else item.parameter_id,
+                    required_before_create=metadata_by_id[item.parameter_id].required_before_create if item.parameter_id in metadata_by_id else False,
+                    default_value=metadata_by_id[item.parameter_id].default_value if item.parameter_id in metadata_by_id else None,
+                    minimum=metadata_by_id[item.parameter_id].minimum if item.parameter_id in metadata_by_id else None,
+                    maximum=metadata_by_id[item.parameter_id].maximum if item.parameter_id in metadata_by_id else None,
                 )
                 for item in getattr(element, "engineering_parameters", ())
             ),
@@ -285,6 +296,11 @@ class SelectionProjectionCoordinator:
                 editable=parameter.editable,
                 derived=parameter.derived,
                 validation=parameter.validation,
+                display_name=parameter.display_name,
+                required_before_create=parameter.required_before_create,
+                default_value=parameter.default_value,
+                minimum=parameter.minimum,
+                maximum=parameter.maximum,
             )
             for parameter in definition.parameter_definitions
         )
