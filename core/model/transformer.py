@@ -698,6 +698,11 @@ class Transformer(Branch):
         vector_group_configuration: Any | None = None,
         zero_sequence_test_configuration: Any | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+        hv_neutral_earth_return_impedance_ohm: complex | None = None,
+        lv_neutral_earth_return_impedance_ohm: complex | None = None,
+        hv_phase_roles: tuple[str, ...] | None = None,
+        lv_phase_roles: tuple[str, ...] | None = None,
+        _replace_physical_conductor_configuration: bool = False,
         _replace_winding_configuration: bool = False,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
