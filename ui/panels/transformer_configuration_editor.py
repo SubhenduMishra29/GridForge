@@ -19,7 +19,7 @@ from typing import Any
 
 from ui.core.qt import (
     QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QVBoxLayout, QWidget,
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from ui.projection.projection_state import ProjectionState
 from .engineering_parameter_editor import (
@@ -131,6 +131,12 @@ class TransformerConfigurationEditor(QWidget):
 
         multiport_group = QGroupBox("Externally supplied terminal-admittance multiport", self)
         multiport_form = QFormLayout(multiport_group)
+        self._matrix_table = QTableWidget(multiport_group)
+        self._matrix_table.setObjectName("TransformerTerminalAdmittanceMatrix")
+        self._matrix_grid_button = QPushButton("Build / load ordered terminal matrix grid", multiport_group)
+        self._matrix_grid_button.clicked.connect(self._build_matrix_grid)
+        multiport_form.addRow("Ordered terminal matrix", self._matrix_grid_button)
+        multiport_form.addRow("Admittance matrix (S)", self._matrix_table)
         for field, label, hint in (
             ("phase_domain_terminal_admittance_siemens", "Terminal admittance matrix (S)", "JSON square matrix; each complex cell is [real, imag]"),
             ("zero_sequence_multiport_evidence", "Manufacturer / test evidence", 'JSON object: {"core_zero_sequence_test_reference":"...","delta_circulating_test_references":{"HV":"..."} }'),
@@ -228,10 +234,89 @@ class TransformerConfigurationEditor(QWidget):
             else:
                 rendered = "" if value is None else str(_json_value(value))
             self._controls[field].setText(rendered)
+        self._load_matrix_table(summary.get("phase_domain_terminal_admittance_siemens"))
         self._status.setText(
             f"Transformer {self._target.object_id}: staged values are read-only until an Apply action. "
             "Discard restores the latest projected configuration."
         )
+
+    def _terminal_labels(self) -> tuple[str, ...]:
+        labels: list[str] = []
+        for winding, field, neutral_field in (
+            ("HV", "hv_phase_roles", "hv_neutral_terminal_role"),
+            ("LV", "lv_phase_roles", "lv_neutral_terminal_role"),
+        ):
+            roles = _parse_json(self._controls[field], field, blank=[])
+            if not isinstance(roles, list) or any(not isinstance(role, str) or not role.strip() for role in roles):
+                raise ValueError(f"{field} must be a JSON array of ordered phase roles.")
+            labels.extend(f"{winding}:{role.strip()}" for role in roles)
+            if self._controls[neutral_field].text().strip():
+                labels.append(f"{winding}:N")
+        if len(labels) < 2 or len(set(labels)) != len(labels):
+            raise ValueError("The winding inventory must produce a unique ordered terminal list.")
+        return tuple(labels)
+
+    def _load_matrix_table(self, matrix: Any) -> None:
+        if matrix is None:
+            self._matrix_table.setRowCount(0)
+            self._matrix_table.setColumnCount(0)
+            return
+        self._build_matrix_grid(matrix)
+
+    def _build_matrix_grid(self, matrix: Any = None) -> None:
+        labels = self._terminal_labels()
+        if matrix is None:
+            matrix = _parse_json(
+                self._controls["phase_domain_terminal_admittance_siemens"],
+                "phase_domain_terminal_admittance_siemens",
+            )
+        if matrix is not None and (
+            not isinstance(matrix, (tuple, list))
+            or len(matrix) != len(labels)
+            or any(not isinstance(row, (tuple, list)) or len(row) != len(labels) for row in matrix)
+        ):
+            raise ValueError("Matrix dimensions must match the current ordered HV/LV terminal inventory.")
+        self._matrix_table.setRowCount(len(labels))
+        self._matrix_table.setColumnCount(len(labels))
+        self._matrix_table.setHorizontalHeaderLabels(list(labels))
+        self._matrix_table.setVerticalHeaderLabels(list(labels))
+        for row in range(len(labels)):
+            for column in range(len(labels)):
+                value = "" if matrix is None else matrix[row][column]
+                if isinstance(value, Mapping):
+                    rendered = f"{value.get('real', 0.0)},{value.get('imag', 0.0)}"
+                elif isinstance(value, (tuple, list)) and len(value) == 2:
+                    rendered = f"{value[0]},{value[1]}"
+                elif isinstance(value, complex):
+                    rendered = f"{value.real},{value.imag}"
+                else:
+                    rendered = "" if value is None else str(value)
+                self._matrix_table.setItem(row, column, QTableWidgetItem(rendered))
+        self._status.setText("Matrix grid terminal order: " + ", ".join(labels))
+
+    def _matrix_from_grid(self) -> list[list[list[float]]]:
+        labels = self._terminal_labels()
+        if self._matrix_table.rowCount() != len(labels) or self._matrix_table.columnCount() != len(labels):
+            raise ValueError("Build the matrix grid after confirming the ordered winding terminal inventory.")
+        matrix: list[list[list[float]]] = []
+        for row in range(len(labels)):
+            cells: list[list[float]] = []
+            for column in range(len(labels)):
+                item = self._matrix_table.item(row, column)
+                raw = "" if item is None else item.text().strip()
+                if not raw:
+                    raise ValueError(f"Matrix cell {labels[row]} × {labels[column]} is empty.")
+                parts = [part.strip() for part in raw.split(",")]
+                if len(parts) == 1:
+                    real, imag = float(parts[0]), 0.0
+                elif len(parts) == 2:
+                    real, imag = float(parts[0]), float(parts[1])
+                else:
+                    raise ValueError(f"Matrix cell {labels[row]} × {labels[column]} must be real or real,imag.")
+                cells.append([real, imag])
+            matrix.append(cells)
+        self._controls["phase_domain_terminal_admittance_siemens"].setText(_json_text(matrix))
+        return matrix
 
     def _base_inventory(self) -> dict[str, Any]:
         def text(field: str) -> str:
@@ -292,7 +377,7 @@ class TransformerConfigurationEditor(QWidget):
     def _submit_multiport(self) -> None:
         try:
             values = self._winding_values()
-            matrix = _parse_json(self._controls["phase_domain_terminal_admittance_siemens"], "phase_domain_terminal_admittance_siemens")
+            matrix = self._matrix_from_grid() if self._matrix_table.rowCount() else _parse_json(self._controls["phase_domain_terminal_admittance_siemens"], "phase_domain_terminal_admittance_siemens")
             evidence = _parse_json(self._controls["zero_sequence_multiport_evidence"], "zero_sequence_multiport_evidence")
             loops = _parse_json(self._controls["phase_domain_delta_loop_states"], "phase_domain_delta_loop_states", blank=[])
             if matrix is not None and (not isinstance(matrix, list) or not matrix or any(not isinstance(row, list) for row in matrix)):
