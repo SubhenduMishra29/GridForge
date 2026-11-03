@@ -347,3 +347,95 @@ This is a targeted source audit, not an exhaustive dependency graph or runtime i
 Next: finish repository dependency audit → complete standards applicability matrix → map current capabilities/gaps → refine and prioritise V3 requirements → submit V3 architecture baseline for review.
 
 No tests, CI, runtime checks or implementation changes were performed as part of opening this register.
+
+
+## 8D. Plugin platform and extension architecture audit
+
+**Audit scope:** engineering Plugin SDK/host, UI plugin loader/manager/registry/contracts, Motor Dynamics manifest and lifecycle, application composition, equipment/symbol/tool/panel/projection registries, persistence type registry, Network membership registry, and shared numerical backend capability policy.
+
+**Evidence inspected (V2 `main`):**
+- `core/plugin_sdk/README.md`, `contracts.py`, `host.py`, `__init__.py`
+- `plugins/motor_dynamics/manifest.json`, `plugin.py`, `transient_solver.py`, `npu_inference.py`, `README.md`
+- `ui/plugins/plugin_contract.py`, `plugin_loader.py`, `plugin_manager.py`, `plugin_registry.py`, `plugin_context.py`
+- `main.py` engineering-host and UI-plugin composition
+- `ui/equipment/equipment_registry.py`, `ui/equipment/symbol/symbol_registry.py`, `ui/tools/tool_registry.py`, `ui/panels/panel_registry.py`, `ui/projection/projection_registry.py`
+- `core/persistence/type_registry.py`, `core/network/registry.py`, `core/numerics/backend.py`
+- Recursive repository tree to enumerate plugin manifests and plugin-related modules.
+
+### A. Current plugin lifecycle topology
+
+Two intentionally separate lifecycle systems are present:
+
+1. **Engineering plugin lifecycle:** `core.plugin_sdk` defines `PluginDescriptor`, `GridForgePlugin`, `EngineeringPluginContext` and `EngineeringPluginHost`. The host validates descriptor identity and supported SDK API version, rejects duplicate IDs, invokes initialization, attempts rollback on initialization failure, retains failed rollback cleanup handles, supports explicit deactivation, and shuts down in reverse ownership order. The host receives already-constructed instances and explicit Application-owned services.
+2. **UI composition lifecycle:** `ui.plugins` separates implementation loading/construction (`PluginLoader`), runtime registration/state/lifecycle (`PluginRegistry`) and dependency ordering/transactional composition (`PluginManager`). The loader imports explicitly defined modules/classes/factories. The manager resolves dependency closures, rejects dependency cycles, orders initialization and compensates registrations/initializations on failure.
+
+The composition root in `main.py` creates the EngineeringPluginHost and explicitly activates MotorDynamicsPlugin with the existing Application-owned `motor_dynamics_composition` service. Separately it constructs the UI PluginManager, defines defaults, loads UI plugins and composes Canvas/Panels/Shell. This is evidence of deliberate lifecycle separation, not by itself an architectural defect.
+
+### B. Discovery, manifests and compatibility
+
+The recursive V2 repository tree contains one plugin manifest: `plugins/motor_dynamics/manifest.json`. It declares plugin ID, name, version, API version, entry point, string capabilities, runtime dependencies and CPU/GPU/NPU/inference policy.
+
+The engineering host does not discover or parse this manifest. Its caller constructs `MotorDynamicsPlugin` and passes the instance to `activate()`. The plugin class separately defines a Python `PluginDescriptor` and validates it against the host-supported API versions. Thus the JSON manifest and runtime descriptor are parallel metadata representations; the inspected source does not establish an automated consistency check between them.
+
+The UI PluginLoader uses an explicit in-code `DEFAULT_PLUGIN_IMPLEMENTATIONS` mapping for Canvas, Menu, Panels, Toolbar, Status and Shell. UI PluginManager defines default dependencies in code. The UI contract explicitly assigns discovery/construction to the loader and dependency ordering to the manager; the loader does not scan for plugins or parse a plugin manifest.
+
+**Interpretation:** V2 has explicit and auditable activation, but not a unified discovery/catalogue/install pipeline. The absence of generic discovery is documented as an intentional limit of the engineering SDK, so it should be recorded as a V3 capability requirement rather than reported as an accidental V2 defect.
+
+### C. Typed capabilities and dependency model
+
+Engineering `PluginDescriptor.capabilities` is a `frozenset[str]`; the manifest also uses string capability labels. The descriptor validates non-empty strings and API-version compatibility, but the inspected contract does not provide typed capability payloads, contribution-point schemas, dependency declarations, version ranges, optional dependency semantics, conflict resolution or capability negotiation.
+
+By contrast, UI `PluginDefinition` carries dependency IDs and the UI manager computes a topological initialization order, detects cycles and requires dependencies to be enabled and initialized. These UI dependencies are in-code definitions rather than a shared engineering/UI manifest model.
+
+**V3 direction:** define a versioned manifest schema and typed contribution contracts. Model plugin identity/version separately from SDK contract version; support required/optional dependencies, compatible version ranges, conflicts, declared capabilities, contribution points, required Application services and lifecycle policy. Resolve the complete dependency graph before executing plugin code. Keep UI and engineering activation adapters distinct where their lifecycle/resource needs differ, but use one validated metadata and compatibility model.
+
+### D. Extension contribution and registry topology
+
+The inspected repository has independent registries and type maps for:
+- UI equipment definitions (`EquipmentRegistry`) and renderer-neutral SLD symbol definitions (`SymbolRegistry`);
+- UI tools, panels and projections;
+- persisted Core model type names (`ModelTypeRegistry`);
+- Network membership and typed equipment collections (`NetworkRegistry`);
+- numerical backend capabilities and selection policy (`core.numerics.backend`).
+
+The UI equipment registry owns presentation/catalogue definitions only and explicitly does not create Core equipment or validate electrical topology. It is populated from a built-in equipment-definition list and reconciles equipment, creation, symbol and optional Core terminal-role contracts. The symbol registry separately owns renderer-neutral symbol definitions.
+
+The persistence type registry seeds a fixed mapping of persisted names to concrete Core classes and a separate fixed mapping from Core model classes to Network adder method names. NetworkRegistry exposes concrete equipment-specific typed collections and add/remove operations. These contracts are consistent with Core retaining electrical/domain authority, but they make a future third-party equipment extension more than a UI registration task.
+
+**Confirmed architectural concern:** there is no single inspected contribution contract connecting a plugin-provided equipment type across domain model construction/identity, terminal semantics, topology capability, persistence serialization/reconstruction, study participation, measurement/protection/control integration and UI symbol/tool/property-editor presentation. The current independent registries are legitimate bounded authorities, but V3 needs an Application-owned composition mechanism to coordinate their registrations and validate completeness without allowing plugins to mutate Core directly.
+
+**V3 direction:** define capability-specific typed contribution points and an Application-owned registration transaction. A contributed equipment type must declare its Core-facing domain contract and explicit support/limitations for topology, persistence, studies and relevant cross-domain services; UI contributions (symbol, palette/tool, property editor, renderer, panel) remain presentation adapters. Registration should validate cross-registry consistency, own reversible registration tokens and reject partial activation. Core should consume stable contracts or registered descriptors assembled by Application, never import plugin implementations.
+
+### E. Analysis, solver and compute extension
+
+The shared `core.numerics.backend` module defines immutable `BackendCapability` facts (backend kind, availability, supported workloads, minimum workload size and precision modes), deterministic selection, rejection reasons and a generic numerical-problem adapter protocol/dispatch path. It deliberately does not probe devices or import accelerator runtimes; adapters provide capability facts. This is a positive reusable foundation for CPU/GPU/NPU workload policy.
+
+Motor Dynamics currently uses the shared `BackendCapability` and `select_backend` policy for its CPU reference and optional Numba-CUDA batch execution. The CUDA adapter only advertises the supported independent-motor workload; unsupported input shape/workload conditions are rejected or routed to CPU. Its separate ONNX inference adapter has a provider list including QNN/Vitis AI/OpenVINO and other execution providers, requires CPU fallback, validates supported tensor shapes/types and records fallback diagnostics. The manifest and README explicitly distinguish NPU-capable inference providers from the recurrent motor-physics solver.
+
+The Motor Dynamics README labels the extension experimental. It documents a bounded balanced squirrel-cage induction motor dq model with fixed-step RK4 and one lumped thermal node, while magnetic saturation, unbalance, switching converters, separate stator/rotor thermal nodes and trusted reference-case validation remain outside current scope. End-to-end study execution, numerical reference validation and accelerator hardware validation remain outstanding. Provider presence/session creation is not treated as proof of graph placement or numerical equivalence.
+
+**V3 direction:** standardize solver/study plugin contracts around immutable numerical problem snapshots, workload and precision declarations, cancellation/progress, deterministic CPU reference behavior, backend capability adapters, result provenance and reproducibility metadata. Separate physics execution from optional AI inference capabilities. GPU/NPU claims must be workload-specific and validated; inference output must not become a Protection decision authority. Preserve Application ownership of study lifecycle, cancellation, events and authoritative result publication.
+
+### F. Lifecycle, trust and isolation
+
+The inspected hosts provide explicit initialization/shutdown and compensation, but the engineering host accepts in-process Python plugin objects and service references. The inspected code does not establish process isolation, sandboxing, signed package verification, permission/capability enforcement or a hostile-plugin security boundary. The manifest describes runtime requirements but is not shown being validated/consumed by the host.
+
+**Interpretation:** lifecycle rollback is not security isolation. In-process plugins execute with the Python process privileges and any capabilities reachable through their injected objects.
+
+**V3 direction:** define a trust model for first-party, approved third-party and untrusted extensions. Add package provenance/signature policy, manifest/schema validation, explicit permission grants, service-scoped capability injection, resource quotas and audit events. Decide which workloads require process isolation or a worker boundary. Do not describe ordinary in-process plugin lifecycle as a sandbox.
+
+### Refined findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F19 | P1 | Engineering host takes explicit instances; only Motor Dynamics manifest found in recursive tree and no manifest discovery/validation path inspected; UI implementations/default dependencies are also explicit in code | Design a shared validated manifest/catalogue/discovery model while retaining separate engineering/UI lifecycle adapters |
+| V3-ARCH-F20 | P1 | Equipment, symbol, tool, panel, projection, persistence and Network registration are separate; Core persistence/Network maps remain concrete-type based | Define Application-owned transactional contribution orchestration and cross-registry completeness validation; keep Core independent of plugin implementations |
+| V3-ARCH-F21 | P1 | Engineering capability labels are strings and descriptor lacks dependency/version-range/contribution schemas; UI manager has a separate in-code dependency graph | Define typed capability and contribution contracts, dependency/version resolution, conflict policy and API compatibility rules |
+| V3-ARCH-F22 | P1 | Engineering host lifecycle is in-process; inspected contract/manifest does not establish package trust, permissions or isolation | Specify plugin trust levels, provenance, scoped permissions, auditability and isolation requirements |
+| V3-ARCH-F23 | P1 | Shared numerical backend capability policy exists and Motor Dynamics uses it for CPU/CUDA selection, while ONNX inference is a separate provider path; validation remains incomplete | Standardize study/solver extension contracts and evidence-based CPU/GPU/NPU execution diagnostics; keep inference distinct from physics and Protection authority |
+| V3-ARCH-F24 | P2 | Motor Dynamics manifest and Python descriptor both carry plugin identity/version/capability metadata, with no consistency validator observed in inspected activation path | Make one manifest schema authoritative and derive/validate runtime descriptor metadata from it |
+
+### Verification limits
+
+This was a targeted source audit plus a complete recursive tree enumeration, not an exhaustive review of every registry consumer, plugin module, or package distribution path. The tree search found one manifest file; this does not prove that no runtime-generated or external plugin catalog exists outside the inspected repository. The audit did not inspect every contribution registration call or every built-in equipment type's end-to-end persistence/study behavior. No tests, CI, syntax/import execution, runtime plugin activation, numerical reference-case validation or accelerator hardware checks were run. No V2 source was changed.
+
