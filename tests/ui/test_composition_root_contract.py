@@ -145,3 +145,81 @@ def test_real_properties_panel_is_injected_before_selection_projection_is_used(q
     assert coordinator.application is application
     assert coordinator.properties_panel is properties_panel
     assert coordinator.properties_panel is not None
+
+
+# Protection commissioning projection is a read-side contract: an unconfigured
+# physical Relay must not be rendered as an executable protection function.
+from types import SimpleNamespace
+from ui.protection.protection_workspace import ProtectionGraphicsSurface
+
+
+class _ProtectionSceneProbe:
+    def clear(self):
+        self.nodes = []
+
+    def items(self):
+        return getattr(self, "nodes", [])
+
+
+class _ProtectionSurfaceProbe:
+    def __init__(self, configurations):
+        self._scene = _ProtectionSceneProbe()
+        self._nodes = {}
+        self._preview_line = None
+        self._application = SimpleNamespace(
+            read_protection=lambda: SimpleNamespace(
+                relays=(SimpleNamespace(
+                    object_id="R1", name="Relay 1", function_type="50/51"
+                ),)
+            ),
+            read_protection_configuration=lambda: tuple(configurations),
+        )
+        self.created = []
+        self.links = []
+
+    def _draw_message(self, message):
+        self.message = message
+
+    def _add_node(self, object_id, title, x, y, width=150.0, **metadata):
+        node = SimpleNamespace(object_id=object_id, title=title, kind=metadata.get("kind"))
+        self.created.append(node)
+        self._nodes[object_id] = node
+        return node
+
+    def _link(self, source, target, *, connection_id):
+        self.links.append(connection_id)
+
+    @staticmethod
+    def _decision_text(_relay):
+        return "NO OPERATION"
+
+
+def test_uncommissioned_relay_does_not_project_function_decision_or_trip():
+    surface = _ProtectionSurfaceProbe(configurations=())
+
+    ProtectionGraphicsSurface.refresh(surface)
+
+    kinds = {node.kind for node in surface.created}
+    assert "configuration_status" in kinds
+    assert "function" not in kinds
+    assert "decision" not in kinds
+    assert "trip_output" not in kinds
+    status = next(node for node in surface.created if node.kind == "configuration_status")
+    assert "PROTECTION NOT COMMISSIONED" in status.title
+    assert "NO FUNCTION CONFIGURATION" in status.title
+    assert "R1->configuration" in surface.links
+
+
+def test_commissioned_relay_projects_the_configured_function_code():
+    configuration = SimpleNamespace(
+        relay_id="R1", function_code="51", input_channel_ids={}
+    )
+    surface = _ProtectionSurfaceProbe(configurations=(configuration,))
+
+    ProtectionGraphicsSurface.refresh(surface)
+
+    function = next(node for node in surface.created if node.kind == "function")
+    assert "51" in function.title
+    assert not any(node.kind == "configuration_status" for node in surface.created)
+    assert any(node.kind == "decision" for node in surface.created)
+    assert any(node.kind == "trip_output" for node in surface.created)
