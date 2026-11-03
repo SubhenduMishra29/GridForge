@@ -439,3 +439,80 @@ The inspected hosts provide explicit initialization/shutdown and compensation, b
 
 This was a targeted source audit plus a complete recursive tree enumeration, not an exhaustive review of every registry consumer, plugin module, or package distribution path. The tree search found one manifest file; this does not prove that no runtime-generated or external plugin catalog exists outside the inspected repository. The audit did not inspect every contribution registration call or every built-in equipment type's end-to-end persistence/study behavior. No tests, CI, syntax/import execution, runtime plugin activation, numerical reference-case validation or accelerator hardware checks were run. No V2 source was changed.
 
+
+
+## 8E. Project persistence, schema evolution and engineering-data interchange audit (2026-11-03)
+
+**Audit scope:** canonical `.gridforge` package contract, project loader/saver, Core model DTO and Network serialization, schema migration pipeline, Study Case persistence, Study Result archive, Application project lifecycle transaction and UI project-workspace adapter. Recursive repository tree was also inspected for dedicated CIM/SCL/interchange modules.
+
+**Evidence inspected (V2 `main`):**
+- `core/persistence/project_package.py`, `project_persistence.py`, `migration.py`, `model_dto.py`, `network_serializer.py`, `type_registry.py`, `study_result_archive.py`
+- `core/application/project.py`, `project_lifecycle.py`, `project_transition.py`, `project_presentation.py`
+- `ui/workspace/project_workspace.py`, `project_workspace_adapter.py`
+- Recursive repository tree for persistence, project, import/export, CIM and SCL-related paths.
+
+### A. Canonical package and persistence ownership
+
+The current package is a directory-style `.gridforge` package with `manifest.json` and `project.json`. The manifest currently stores `format = GridForgeProject` and `package_version = 1`. The project payload separately stores `schema = 4`; additional version constants exist for presentation (1), SLD (3), Core serialization (1), transformer configuration (1) and connectivity (4).
+
+The canonical project payload currently includes:
+- Project identity/name.
+- Core Network equipment state and connectivity.
+- A collection of presentation documents and active document identity.
+- Dynamic machine model associations.
+- Measurement channel definitions.
+- Study Case definitions.
+- Optional Protection configuration/presentation.
+- Optional Control configuration and Control signal mappings.
+- Optional draft network state.
+
+The package writer builds a complete temporary candidate directory, writes JSON files with file flush/fsync, replaces the existing package through a sibling backup and attempts recovery after interrupted replacement. The source documentation correctly qualifies directory-entry durability as platform-specific.
+
+**Positive finding:** persistence is not a serialized Qt scene. SLD documents are serialized as canonical presentation data separately from Core Network equipment/connectivity. Project lifecycle is Application-owned; candidate activation uses rollback callbacks and a project activation generation. Normal project opening distinguishes read-only activation audit from an explicitly selected persistent reconciliation transaction.
+
+### B. Schema evolution and migration
+
+The migration pipeline is detached from Application mutation and Qt/UI state. It applies deterministic project-schema steps 1→2→3→4, then presentation-collection/SLD migration and connectivity normalization. It rejects unsupported future schema versions and has an explicit gap failure when a migration step is missing. SLD schema migration has its own version sequence (1→2→3). Connectivity has a separate schema sequence up to version 4.
+
+Legacy electrical migration deliberately rejects ambiguous cable impedance units and transformer impedance basis instead of guessing. Canonical SLD validation rejects unknown fields and validates identity, document type, node/connection structures, symbol presentation and annotation-block references.
+
+**Interpretation:** V2 already has valuable fail-closed migration practices. The version model is nevertheless distributed across package, project, Core serialization, connectivity, SLD, presentation, transformer configuration and Study Case records. Some nested payloads (for example measurement channel definitions in the project envelope) do not expose an independently versioned contract in the inspected save shape. V3 should publish a version ownership matrix and define which nested domains require independent schema evolution.
+
+### C. Core model serialization and reconstruction
+
+Network serialization emits deterministic, sorted equipment DTOs and explicit connectivity collections. Reconstruction uses an explicit `ModelTypeRegistry`, rebuilds equipment membership, resolves object references through the Network identity authority, restores terminal attachments, then reconstructs junctions, simple wires and phase-domain conductor connectivity. Persisted type resolution and Network adder operations are explicit mappings rather than arbitrary class-name lookup.
+
+**Security-relevant confirmed concern:** `core/persistence/model_dto.py::_decode` handles `$enum` and `$dataclass` tags by taking a module-qualified name from persisted data, importing that module with `__import__`, resolving the named attribute and, for dataclasses, invoking its constructor with persisted fields. This is materially different from the explicit allowlist used for top-level Network model types and the Study Result archive's schema-v2 solver result reconstruction. Opening an untrusted project can therefore trigger imports and constructors selected by data in the project file. The source audit does not establish arbitrary code execution in every environment, but it does establish an unsafe polymorphic-deserialization surface with import-time and constructor side effects.
+
+**V3 direction:** replace persisted Python module/class names with stable schema type IDs resolved through an explicit allowlist/codec registry. Do not import or instantiate types named by an untrusted package. Validate exact allowed fields and versioned payload schemas before constructing objects. Treat project packages as untrusted input at the file boundary.
+
+### D. Study Cases versus Study Results
+
+Study Case definitions are persisted in `project.json` with their own schema marker (currently 1), typed configuration kinds for Power Flow, Short Circuit and Transient Stability, source revision fields and non-runtime options. Runtime-only prepared inputs/results are intentionally excluded. Unsupported configuration kinds fail closed.
+
+Study Result execution artifacts use a separate append-only `StudyResultArchive`, stored outside the `.gridforge` package under a caller-supplied archive root, keyed by hashed project identity and activation generation. Archive records include study identity, project identity, activation generation, source revision, status, timestamp, result payload and SHA-256 integrity digest. Archive schema is currently 2. The archive explicitly separates execution history from editable project configuration so saving a project cannot overwrite study history.
+
+The archive's schema-v2 decoder uses allowlisted solver result/event/algebraic record types and rejects field mismatches; unknown enum types are retained as detached scalar values rather than imported. Schema-v1 historical generic dataclass compatibility remains a separate legacy behavior and needs its own security/upgrade disposition.
+
+**V3 direction:** retain the conceptual distinction between project configuration and execution history, but define a portable project bundle/export operation that can include selected result records, checksums, source revision, solver/version provenance and required artifacts. Define retention, relocation, backup/restore and missing-archive behavior. Project portability must not silently imply that external result history is embedded.
+
+### E. Engineering-data interchange
+
+The recursive repository tree search did not identify dedicated IEC CIM (IEC 61970/61968) or IEC 61850 SCL import/export adapter packages or a general-purpose interchange subsystem. The current persistence serializers are GridForge-native formats; they are not evidence of standards-compliant CIM or SCL exchange.
+
+**V3 direction:** treat native project persistence, standards interchange and vendor-specific import/export as separate bounded layers. Research CIM profiles/mappings and IEC 61850 SCL model coverage, version negotiation, namespace/schema validation, round-trip fidelity, unsupported-feature reporting, identity mapping, units/base conversion and provenance. Imports should produce a validated candidate project and explicit reconciliation report before Application-controlled activation; exports should report omitted or lossy semantics rather than silently dropping them.
+
+### F. Refined findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F25 | P1 | Persisted `$enum`/`$dataclass` tags in `model_dto.py` drive dynamic module import, attribute resolution and dataclass construction from package-controlled strings | Replace dynamic type loading with stable allowlisted type IDs/codecs; define untrusted-project threat model and safe migration |
+| V3-ARCH-F26 | P1 | Package/project/SLD/connectivity/Core/transformer/Study Case/archive schemas have separate version constants and migration paths; nested domain version ownership is not uniformly explicit | Publish version ownership and compatibility matrix; version every independently evolving persisted contract |
+| V3-ARCH-F27 | P1 | Study Result archive is intentionally outside the project package and keyed separately by project/generation | Define portable bundle, archive relocation, backup/restore, result inclusion and provenance policy |
+| V3-ARCH-F28 | P1 | Recursive tree inspection found no dedicated CIM/SCL/general interchange adapter package; native serializer is GridForge-specific | Specify separate CIM/SCL/vendor interchange adapters with profile coverage, round-trip/loss reporting and candidate-project validation |
+| V3-ARCH-F29 | P2 | `ProjectPersistenceService` coordinates serialization/deserialization for Network, SLD/presentations, Measurement, Protection, Control, dynamic models and Study Cases through one large service | Evaluate V3 decomposition into domain-owned codecs plus one package orchestration/transaction owner; do not split ownership or duplicate project transactions |
+| V3-ARCH-F30 | P2 | Project manifest carries package format/version while project schema and nested schema versions live in `project.json` and domain payloads | Define explicit manifest-to-payload compatibility contract, minimum reader version and migration capability declarations |
+
+### Verification limits
+
+This was a targeted source audit and recursive tree search, not a complete review of every serialized field, every legacy fixture, all archive schema-v1 records or all project activation callbacks. The import/constructor finding is based on direct inspection of the persisted DTO decoder; no exploit, malicious package or runtime execution was attempted. The absence of a dedicated CIM/SCL adapter is based on the inspected repository tree and does not rule out external tools or untracked integrations. No tests, CI, syntax/import execution, migration replay, save/load round-trip, runtime project transition, interoperability validation or security testing was run. No V2 source was changed.
