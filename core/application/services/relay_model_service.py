@@ -57,13 +57,11 @@ class RelayModelService(ModelServiceSupport):
         except Exception:
             relay.name = old["name"]; relay.plugin_id = old["plugin_id"]; relay.set_settings(old["settings"]); relay.in_service = old["in_service"]; relay.enabled = old["enabled"]; relay.blocked = old["blocked"]; relay.picked_up = old["picked_up"]; relay.tripped = old["tripped"]
             raise
-        topology_changed = in_service is not None and in_service != old["in_service"]
-        if topology_changed:
-            self._network.invalidate_topology()
+        # Relay availability/configuration is Protection equipment state, not
+        # conductive Network topology. Live Protection freshness is fenced by
+        # Application provenance checks, not Network.invalidate_topology().
         def restore() -> None:
             relay.name = old["name"]; relay.plugin_id = old["plugin_id"]; relay.set_settings(old["settings"]); relay.in_service = old["in_service"]; relay.enabled = old["enabled"]; relay.blocked = old["blocked"]; relay.picked_up = old["picked_up"]; relay.tripped = old["tripped"]; relay.validate()
-            if topology_changed:
-                self._network.invalidate_topology()
         transaction.record_undo(restore); return self._success(relay, "relay", relay_id, f"Relay updated: {relay_id}")
 
     def delete_relay(self, *, relay_id: str, transaction: Transaction) -> ApplicationResult[Relay]:
@@ -73,13 +71,11 @@ class RelayModelService(ModelServiceSupport):
     def take_relay_out_of_service(self, *, relay_id: str, transaction: Transaction) -> ApplicationResult[Relay]: return self._set_service(relay_id=relay_id, in_service=False, transaction=transaction)
 
     def _set_service(self, *, relay_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Relay]:
-        self._require_transaction(transaction); self._require_id(relay_id, "relay_id"); relay = self._get_required("relay", relay_id, "Relay"); self._require_type(relay, Relay, relay_id, "Relay"); old = (relay.in_service, relay.picked_up, relay.tripped); relay.put_in_service() if in_service else relay.take_out_of_service(); topology_changed = old[0] != relay.in_service
-        if topology_changed:
-            self._network.invalidate_topology()
+        self._require_transaction(transaction); self._require_id(relay_id, "relay_id"); relay = self._get_required("relay", relay_id, "Relay"); self._require_type(relay, Relay, relay_id, "Relay"); old = (relay.in_service, relay.picked_up, relay.tripped); relay.put_in_service() if in_service else relay.take_out_of_service()
+        # Relay service state is independently checked by the live Protection
+        # execution provenance guard; it does not alter conductive topology.
         def restore() -> None:
             self._restore_service_state(relay, old)
-            if topology_changed:
-                self._network.invalidate_topology()
         transaction.record_undo(restore); action = "put in service" if in_service else "taken out of service"; return self._success(relay, "relay", relay_id, f"Relay {action}: {relay_id}")
 
     def _ensure_no_protection_references(self, relay_id: str) -> None:
