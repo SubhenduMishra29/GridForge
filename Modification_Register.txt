@@ -20713,3 +20713,17 @@ Source inspection of CommandManager, Application._coordinate_pre_commit, Transac
 Decision: do not inject guessed command-name heuristics or Protection-specific behavior into the generic Transaction class. The correct follow-up is an Application-owned service mutation boundary that publishes typed revision deltas once per successful outer transaction, is composed into the actual service entry points, and leaves rollback revision-neutral. Until that boundary and CT/PT/CVT lifecycle wiring are implemented, the three new counters in PR #1072 are partial coverage only. Issue #1070 remains open; PR #1072 remains draft.
 
 Verification boundary: source inspection only. No tests, CI, syntax checks, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — INSTRUMENTATION SERVICE PASS (2026-11-03)
+
+Additional direct-service evidence:
+
+- `PTModelService` exists at `core/application/services/pt_model_service.py` and directly mutates the Network potential-transformer registry in `create_pt` / `delete_pt`; `update_pt` changes PT engineering parameters and `in_service`; `put_pt_in_service` / `take_pt_out_of_service` change service state. Each accepts a caller-owned Transaction and registers inverse operations, but none publishes a typed instrumentation revision.
+- `RelayModelService` has the same caller-owned Transaction shape and lacks revision publication.
+- The inspected Application facade exposes its command RevisionService, but does not compose these direct model services in the inspected constructor. Merely adding another counter classifier to RevisionService will not cover these service mutations.
+- Exact CT and CVT service entry points remain unverified in this source pass. Do not infer their absence from failed code-search queries.
+
+Implementation decision remains unchanged: first add a generic transaction commit-callback lifecycle facility (no domain knowledge in Transaction), then provide an Application-owned typed revision publisher to service constructors/composition. Each service must register a typed delta with the outer transaction; the publisher applies it once on commit. Rollback must discard pending deltas. This is not implemented yet. Avoid publishing revisions directly in service methods because nested/shared transactions could otherwise increment more than once or publish changes that later roll back.
+
+No tests, CI, syntax checks, or runtime checks were run.
