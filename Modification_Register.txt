@@ -20790,3 +20790,18 @@ Reconciled the remaining PR #1071 behavior into `feat/protection-independent-rev
 PR #1071's two substantive source changes (Relay topology separation and live Relay-state fingerprint) are now represented in PR #1072's branch, with the latter combined with the independent revision guard. PR #1071 should not be merged separately; after a fresh exact diff review, close it as superseded by PR #1072 or retain only if a non-overlapping change is discovered. PR #1072 remains draft pending broader audit/implementation closure.
 
 No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — DIRECT INSTRUMENTATION MUTATION GUARD (2026-11-03)
+
+Extended the live Protection evaluation-to-dispatch provenance guard to cover direct CT/CVT/PT service mutations, not only canonical revision counters:
+
+- Added a deterministic instrumentation-state fingerprint for Network.current_transformers, Network.capacitive_voltage_transformers, and Network.potential_transformers.
+- Fingerprint includes each instrument's stable ID, nameplate/engineering fields, accuracy/burden/polarity/frequency or phase displacement, in-service state, and authoritative terminal endpoint identity.
+- Captures the fingerprint with the other live Protection provenance before evaluation and compares it again before dispatch. A direct service mutation during this critical interval now raises StaleProtectionExecutionError even if it bypasses CommandManager and does not advance instrumentation_revision.
+- Kept Relay state fingerprint and the independent instrumentation/Protection revision comparisons. These checks are complementary: canonical commands advance revisions; direct object mutation is detected by state fingerprints.
+- The fingerprint intentionally includes terminal endpoint identity so instrumentation association changes cannot silently pass the dispatch boundary. This check does not itself advance physical topology revision.
+
+Scope limitation: this fingerprint protects the evaluation-to-dispatch interval. It is not a replacement for canonical revision publication or a general audit trail for direct service use outside that interval. The canonical Application command path remains authoritative.
+
+No tests, CI, syntax checks, imports, or runtime checks were run.
