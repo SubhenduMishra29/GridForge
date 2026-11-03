@@ -20851,3 +20851,21 @@ PR #1072 branch correction:
 Verification boundary:
 - Exact source replacements were checked for one expected occurrence before writing.
 - Full syntax/import verification remains pending; no tests or CI were run.
+
+
+PROTECTION REVISION CONTRACT — EXACT COMMAND CLASSIFICATION CORRECTION (2026-11-03)
+
+Finding:
+- Application._coordinate_pre_commit uses the canonical PT command family model.*_potential_transformer.
+- The first independent-revision classifier used substring/suffix matching for "current_transformer", "capacitive_voltage_transformer", "_pt", and "pt_". The canonical "potential_transformer" identifiers do not contain those PT aliases, so PT create/update/delete/service-state commands did not advance instrumentation_revision.
+- The same generic string matching could silently misclassify future equipment command names.
+
+Correction:
+- Replaced substring inference with explicit canonical command sets for CT/CVT/PT instrumentation, Relay Protection equipment, and Protection configuration/binding commands.
+- Added "potential_transformer" to the non-electrical-topology equipment classifier and explicitly listed model.update_potential_transformer in the topology-update inventory. PT mutations remain non-topological.
+- The exact PT command set now matches the command identities used by Application._coordinate_pre_commit for transactional ProtectionRuntime recomposition.
+- No sample publication commands are included in equipment/configuration revision sets.
+
+Verification boundary:
+- The five CT, five CVT, five PT, five Relay and five Protection configuration command identities were compared against the Application transactional recomposition command set.
+- No tests or CI were run. Runtime command execution, syntax/import integrity and all call-site coverage remain pending.
