@@ -83,7 +83,7 @@ _CORE_ELEMENT_TYPES = {
 
 _FIELD_CONTRACTS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
     "buses": (("nominal_voltage_kv", ("nominal_voltage_kv",)), ("voltage_pu", ("voltage_pu",)), ("angle_deg", ("angle_deg",)), ("frequency_hz", ("frequency_hz",)), ("in_service", ("in_service",))),
-    "lines": (("resistance_ohm", ("resistance_ohm", "r")), ("reactance_ohm", ("reactance_ohm", "x")), ("shunt_susceptance_siemens", ("shunt_susceptance_siemens", "b")), ("rate_mva", ("rate_mva", "rated_power")), ("in_service", ("in_service",))),
+    "lines": (("resistance_ohm", ("resistance_ohm", "r")), ("reactance_ohm", ("reactance_ohm", "x")), ("shunt_susceptance_siemens", ("shunt_susceptance_siemens", "b")), ("zero_sequence_resistance_ohm", ("zero_sequence_resistance_ohm",)), ("zero_sequence_reactance_ohm", ("zero_sequence_reactance_ohm",)), ("rate_mva", ("rate_mva", "rated_power")), ("in_service", ("in_service",))),
     "cables": (("length_km", ("length_km",)), ("rated_voltage_kv", ("rated_voltage_kv",)), ("rated_current_a", ("rated_current_a",)), ("r1_ohm_per_km", ("r1_ohm_per_km", "r1")), ("x1_ohm_per_km", ("x1_ohm_per_km", "x1")), ("b1_us_per_km", ("b1_us_per_km", "b1")), ("r0_ohm_per_km", ("r0_ohm_per_km", "r0")), ("x0_ohm_per_km", ("x0_ohm_per_km", "x0")), ("b0_us_per_km", ("b0_us_per_km", "b0")), ("thermal_limit_mva", ("thermal_limit_mva",)), ("conductor_count", ("conductor_count",)), ("in_service", ("in_service",))),
     "transformers": (("r", ("r",)), ("x", ("x",)), ("b", ("b",)), ("impedance_basis", ("impedance_basis",)), ("impedance_base_mva", ("impedance_base_mva",)), ("impedance_base_voltage_kv", ("impedance_base_voltage_kv",)), ("rate_mva", ("rate_mva", "rated_power")), ("tap", ("tap",)), ("tap_ratio", ("tap_ratio",)), ("turns_ratio", ("turns_ratio",)), ("shift", ("shift",)), ("phase_shift_rad", ("phase_shift_rad",)), ("phase_shift_deg", ("phase_shift_deg",)), ("in_service", ("in_service",))),
     "switches": (("closed", ("closed",)), ("in_service", ("in_service",)), ("normally_closed", ("normally_closed",)), ("rated_voltage_kv", ("rated_voltage_kv",)), ("rated_current_a", ("rated_current_a",))),
@@ -110,6 +110,11 @@ _REQUIRED_FIELDS = {element_type: frozenset(canonical for canonical, _ in fields
 # Grid short-circuit strength and sequence impedances are optional Core
 # engineering values. Keep them in the projection vocabulary when present,
 # but do not reject a valid Grid when they have not yet been configured.
+# Line zero-sequence values are an optional coupled pair in Core.
+_REQUIRED_FIELDS["lines"] = frozenset({
+    "resistance_ohm", "reactance_ohm", "shunt_susceptance_siemens",
+    "rate_mva", "in_service",
+})
 _REQUIRED_FIELDS["grids"] = frozenset({
     "nominal_voltage_kv",
     "frequency_hz",
@@ -132,6 +137,16 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "resistance_ohm": {"unit": "ohm", "datatype": "float", "editable": True, "study_impact": True},
     "reactance_ohm": {"unit": "ohm", "datatype": "float", "editable": True, "study_impact": True},
     "shunt_susceptance_siemens": {"unit": "S", "datatype": "float", "editable": True, "study_impact": True},
+    "zero_sequence_resistance_ohm": {
+        "unit": "ohm", "datatype": "float", "editable": True, "study_impact": True,
+        "coupling_group": "line_zero_sequence",
+        "validation": {"authoritative": "Core", "paired_with": "zero_sequence_reactance_ohm"},
+    },
+    "zero_sequence_reactance_ohm": {
+        "unit": "ohm", "datatype": "float", "editable": True, "study_impact": True,
+        "coupling_group": "line_zero_sequence",
+        "validation": {"authoritative": "Core", "paired_with": "zero_sequence_resistance_ohm"},
+    },
     "length_km": {"unit": "km", "datatype": "float", "editable": True, "study_impact": True},
     "thermal_limit_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "non_negative": True}},
     "conductor_count": {"datatype": "int", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "minimum": 1}},
