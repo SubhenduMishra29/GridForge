@@ -134,7 +134,7 @@ class TransformerConfigurationEditor(QWidget):
         self._matrix_table = QTableWidget(multiport_group)
         self._matrix_table.setObjectName("TransformerTerminalAdmittanceMatrix")
         self._matrix_grid_button = QPushButton("Build / load ordered terminal matrix grid", multiport_group)
-        self._matrix_grid_button.clicked.connect(self._build_matrix_grid)
+        self._matrix_grid_button.clicked.connect(self._on_build_matrix_grid)
         multiport_form.addRow("Ordered terminal matrix", self._matrix_grid_button)
         multiport_form.addRow("Admittance matrix (S)", self._matrix_table)
         for field, label, hint in (
@@ -262,6 +262,13 @@ class TransformerConfigurationEditor(QWidget):
             self._matrix_table.setColumnCount(0)
             return
         self._build_matrix_grid(matrix)
+
+    def _on_build_matrix_grid(self, checked: bool = False) -> None:
+        del checked
+        try:
+            self._build_matrix_grid()
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._status.setText(f"Cannot build terminal matrix grid: {exc}")
 
     def _build_matrix_grid(self, matrix: Any = None) -> None:
         labels = self._terminal_labels()
