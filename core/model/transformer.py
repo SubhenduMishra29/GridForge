@@ -768,6 +768,12 @@ class Transformer(Branch):
         hv_phase_roles: tuple[str, ...] | None = None,
         lv_phase_roles: tuple[str, ...] | None = None,
         _replace_physical_conductor_configuration: bool = False,
+        phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
+        zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None = None,
+        phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] | None = None,
+        phase_domain_multiport_tap_ratio: float | None = None,
+        phase_domain_multiport_phase_shift_rad: float | None = None,
+        _replace_phase_domain_multiport_configuration: bool = False,
         _replace_winding_configuration: bool = False,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
@@ -897,6 +903,30 @@ class Transformer(Branch):
             target_vector_group, target_test_configuration, target_reference_winding,
             target_hv_connection, target_lv_connection, target_z0r, target_two_winding_test_data,
         )
+        if _replace_phase_domain_multiport_configuration:
+            multiport_values = (
+                phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence,
+                () if phase_domain_delta_loop_states is None else phase_domain_delta_loop_states,
+                phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad,
+            )
+        else:
+            multiport_values = (
+                self._phase_domain_terminal_admittance_siemens, self._zero_sequence_multiport_evidence,
+                self._phase_domain_delta_loop_states, self._phase_domain_multiport_tap_ratio,
+                self._phase_domain_multiport_phase_shift_rad,
+            )
+        (
+            target_multiport_matrix, target_multiport_evidence, target_delta_loops,
+            target_multiport_tap, target_multiport_shift,
+        ) = self._validate_phase_domain_multiport_configuration(
+            matrix=multiport_values[0], evidence=multiport_values[1], loop_states=multiport_values[2],
+            tap_ratio=multiport_values[3], phase_shift_rad=multiport_values[4],
+            tap=target_tap, shift=target_shift, hv_connection=target_hv_connection,
+            lv_connection=target_lv_connection, hv_terminal_role=target_hv_role,
+            lv_terminal_role=target_lv_role, hv_phase_roles=target_hv_phase_roles,
+            lv_phase_roles=target_lv_phase_roles, hv_neutral_terminal_role=target_hv_neutral_role,
+            lv_neutral_terminal_role=target_lv_neutral_role, core_construction=target_core,
+        )
 
         # Validate the complete candidate before mutating any authoritative state.
         self._validate_finite(target_r, "r")
@@ -919,6 +949,9 @@ class Transformer(Branch):
             self._core_construction, self._zero_sequence_test_basis,
             self._vector_group_configuration, self._zero_sequence_test_configuration,
             self._zero_sequence_two_winding_test_data,
+            self._phase_domain_terminal_admittance_siemens, self._zero_sequence_multiport_evidence,
+            self._phase_domain_delta_loop_states, self._phase_domain_multiport_tap_ratio,
+            self._phase_domain_multiport_phase_shift_rad,
         )
         try:
             self._r = target_r
@@ -946,6 +979,11 @@ class Transformer(Branch):
             self._vector_group_configuration = target_vector_group
             self._zero_sequence_test_configuration = target_test_configuration
             self._zero_sequence_two_winding_test_data = target_two_winding_test_data
+            self._phase_domain_terminal_admittance_siemens = target_multiport_matrix
+            self._zero_sequence_multiport_evidence = target_multiport_evidence
+            self._phase_domain_delta_loop_states = target_delta_loops
+            self._phase_domain_multiport_tap_ratio = target_multiport_tap
+            self._phase_domain_multiport_phase_shift_rad = target_multiport_shift
             self.validate()
         except Exception:
             (
@@ -962,6 +1000,9 @@ class Transformer(Branch):
                 self._core_construction, self._zero_sequence_test_basis,
                 self._vector_group_configuration, self._zero_sequence_test_configuration,
                 self._zero_sequence_two_winding_test_data,
+                self._phase_domain_terminal_admittance_siemens, self._zero_sequence_multiport_evidence,
+                self._phase_domain_delta_loop_states, self._phase_domain_multiport_tap_ratio,
+                self._phase_domain_multiport_phase_shift_rad,
             ) = old_state
             self.name = old_name
             raise
