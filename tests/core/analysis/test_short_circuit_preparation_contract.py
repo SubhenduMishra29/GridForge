@@ -49,3 +49,50 @@ def test_short_circuit_preparation_requires_sequence_network_for_unbalanced_faul
         assert "sequence" in str(exc).lower()
     else:
         raise AssertionError("Unbalanced faults must require sequence-network preparation data.")
+
+
+def test_phase_domain_coverage_rejects_active_line_without_conductor_system():
+    network = SimpleNamespace(
+        lines=[SimpleNamespace(id="L1", in_service=True)],
+        cables=[],
+    )
+    topology = SimpleNamespace(branches=())
+
+    try:
+        ShortCircuitPreparation._require_complete_physical_conductor_coverage(
+            network, topology
+        )
+    except ValueError as exc:
+        assert "L1" in str(exc)
+        assert "physical conductor system" in str(exc)
+    else:
+        raise AssertionError(
+            "Phase-domain preparation must reject an active Line omitted from physical conductor data."
+        )
+
+
+def test_phase_domain_coverage_allows_inactive_scalar_branch():
+    network = SimpleNamespace(
+        lines=[SimpleNamespace(id="L1", in_service=False)],
+        cables=[],
+    )
+    topology = SimpleNamespace(branches=())
+
+    ShortCircuitPreparation._require_complete_physical_conductor_coverage(
+        network, topology
+    )
+
+
+def test_phase_domain_coverage_accepts_explicitly_configured_active_branches():
+    network = SimpleNamespace(
+        lines=[SimpleNamespace(id="L1", in_service=True)],
+        cables=[SimpleNamespace(id="C1", in_service=True)],
+    )
+    topology = SimpleNamespace(branches=(
+        SimpleNamespace(equipment_id="L1", in_service=True),
+        SimpleNamespace(equipment_id="C1", in_service=True),
+    ))
+
+    ShortCircuitPreparation._require_complete_physical_conductor_coverage(
+        network, topology
+    )
