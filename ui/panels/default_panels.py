@@ -763,6 +763,7 @@ class PropertiesPanelWidget(QWidget):
                 logging.getLogger(__name__).exception("Failed to release asynchronous commit state")
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
+        self._transformer_configuration_editor.set_target(None)
         self._clear_parameter_controls()
         assert self._form_layout is not None
         for definition in draft.parameter_schema:
