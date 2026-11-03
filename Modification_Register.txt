@@ -20885,3 +20885,22 @@ Correction:
 Verification boundary:
 - The comparison was traced against the undo/redo construction and mark_persisted snapshot fields.
 - No tests or CI were run. Save/undo UI behavior and full import/syntax verification remain pending.
+
+
+PROTECTION REVISION CONTRACT — INSTRUMENT SOURCE AVAILABILITY GATE (2026-11-03)
+
+Finding:
+- ProtectionRuntime composition fingerprints CT/CVT/PT state and Application re-composes after canonical equipment lifecycle commands, but a freshly composed runtime could still evaluate a channel whose physical CT/PT/CVT source was out of service.
+- The live Protection input-preparation path validated channel sample quality/freshness and object identity but did not resolve the channel's physical instrument source against the active canonical Network or check its service state.
+- Scenario Protection preparation already checked canonical CT object identity and ratio, but did not explicitly reject an out-of-service CT.
+
+Correction:
+- Added one Application-owned source validation helper for physical CT/PT/CVT-backed MeasurementChannels.
+- The helper requires the source ID to resolve to the exact same object in the active Network, requires the source terminal reference to belong to that equipment identity, and requires in_service is exactly True. Missing, removed, replaced, or out-of-service sources fail closed with an input-specific diagnostic.
+- Applied the same gate before live sample validation and before scenario sample/binding validation.
+- Non-CT/PT/CVT measurement-producing sources are not constrained by this instrument-specific check; their availability remains governed by their own signal/source contracts.
+- The gate does not mutate MeasurementChannel sample availability or advance sample/configuration revisions. It is evaluated at the Protection consumption boundary.
+
+Verification boundary:
+- Source identity and service-state checks were compared against Network.get_by_identity, MeasurementChannel.source/source_terminal, and the existing scenario CT binding path.
+- No tests or CI were run. Full syntax/import checks and live/scenario execution remain pending.
