@@ -20912,3 +20912,11 @@ Refinement:
 - Verified the concrete Core model declarations: CurrentTransformer.TYPE is "CT", CapacitiveVoltageTransformer.TYPE is "CVT", and PT.TYPE is "PT".
 - Extended the Application source-availability gate to recognize those canonical uppercase element_type values after normalization, alongside the descriptive type aliases. This ensures CT and CVT sources are not skipped by the fail-closed availability check.
 - No changes to Core model identity, MeasurementChannel source ownership, or topology semantics.
+
+
+PROTECTION REVISION CONTRACT — SCOPE RECONCILIATION WITH #1068 (2026-11-03)
+
+The independent instrumentation/Protection-equipment batch in PR #1072 does not replace the separate topology-dependent Protection freshness contract tracked by #1068. #1068 owns the switching/topology revision capture and dispatch/scenario recheck after Control- or Protection-originated electrical switching. Keep the domains independent:
+- #1068: physical topology/switching revision and topology-derived Protection consumers.
+- #1070: CT/PT/CVT instrumentation, Relay Protection-equipment, Protection configuration and source availability freshness.
+Do not merge these revision domains or treat completion of one issue as closure of the other.
