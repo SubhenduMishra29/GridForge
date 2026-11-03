@@ -20805,3 +20805,13 @@ Extended the live Protection evaluation-to-dispatch provenance guard to cover di
 Scope limitation: this fingerprint protects the evaluation-to-dispatch interval. It is not a replacement for canonical revision publication or a general audit trail for direct service use outside that interval. The canonical Application command path remains authoritative.
 
 No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+[2026-11-03] Protection runtime pre-evaluation freshness audit
+- Inspected Application._evaluate_protection_cycle_unlocked and ProtectionRuntime composition.
+- Confirmed the evaluation entry validates active project/network/generation, active configuration identity and configuration fingerprint, channel registry project/network/generation, and exact channel-object identity. It does not compare the active runtime against captured instrumentation_revision or protection_equipment_revision before evaluation.
+- Confirmed ProtectionRuntime captures configuration composition state and channel objects only; it has no instrumentation/Protection-equipment revision provenance or CT/PT/CVT/Relay equipment fingerprint.
+- Confirmed Application._coordinate_pre_commit recomposes ProtectionRuntime for protection configuration commands only. CT/PT/CVT and Relay lifecycle/configuration commands advance independent revisions through RevisionService but do not recompose or invalidate the active ProtectionRuntime.
+- Consequence: canonical instrumentation or Relay changes can leave the runtime composed against stale equipment/measurement associations while the evaluation-entry checks still pass. The later evaluation-to-dispatch fingerprint guard is too late to prevent evaluation against stale runtime state.
+- Required correction: capture instrumentation_revision and protection_equipment_revision (and a composition-time equipment/association fingerprint where needed) in ProtectionRuntime at successful composition; at evaluation entry, fail closed before any Protection element executes unless those captured values match the current Application revisions and authoritative active equipment/association fingerprint. Recompose transactionally on the relevant canonical mutations only if the association resolver/runtime contracts support safe recomposition; otherwise explicitly invalidate and refuse evaluation until recomposed. Preserve exact transaction rollback and do not increment revisions for sample publication.
+- No tests or CI run; this entry records source-inspection findings only.
