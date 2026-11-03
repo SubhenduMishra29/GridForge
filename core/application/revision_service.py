@@ -57,13 +57,48 @@ class RevisionService:
         "connectivity.remove_phase_domain_connection",
     })
     _TOPOLOGY_STATE_FIELDS = frozenset({"closed", "in_service", "tripped", "blown", "status", "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b"})
-    _NON_ELECTRICAL_TOPOLOGY_TYPES = frozenset({"current_transformer", "capacitive_voltage_transformer", "pt", "relay"})
+    _NON_ELECTRICAL_TOPOLOGY_TYPES = frozenset({"current_transformer", "capacitive_voltage_transformer", "potential_transformer", "pt", "relay"})
+    # Exact canonical Application command identities. Do not infer these
+    # domains from substrings: PT uses the full "potential_transformer"
+    # command family, not a "_pt" suffix.
+    _INSTRUMENTATION_COMMANDS = frozenset({
+        "model.create_current_transformer",
+        "model.update_current_transformer",
+        "model.delete_current_transformer",
+        "model.put_current_transformer_in_service",
+        "model.take_current_transformer_out_of_service",
+        "model.create_capacitive_voltage_transformer",
+        "model.update_capacitive_voltage_transformer",
+        "model.delete_capacitive_voltage_transformer",
+        "model.put_capacitive_voltage_transformer_in_service",
+        "model.take_capacitive_voltage_transformer_out_of_service",
+        "model.create_potential_transformer",
+        "model.update_potential_transformer",
+        "model.delete_potential_transformer",
+        "model.put_potential_transformer_in_service",
+        "model.take_potential_transformer_out_of_service",
+    })
+    _PROTECTION_EQUIPMENT_COMMANDS = frozenset({
+        "model.create_relay",
+        "model.update_relay",
+        "model.delete_relay",
+        "model.put_relay_in_service",
+        "model.take_relay_out_of_service",
+    })
+    _PROTECTION_CONFIGURATION_COMMANDS = frozenset({
+        "protection.create_configuration",
+        "protection.update_configuration",
+        "protection.delete_configuration",
+        "protection.bind_measurement",
+        "protection.unbind_measurement",
+    })
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
         "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
         "model.update_switch",
         # Shunt service state and Bus attachment affect the electrical network
         # consumed by topology snapshots and study preparation.
         "model.update_capacitor",
+        "model.update_potential_transformer",
         "model.update_disconnector",
         "model.update_fuse",
         # These branch/equipment states alter the electrically connected
@@ -218,16 +253,14 @@ class RevisionService:
                 raise ValueError("topology_revision must be a non-decreasing Core topology revision.")
         else:
             topology_revision = revision.topology_revision
-        command_element = command.command_type.split("model.", 1)[-1]
-        command_element = command_element.split(".", 1)[-1]
         instrumentation_revision = revision.instrumentation_revision
         protection_equipment_revision = revision.protection_equipment_revision
         protection_configuration_revision = revision.protection_configuration_revision
-        if any(token in command_element for token in ("current_transformer", "capacitive_voltage_transformer", "_pt", "pt_")) or command_element.endswith("_pt"):
+        if command.command_type in cls._INSTRUMENTATION_COMMANDS:
             instrumentation_revision += 1
-        if "relay" in command_element:
+        if command.command_type in cls._PROTECTION_EQUIPMENT_COMMANDS:
             protection_equipment_revision += 1
-        if command.command_type.startswith("protection."):
+        if command.command_type in cls._PROTECTION_CONFIGURATION_COMMANDS:
             protection_configuration_revision += 1
         return ProjectRevision(
             model_revision=model_revision,
