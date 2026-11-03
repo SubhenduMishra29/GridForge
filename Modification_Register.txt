@@ -20838,3 +20838,16 @@ No tests, CI, syntax checks, imports, or runtime checks were run.
 
 [2026-11-03] Protection runtime fingerprint scope refinement
 - Composition identity includes Relay configuration and service availability (type, plugin, settings, in_service, enabled, blocked), but deliberately excludes transient Relay outputs picked_up/tripped. Those are runtime/evaluation state, not configuration identity, and must not invalidate the composed runtime merely because a Protection cycle changes them.
+
+
+PROTECTION REVISION CONTRACT — SOURCE HYGIENE CORRECTION (2026-11-03)
+
+PR #1072 branch correction:
+- Restored the missing newline and method block boundary in RelayModelService._set_service. The prior branch revision had joined the service mutation statement and nested restore-function declaration on one physical line, making the module syntactically invalid.
+- Removed transient Relay picked_up/tripped output flags from the Application evaluation-to-dispatch configuration freshness fingerprint. These are runtime/output state, not Relay equipment configuration or availability. The composition-time equipment fingerprint already excludes them. Relay identity, type, plugin, settings, in-service, enabled and blocked state remain covered.
+- Kept the Relay service-state rollback inverse and independent Protection-equipment revision contract unchanged.
+- No Core topology invalidation was reintroduced. No Qt/UI dependencies or public package exports were changed.
+
+Verification boundary:
+- Exact source replacements were checked for one expected occurrence before writing.
+- Full syntax/import verification remains pending; no tests or CI were run.
