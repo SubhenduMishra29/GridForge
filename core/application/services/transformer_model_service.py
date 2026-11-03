@@ -153,12 +153,12 @@ class TransformerModelService(ModelServiceSupport):
         lv_winding_connection: TransformerWindingConnection | str | None = None,
         hv_neutral_grounding_impedance_ohm: complex | None = None,
         lv_neutral_grounding_impedance_ohm: complex | None = None,
-        hv_neutral_earth_return_impedance_ohm: complex | None = None,
-        lv_neutral_earth_return_impedance_ohm: complex | None = None,
-        hv_neutral_terminal_role: str | None = None,
-        lv_neutral_terminal_role: str | None = None,
-        hv_phase_roles: tuple[str, ...] | None = None,
-        lv_phase_roles: tuple[str, ...] | None = None,
+        hv_neutral_earth_return_impedance_ohm: complex | None | object = ...,
+        lv_neutral_earth_return_impedance_ohm: complex | None | object = ...,
+        hv_neutral_terminal_role: str | None | object = ...,
+        lv_neutral_terminal_role: str | None | object = ...,
+        hv_phase_roles: tuple[str, ...] | None | object = ...,
+        lv_phase_roles: tuple[str, ...] | None | object = ...,
         replace_physical_conductor_configuration: bool = False,
         hv_terminal_role: str | None = None,
         lv_terminal_role: str | None = None,
@@ -177,6 +177,19 @@ class TransformerModelService(ModelServiceSupport):
         transformer = self._get_required("transformer", transformer_id, "Transformer")
         self._require_type(transformer, Transformer, transformer_id, "Transformer")
 
+        if not isinstance(replace_physical_conductor_configuration, bool):
+            raise TypeError("replace_physical_conductor_configuration must be a bool.")
+        physical_fields = (
+            hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm,
+            hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles,
+        )
+        if replace_physical_conductor_configuration and any(value is ... for value in physical_fields):
+            raise ValueError("Physical conductor replacement requires all six fields, including explicit None values.")
+        if not replace_physical_conductor_configuration and any(value is ... for value in physical_fields):
+            (
+                hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm,
+                hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles,
+            ) = (None if value is ... else value for value in physical_fields)
         values = (
             name, r, x, b, impedance_basis, impedance_base_mva,
             tap, shift, rate_mva, in_service,
@@ -192,8 +205,6 @@ class TransformerModelService(ModelServiceSupport):
         )
         if all(value is None for value in values) and not replace_physical_conductor_configuration:
             raise ValueError("At least one Transformer configuration field must be specified.")
-        if not isinstance(replace_physical_conductor_configuration, bool):
-            raise TypeError("replace_physical_conductor_configuration must be a bool.")
         if in_service is not None and not isinstance(in_service, bool):
             raise TypeError("in_service must be a bool.")
 
