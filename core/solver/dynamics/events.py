@@ -52,8 +52,10 @@ The action determines WHAT happens.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable
+from dataclasses import dataclass, field, replace
+import math
+from types import MappingProxyType
+from typing import Any, Callable, Mapping
 
 
 # ======================================================================
@@ -71,7 +73,16 @@ EventAction = Callable[[], Any]
 class EventError(
     RuntimeError
 ):
-    """Base exception for simulation-event errors."""
+    """Base exception for simulation-event errors.
+
+    Failed event actions are recorded before this exception is raised. The
+    corresponding immutable EventExecution is available on the execution
+    attribute.
+    """
+
+    def __init__(self, message: str, *, execution: "EventExecution | None" = None) -> None:
+        super().__init__(message)
+        self.execution = execution
 
 
 class DuplicateEventError(
@@ -159,6 +170,8 @@ class SimulationEvent:
         default_factory=dict
     )
 
+    revision_reader: Callable[[], int | None] | None = None
+
     def __post_init__(
         self,
     ) -> None:
@@ -220,6 +233,8 @@ class SimulationEvent:
         self.priority = int(
             self.priority
         )
+        if self.revision_reader is not None and not callable(self.revision_reader):
+            raise EventError("revision_reader must be callable when supplied.")
 
     def reset(
         self,
@@ -234,19 +249,86 @@ class SimulationEvent:
 # ======================================================================
 
 
-@dataclass(frozen=True)
+def _freeze_event_value(value: Any) -> Any:
+    """Detach event evidence into immutable, serialization-safe values."""
+    if value is None or isinstance(value, (bool, int, float, str, bytes)):
+        return value
+    if isinstance(value, Mapping):
+        return MappingProxyType({
+            key if isinstance(key, (str, int, float, bool)) else repr(key): _freeze_event_value(item)
+            for key, item in value.items()
+        })
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_event_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_event_value(item) for item in value)
+    return repr(value)
+
+
+@dataclass(frozen=True, slots=True)
 class EventExecution:
-    """
-    Result of a dispatched event.
+    """Immutable evidence for one event dispatch attempt.
+
+    The legacy time field remains the scheduled timestamp. scheduled_time and
+    dispatch_time make the distinction explicit for new consumers.
     """
 
     event_id: str
-
     event_type: str
-
     time: float
-
     result: Any = None
+    scheduled_time: float | None = None
+    dispatch_time: float | None = None
+    priority: int = 0
+    description: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+    status: str = "succeeded"
+    failure_type: str | None = None
+    failure_message: str | None = None
+    pre_event_revision: int | None = None
+    post_event_revision: int | None = None
+    post_event_re_evaluation_status: str = "not_run"
+    post_event_re_evaluation_failure_type: str | None = None
+    post_event_re_evaluation_failure_message: str | None = None
+
+    def __post_init__(self) -> None:
+        scheduled = float(self.time if self.scheduled_time is None else self.scheduled_time)
+        dispatched = float(scheduled if self.dispatch_time is None else self.dispatch_time)
+        if not all(math.isfinite(value) for value in (scheduled, dispatched)) or scheduled < 0.0 or dispatched < 0.0:
+            raise ValueError("Event execution timestamps must be finite and non-negative.")
+        if not isinstance(self.event_id, str) or not self.event_id.strip():
+            raise ValueError("Event execution event_id must be non-empty.")
+        if not isinstance(self.event_type, str) or not self.event_type.strip():
+            raise ValueError("Event execution event_type must be non-empty.")
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("Event execution metadata must be a mapping.")
+        if self.status not in {"succeeded", "failed"}:
+            raise ValueError("Event execution status must be succeeded or failed.")
+        if self.status == "failed" and (not self.failure_type or self.failure_message is None):
+            raise ValueError("Failed event executions require failure type and message evidence.")
+        if self.status == "succeeded" and (self.failure_type is not None or self.failure_message is not None):
+            raise ValueError("Successful event executions cannot carry action-failure evidence.")
+        if self.post_event_re_evaluation_status not in {"not_run", "succeeded", "failed"}:
+            raise ValueError("Post-event re-evaluation status must be not_run, succeeded or failed.")
+        if self.post_event_re_evaluation_status == "failed" and (
+            not self.post_event_re_evaluation_failure_type
+            or self.post_event_re_evaluation_failure_message is None
+        ):
+            raise ValueError("Failed post-event re-evaluation requires failure type and message evidence.")
+        for revision in (self.pre_event_revision, self.post_event_revision):
+            if revision is not None and (
+                isinstance(revision, bool) or not isinstance(revision, int) or revision < 0
+            ):
+                raise ValueError("Event execution revisions must be non-negative integers when supplied.")
+        object.__setattr__(self, "event_id", self.event_id.strip())
+        object.__setattr__(self, "event_type", self.event_type.strip())
+        object.__setattr__(self, "priority", int(self.priority))
+        object.__setattr__(self, "description", str(self.description))
+        object.__setattr__(self, "time", scheduled)
+        object.__setattr__(self, "scheduled_time", scheduled)
+        object.__setattr__(self, "dispatch_time", dispatched)
+        object.__setattr__(self, "metadata", _freeze_event_value(self.metadata))
+        object.__setattr__(self, "result", _freeze_event_value(self.result))
 
 
 # ======================================================================
@@ -391,6 +473,7 @@ class EventManager:
             str,
             Any,
         ] | None = None,
+        revision_reader: Callable[[], int | None] | None = None,
     ) -> SimulationEvent:
         """
         Register a simulation event.
@@ -421,6 +504,7 @@ class EventManager:
                 if metadata is None
                 else dict(metadata)
             ),
+            revision_reader=revision_reader,
         )
 
         self._events[
@@ -446,6 +530,7 @@ class EventManager:
             str,
             Any,
         ] | None = None,
+        revision_reader: Callable[[], int | None] | None = None,
     ) -> SimulationEvent:
         """
         Register an event using the legacy method name.
@@ -467,6 +552,7 @@ class EventManager:
             description=description,
             priority=priority,
             metadata=metadata,
+            revision_reader=revision_reader,
         )
 
     # ==================================================================
@@ -562,7 +648,8 @@ class EventManager:
 
                 execution = (
                     self._execute_event(
-                        event
+                        event,
+                        dispatch_time=current_time,
                     )
                 )
 
@@ -648,7 +735,8 @@ class EventManager:
 
             execution = (
                 self._execute_event(
-                    event
+                    event,
+                    dispatch_time=end,
                 )
             )
 
@@ -735,38 +823,125 @@ class EventManager:
     # INTERNAL EXECUTION
     # ==================================================================
 
+    @staticmethod
+    def _read_revision(event: SimulationEvent) -> int | None:
+        if event.revision_reader is None:
+            return None
+        try:
+            value = event.revision_reader()
+        except Exception:
+            return None
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return value
+
+    def retry(self, event_id: str) -> SimulationEvent:
+        """Explicitly re-arm a failed event without deleting its failure history."""
+        event = self._get_event(event_id)
+        latest = next(
+            (item for item in reversed(self._history) if item.event_id == event.event_id),
+            None,
+        )
+        if not event.triggered:
+            raise EventError(f"Event '{event.event_id}' is already pending and does not require retry().")
+        if latest is None or latest.status != "failed":
+            raise EventError(
+                f"Event '{event.event_id}' can only be retried after a recorded failed attempt."
+            )
+        event.triggered = False
+        return event
+
+    def annotate_post_event_re_evaluation(
+        self,
+        executions: tuple[EventExecution, ...],
+        *,
+        succeeded: bool,
+        failure: Exception | None = None,
+    ) -> tuple[EventExecution, ...]:
+        """Attach the same-time post-event algebraic re-evaluation outcome."""
+        status = "succeeded" if succeeded else "failed"
+        failure_type = None if failure is None else type(failure).__name__
+        failure_message = None if failure is None else str(failure)
+        updated_items: list[EventExecution] = []
+        for execution in executions:
+            updated = replace(
+                execution,
+                post_event_re_evaluation_status=status,
+                post_event_re_evaluation_failure_type=failure_type,
+                post_event_re_evaluation_failure_message=failure_message,
+            )
+            history_index = next(
+                (
+                    index
+                    for index in range(len(self._history) - 1, -1, -1)
+                    if self._history[index] is execution
+                ),
+                None,
+            )
+            if history_index is None:
+                raise EventError(
+                    f"Event '{execution.event_id}' is not present in this EventManager history."
+                )
+            self._history[history_index] = updated
+            updated_items.append(updated)
+        return tuple(updated_items)
+
     def _execute_event(
         self,
         event: SimulationEvent,
+        *,
+        dispatch_time: float,
     ) -> EventExecution:
-        """
-        Execute one event and record the result.
-        """
-
+        """Execute one event, preserving both successful and failed evidence."""
+        pre_revision = self._read_revision(event)
         try:
-
             result = event.action()
-
         except Exception as exc:
-
+            post_revision = self._read_revision(event)
+            execution = EventExecution(
+                event_id=event.event_id,
+                event_type=event.event_type,
+                time=event.time,
+                scheduled_time=event.time,
+                dispatch_time=dispatch_time,
+                priority=event.priority,
+                description=event.description,
+                metadata=event.metadata,
+                status="failed",
+                failure_type=type(exc).__name__,
+                failure_message=str(exc),
+                pre_event_revision=pre_revision,
+                post_event_revision=post_revision,
+            )
+            # At-most-once by default. A retry requires the explicit retry()
+            # API, which leaves this failed attempt in immutable history.
+            event.triggered = True
+            self._history.append(execution)
             raise EventError(
-                f"Event '{event.event_id}' "
-                f"failed during execution."
+                f"Event '{event.event_id}' failed during execution at "
+                f"t={dispatch_time:.12g} s; failure evidence was recorded.",
+                execution=execution,
             ) from exc
 
+        post_revision = self._read_revision(event)
         event.triggered = True
-
         execution = EventExecution(
             event_id=event.event_id,
             event_type=event.event_type,
             time=event.time,
+            scheduled_time=event.time,
+            dispatch_time=dispatch_time,
+            priority=event.priority,
+            description=event.description,
+            metadata=event.metadata,
+            status="succeeded",
             result=result,
+            pre_event_revision=pre_revision,
+            post_event_revision=post_revision,
         )
-
-        self._history.append(
-            execution
-        )
-
+        self._history.append(execution)
         return execution
 
     def _get_event(

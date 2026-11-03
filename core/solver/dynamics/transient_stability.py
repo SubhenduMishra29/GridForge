@@ -14,7 +14,7 @@ from typing import Callable, Mapping
 
 import numpy as np
 
-from .dae_solver import DAESolution, DAESolver
+from .dae_solver import AlgebraicNetworkSolution, DAESolution, DAESolver
 from .events import EventExecution, EventManager
 
 
@@ -32,6 +32,7 @@ class TransientStabilityResult:
     electrical_powers: tuple[Mapping[str, tuple[float, float]], ...] = ()
     events: tuple[EventExecution, ...] = ()
     provenance: Mapping[str, object] = field(default_factory=dict)
+    algebraic_quality: tuple[AlgebraicNetworkSolution, ...] = ()
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float).copy()
@@ -46,10 +47,29 @@ class TransientStabilityResult:
             raise ValueError("Every recorded time sample must have one terminal-voltage output sample.")
         if len(self.electrical_powers) != time.shape[0]:
             raise ValueError("Every recorded time sample must have one electrical-power output sample.")
+        if self.algebraic_quality and len(self.algebraic_quality) != time.shape[0]:
+            raise ValueError("Every recorded time sample must have one algebraic quality record.")
+        if self.algebraic_quality:
+            if any(not isinstance(item, AlgebraicNetworkSolution) for item in self.algebraic_quality):
+                raise TypeError("Transient algebraic quality samples must be canonical AlgebraicNetworkSolution records.")
+            for sample_time, quality in zip(time, self.algebraic_quality):
+                if quality.simulation_time is None or not np.isclose(
+                    quality.simulation_time, sample_time, rtol=0.0, atol=1e-12
+                ):
+                    raise ValueError("Algebraic quality metadata must match its recorded simulation-time sample.")
         if not np.all(np.isfinite(time)) or not np.all(np.isfinite(states)):
             raise ValueError("Transient result contains non-finite time/state values.")
         if time.size and np.any(np.diff(time) <= 0.0):
             raise ValueError("Transient result time samples must be strictly increasing.")
+        if any(not isinstance(sample, Mapping) for sample in self.terminal_voltages):
+            raise TypeError("Transient terminal-voltage samples must be mappings.")
+        if any(not isinstance(sample, Mapping) for sample in self.electrical_powers):
+            raise TypeError("Transient electrical-power samples must be mappings.")
+        events = tuple(self.events)
+        if any(not isinstance(event, EventExecution) for event in events):
+            raise TypeError("Transient result events must contain canonical EventExecution records.")
+        if not isinstance(self.provenance, Mapping):
+            raise TypeError("Transient result provenance must be a mapping.")
         immutable_voltages = tuple(
             MappingProxyType({str(bus_id): complex(value) for bus_id, value in sample.items()})
             for sample in self.terminal_voltages
@@ -64,7 +84,8 @@ class TransientStabilityResult:
         object.__setattr__(self, "states", states)
         object.__setattr__(self, "terminal_voltages", immutable_voltages)
         object.__setattr__(self, "electrical_powers", immutable_powers)
-        object.__setattr__(self, "events", tuple(self.events))
+        object.__setattr__(self, "algebraic_quality", tuple(self.algebraic_quality))
+        object.__setattr__(self, "events", events)
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
     @property
@@ -95,6 +116,7 @@ class TransientStabilitySolver:
         end_time: float = 10.0,
         dt: float | None = None,
         event_manager: EventManager | None = None,
+        provenance: Mapping[str, object] | None = None,
     ) -> None:
         if not isinstance(dae_solver, DAESolver):
             raise TypeError("dae_solver must be DAESolver instance.")
@@ -103,6 +125,9 @@ class TransientStabilitySolver:
         self.end_time = float(end_time)
         self.dt = float(dt if dt is not None else getattr(dae_solver.integrator, "dt", 0.01))
         self.event_manager = event_manager or EventManager()
+        runtime_owner = getattr(dae_solver.network_solver, "__self__", None)
+        runtime_provenance = getattr(runtime_owner, "provenance", {})
+        self.provenance = dict(provenance if provenance is not None else runtime_provenance)
         if not all(math.isfinite(value) for value in (self.start_time, self.end_time, self.dt)):
             raise ValueError("start_time, end_time, and dt must be finite.")
         if self.start_time < 0.0:
@@ -147,13 +172,14 @@ class TransientStabilitySolver:
         states: list[np.ndarray] = []
         voltages: list[dict[str, complex]] = []
         powers: list[dict[str, tuple[float, float]]] = []
+        algebraic_quality: list[AlgebraicNetworkSolution] = []
         executions: list[EventExecution] = []
 
         if not (should_cancel is not None and should_cancel()):
             executions.extend(self._process_due_events())
             if record_initial:
                 initial = self.dae_solver.evaluate(self._state, self._time)
-                self._record(initial, times, states, voltages, powers)
+                self._record(initial, times, states, voltages, powers, algebraic_quality)
 
         while self._time < self.end_time - self.event_manager.tolerance:
             if should_cancel is not None and should_cancel():
@@ -195,10 +221,29 @@ class TransientStabilitySolver:
             self._time = float(solution.time)
 
             if event_boundary and next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-                executions.extend(self.event_manager.process_interval(previous_time, self._time))
-                solution = self.dae_solver.evaluate(self._state, self._time)
+                event_batch = self.event_manager.process_interval(previous_time, self._time)
+                try:
+                    solution = self.dae_solver.evaluate(self._state, self._time)
+                except Exception as exc:
+                    executions.extend(
+                        self.event_manager.annotate_post_event_re_evaluation(
+                            event_batch,
+                            succeeded=False,
+                            failure=exc,
+                        )
+                    )
+                    raise TransientStabilityError(
+                        f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                    ) from exc
+                if event_batch:
+                    executions.extend(
+                        self.event_manager.annotate_post_event_re_evaluation(
+                            event_batch,
+                            succeeded=True,
+                        )
+                    )
 
-            self._record(solution, times, states, voltages, powers)
+            self._record(solution, times, states, voltages, powers, algebraic_quality)
 
         cancelled = should_cancel is not None and should_cancel()
         if not cancelled and self._time < self.end_time - self.event_manager.tolerance:
@@ -207,12 +252,22 @@ class TransientStabilitySolver:
                 f"end_time={self.end_time:.12g} s."
             )
 
+        result_provenance = dict(self.provenance)
+        runtime_owner = getattr(self.dae_solver.network_solver, "__self__", None)
+        runtime_event_state = getattr(runtime_owner, "event_state", None)
+        if runtime_event_state is not None:
+            result_provenance["final_detached_network_revision"] = runtime_event_state.topology_revision
+            result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
+            result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
+
         return TransientStabilityResult(
             time=np.asarray(times, dtype=float),
             states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
             terminal_voltages=tuple(voltages),
             electrical_powers=tuple(powers),
             events=tuple(executions),
+            algebraic_quality=tuple(algebraic_quality),
+            provenance=result_provenance,
         )
 
     def step(self, dt: float | None = None) -> DAESolution:
@@ -238,8 +293,23 @@ class TransientStabilitySolver:
         self._state = solution.state.copy()
         self._time = float(solution.time)
         if next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-            self.event_manager.process_interval(previous_time, self._time)
-            solution = self.dae_solver.evaluate(self._state, self._time)
+            event_batch = self.event_manager.process_interval(previous_time, self._time)
+            try:
+                solution = self.dae_solver.evaluate(self._state, self._time)
+            except Exception as exc:
+                self.event_manager.annotate_post_event_re_evaluation(
+                    event_batch,
+                    succeeded=False,
+                    failure=exc,
+                )
+                raise TransientStabilityError(
+                    f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                ) from exc
+            if event_batch:
+                self.event_manager.annotate_post_event_re_evaluation(
+                    event_batch,
+                    succeeded=True,
+                )
         return solution
 
     def _process_due_events(self) -> tuple[EventExecution, ...]:
@@ -252,9 +322,23 @@ class TransientStabilitySolver:
         if self._state is None:
             return ()
         executions = self.event_manager.process(self._time)
-        if executions:
+        if not executions:
+            return ()
+        try:
             self.dae_solver.evaluate(self._state, self._time)
-        return executions
+        except Exception as exc:
+            failed = self.event_manager.annotate_post_event_re_evaluation(
+                executions,
+                succeeded=False,
+                failure=exc,
+            )
+            raise TransientStabilityError(
+                f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+            ) from exc
+        return self.event_manager.annotate_post_event_re_evaluation(
+            executions,
+            succeeded=True,
+        )
 
     def reset(self) -> None:
         self._state = None
@@ -268,11 +352,25 @@ class TransientStabilitySolver:
         states: list[np.ndarray],
         voltages: list[dict[str, complex]],
         powers: list[dict[str, tuple[float, float]]],
+        algebraic_quality: list[AlgebraicNetworkSolution],
     ) -> None:
         times.append(float(solution.time))
         states.append(np.asarray(solution.state, dtype=float).copy())
         voltages.append(dict(solution.terminal_voltages))
         powers.append(self._electrical_powers(solution.state, solution.terminal_voltages))
+        quality = solution.algebraic_quality
+        if quality is None:
+            quality = AlgebraicNetworkSolution(
+                bus_voltages=solution.terminal_voltages,
+                status="UNVERIFIED",
+                accepted=True,
+                quality_verified=False,
+                solver_name="legacy-DAESolution",
+                bus_ids=tuple(solution.terminal_voltages),
+                simulation_time=solution.time,
+                diagnostics=("DAESolution did not carry algebraic quality metadata.",),
+            )
+        algebraic_quality.append(quality)
 
     def _electrical_powers(
         self,
@@ -286,6 +384,9 @@ class TransientStabilitySolver:
             offset += machine.state_size
             voltage = voltages.get(str(machine.bus_id))
             if voltage is None:
+                continue
+            if not self.dae_solver.is_machine_connected(machine.machine_id):
+                result[str(machine.machine_id)] = (0.0, 0.0)
                 continue
             output = machine.electrical_output(machine_state, voltage)
             result[str(machine.machine_id)] = (float(output.active_power), float(output.reactive_power))

@@ -20078,3 +20078,464 @@ Status:
     IMPLEMENTED IN SOURCE. RUNTIME ACCEPTANCE REMAINS PENDING.
 
 ======================================================================
+
+======================================================================
+GF-TS-NORTON-955 — DETACHED MACHINE CONNECTION PATH AND SOURCE GATING
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    TransientNetworkSolver assembled a Norton admittance and internal-voltage
+    source for every registered dynamic machine, regardless of detached
+    breaker/equipment state. A generator could therefore remain electrically
+    injecting after its trip was recorded. The detached transient state did
+    not carry a machine-to-breaker-controlled connection mapping.
+
+Correction:
+    - Extend DynamicMachineModelAssociation with a persisted, ordered
+      connection_path of canonical switching-equipment IDs and an explicit
+      disconnected_rotor_policy.
+    - Keep legacy association records loadable when connection_path is
+      absent, but reject transient preparation for any machine without an
+      explicit path. No display-name, proximity or guessed-ID fallback.
+    - In Application StudyPreparationService, validate each ordered path
+      against canonical equipment terminal-to-Bus attachments:
+        * every path item resolves by canonical registry identity;
+        * each item is a breaker, switch, disconnector or fuse;
+        * every item has exactly two distinct Bus attachments;
+        * the ordered path is continuous from the machine's canonical
+          terminal Bus and contains no repeated switch or Bus loop.
+    - Capture initial switch conduction and operability separately from the
+      detached ProjectSnapshot Network. Failed, blown or unavailable devices
+      cannot be restored by a simulated close event.
+    - Carry machine paths, rotor policy, switch states, project/activation
+      identity, source revision and topology revision in the immutable
+      DetachedTransientNetworkState.
+    - Require an exact machine-to-path identity match when constructing the
+      transient network solver. Missing or unexpected mappings fail closed.
+    - Capture every fully Bus-attached canonical switching device with
+      its exact two-Bus connection, conduction state and availability state.
+      This includes closed ideal-switch connections outside machine paths.
+    - Contract closed and available ideal-switch Bus pairs into common
+      numerical nodes for each detached transient solve; an open switch
+      separates those Bus nodes. This keeps the transient Y-bus aligned with
+      detached switching state instead of treating a closed breaker as a
+      display-only/topology-only edge.
+    - Gate both Norton admittance and internal-voltage source assembly on
+      every switching device in the machine's captured path being conducting
+      and available.
+    - When opening a machine breaker leaves its terminal Bus electrically
+      isolated with a zero Y-bus row/column, assign only that floating node a
+      zero-voltage numerical reference. No shunt is added to the energized
+      network and the isolated node does not couple into other Bus equations.
+    - Preserve machine differential state layout across trips. The explicit
+      rotor policy is continue_with_zero_electrical_power: disconnected
+      machines retain their rotor angle/speed states and continue the swing
+      equation with Pe=0 while the configured mechanical input remains
+      applied. This is distinct from electrical Norton-source participation.
+    - Feed the same detached path state into DAESolver differential
+      evaluation. When the network callback is the bound
+      TransientNetworkRuntime.solve method, DAESolver uses the runtime's
+      is_machine_connected callback; an explicit callback remains available
+      for adapted composition roots.
+    - Re-evaluate the DAE after a scheduled event through the existing
+      TransientStabilitySolver event boundary, so the post-event algebraic
+      solve and rotor Pe calculation use the updated detached path state.
+    - Record machine IDs, breaker/path IDs, connected-before/after values,
+      switch transition, source topology revision and resulting detached
+      network revision in EventExecution result payloads.
+    - Include machine connection paths, rotor policy, initial switch state,
+      switch availability, project/activation/source revision and final
+      detached network revision in transient result provenance.
+    - Update transient electrical-power samples to report zero P/Q for a
+      disconnected machine rather than calculating terminal output from an
+      unrelated bus voltage.
+    - Update Modification_Register.txt.
+
+Boundary:
+    All switching mutations occur in TransientEventState, a study-owned
+    detached copy. Live ProjectSnapshot equipment and Network topology are
+    not mutated. EventManager remains the only event scheduler. Core owns
+    machine model association and detached network semantics; Application
+    validates project/topology scope and captures initial switch state;
+    Solver consumes detached connection state.
+
+Coordination:
+    - #954 remains the prerequisite for dispatching events at the current
+      simulation-time boundary when record_initial=False.
+    - #841 post-trip dynamic reinitialization remains separate; this change
+      does not alter machine differential-state continuity or introduce a
+      reinitialization algorithm.
+    - #950 simulated protection-to-breaker coupling remains separate; this
+      change consumes detached breaker events, not protection decisions.
+
+Verification:
+    - Source-level inspection of association serialization, canonical
+      topology attachments, Network registry lookup, switching operability,
+      detached event-state mutation, Norton assembly, DAE rotor derivatives,
+      event result payloads and transient result provenance.
+    - No tests or CI were run, per project instruction.
+    - Runtime breaker open/close, failed-device close rejection, rotor
+      continuity and post-event algebraic re-solve acceptance remain pending.
+
+Status:
+    EXPLICIT MACHINE PATH, DETACHED NORTON GATING, ROTOR POLICY AND EVENT /
+    RESULT PROVENANCE IMPLEMENTED IN SOURCE.
+    RUNTIME ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
+
+
+======================================================================
+GF-TS-NORTON-955A — DETACHED EVENT / DAE CONNECTIVITY PARITY
+======================================================================
+
+Finding:
+    TransientEventState.is_machine_connected() checked only the detached
+    breaker position, while DetachedTransientNetworkState.is_machine_connected()
+    also required the captured switching device to be available. A device
+    captured as failed, blown or out of service but initially closed could
+    therefore be excluded from Norton injection yet still contribute
+    electrical power to the rotor swing equation. Event transition records
+    could also report the wrong connected-before/after state.
+
+Correction:
+    - Apply the same fail-closed predicate in TransientEventState: every
+      switching device in the machine's explicit path must be closed and
+      explicitly available in the captured snapshot.
+    - A missing availability entry is treated as unavailable, matching the
+      detached network solver's connectivity contract.
+    - Event transition records and DAESolver's inferred connectivity callback
+      now consume the same effective machine connection state as Norton
+      source assembly.
+
+Verification:
+    - Source-level inspection of both detached connectivity predicates and
+      their runtime consumers.
+    - No tests or CI were run, per project instruction. Runtime verification
+      remains pending.
+
+======================================================================
+
+======================================================================
+GF-TS-EVENT-960 — IMMUTABLE EVENT DISPATCH AND TRANSITION EVIDENCE
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    EventExecution previously stored only event identity/type, scheduled
+    timestamp and an untyped action result. EventManager invoked actions
+    without recording actual simulation dispatch time, omitted priority,
+    description and metadata, and discarded failed-action evidence by raising
+    EventError before appending history. Event state mutations did not expose
+    typed before/after revision evidence. The transient solver did not record
+    whether the same-time post-event algebraic re-evaluation succeeded.
+
+Correction:
+    - Preserve the legacy EventExecution.time field as scheduled time and add
+      explicit scheduled_time and dispatch_time fields.
+    - EventManager.process() records its current simulation time as dispatch
+      time; process_interval() records the actual interval end reached by the
+      integrator. Scheduled and dispatch times are never conflated.
+    - Capture event priority, description and a recursively detached,
+      immutable metadata/action-result representation.
+    - Add explicit succeeded/failed execution status, failure type/message,
+      pre-event/post-event revision, and post-event algebraic
+      re-evaluation status/failure evidence.
+    - Add an optional revision_reader to SimulationEvent/EventManager
+      registration. Transient event factories bind it to the authoritative
+      TransientEventState revision.
+    - Return structured transition records from breaker open/close,
+      equipment-state and fault apply/clear actions. Records include previous
+      and resulting state, machine/path transitions where applicable, source
+      topology revision and pre/post detached-network revisions.
+    - Record failed action evidence in EventManager.history before raising
+      EventError. EventError exposes the immutable failed EventExecution.
+    - Use at-most-once failure semantics by default: a failed event remains
+      triggered and is not silently retried. EventManager.retry(event_id)
+      explicitly re-arms only a recorded failed attempt and preserves the
+      previous attempt in history.
+    - Preserve deterministic ordering by scheduled time, priority and event
+      ID for simultaneous events.
+    - After successful event dispatch, annotate each EventExecution with the
+      same-time post-event algebraic re-evaluation outcome. If re-evaluation
+      fails, the event remains recorded as successfully dispatched while its
+      re-evaluation status is failed, and the transient solver fails safely.
+    - Update Modification_Register.txt.
+
+Boundary:
+    EventManager remains the sole scheduler and TransientEventState remains
+    the sole detached transient mutation owner. The solver supplies actual
+    simulation dispatch time and records algebraic re-evaluation outcome.
+    No duplicate scheduler, live-project mutation or automatic event retry
+    mechanism is introduced.
+
+Coordination:
+    - #954 remains responsible for current-time due-event dispatch when
+      record_initial=False.
+    - #958 must update transient result archive encoding/decoding to preserve
+      the expanded immutable EventExecution fields and nested metadata.
+    - #959 can consume the enriched event timeline/read model.
+    - #955 supplies the machine path and switch transition payloads retained
+      by this event record.
+
+Verification:
+    - Source-level inspection of EventManager.add/add_event, process(),
+      process_interval(), _execute_event(), explicit retry, revision capture,
+      TransientEventState mutation results and TransientStabilitySolver
+      post-event algebraic re-evaluation paths.
+    - No tests or CI were run, per project instruction.
+    - Runtime dispatch-time tolerance, failure history, explicit retry,
+      immutable metadata and post-event re-evaluation acceptance remain
+      pending.
+    - Result archive round-trip remains pending under #958.
+
+Status:
+    TYPED EVENT DISPATCH / FAILURE / TRANSITION / RE-EVALUATION EVIDENCE
+    IMPLEMENTED IN SOURCE. RUNTIME AND ARCHIVE ACCEPTANCE REMAIN PENDING.
+
+======================================================================
+
+======================================================================
+GF-STUDY-ARCHIVE-958 — TYPED TRANSIENT RESULT RECONSTRUCTION
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    StudyResultArchive encoded TransientStabilityResult as a generic
+    dataclass tag because the canonical transient result was absent from the
+    solver-result allowlist. On reload, schema-v1 generic dataclasses became
+    detached dictionaries rather than the canonical typed result. Nested
+    EventExecution records had the same reconstruction gap.
+
+Correction:
+    - Advance new archive writes to schema version 2.
+    - Keep schema-v1 records readable under their historical semantics:
+      generic dataclass tags still decode to detached
+      {"$dataclass": qualified_name, "fields": ...} mappings. No attempt is
+      made to reinterpret old v1 generic payloads as typed results.
+    - Explicitly allowlist TransientStabilityResult as a solver result and
+      EventExecution as a nested event-execution record.
+    - Encode EventExecution using its dedicated event_execution tag and
+      reconstruct only the exact allowlisted class. Unknown classes, wrong
+      tags, missing fields and extra fields fail closed.
+    - Encode NumPy arrays in schema v2 with explicit dtype, shape and data.
+      This preserves zero-row state arrays (for example shape (0, n)) as well
+      as normal time/state arrays without losing dimensions.
+    - Reconstruct TransientStabilityResult through its canonical constructor,
+      restoring finite/dimension validation, read-only NumPy arrays,
+      immutable terminal-voltage/electrical-power mappings and provenance.
+    - Reconstruct every nested EventExecution through its canonical
+      constructor, restoring immutable metadata/action results and all
+      scheduled/dispatch timestamps, status, failure, revision and
+      post-event re-evaluation fields.
+    - Reject generic dataclass fallback for known transient result/event
+      classes in schema v2. No archive-supplied module import or dynamic type
+      loading is used.
+    - Add focused tests for typed result/event round-trip, read-only arrays,
+      immutable event evidence, malformed event/result fields, empty-array
+      shape preservation and schema-v1 legacy mapping semantics.
+    - Update Modification_Register.txt.
+
+Boundary:
+    StudyResultArchive remains the single durable Study Result archive.
+    Study execution results remain outside the canonical .gridforge project
+    configuration package. The explicit class allowlists remain the only
+    reconstruction authority; unknown runtime classes are never imported.
+
+Coordination:
+    - #960 supplies the expanded EventExecution contract reconstructed here.
+    - #955 supplies machine connection-path and switch-transition provenance
+      carried inside transient results/events.
+    - #959 may now consume a canonical typed transient result and its event
+      timeline.
+    - Schema-v1 transient generic dataclass records remain readable as
+      mappings; only schema-v2 records provide canonical typed reconstruction.
+
+Verification:
+    - Source-level inspection of archive schema gate, explicit result/event
+      allowlists, recursive encoder/decoder, NumPy shape handling,
+      TransientStabilityResult validation and EventExecution reconstruction.
+    - Focused round-trip and malformed-payload tests were added as requested.
+    - No tests or CI were run, per project instruction.
+    - Runtime archive v1/v2 loading, checksum validation and typed
+      reconstruction acceptance remain pending.
+
+Status:
+    SCHEMA-V2 TYPED TRANSIENT RESULT AND EVENT RECONSTRUCTION IMPLEMENTED.
+    SCHEMA-V1 LEGACY READ SEMANTICS PRESERVED.
+    RUNTIME / TEST ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
+======================================================================
+GF-TS-DAE-965 — TRANSIENT ALGEBRAIC SOLUTION QUALITY CONTRACT
+======================================================================
+
+Finding:
+    The transient DAE accepted finite bus voltages without evidence that
+    they satisfied the exact assembled algebraic network equations.
+    Singular-matrix exceptions were the only matrix-quality diagnostic;
+    no residual, condition estimate, or per-sample quality record was
+    propagated to transient results.
+
+Correction:
+    - Add immutable AlgebraicNetworkSolution with bus voltages, status,
+      acceptance flag, quality-verification flag, solver identity,
+      absolute infinity-norm residual, normalized backward error,
+      acceptance tolerance, condition estimate/limit, reduced Bus
+      identities, topology revision, simulation time, connected machine
+      source IDs, active-fault type/Bus context and project/activation/source provenance.
+    - Compute the residual from the exact contracted matrix and source
+      vector used by numpy.linalg.solve:
+          r = YV - I
+      and normalize it using the normwise backward-error denominator:
+          ||Y||_inf * ||V||_inf + ||I||_inf
+    - Default normalized residual tolerance to 1e-10 and condition-number
+      limit to 1e12; both are configurable on TransientNetworkSolver.
+    - Distinguish SINGULAR, ILL_CONDITIONED, RESIDUAL_REJECTED, NON_FINITE
+      and ACCEPTED outcomes. The DAE rejects every non-accepted typed result.
+    - Preserve generic Mapping callbacks for compatibility, but label their
+      quality UNVERIFIED rather than implying a residual check occurred.
+    - Carry algebraic quality through DAESolution and persist one quality
+      record alongside each recorded transient sample, including the
+      post-event algebraic re-evaluation. Enforce exact time-sample alignment.
+    - Preserve #955 detached machine-path gating, switch contraction,
+      disconnected rotor policy and study provenance in the quality record.
+
+Boundaries and coordination:
+    - This adds solution-quality verification; it does not replace the
+      direct linear solver with Newton iteration.
+    - It does not implement post-switching island partitioning, which
+      remains owned by #957. A singular global matrix is reported and
+      rejected with the reduced Bus/source/topology context; no reference
+      source is fabricated.
+    - Legacy generic callbacks remain callable but are explicitly marked
+      UNVERIFIED. Production transient network solving returns verified
+      quality metadata.
+    - No live project state, telemetry or device acknowledgement is added.
+
+Verification:
+    - Source-level inspection only; no tests/CI or numerical benchmarks
+      were run, per project instruction.
+    - Runtime acceptance remains pending for a well-conditioned reference
+      case, a deliberately inaccurate finite solution, singular versus
+      ill-conditioned classification, and event-boundary re-solve metadata.
+
+Status:
+    TYPED ALGEBRAIC QUALITY CONTRACT AND TRANSIENT RESULT PROPAGATION
+    IMPLEMENTED IN SOURCE; RUNTIME NUMERICAL ACCEPTANCE REMAINS PENDING.
+
+======================================================================
+
+
+======================================================================
+GF-TS-QUALITY-998A — TYPED TRANSIENT ALGEBRAIC QUALITY ARCHIVE
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    Schema-v2 transient archives reconstructed TransientStabilityResult and
+    EventExecution records but decoded nested AlgebraicNetworkSolution
+    values as generic dataclass mappings. This prevented canonical typed
+    restoration of per-sample algebraic quality evidence.
+
+Correction:
+    - Add AlgebraicNetworkSolution to the explicit archive reconstruction
+      allowlist using a dedicated algebraic_network_solution tag.
+    - Require schema-v2 for the dedicated tag and require the exact canonical
+      class identity, archive tag and complete dataclass field set.
+    - Reconstruct only through AlgebraicNetworkSolution's canonical
+      constructor, retaining its immutable voltage/provenance mappings and
+      status, residual, tolerance, conditioning, time, topology, source and
+      fault-context invariants.
+    - Require every schema-v2 TransientStabilityResult algebraic_quality
+      entry to reconstruct as an allowlisted AlgebraicNetworkSolution.
+    - Reject generic schema-v2 dataclass encoding for the known algebraic
+      solution class. Preserve schema-v1 generic mapping semantics; no
+      legacy quality records are synthesized.
+    - No UI or Application read-model behavior is changed in this archive
+      correction.
+
+Boundary:
+    StudyResultArchive remains the only persistence reconstruction authority.
+    It imports only the explicit Core type and never imports archive-provided
+    module names. Core remains independent of Application and UI.
+
+Verification:
+    - Source-level inspection of encoder tag selection, schema-v2 type/tag
+      agreement, exact field validation, constructor reconstruction and
+      nested TransientStabilityResult quality type enforcement.
+    - No tests or CI were run, per project instruction.
+    - Full archive round-trip and malformed-payload runtime acceptance remain
+      pending.
+
+Status:
+    SCHEMA-V2 ALGEBRAIC QUALITY TYPE RECONSTRUCTION IMPLEMENTED IN SOURCE.
+    APPLICATION READ MODEL AND UI PRESENTATION REMAIN OPEN UNDER #998.
+
+======================================================================
+
+
+
+======================================================================
+GF-TS-QUALITY-998B — TRANSIENT ALGEBRAIC QUALITY READ MODEL AND VIEW
+======================================================================
+
+Date:
+    2026-11-02
+
+Finding:
+    The live and archived transient presentation path exposed dynamic states,
+    terminal voltages, electrical powers, event history and general solver
+    provenance, but omitted the per-recorded-sample AlgebraicNetworkSolution
+    evidence introduced by GF-TS-DAE-965.
+
+Correction:
+    - Add an immutable Application TransientAlgebraicQualityReadModel with
+      solver status, acceptance/verification flags, solver identity, residual
+      and tolerance, conditioning estimate and limit, Bus voltages and IDs,
+      topology revision, source IDs, active-fault context, study provenance
+      and diagnostics.
+    - Preserve the solver-reported sample time separately from the sample
+      time assigned by the canonical transient time vector.
+    - Adapt typed live/archive records and the historical schema-v1 generic
+      dataclass mapping shape without mutating or retyping archived source
+      records. Missing legacy quality remains unavailable; no record is
+      synthesized.
+    - Require any supplied quality sequence to contain exactly one record
+      per source sample and validate its original index/time alignment.
+    - Extend the transient result view with per-sample quality selection and
+      explicit verified, unverified and rejected status presentation.
+    - Display solver identity, residual/tolerance, conditioning, Bus/source
+      identities, topology revision, active fault, voltage context,
+      provenance and diagnostics.
+    - Update Modification_Register.txt.
+
+Boundary:
+    Core remains the owner of AlgebraicNetworkSolution truth. Application
+    maps it into a UI-neutral immutable read model. UI renders that read
+    model only; it does not recalculate, infer or upgrade solver quality.
+    Live and archived results use the same presentation contract.
+
+Verification:
+    - Source-level inspection of typed and schema-v1 mapping adaptation,
+      one-to-one sample alignment, DTO immutability and UI rendering paths.
+    - No tests or CI were run, per project instruction.
+    - Runtime live/archive presentation and malformed legacy payload
+      acceptance remain pending.
+
+Status:
+    APPLICATION QUALITY READ MODEL AND PER-SAMPLE PRESENTATION IMPLEMENTED
+    IN SOURCE AND RECONCILED WITH CURRENT MAIN; RUNTIME ACCEPTANCE PENDING.
+
+======================================================================

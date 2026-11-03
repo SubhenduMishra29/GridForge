@@ -22,6 +22,7 @@ from core.analysis.power_flow_preparation import (
 )
 from core.analysis.transient_fault import TransientFault
 from core.numerical.ybus import YBusBuilder
+from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
 from core.solver.power_flow.result import PowerFlowResult
@@ -36,7 +37,14 @@ class DetachedTransientNetworkState:
     transformers: tuple[PreparedTransformer, ...] = ()
     shunts: tuple[PreparedShunt, ...] = ()
     breaker_states: Mapping[str, bool] = MappingProxyType({})
+    switch_available_states: Mapping[str, bool] = MappingProxyType({})
+    switch_connections: Mapping[str, tuple[str, str]] = MappingProxyType({})
     equipment_states: Mapping[str, bool] = MappingProxyType({})
+    machine_connection_paths: Mapping[str, tuple[str, ...]] = MappingProxyType({})
+    machine_rotor_policies: Mapping[str, str] = MappingProxyType({})
+    project_id: str | None = None
+    activation_generation: int | None = None
+    source_revision: tuple[int, int, int, int] | None = None
     active_fault: object | None = None
     topology_revision: int | None = None
 
@@ -48,11 +56,87 @@ class DetachedTransientNetworkState:
         object.__setattr__(self, "branches", tuple(self.branches))
         object.__setattr__(self, "transformers", tuple(self.transformers))
         object.__setattr__(self, "shunts", tuple(self.shunts))
-        object.__setattr__(self, "breaker_states", MappingProxyType({str(k): bool(v) for k, v in self.breaker_states.items()}))
-        object.__setattr__(self, "equipment_states", MappingProxyType({str(k): bool(v) for k, v in self.equipment_states.items()}))
+        if any(type(value) is not bool for value in self.breaker_states.values()):
+            raise TypeError("Detached transient breaker states must be explicit bool values.")
+        if any(type(value) is not bool for value in self.switch_available_states.values()):
+            raise TypeError("Detached transient switch-availability states must be explicit bool values.")
+        breaker_states = {str(k): v for k, v in self.breaker_states.items()}
+        switch_available_states = {str(k): v for k, v in self.switch_available_states.items()}
+        switch_connections = {}
+        for switch_id, raw_buses in self.switch_connections.items():
+            if isinstance(raw_buses, (str, bytes)):
+                raise TypeError(f"Switch '{switch_id}' connection must contain two Bus IDs.")
+            buses = tuple(str(item).strip() for item in raw_buses)
+            if len(buses) != 2 or any(not item for item in buses) or buses[0] == buses[1]:
+                raise ValueError(f"Switch '{switch_id}' must connect exactly two distinct Bus IDs.")
+            if any(bus_id not in bus_ids for bus_id in buses):
+                raise ValueError(f"Switch '{switch_id}' references a Bus outside the detached transient snapshot.")
+            switch_connections[str(switch_id)] = buses
+        if set(switch_connections) != set(breaker_states) or set(switch_connections) != set(switch_available_states):
+            raise ValueError(
+                "Detached transient switch connections, conduction states and availability states "
+                "must cover exactly the same canonical switching-equipment identities."
+            )
+        equipment_states = {str(k): bool(v) for k, v in self.equipment_states.items()}
+        paths = {}
+        for machine_id, raw_path in self.machine_connection_paths.items():
+            key = str(machine_id).strip()
+            if isinstance(raw_path, (str, bytes)):
+                raise TypeError(f"Machine '{key}' connection path must be an ordered sequence of switch IDs.")
+            path = tuple(str(item).strip() for item in raw_path)
+            if not key or not path or any(not item for item in path):
+                raise ValueError(f"Machine '{key or machine_id}' requires a non-empty explicit switching path.")
+            if len(path) != len(set(path)):
+                raise ValueError(f"Machine '{key}' connection path contains duplicate switching equipment IDs.")
+            missing = tuple(item for item in path if item not in breaker_states)
+            unavailable_missing = tuple(item for item in path if item not in switch_available_states)
+            if missing or unavailable_missing:
+                raise ValueError(
+                    f"Machine '{key}' connection path has incomplete captured switch state; "
+                    f"missing_conduction={missing!r}, missing_availability={unavailable_missing!r}."
+                )
+            paths[key] = path
+        policies = {str(k): str(v) for k, v in self.machine_rotor_policies.items()}
+        if set(policies) != set(paths):
+            raise ValueError("Machine rotor-disconnection policies must cover exactly the machine connection-path identities.")
+        for machine_id, policy in policies.items():
+            if policy != "continue_with_zero_electrical_power":
+                raise ValueError(f"Machine '{machine_id}' has unsupported disconnected rotor policy {policy!r}.")
+        object.__setattr__(self, "breaker_states", MappingProxyType(breaker_states))
+        object.__setattr__(self, "switch_available_states", MappingProxyType(switch_available_states))
+        object.__setattr__(self, "switch_connections", MappingProxyType(switch_connections))
+        object.__setattr__(self, "equipment_states", MappingProxyType(equipment_states))
+        object.__setattr__(self, "machine_connection_paths", MappingProxyType(paths))
+        object.__setattr__(self, "machine_rotor_policies", MappingProxyType(policies))
+        if self.project_id is not None and (not isinstance(self.project_id, str) or not self.project_id.strip()):
+            raise ValueError("Detached transient project_id must be non-empty when supplied.")
+        if self.activation_generation is not None and (
+            isinstance(self.activation_generation, bool)
+            or not isinstance(self.activation_generation, int)
+            or self.activation_generation < 1
+        ):
+            raise ValueError("Detached transient activation_generation must be a positive integer.")
+        if self.source_revision is not None and (
+            len(self.source_revision) != 4
+            or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in self.source_revision)
+        ):
+            raise ValueError("Detached transient source_revision must contain four non-negative revision integers.")
+        if self.project_id is not None:
+            object.__setattr__(self, "project_id", self.project_id.strip())
+        if self.source_revision is not None:
+            object.__setattr__(self, "source_revision", tuple(self.source_revision))
 
     def is_element_conducting(self, element_id: str, default: bool = True) -> bool:
         return self.equipment_states.get(str(element_id), default)
+
+    def is_machine_connected(self, machine_id: str) -> bool:
+        key = str(machine_id)
+        try:
+            path = self.machine_connection_paths[key]
+        except KeyError as exc:
+            raise ValueError(f"Dynamic machine '{key}' has no validated detached connection path.") from exc
+        # Fail closed if a state key disappears from a detached event view.
+        return all(self.breaker_states.get(item, False) and self.switch_available_states.get(item, False) for item in path)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +163,42 @@ class PreparedTransientStability:
         object.__setattr__(self, "machines", tuple(self.machines))
         object.__setattr__(self, "mechanical_powers", MappingProxyType({str(k): float(v) for k, v in self.mechanical_powers.items()}))
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
+        if self.network.project_id != self.project_id:
+            raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
+        if self.network.activation_generation != self.activation_generation:
+            raise ValueError("Detached transient Network activation generation does not match PreparedTransientStability.")
+        if self.network.source_revision != self.source_revision:
+            raise ValueError("Detached transient Network source revision does not match PreparedTransientStability.")
+        if self.network.topology_revision != self.source_revision[1]:
+            raise ValueError("Detached transient Network topology revision does not match its source revision.")
+        machine_ids = tuple(machine.machine_id for machine in self.machines)
+        if len(machine_ids) != len(set(machine_ids)):
+            raise ValueError("Prepared transient machine identities must be unique.")
+        if set(machine_ids) != set(self.network.machine_connection_paths):
+            raise ValueError(
+                "Prepared transient machine identities must match the validated detached connection-path identities."
+            )
+        if set(machine_ids) != set(self.mechanical_powers):
+            raise ValueError("Prepared transient mechanical-power identities must match its machine identities.")
+
+    @property
+    def provenance(self) -> Mapping[str, object]:
+        return MappingProxyType({
+            "project_id": self.project_id,
+            "activation_generation": self.activation_generation,
+            "source_revision": self.source_revision,
+            "topology_revision": self.network.topology_revision,
+            "machine_connections": {
+                machine_id: {
+                    "switching_path": self.network.machine_connection_paths[machine_id],
+                    "disconnected_rotor_policy": self.network.machine_rotor_policies[machine_id],
+                }
+                for machine_id in sorted(self.network.machine_connection_paths)
+            },
+            "initial_switch_states": dict(self.network.breaker_states),
+            "switch_availability_states": dict(self.network.switch_available_states),
+            "switch_connections": dict(self.network.switch_connections),
+        })
 
     @classmethod
     def from_power_flow(
@@ -90,6 +210,11 @@ class PreparedTransientStability:
         project_id: str,
         activation_generation: int,
         source_revision: tuple[int, int, int, int],
+        machine_connection_paths: Mapping[str, tuple[str, ...]],
+        machine_rotor_policies: Mapping[str, str],
+        switch_states: Mapping[str, bool],
+        switch_available_states: Mapping[str, bool],
+        switch_connections: Mapping[str, tuple[str, str]],
     ) -> "PreparedTransientStability":
         if not isinstance(prepared_power_flow, PreparedPowerFlow):
             raise TypeError("prepared_power_flow must be PreparedPowerFlow.")
@@ -124,8 +249,38 @@ class PreparedTransientStability:
         if any(value <= 0.0 for value in power_flow_result.voltage_magnitudes):
             raise ValueError("Power Flow voltage magnitudes must be positive for transient initialization.")
 
+        associations = dynamic_models.all()
+        expected_machine_ids = {association.machine_id for association in associations}
+        if set(machine_connection_paths) != expected_machine_ids:
+            raise ValueError(
+                "Detached machine connection paths must cover exactly the dynamic-model association identities."
+            )
+        if set(machine_rotor_policies) != expected_machine_ids:
+            raise ValueError(
+                "Disconnected rotor policies must cover exactly the dynamic-model association identities."
+            )
+        expected_switch_ids = {
+            switch_id
+            for path in machine_connection_paths.values()
+            for switch_id in path
+        }
+        missing_switch_ids = expected_switch_ids - set(switch_states)
+        if missing_switch_ids:
+            raise ValueError(
+                "Captured switch states are missing machine-path targets: "
+                f"{sorted(missing_switch_ids)!r}."
+            )
+        if any(type(value) is not bool for value in switch_states.values()):
+            raise TypeError("Captured detached switch states must be explicit bool values.")
+        if set(switch_available_states) != set(switch_states):
+            raise ValueError("Switch conduction and availability states must cover identical canonical switch identities.")
+        if any(type(value) is not bool for value in switch_available_states.values()):
+            raise TypeError("Captured detached switch-availability states must be explicit bool values.")
+        if set(switch_connections) != set(switch_states):
+            raise ValueError("Switch Bus connections, conduction states and availability states must have identical identities.")
+
         definitions: list[DynamicMachineModelDefinition] = []
-        for association in dynamic_models.all():
+        for association in associations:
             definitions.append(
                 DynamicMachineModelDefinition(
                     machine_id=association.machine_id,
@@ -164,7 +319,16 @@ class PreparedTransientStability:
             branches=prepared_power_flow.branches,
             transformers=prepared_power_flow.transformers,
             shunts=prepared_power_flow.shunts,
+            breaker_states=switch_states,
+            switch_available_states=switch_available_states,
+            switch_connections=switch_connections,
+            machine_connection_paths=machine_connection_paths,
+            machine_rotor_policies=machine_rotor_policies,
+            project_id=project_id,
+            activation_generation=activation_generation,
+            source_revision=source_revision,
             equipment_states={
+
                 element.branch_id: bool(element.in_service)
                 for element in (*prepared_power_flow.branches, *prepared_power_flow.transformers)
             } | {
@@ -188,60 +352,272 @@ class _PreparedTransientPassiveView:
 class TransientNetworkSolver:
     """Solve detached passive network plus classical-machine Norton injections."""
 
-    def __init__(self, network_state: DetachedTransientNetworkState, machine_system: MultiMachineSystem) -> None:
+    def __init__(
+        self,
+        network_state: DetachedTransientNetworkState,
+        machine_system: MultiMachineSystem,
+        *,
+        residual_tolerance: float = 1e-10,
+        condition_limit: float = 1e12,
+    ) -> None:
         if not isinstance(network_state, DetachedTransientNetworkState):
             raise TypeError("network_state must be DetachedTransientNetworkState.")
         if not isinstance(machine_system, MultiMachineSystem):
             raise TypeError("machine_system must be MultiMachineSystem.")
+        machine_ids = tuple(machine.machine_id for machine in machine_system.machines)
+        if len(machine_ids) != len(set(machine_ids)):
+            raise ValueError("Transient network solver received duplicate dynamic machine identities.")
+        if set(machine_ids) != set(network_state.machine_connection_paths):
+            missing = sorted(set(machine_ids) - set(network_state.machine_connection_paths))
+            unexpected = sorted(set(network_state.machine_connection_paths) - set(machine_ids))
+            raise ValueError(
+                "Transient Norton-source gating requires exactly one validated detached connection path "
+                f"per machine; missing={missing!r}, unexpected={unexpected!r}."
+            )
+        if not np.isfinite(residual_tolerance) or residual_tolerance <= 0.0:
+            raise ValueError("residual_tolerance must be finite and positive.")
+        if not np.isfinite(condition_limit) or condition_limit <= 1.0:
+            raise ValueError("condition_limit must be finite and greater than one.")
         self.network_state = network_state
         self.machine_system = machine_system
+        self.residual_tolerance = float(residual_tolerance)
+        self.condition_limit = float(condition_limit)
 
-    def solve(self, state: np.ndarray, time: float) -> dict[str, complex]:
-        del time
+    def solve(self, state: np.ndarray, time: float) -> AlgebraicNetworkSolution:
+        evaluation_time = float(time)
+        if not np.isfinite(evaluation_time):
+            raise ValueError("Transient algebraic evaluation time must be finite.")
         dynamic_state = self.machine_system.validate_global_state(np.asarray(state, dtype=float))
         passive = YBusBuilder().build(_PreparedTransientPassiveView(self.network_state))
         matrix = passive.matrix.toarray().astype(np.complex128, copy=True)
-        source = np.zeros(len(passive.bus_ids), dtype=np.complex128)
+        matrix, bus_to_index, reduced_bus_ids = self._contract_closed_switches(
+            matrix,
+            passive.bus_ids,
+        )
+        source = np.zeros(len(reduced_bus_ids), dtype=np.complex128)
 
-        self._apply_active_fault(matrix, self.network_state.active_fault, passive.bus_ids)
+        self._apply_active_fault(matrix, self.network_state.active_fault, bus_to_index)
 
+        source_ids: list[str] = []
         offset = 0
         for machine in self.machine_system.machines:
             local_state = dynamic_state[offset:offset + machine.state_size]
             offset += machine.state_size
             bus_id = str(machine.bus_id)
-            if bus_id not in passive.bus_ids:
+            if bus_id not in bus_to_index:
                 raise ValueError(f"Machine '{machine.machine_id}' references unknown bus '{bus_id}'.")
-            index = passive.index_of(bus_id)
+            # Rotor state is always retained in the global differential state.
+            # The electrical Norton equivalent is included only while every
+            # explicitly captured breaker-controlled path component conducts.
+            if not self.network_state.is_machine_connected(machine.machine_id):
+                continue
+            index = bus_to_index[bus_id]
             delta = float(local_state[0])
             e_internal = float(machine.parameters.Efd) * np.exp(1j * delta)
             admittance = 1.0 / (1j * float(machine.parameters.Xd_prime))
             matrix[index, index] += admittance
             source[index] += admittance * e_internal
+            source_ids.append(str(machine.machine_id))
+
+        # A disconnected generator terminal can become an isolated Bus after
+        # its breaker opens. Such a node has no defined network voltage and
+        # contributes no coupling to any other node; pin only that zero row /
+        # column to 0 pu so it cannot make the remaining energized network
+        # singular. This is a numerical reference for a floating isolated
+        # node, not an electrical shunt or a live-project mutation.
+        for index in range(matrix.shape[0]):
+            if (
+                not np.any(np.abs(matrix[index, :]) > 1e-14)
+                and not np.any(np.abs(matrix[:, index]) > 1e-14)
+            ):
+                matrix[index, index] = 1.0 + 0.0j
+                source[index] = 0.0 + 0.0j
+
+        context = {
+            "topology_revision": self.network_state.topology_revision,
+            "simulation_time": evaluation_time,
+            "bus_ids": tuple(reduced_bus_ids),
+            "source_ids": tuple(source_ids),
+            "active_fault_id": getattr(self.network_state.active_fault, "fault_id", None),
+            "active_fault_bus_id": getattr(self.network_state.active_fault, "bus_id", None),
+            "active_fault_type": (
+                str(getattr(getattr(self.network_state.active_fault, "fault_type", None), "value",
+                            getattr(self.network_state.active_fault, "fault_type", None)))
+                if self.network_state.active_fault is not None else None
+            ),
+            "study_provenance": {
+                "project_id": self.network_state.project_id,
+                "activation_generation": self.network_state.activation_generation,
+                "source_revision": self.network_state.source_revision,
+            },
+        }
+        if not np.all(np.isfinite(matrix.real)) or not np.all(np.isfinite(matrix.imag)):
+            raise ValueError(
+                f"Transient algebraic matrix contains non-finite coefficients; "
+                f"buses={tuple(reduced_bus_ids)}, topology_revision={self.network_state.topology_revision}."
+            )
+        if not np.all(np.isfinite(source.real)) or not np.all(np.isfinite(source.imag)):
+            raise ValueError(
+                f"Transient algebraic source vector contains non-finite values; "
+                f"buses={tuple(reduced_bus_ids)}, topology_revision={self.network_state.topology_revision}."
+            )
+
+        try:
+            condition_number = float(np.linalg.cond(matrix, p=np.inf))
+        except np.linalg.LinAlgError as exc:
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="SINGULAR",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=float("inf"),
+                condition_limit=self.condition_limit,
+                diagnostics=(f"Condition estimation failed: {exc}",),
+                **context,
+            )
+        if not np.isfinite(condition_number):
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="SINGULAR",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=condition_number,
+                condition_limit=self.condition_limit,
+                diagnostics=("The assembled algebraic matrix is singular (infinite condition estimate).",),
+                **context,
+            )
 
         try:
             voltages = np.linalg.solve(matrix, source)
         except np.linalg.LinAlgError as exc:
-            raise ValueError("Transient algebraic network matrix is singular.") from exc
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="SINGULAR",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=condition_number,
+                condition_limit=self.condition_limit,
+                diagnostics=(f"Direct algebraic solve failed: {exc}",),
+                **context,
+            )
 
         if not np.all(np.isfinite(voltages.real)) or not np.all(np.isfinite(voltages.imag)):
-            raise ValueError("Transient algebraic network solution contains non-finite voltages.")
-        return {bus_id: complex(voltages[index]) for index, bus_id in enumerate(passive.bus_ids)}
+            return AlgebraicNetworkSolution(
+                bus_voltages={},
+                status="NON_FINITE",
+                accepted=False,
+                quality_verified=True,
+                solver_name="numpy.linalg.solve",
+                condition_number=condition_number,
+                condition_limit=self.condition_limit,
+                diagnostics=("Direct algebraic solve returned non-finite bus voltages.",),
+                **context,
+            )
+
+        residual = matrix @ voltages - source
+        absolute_residual = float(np.linalg.norm(residual, ord=np.inf))
+        matrix_norm = float(np.linalg.norm(matrix, ord=np.inf))
+        voltage_norm = float(np.linalg.norm(voltages, ord=np.inf))
+        source_norm = float(np.linalg.norm(source, ord=np.inf))
+        scale = matrix_norm * voltage_norm + source_norm
+        normalized_residual = (
+            absolute_residual / scale if scale > 0.0
+            else (0.0 if absolute_residual == 0.0 else float("inf"))
+        )
+
+        diagnostics: list[str] = []
+        status = "ACCEPTED"
+        if condition_number > self.condition_limit:
+            status = "ILL_CONDITIONED"
+            diagnostics.append(
+                f"Matrix condition estimate {condition_number:.6g} exceeds configured limit "
+                f"{self.condition_limit:.6g}."
+            )
+        if normalized_residual > self.residual_tolerance:
+            if status == "ACCEPTED":
+                status = "RESIDUAL_REJECTED"
+            diagnostics.append(
+                f"Normalized backward error {normalized_residual:.6g} exceeds tolerance "
+                f"{self.residual_tolerance:.6g}."
+            )
+
+        return AlgebraicNetworkSolution(
+            bus_voltages={
+                bus_id: complex(voltages[bus_to_index[bus_id]])
+                for bus_id in passive.bus_ids
+            },
+            status=status,
+            accepted=status == "ACCEPTED",
+            quality_verified=True,
+            solver_name="numpy.linalg.solve",
+            absolute_residual_norm=absolute_residual,
+            normalized_residual=normalized_residual,
+            residual_tolerance=self.residual_tolerance,
+            condition_number=condition_number,
+            condition_limit=self.condition_limit,
+            diagnostics=tuple(diagnostics),
+            **context,
+        )
+
+    def _contract_closed_switches(
+        self,
+        matrix: np.ndarray,
+        bus_ids: tuple[str, ...],
+    ) -> tuple[np.ndarray, dict[str, int], tuple[str, ...]]:
+        """Contract closed ideal-switch edges into common numerical Bus nodes."""
+        parent = {bus_id: bus_id for bus_id in bus_ids}
+
+        def find(bus_id: str) -> str:
+            while parent[bus_id] != bus_id:
+                parent[bus_id] = parent[parent[bus_id]]
+                bus_id = parent[bus_id]
+            return bus_id
+
+        for switch_id, (from_bus, to_bus) in self.network_state.switch_connections.items():
+            if not (
+                self.network_state.breaker_states[switch_id]
+                and self.network_state.switch_available_states[switch_id]
+            ):
+                continue
+            first = find(from_bus)
+            second = find(to_bus)
+            if first != second:
+                low, high = sorted((first, second))
+                parent[high] = low
+
+        roots = tuple(sorted({find(bus_id) for bus_id in bus_ids}))
+        root_index = {root: index for index, root in enumerate(roots)}
+        bus_to_index = {bus_id: root_index[find(bus_id)] for bus_id in bus_ids}
+        reduced = np.zeros((len(roots), len(roots)), dtype=np.complex128)
+        for row, row_bus in enumerate(bus_ids):
+            reduced_row = bus_to_index[row_bus]
+            for column, column_bus in enumerate(bus_ids):
+                reduced_column = bus_to_index[column_bus]
+                reduced[reduced_row, reduced_column] += matrix[row, column]
+        return reduced, bus_to_index, roots
 
     @staticmethod
-    def _apply_active_fault(matrix: np.ndarray, fault: object | None, bus_ids: tuple[str, ...]) -> None:
+    def _apply_active_fault(
+        matrix: np.ndarray,
+        fault: object | None,
+        bus_to_index: Mapping[str, int],
+    ) -> None:
         if fault is None:
             return
         if not isinstance(fault, TransientFault):
             raise TypeError("Detached transient active_fault must be TransientFault.")
-        if fault.bus_id not in bus_ids:
+        if fault.bus_id not in bus_to_index:
             raise ValueError(f"Transient fault references unknown bus '{fault.bus_id}'.")
         impedance = complex(fault.impedance)
         if abs(impedance) <= 1e-15:
             admittance = 1e12 + 0.0j
         else:
             admittance = 1.0 / impedance
-        matrix[bus_ids.index(fault.bus_id), bus_ids.index(fault.bus_id)] += admittance
+        index = bus_to_index[fault.bus_id]
+        matrix[index, index] += admittance
 
 
 __all__ = ["DetachedTransientNetworkState", "PreparedTransientStability", "TransientNetworkSolver"]

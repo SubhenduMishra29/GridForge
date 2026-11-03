@@ -741,6 +741,7 @@ class MultiMachineSystem:
             float
         ],
         *,
+        machine_connection_states: Mapping[str, bool] | None = None,
         time: float = 0.0,
     ) -> np.ndarray:
         """
@@ -750,6 +751,14 @@ class MultiMachineSystem:
         x = self.validate_global_state(
             state
         )
+        machine_ids = {machine.machine_id for machine in self._machines}
+        if machine_connection_states is not None:
+            if set(machine_connection_states) != machine_ids:
+                raise MultiMachineError(
+                    "Machine connection-state identities must match exactly the registered dynamic machines."
+                )
+            if any(type(value) is not bool for value in machine_connection_states.values()):
+                raise MultiMachineError("Machine connection states must be explicit bool values.")
 
         local_states = (
             self.unpack_states(
@@ -803,9 +812,9 @@ class MultiMachineSystem:
                         ]
                     ),
                     electrical_power=(
-                        electrical_outputs[
-                            machine_id
-                        ].active_power
+                        electrical_outputs[machine_id].active_power
+                        if machine_connection_states is None or machine_connection_states[machine_id]
+                        else 0.0
                     ),
                     time=time,
                 )
