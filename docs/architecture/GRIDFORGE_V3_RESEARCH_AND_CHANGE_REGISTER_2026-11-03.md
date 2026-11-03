@@ -137,6 +137,57 @@ Priorities are provisional and must be reviewed after impact analysis.
 
 The source register must be expanded with companion parts, official Indian adoptions, amendments, grid codes and exact clause-level evidence. Public abstracts are discovery evidence, not substitutes for licensed normative text.
 
+## 8A. Core dependency audit — first evidence batch (2026-11-03)
+
+**Audit scope:** Recursive `main` tree plus direct source inspection of Core package initializers, Network, Measurement, Control, Protection, Analysis, Solver, Numerical, Application and plugin SDK entry points. This is a first dependency sample, not yet an exhaustive proof that no forbidden imports exist elsewhere.
+
+### Verified repository structure
+
+- The recursive tree contains 334 Python files under `core/` across 33 package directories.
+- `core/__init__.py` is absent. Most domain packages have package initializers, but `core/measurement` has no `__init__.py`, and `core/validation/__init__.py` is empty.
+- Python namespace-package semantics may explain these omissions. The V3 requirement is to document and intentionally choose the package model, not blindly add initializers.
+- `core/application/` is a substantial Application layer physically nested under `core/`. In the inspected files, Application imports Core domain contracts; no reverse Core-to-Application import was found in this sample. This supports an outward dependency direction, but does not settle whether the filesystem/package namespace should be separated in V3.
+- `core/plugin_sdk/contracts.py` and `host.py` use standard-library contracts and do not import Core domain implementations in the inspected source. The host is an explicit-instance lifecycle host; manifest discovery/catalogue is not present in this host API.
+- `core/numerical` and `core/numerics` have distinguishable current responsibilities: `numerical` exposes electrical state/YBus construction, while `numerics` exposes ODE and backend execution abstractions. This is not sufficient evidence to merge them; V3 should define their names and ownership explicitly.
+
+### Confirmed dependency-direction concern
+
+The current source contains a cross-package dependency cycle between Analysis preparation and Solver implementation:
+
+- `core/analysis/short_circuit_preparation.py` imports solver input/snapshot types and `PhaseDomainShortCircuitCase` from `core.solver.short_circuit.phase_domain_solver`.
+- `core/solver/short_circuit/phase_domain_solver.py` imports `PhaseDomainAdmittanceSnapshot` and `PhysicalConductorImpedanceSnapshot` from `core.analysis` preparation modules.
+- `core/analysis/power_flow_preparation.py` imports `PowerFlowInput` from Solver, while `core/solver/power_flow/preparation.py` imports the Analysis preparation implementation.
+
+This is more than a directory-layout question: the preparation and numerical-execution layers are coupled in both directions. The short-circuit package currently uses lazy package exports to avoid an eager import-time cycle, but that compatibility mechanism does not remove the underlying architectural dependency cycle.
+
+**V3 candidate correction:** define a one-way preparation-to-execution contract. Analysis (or a dedicated study-preparation layer) should construct immutable, solver-neutral/solver-owned numerical input contracts; Solver should consume those contracts and must not import Analysis preparation implementations or Analysis-specific snapshot classes. Where public compatibility facades are needed, isolate them as adapters rather than allowing implementation-level reverse imports. Exact contract placement requires further source and consumer analysis.
+
+### Package-facade and maintainability observations
+
+- `core/analysis/__init__.py` eagerly imports a broad set of Analysis modules, including power flow, short circuit, transient and phase-domain preparation APIs. Broad eager facades increase import coupling and make cycles harder to reason about.
+- `core/model/__init__.py`, `core/network/__init__.py` and `core/protection/__init__.py` also expose broad public surfaces. V3 should specify stable public APIs and avoid importing heavy implementation modules merely to access a narrow type.
+- `core/solver/short_circuit/__init__.py` uses lazy `__getattr__` resolution for phase-domain exports. This is a deliberate compatibility workaround to preserve exports while avoiding one observed import-time cycle. V3 should prefer clean dependency direction over accumulating lazy-import workarounds.
+- The `core/base/__init__.py` self-reference found by the import-line scan is inside its documentation example, not an executable import; it is not a defect.
+- The `core/network/__init__.py` occurrence of `from core.network import Network` is likewise inside its usage documentation, not a runtime self-import.
+
+### Initial V3 audit findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F01 | P0 | Analysis preparation and Solver implementation import each other's implementation-level types | Break the bidirectional dependency; formalise immutable preparation/execution contracts |
+| V3-ARCH-F02 | P1 | Analysis package facade eagerly imports many preparation and study modules | Define a minimal stable facade; use explicit submodule imports or deliberate lazy exports where justified |
+| V3-ARCH-F03 | P1 | Core root and Measurement package initializers are absent; Validation initializer is empty | Decide/document regular-package versus namespace-package policy and public export rules |
+| V3-ARCH-F04 | P1 | Application layer is physically nested in `core/application`, although its inspected dependency direction is Application → Core | Decide logical/package ownership based on full import graph and packaging needs; do not move based on path alone |
+| V3-ARCH-F05 | P1 | Numerical electrical model/YBus package and numerical runtime/ODE/backend package coexist under similar names | Define separate bounded responsibilities and naming; retain separation unless consumers prove duplication |
+| V3-ARCH-F06 | P1 | Plugin SDK host handles explicit instances and lifecycle but does not provide manifest discovery/catalogue | Design the consolidated plugin platform and decide whether discovery belongs in host, loader or platform service |
+
+### Verification limits
+
+- Source-tree and selected-file inspection only; no tests, CI, syntax checks, import experiments or runtime profiling were run.
+- The 334-file recursive listing is complete for the returned Git tree (`truncated=false`), but the import review in this section is a selected-source audit, not a complete static import graph.
+- No production defect or V2 correction is declared from these V3 research observations.
+- Next audit pass must inspect all Core imports and all direct consumers of the preparation/snapshot contracts, then trace plugin/UI boundaries.
+
 ## 9. Status and next sequence
 
 **Completed:** V3 research register opened and initial research tracks captured.  
