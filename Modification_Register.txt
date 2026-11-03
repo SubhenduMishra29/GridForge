@@ -20634,3 +20634,45 @@ FETCH -> AUDIT -> RECONCILE -> CORRECT -> CHECK -> FREEZE
 
 Documentation-only update. No tests/CI, syntax/import checks, runtime
 simulation or numerical validation were performed.
+
+
+======================================================================
+PROTECTION REVISION AUDIT — RELAY STATE / TOPOLOGY SEPARATION
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+    branch: fix/protection-relay-state-freshness
+
+Related issues:
+    #1069 — Relay service-state freshness versus physical topology
+    #1070 — Instrumentation and Protection-equipment revision domains
+
+Correction prepared:
+    RelayModelService no longer calls Network.invalidate_topology()
+    for Relay in-service transitions, update rollback, or dedicated
+    put-in-service/take-out-of-service rollback.
+
+    Live Application Protection evaluation now captures a conservative
+    fingerprint of registered Relay identity, type, plugin, settings,
+    in-service, enabled, blocked, pickup and trip state. The existing
+    Protection provenance guard compares that fingerprint after evaluation,
+    around action resolution, before dispatch, and during postcondition
+    observation. A Relay state change during the evaluation/dispatch window
+    therefore fails closed without falsely advancing physical topology.
+
+Architectural boundary:
+    Relay equipment lifecycle is Protection equipment state, not a
+    conductive topology mutation. This interim guard is deliberately
+    conservative across all registered Relays. Dependency-scoped revision
+    tracking, independent instrumentation revisions and undo/redo monotonic
+    revision semantics remain tracked by #1070.
+
+Verification:
+    Static source inspection only. No tests or CI run.
+    No claim of runtime verification.
+
+Status:
+    CORRECTION PREPARED ON fix/protection-relay-state-freshness.
+    PR review required before merge.
+======================================================================
