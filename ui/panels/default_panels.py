@@ -1019,12 +1019,17 @@ class PropertiesPanelWidget(QWidget):
         if target is None:
             raise RuntimeError("No projected element is selected.")
         changes: dict[str, Any] = {}
-        for parameter_id, parameter in self._parameter_states.items():
-            if parameter.derived or not parameter.editable:
-                continue
-            value = self._current_value(parameter, self._parameter_controls[parameter_id])
-            if value != parameter.value:
-                changes[parameter_id] = value
+        try:
+            for parameter_id, parameter in self._parameter_states.items():
+                if parameter.derived or not parameter.editable or not parameter.inspectable:
+                    continue
+                value = self._current_value(parameter, self._parameter_controls[parameter_id])
+                if value != parameter.value:
+                    changes[parameter_id] = value
+        except (TypeError, ValueError, OverflowError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Invalid engineering value: {exc}")
+            return
         if not changes:
             if self._validation_label is not None:
                 self._validation_label.setText("No engineering changes to commit.")
