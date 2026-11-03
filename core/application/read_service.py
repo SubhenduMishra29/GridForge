@@ -153,6 +153,16 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "shift": {"unit": "rad", "datatype": "float", "study_impact": True},
     "phase_shift_rad": {"unit": "rad", "datatype": "float", "derived": True, "study_impact": True},
     "phase_shift_deg": {"unit": "deg", "datatype": "float", "derived": True, "study_impact": True},
+    "q_min": {
+        "unit": "MVAr", "datatype": "float", "editable": True, "study_impact": True,
+        "coupling_group": "generator_q_limits",
+        "validation": {"authoritative": "Core", "paired_with": "q_max"},
+    },
+    "q_max": {
+        "unit": "MVAr", "datatype": "float", "editable": True, "study_impact": True,
+        "coupling_group": "generator_q_limits",
+        "validation": {"authoritative": "Core", "paired_with": "q_min"},
+    },
     "in_service": {"datatype": "bool", "topology_impact": True, "study_impact": True},
     # Instrument-transformer engineering contracts.  Core remains the
     # authoritative validator; these descriptors only describe presentation.
