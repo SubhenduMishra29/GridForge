@@ -12,6 +12,7 @@ existing Application command pipeline.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 from enum import Enum
@@ -78,19 +79,20 @@ def _validate_terminal_admittance_matrix(matrix: Any, labels: tuple[str, ...]) -
                 real, imag = float(parts[0]), float(parts[1])
             except (TypeError, ValueError, OverflowError) as exc:
                 raise ValueError(f"Matrix cell {labels[row_index]} × {labels[column_index]} must be a real or [real, imag] Siemens value.") from exc
-            if not __import__("math").isfinite(real) or not __import__("math").isfinite(imag):
+            if not math.isfinite(real) or not math.isfinite(imag):
                 raise ValueError(f"Matrix cell {labels[row_index]} × {labels[column_index]} must be finite.")
             cells.append([real, imag])
         normalized.append(cells)
 
     import numpy as np
     values = np.asarray([[complex(real, imag) for real, imag in row] for row in normalized], dtype=complex)
-    if not np.allclose(values, values.T, rtol=1e-9, atol=1e-12):
+    matrix_scale = max(float(np.max(np.abs(values))), float(np.finfo(float).tiny))
+    if not np.allclose(values, values.T, rtol=1e-9, atol=1e-12 * matrix_scale):
         raise ValueError("Terminal admittance matrix is not reciprocal: Y must equal its transpose in the declared terminal order.")
     conductance = (values.real + values.real.T) * 0.5
     eigenvalues = np.linalg.eigvalsh(conductance)
-    scale = max(1.0, float(np.max(np.abs(eigenvalues))))
-    if float(np.min(eigenvalues)) < -1e-10 * scale:
+    conductance_scale = max(float(np.max(np.abs(eigenvalues))), float(np.finfo(float).tiny))
+    if float(np.min(eigenvalues)) < -1e-10 * conductance_scale:
         raise ValueError("Terminal admittance matrix is not passive: its symmetric conductance part must be positive semidefinite.")
     return normalized
 
@@ -325,7 +327,7 @@ class TransformerConfigurationEditor(QWidget):
                     raise ValueError("Imported terminal_order must exactly match the current ordered inventory: " + ", ".join(labels))
                 matrix = payload["values"]
             else:
-                raise ValueError("Matrix import requires the versioned envelope with explicit units and terminal_order.")
+                raise ValueError("Matrix import requires the explicit envelope with units and terminal_order.")
         elif isinstance(matrix, Mapping):
             if set(matrix) != {"units", "terminal_order", "values"} or matrix.get("units") != "S" or tuple(matrix.get("terminal_order", ())) != labels:
                 raise ValueError("Imported matrix units and terminal_order must exactly match the active Transformer inventory.")
