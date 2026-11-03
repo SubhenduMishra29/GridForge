@@ -231,3 +231,21 @@ FETCH → AUDIT → RECONCILE → CORRECT → CHECK → FREEZE
 ```
 
 Architecture changes require an explicit gap and evidence. Do not reopen frozen boundaries merely to accommodate a local implementation convenience. Do not add tests/CI as acceptance gates unless requested; record the exact checks actually performed.
+
+
+## 14. 2026-11-03 — Signal infrastructure and heterogeneous simulation amendment
+
+The additive architecture decision is defined in [SIGNAL_INFRASTRUCTURE_AND_HETEROGENEOUS_SIMULATION_AMENDMENT_2026-11-03.md](SIGNAL_INFRASTRUCTURE_AND_HETEROGENEOUS_SIMULATION_AMENDMENT_2026-11-03.md).
+
+The amendment establishes:
+
+- one shared Signal and Measurement Infrastructure for physical and virtual instruments, typed measurements, acquisition channels, quality, timestamps, provenance, processing, routing and subscriptions;
+- separate Protection and Control execution/decision ownership over shared canonical signals;
+- distinct decision, device-command, output activation, physical/simulated response and feedback facts;
+- one shared Historian observing measurements, alarms, decisions, commands, feedback, SOE and disturbance records;
+- hardware-independent equipment physics models and a heterogeneous CPU/GPU/NPU runtime;
+- CPU as universal reference/fallback, GPU for suitable parallel numerical physics and NPU for supported AI inference—not safety-critical protection decisions;
+- virtual instruments and simulated actuators using the same signal, device, feedback and Historian contracts as physical equipment;
+- the induction motor plugin as the first reference integration and closed-loop acceptance scenario.
+
+This is an architectural direction only. It does not assert that these contracts or end-to-end workflows are implemented or verified. Existing Core/Application/UI, SLD, Protection, Control, plugin and persistence boundaries remain frozen. Reconcile current source before introducing duplicate classes/services.
