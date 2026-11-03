@@ -145,6 +145,10 @@ def _prepare_transformer_values(values: dict[str, Any]) -> dict[str, Any]:
 
         raw_matrix = values["phase_domain_terminal_admittance_siemens"]
         raw_loops = values["phase_domain_delta_loop_states"]
+        if raw_loops is None:
+            raw_loops = ()
+        if not isinstance(raw_loops, (tuple, list)):
+            raise TypeError("phase_domain_delta_loop_states must be a sequence.")
         if raw_matrix is None:
             if values["zero_sequence_multiport_evidence"] is not None or raw_loops not in ((), [], None):
                 raise ValueError("Clearing the Transformer multiport must also clear evidence and delta-loop states.")
@@ -177,6 +181,8 @@ def _prepare_transformer_values(values: dict[str, Any]) -> dict[str, Any]:
             values["phase_domain_delta_loop_states"] = tuple(loop_states)
 
             required_inventory = (
+                "hv_winding_connection", "lv_winding_connection",
+                "hv_terminal_role", "lv_terminal_role",
                 "hv_phase_roles", "lv_phase_roles", "hv_neutral_terminal_role",
                 "lv_neutral_terminal_role", "core_construction",
             )
@@ -186,6 +192,8 @@ def _prepare_transformer_values(values: dict[str, Any]) -> dict[str, Any]:
                     "Transformer multiport configuration must include its complete ordered "
                     f"winding inventory; missing {', '.join(missing)}."
                 )
+            if not values["hv_phase_roles"] or not values["lv_phase_roles"]:
+                raise ValueError("Transformer multiport configuration requires explicit HV and LV phase-role inventories.")
             labels = [f"HV:{role}" for role in values["hv_phase_roles"]]
             if values["hv_neutral_terminal_role"] is not None:
                 labels.append("HV:N")
@@ -205,7 +213,9 @@ def _prepare_transformer_values(values: dict[str, Any]) -> dict[str, Any]:
                 if supplied_matrix_digest is not None and str(supplied_matrix_digest).strip().lower() != matrix_digest:
                     raise ValueError("Submitted Transformer evidence matrix fingerprint does not match the matrix.")
                 supplied_loop_digest = evidence_data.pop("delta_loop_sha256", None)
-                references = evidence_data.get("delta_circulating_test_references", {})
+                evidence_data.setdefault("core_construction", values["core_construction"])
+                evidence_data.setdefault("delta_circulating_test_references", {})
+                references = evidence_data["delta_circulating_test_references"]
                 loop_digest = transformer_delta_loop_fingerprint(values["phase_domain_delta_loop_states"]) if references else None
                 if supplied_loop_digest is not None and str(supplied_loop_digest).strip().lower() != loop_digest:
                     raise ValueError("Submitted Transformer evidence delta-loop fingerprint does not match the loop states.")
