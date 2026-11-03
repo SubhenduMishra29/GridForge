@@ -243,6 +243,101 @@ Observed source dependencies:
 
 This pass is source inspection of named files, not an exhaustive consumer search or runtime import graph. Direct call sites of the wrappers and public exports remain to be mapped. No tests, CI, syntax/import execution or performance measurements were run.
 
+## 8C. Core domain ownership audit — models, topology, measurement, Control and Protection (2026-11-03)
+
+This pass inspected the model identity/terminal/Bus/Motor contracts, Network topology and snapshots, Measurement channel/provisioning/generation, Control domain contracts, Protection domain contracts, Application lifecycle services, execution bridges and the Application composition root.
+
+### A. Equipment identity, terminals and Network topology
+
+**Observed ownership that is directionally sound:**
+
+- `core/model/base.py` defines the Core electrical-object identity and validation base.
+- `core/model/terminal.py` defines an equipment-owned Terminal with a semantic role and endpoint reference. Its documented boundary explicitly excludes global topology, solver indices, calculations and UI state.
+- `core/model/bus.py` and `core/model/motor.py` own their equipment parameters/operating state and their terminal(s); the Bus owns one authoritative terminal and Motor similarly owns one authoritative terminal.
+- `core/network/network.py` validates Network membership, terminal ownership, endpoint membership and consistency between physical terminal references and resolved Bus identities.
+- `core/network/topology.py` builds topology from registered equipment/connectivity and emits detached `TopologySnapshot`; `core/network/topology_snapshot.py` uses frozen dataclasses and immutable mappings.
+- `core/network/physical_conductor_topology.py` maps explicit Line/Cable conductor inventories to canonical Network topology without taking over electrical node ownership.
+
+**Interpretation:** the Equipment → Terminal → Network → TopologySnapshot separation is a useful V2 foundation and should be preserved in V3. A topology snapshot is a derived, detached representation; it should not become a second editable source of truth.
+
+**Extension concern:** `core/network/topology.py` imports a concrete list of equipment classes from `core.model` and hard-codes `_TOPOLOGY_TYPES`. The physical-conductor topology builder separately limits its supported branch types to Line and Cable. This is explicit and safe for the present model set, but it means adding a new plugin-provided conductive equipment family may require changes to Core's topology implementation. V3 should assess a typed topology-capability/descriptor contract, with registrations assembled by Application, while retaining Core validation of electrical semantics. Do not solve this by letting Core import plugin implementations.
+
+### B. Endpoint identity and package-facade coupling
+
+- `core/model/endpoint_reference.py` defines immutable endpoint references, but imports its equipment symbols from `core.model` (the package facade) rather than narrowly importing a lower-level contract module.
+- `core/model/__init__.py` imports the equipment model collection and later imports `EndpointReference`, so the facade participates in a reverse import path. The exact runtime consequences have not been executed in this audit.
+- The package initializer also patches Relay identity properties and registers Relay with `ElectricalObject`, making it a composition point for compatibility behaviour as well as exports.
+
+**V3 direction:** place canonical equipment-type and endpoint-reference contracts in a low-level identity/contracts module that does not import the broad model facade. Keep model package exports declarative; move compatibility adaptation/registration into an explicit composition or compatibility module. Confirm import graph and backward-compatibility requirements before migration.
+
+### C. Measurement ownership and conversion pipeline
+
+**Observed separation:**
+
+- `core/measurement/measurement_channel.py` defines channel signal type, phase, quality, validity, source reference, engineering configuration, timestamps, sample sequence and usability.
+- `core/measurement/measurement_provisioning.py` creates logical channels from explicit instrument secondary terminals (CT/PT/CVT); its documented split assigns physical terminal resolution to Application and channel construction/secondary-terminal validation to Core.
+- `core/application/services/measurement_channel_service.py` owns the active project's channel registry, activation generation, sample ingress, trusted source verifier, clock-domain validation, monotonic sequence checks and sample update authority. It publishes the accepted sample to an Application-bound trigger after validation.
+- `core/control/measurement_input.py` converts a MeasurementChannel into a typed Control input; `core/protection/relay_input.py` exposes a Protection-facing view without owning or copying the channel's authoritative sample state.
+
+**Confirmed boundary concern:**
+
+- `core/measurement/measurement_generation.py` imports Analysis result types (`LineFlowResult`, `TransformerFlowResult`), Solver result types (`PowerFlowResult`, `ShortCircuitResult`) and Network measurement association types.
+- It converts numerical results into physical engineering quantities and CT/PT/CVT secondary values before updating logical measurement channels.
+
+**Interpretation:** MeasurementChannel ownership and trusted sample ingress are clearly separated, but the result-to-measurement generation module reaches upward into Analysis and Solver. This couples the Measurement package to study execution/result types and risks turning Measurement into a consumer of every solver's result model.
+
+**V3 direction:** split this pipeline into (1) a result-to-physical-quantity adapter at the Application/Study integration boundary, (2) instrument ratio/polarity/secondary conversion using stable typed physical-quantity contracts, and (3) channel publication through the existing Application-owned MeasurementChannelService. The Measurement domain should own channel semantics, quality, units and instrument conversion rules; it should not import individual solver result classes. Preserve the current single conversion authority and provenance rather than duplicating CT/PT/CVT scaling logic.
+
+### D. Control domain ownership
+
+- `core/control/decision.py` defines immutable `ControlDecision` intent without Core object references.
+- `core/control/engine.py` evaluates project Control configuration and logic into immutable evaluation results.
+- `core/control/signals.py` documents signal values as transport objects, not owners of electrical/network truth.
+- `core/application/services/control_service.py` owns project-scoped Control configuration lifecycle and performs transactional component/connection edits.
+- `core/application/control_execution.py` and `core/application/control_dispatch.py` translate/effect Control intent through Application commands. The dispatcher is explicitly the Application bridge to the command system.
+- `core/control/configuration.py` persists project-owned Control configuration and reconstructs runtime logic from it.
+
+**Interpretation:** this is broadly aligned with the frozen boundary: Control evaluates and emits intent; Application owns command execution and mutation. V3 should preserve the distinction between persistent engineering configuration, runtime evaluation state, decision intent and command execution.
+
+**Maintainability concern:** `core/control/__init__.py` eagerly exports multiple subdomains and performs a compatibility mutation by assigning `ControlState` onto the imported `base` module. This should be reviewed as an API/compatibility concern, not treated as a demonstrated functional defect.
+
+### E. Protection domain ownership and Control integration
+
+- `core/protection/relay_input.py` consumes MeasurementChannel and explicitly documents that it does not own measurement state or transform values.
+- `core/protection/relay_base.py` represents one executable protection function hosted by a physical Relay.
+- `core/protection/protection_element.py` composes a protection-function instance and produces ProtectionDecision.
+- `core/protection/decision.py` defines the immutable ProtectionDecision contract, distinct from ControlDecision.
+- `core/application/services/protection_configuration_service.py` owns project-scoped protection configuration and measurement bindings, while referencing Network, instruments, MeasurementChannel and Protection contracts.
+- `core/application/protection_execution.py` explicitly resolves actionable ProtectionDecision values to ControlDecision through an Application-owned resolver, then translates to Application commands and dispatches through the shared Application command boundary. It records dispatch outcomes and does not fabricate physical acknowledgement.
+
+**Interpretation:** the explicit ProtectionDecision → Application resolver → ControlDecision → Application command bridge is a valid integration seam only if it remains an adapter, not a dependency of Protection on Control. The Protection and Control execution authorities remain separate; the shared command system is the mutation boundary.
+
+**V3 direction:** formalise the cross-domain adapter as a typed, auditable action mapping contract. Preserve source ProtectionDecision identity, relay/function identity, target resolution, authorization, command correlation and postcondition/physical-feedback distinctions. Do not make Protection import Control execution internals or silently treat a Control decision as proof that a physical device acknowledged an operation.
+
+### F. Application composition and responsibility
+
+- `core/application/bootstrap.py` is the composition root: it creates the MeasurementChannelService, ProtectionConfigurationService, ControlApplicationService, command handlers, command manager, Network read/validation services and the execution bridges.
+- The same composition root wires trusted measurement ingress to the Application protection trigger and uses a shared execution lock around sample publication and breaker authorization.
+- This supports Application as the owner of project lifecycle, orchestration, transaction/command composition and cross-domain coordination.
+
+**V3 direction:** preserve a single composition root and shared authoritative services. As the platform grows, split bootstrap into named composition modules/factories by capability (project/model, measurement, control, protection, studies, persistence) while keeping one top-level composition root and avoiding duplicate registries, locks, event buses or command managers.
+
+### Refined findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F12 | P1 | Measurement generation imports Analysis and Solver result classes directly | Separate study-result adaptation from Measurement channel/instrument conversion; use stable typed physical-quantity contracts |
+| V3-ARCH-F13 | P1 | Network topology manager hard-codes Core equipment classes and topology type list | Design extensible typed topology capability descriptors/registrations without Core importing plugin implementations |
+| V3-ARCH-F14 | P1 | EndpointReference imports equipment identity through broad `core.model` facade; model initializer also owns compatibility patches | Extract low-level identity/type contracts and move compatibility adaptation out of broad package exports |
+| V3-ARCH-F15 | P1 | Measurement channel registry, trusted ingress and project activation are Application-owned while channel/sample semantics are Core-owned | Preserve this split and specify producer trust, timestamp domain, quality, sequence, activation-generation and provenance contracts as a first-class measurement lifecycle |
+| V3-ARCH-F16 | P1 | Protection-to-Control translation is implemented in Application through a resolver and shared command dispatcher | Formalise a typed cross-domain action adapter with identity/correlation/authorization/feedback separation |
+| V3-ARCH-F17 | P2 | Control package initializer performs module mutation and broad eager exports | Define stable public API and isolate compatibility aliases from domain package initialization |
+| V3-ARCH-F18 | P2 | Application bootstrap composes many subsystems in one large module | Partition composition by capability while retaining one root and shared singleton authorities |
+
+### Verification limits
+
+This is a targeted source audit, not an exhaustive dependency graph or runtime import test. Topology extension requirements need validation against actual plugin equipment use cases. The full contents/consumers of every model class, all measurement producers, and all Control/Protection function implementations were not inspected. No tests, CI, syntax/import execution or runtime checks were run.
+
 ## 9. Status and next sequence
 
 **Completed:** V3 research register opened and initial research tracks captured.  
