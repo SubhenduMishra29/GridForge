@@ -20904,3 +20904,11 @@ Correction:
 Verification boundary:
 - Source identity and service-state checks were compared against Network.get_by_identity, MeasurementChannel.source/source_terminal, and the existing scenario CT binding path.
 - No tests or CI were run. Full syntax/import checks and live/scenario execution remain pending.
+
+
+PROTECTION REVISION CONTRACT — CANONICAL INSTRUMENT TYPE NORMALIZATION (2026-11-03)
+
+Refinement:
+- Verified the concrete Core model declarations: CurrentTransformer.TYPE is "CT", CapacitiveVoltageTransformer.TYPE is "CVT", and PT.TYPE is "PT".
+- Extended the Application source-availability gate to recognize those canonical uppercase element_type values after normalization, alongside the descriptive type aliases. This ensures CT and CVT sources are not skipped by the fail-closed availability check.
+- No changes to Core model identity, MeasurementChannel source ownership, or topology semantics.
