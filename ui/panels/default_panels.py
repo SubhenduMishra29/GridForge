@@ -908,15 +908,15 @@ class PropertiesPanelWidget(QWidget):
     def _create_parameter_control(self, parameter: EngineeringParameterState) -> QWidget:
         value = parameter.value
         tooltip = self._parameter_tooltip(parameter)
+        if not parameter.inspectable:
+            control = QLabel("Not available in the Application read model", self)
+            control.setToolTip("This canonical creation parameter is not exposed by the committed equipment read model.")
+            return control
         if parameter.derived or not parameter.editable:
             control = QLabel(self._display_value(value), self)
             control.setToolTip(tooltip)
             return control
         datatype = str(parameter.datatype).strip().lower()
-        if not parameter.inspectable:
-            control = QLabel("Not available in the Application read model", self)
-            control.setToolTip("This canonical creation parameter is not exposed by the committed equipment read model.")
-            return control
         if datatype in {"float", "number", "int", "integer"}:
             # An unset numeric value remains visibly unset; the validator
             # constrains edits without coercing an empty value to zero.
@@ -1009,7 +1009,7 @@ class PropertiesPanelWidget(QWidget):
         if datatype in {"bool", "boolean"}:
             return bool(control.isChecked())  # type: ignore[attr-defined]
         if datatype == "enum":
-            return str(control.currentText())  # type: ignore[attr-defined]
+            return None if control.currentIndex() < 0 else str(control.currentText())  # type: ignore[attr-defined]
         return str(control.text())  # type: ignore[attr-defined]
 
     def _apply_changes(self) -> None:
