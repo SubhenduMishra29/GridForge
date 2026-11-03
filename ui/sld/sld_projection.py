@@ -82,6 +82,7 @@ class SLDProjection(Projection):
                 labels=labels,
                 connectivity_refs=read_model.connectivity_refs,
                 engineering_parameters=engineering_parameters,
+                attributes=read_model.attributes,
             )
         )
 
