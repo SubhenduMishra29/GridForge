@@ -16,6 +16,7 @@ from core.model import EndpointReference
 from ...model.transformer import ImpedanceBasis, TransformerWindingConnection
 from ...model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
 from ...model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
+from ...model.transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState
 from ...model.conductor import BranchConductorSystem
 
 CREATE_BUS = "model.create_bus"
