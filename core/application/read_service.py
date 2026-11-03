@@ -378,6 +378,7 @@ class NetworkReadService(ReadService):
                     "neutral_return_included": test_configuration.neutral_return_included,
                 } if test_configuration is not None else None),
                 "two_winding_test_data_available": getattr(model, "zero_sequence_two_winding_test_data", None) is not None,
+                "zero_sequence_two_winding_test_data": getattr(model, "zero_sequence_two_winding_test_data", None),
                 "physical_conductor_construction_available": getattr(model, "physical_conductor_construction", None) is not None,
                 # Keep the complete typed source inputs on the immutable
                 # Application read side. Counts/availability alone are not
