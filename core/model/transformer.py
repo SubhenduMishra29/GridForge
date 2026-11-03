@@ -372,9 +372,9 @@ class Transformer(Branch):
             raise ValueError("Transformer multiport matrix tap/shift snapshots must match the active transformer tap and phase shift.")
         if loops and len({item.loop_id for item in loops}) != len(loops):
             raise ValueError("Transformer delta loop ids must be unique.")
-        if evidence is not None or loops:
-            if hv_connection is None or lv_connection is None or hv_terminal_role is None or lv_terminal_role is None or hv_phase_roles is None or lv_phase_roles is None or core_construction is None:
-                raise ValueError("Evidence-backed Transformer multiport requires complete HV/LV winding, phase-role, terminal-role and core construction.")
+        if matrix is not None or evidence is not None or loops:
+            if hv_connection is None or lv_connection is None or hv_terminal_role is None or lv_terminal_role is None or hv_phase_roles is None or lv_phase_roles is None:
+                raise ValueError("Transformer multiport requires complete HV/LV winding, phase-role and terminal-role configuration.")
             labels = [f"HV:{role}" for role in hv_phase_roles]
             if hv_neutral_terminal_role is not None:
                 labels.append("HV:N")
@@ -393,6 +393,9 @@ class Transformer(Branch):
                     raise ValueError("Explicit delta-loop states must cover exactly the delta-connected Transformer windings.")
                 if any(len(item.coupling_coefficients) != len(labels) for item in loops):
                     raise ValueError("Transformer delta-loop coupling vectors must match the ordered physical terminal inventory.")
+            if evidence is not None or loops:
+                if core_construction is None:
+                    raise ValueError("Evidence-backed Transformer multiport requires explicit core construction.")
             if evidence is not None:
                 validate_transformer_zero_sequence_multiport_evidence(
                     evidence, matrix=matrix, terminal_labels=labels, core_construction=core_construction,
