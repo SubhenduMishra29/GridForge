@@ -716,6 +716,8 @@ class Transformer(Branch):
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
         hv_neutral_earth_return_impedance_ohm: complex | None = None,
         lv_neutral_earth_return_impedance_ohm: complex | None = None,
+        hv_neutral_terminal_role: str | None = None,
+        lv_neutral_terminal_role: str | None = None,
         hv_phase_roles: tuple[str, ...] | None = None,
         lv_phase_roles: tuple[str, ...] | None = None,
         _replace_physical_conductor_configuration: bool = False,
@@ -808,11 +810,15 @@ class Transformer(Branch):
             target_lv_earth_return = self._validate_neutral_earth_return(lv_neutral_earth_return_impedance_ohm, target_lv_connection, "LV")
             target_hv_phase_roles = self._validate_winding_phase_roles(hv_phase_roles, "HV")
             target_lv_phase_roles = self._validate_winding_phase_roles(lv_phase_roles, "LV")
+            target_hv_neutral_role = self._validate_neutral_terminal_role(hv_neutral_terminal_role, target_hv_connection, "HV")
+            target_lv_neutral_role = self._validate_neutral_terminal_role(lv_neutral_terminal_role, target_lv_connection, "LV")
         else:
             target_hv_earth_return = self._validate_neutral_earth_return(self._hv_neutral_earth_return_impedance_ohm if hv_winding_connection is None else hv_neutral_earth_return_impedance_ohm, target_hv_connection, "HV")
             target_lv_earth_return = self._validate_neutral_earth_return(self._lv_neutral_earth_return_impedance_ohm if lv_winding_connection is None else lv_neutral_earth_return_impedance_ohm, target_lv_connection, "LV")
             target_hv_phase_roles = self._validate_winding_phase_roles(self._hv_phase_roles if hv_phase_roles is None else hv_phase_roles, "HV")
             target_lv_phase_roles = self._validate_winding_phase_roles(self._lv_phase_roles if lv_phase_roles is None else lv_phase_roles, "LV")
+            target_hv_neutral_role = self._validate_neutral_terminal_role(self._hv_neutral_terminal_role if hv_neutral_terminal_role is None else hv_neutral_terminal_role, target_hv_connection, "HV")
+            target_lv_neutral_role = self._validate_neutral_terminal_role(self._lv_neutral_terminal_role if lv_neutral_terminal_role is None else lv_neutral_terminal_role, target_lv_connection, "LV")
         target_hv_role = self._hv_terminal_role if hv_terminal_role is None and not _replace_winding_configuration else hv_terminal_role
         target_lv_role = self._lv_terminal_role if lv_terminal_role is None and not _replace_winding_configuration else lv_terminal_role
         target_hv_role, target_lv_role = self._validate_terminal_mapping(target_hv_role, target_lv_role)
@@ -860,6 +866,7 @@ class Transformer(Branch):
             self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
             self._hv_neutral_earth_return_impedance_ohm, self._lv_neutral_earth_return_impedance_ohm,
             self._hv_phase_roles, self._lv_phase_roles,
+            self._hv_neutral_terminal_role, self._lv_neutral_terminal_role,
             self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
             self._core_construction, self._zero_sequence_test_basis,
@@ -884,6 +891,7 @@ class Transformer(Branch):
             self._hv_neutral_earth_return_impedance_ohm = target_hv_earth_return
             self._lv_neutral_earth_return_impedance_ohm = target_lv_earth_return
             self._hv_phase_roles, self._lv_phase_roles = target_hv_phase_roles, target_lv_phase_roles
+            self._hv_neutral_terminal_role, self._lv_neutral_terminal_role = target_hv_neutral_role, target_lv_neutral_role
             self._hv_terminal_role, self._lv_terminal_role = target_hv_role, target_lv_role
             self._impedance_reference_winding = target_reference_winding
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = target_z0r, target_z0x
