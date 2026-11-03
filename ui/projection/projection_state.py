@@ -85,6 +85,7 @@ class ProjectionState:
     terminal_contract: tuple[str, ...] = ()
     endpoint_references: Mapping[str, Any] = field(default_factory=dict)
     validation_state: Mapping[str, Any] = field(default_factory=dict)
+    attributes: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.object_id, str) or not self.object_id:
@@ -105,6 +106,7 @@ class ProjectionState:
         object.__setattr__(self, "terminal_contract", tuple(str(value) for value in self.terminal_contract))
         object.__setattr__(self, "endpoint_references", _freeze(self.endpoint_references))
         object.__setattr__(self, "validation_state", _freeze(self.validation_state))
+        object.__setattr__(self, "attributes", _freeze(self.attributes))
 
     @classmethod
     def empty(cls, object_id: str, display_type: str) -> "ProjectionState":
