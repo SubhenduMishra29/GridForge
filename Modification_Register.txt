@@ -20869,3 +20869,19 @@ Correction:
 Verification boundary:
 - The five CT, five CVT, five PT, five Relay and five Protection configuration command identities were compared against the Application transactional recomposition command set.
 - No tests or CI were run. Runtime command execution, syntax/import integrity and all call-site coverage remain pending.
+
+
+PROTECTION REVISION CONTRACT — PERSISTED DIRTY-STATE RECONCILIATION (2026-11-03)
+
+Finding:
+- Independent instrumentation/Protection counters are monotonic freshness tokens. User undo/redo intentionally advances a changed domain token instead of rewinding it.
+- RevisionService.is_dirty previously compared the complete ProjectRevision dataclasses. After undoing a CT/PT/CVT or Relay/Protection configuration edit back to the persisted model state, the monotonic token remained greater than the saved token and incorrectly kept the project dirty even when model_revision, topology_revision and presentation_revision had returned to the persisted values.
+
+Correction:
+- Dirty-state comparison now uses only model_revision, topology_revision and presentation_revision, matching the documented persisted project-state dimensions.
+- instrumentation_revision, protection_equipment_revision and protection_configuration_revision remain in the in-memory/persisted revision snapshots and remain monotonic for stale-execution fencing; they no longer independently trigger a Save/dirty indication.
+- Transaction rollback still restores the exact captured RevisionService snapshot. User undo/redo still advances affected freshness tokens.
+
+Verification boundary:
+- The comparison was traced against the undo/redo construction and mark_persisted snapshot fields.
+- No tests or CI were run. Save/undo UI behavior and full import/syntax verification remain pending.
