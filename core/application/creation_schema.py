@@ -468,7 +468,8 @@ _BUILTIN_COMMAND_FIELD_DISPOSITIONS: Mapping[str, Mapping[str, Mapping[str, str]
     },
     "disconnector": {
         "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
-        "operating_time": _field_disposition("later_configuration", "Operating-time characteristic belongs to physical switching-device configuration.", "Switching-device configurator (#938)"),
+        "operating_time": _field_disposition("later_configuration", "Operating-time characteristic is optional physical switching-device data; it must remain unavailable until supplied.", "Switching-device configurator (#938)"),
+        "normally_closed": _field_disposition("later_configuration", "Configured normal operating state is distinct from the present contact state.", "Switching-device configurator (#938)"),
         "closed": _field_disposition("operational_state", "Initial contact state belongs to the switching-device lifecycle.", "Disconnector state commands (#938)"),
         "in_service": _field_disposition("lifecycle_state", "Service state belongs to the switching-device lifecycle.", "Disconnector service commands (#938)"),
     },
