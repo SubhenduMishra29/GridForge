@@ -69,15 +69,16 @@ class ModelDTO:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelDTO":
         model_type = str(data["type"])
+        has_configuration_schema = "transformer_configuration_schema" in data
         configuration_schema = data.get("transformer_configuration_schema")
         if model_type == "Transformer":
             # Historical Transformer DTOs predate the explicit marker. Their
             # tagged Core state is interpreted as schema 1 and validated by
             # the Transformer model after reconstruction.
             configuration_schema = (
-                TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
-                if configuration_schema is None
-                else configuration_schema
+                configuration_schema
+                if has_configuration_schema
+                else TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
             )
             if (
                 isinstance(configuration_schema, bool)
@@ -87,7 +88,7 @@ class ModelDTO:
                 raise ModelSerializationError(
                     f"Unsupported Transformer configuration schema: {configuration_schema!r}."
                 )
-        elif configuration_schema is not None:
+        elif has_configuration_schema:
             raise ModelSerializationError(
                 "Only Transformer DTOs may declare transformer_configuration_schema."
             )
