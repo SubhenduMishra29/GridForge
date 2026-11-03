@@ -153,12 +153,18 @@ class RevisionService:
             topology_revision=current.topology_revision,
             presentation_revision=current.presentation_revision,
             persisted_revision=self._persisted_generation,
+            instrumentation_revision=current.instrumentation_revision,
+            protection_equipment_revision=current.protection_equipment_revision,
+            protection_configuration_revision=current.protection_configuration_revision,
         )
         self._persisted_state = ProjectRevision(
             model_revision=persisted.model_revision,
             topology_revision=persisted.topology_revision,
             presentation_revision=persisted.presentation_revision,
             persisted_revision=self._persisted_generation,
+            instrumentation_revision=persisted.instrumentation_revision,
+            protection_equipment_revision=persisted.protection_equipment_revision,
+            protection_configuration_revision=persisted.protection_configuration_revision,
         )
         return self._current
 
@@ -212,11 +218,25 @@ class RevisionService:
                 raise ValueError("topology_revision must be a non-decreasing Core topology revision.")
         else:
             topology_revision = revision.topology_revision
+        command_element = command.command_type.split("model.", 1)[-1]
+        command_element = command_element.split(".", 1)[-1]
+        instrumentation_revision = revision.instrumentation_revision
+        protection_equipment_revision = revision.protection_equipment_revision
+        protection_configuration_revision = revision.protection_configuration_revision
+        if any(token in command_element for token in ("current_transformer", "capacitive_voltage_transformer", "_pt", "pt_")) or command_element.endswith("_pt"):
+            instrumentation_revision += 1
+        if "relay" in command_element:
+            protection_equipment_revision += 1
+        if command.command_type.startswith("protection."):
+            protection_configuration_revision += 1
         return ProjectRevision(
             model_revision=model_revision,
             topology_revision=topology_revision,
             presentation_revision=revision.presentation_revision,
             persisted_revision=revision.persisted_revision,
+            instrumentation_revision=instrumentation_revision,
+            protection_equipment_revision=protection_equipment_revision,
+            protection_configuration_revision=protection_configuration_revision,
         )
 
     def _record_transition(self, after: ProjectRevision, *, command_id: str) -> ProjectRevision:
@@ -255,6 +275,9 @@ class RevisionService:
             topology_revision=self._current.topology_revision,
             presentation_revision=self._current.presentation_revision + 1,
             persisted_revision=self._current.persisted_revision,
+            instrumentation_revision=self._current.instrumentation_revision,
+            protection_equipment_revision=self._current.protection_equipment_revision,
+            protection_configuration_revision=self._current.protection_configuration_revision,
         )
         return self._record_transition(next_revision, command_id=str(command.command_id))
 
@@ -272,17 +295,22 @@ class RevisionService:
         if transition.after != self._current:
             raise RuntimeError("Revision undo state is inconsistent with current revision.")
         before = transition.before
-        if topology_revision is not None:
-            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
-                raise ValueError("topology_revision must be a non-negative integer.")
-            before = ProjectRevision(
-                model_revision=before.model_revision,
-                topology_revision=topology_revision,
-                presentation_revision=before.presentation_revision,
-                persisted_revision=before.persisted_revision,
-            )
-        # Validate and construct the complete target state before mutating either
-        # revision stack. A bad topology revision must not consume the transition.
+        if topology_revision is not None and (not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0):
+            raise ValueError("topology_revision must be a non-negative integer.")
+        changed_instrumentation = transition.before.instrumentation_revision != transition.after.instrumentation_revision
+        changed_protection_equipment = transition.before.protection_equipment_revision != transition.after.protection_equipment_revision
+        changed_protection_configuration = transition.before.protection_configuration_revision != transition.after.protection_configuration_revision
+        before = ProjectRevision(
+            model_revision=before.model_revision,
+            topology_revision=topology_revision if topology_revision is not None else before.topology_revision,
+            presentation_revision=before.presentation_revision,
+            persisted_revision=before.persisted_revision,
+            instrumentation_revision=max(self._current.instrumentation_revision, before.instrumentation_revision) + int(changed_instrumentation),
+            protection_equipment_revision=max(self._current.protection_equipment_revision, before.protection_equipment_revision) + int(changed_protection_equipment),
+            protection_configuration_revision=max(self._current.protection_configuration_revision, before.protection_configuration_revision) + int(changed_protection_configuration),
+        )
+        # Transaction rollback restores the exact pre-transaction snapshot.
+        # User undo is a new state transition, so these freshness tokens advance.
         self._undo.pop()
         self._current = before
         self._redo.append(_RevisionTransition(before, transition.after, transition.command_id))
@@ -296,15 +324,20 @@ class RevisionService:
         if transition.before != self._current:
             raise RuntimeError("Revision redo state is inconsistent with current revision.")
         after = transition.after
-        if topology_revision is not None:
-            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0:
-                raise ValueError("topology_revision must be a non-negative integer.")
-            after = ProjectRevision(
-                model_revision=after.model_revision,
-                topology_revision=topology_revision,
-                presentation_revision=after.presentation_revision,
-                persisted_revision=after.persisted_revision,
-            )
+        if topology_revision is not None and (not isinstance(topology_revision, int) or isinstance(topology_revision, bool) or topology_revision < 0):
+            raise ValueError("topology_revision must be a non-negative integer.")
+        changed_instrumentation = transition.before.instrumentation_revision != transition.after.instrumentation_revision
+        changed_protection_equipment = transition.before.protection_equipment_revision != transition.after.protection_equipment_revision
+        changed_protection_configuration = transition.before.protection_configuration_revision != transition.after.protection_configuration_revision
+        after = ProjectRevision(
+            model_revision=after.model_revision,
+            topology_revision=topology_revision if topology_revision is not None else after.topology_revision,
+            presentation_revision=after.presentation_revision,
+            persisted_revision=after.persisted_revision,
+            instrumentation_revision=max(self._current.instrumentation_revision, after.instrumentation_revision) + int(changed_instrumentation),
+            protection_equipment_revision=max(self._current.protection_equipment_revision, after.protection_equipment_revision) + int(changed_protection_equipment),
+            protection_configuration_revision=max(self._current.protection_configuration_revision, after.protection_configuration_revision) + int(changed_protection_configuration),
+        )
         # Do not consume redo history until all consistency checks and target
         # revision construction have succeeded.
         self._redo.pop()
