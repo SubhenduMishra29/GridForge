@@ -16,7 +16,7 @@ from ui.projection.projection_state import EngineeringParameterState, Projection
 from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
+    QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
 )
 from ui.plugins.panels_plugin import PanelSpec
@@ -905,55 +905,87 @@ class PropertiesPanelWidget(QWidget):
 
     def _create_parameter_control(self, parameter: EngineeringParameterState) -> QWidget:
         value = parameter.value
+        tooltip = self._parameter_tooltip(parameter)
         if parameter.derived or not parameter.editable:
             control = QLabel(self._display_value(value), self)
-            control.setToolTip(self._validation_text(parameter))
+            control.setToolTip(tooltip)
             return control
         datatype = str(parameter.datatype).strip().lower()
         if datatype in {"float", "number"} and value is not None:
             control = QDoubleSpinBox(self)
             control.setDecimals(6)
-            control.setRange(-1.0e15, 1.0e15)
+            control.setRange(
+                float(parameter.minimum if parameter.minimum is not None else -1.0e15),
+                float(parameter.maximum if parameter.maximum is not None else 1.0e15),
+            )
             control.setValue(float(value))
-            control.setToolTip(self._validation_text(parameter))
+            control.setToolTip(tooltip)
             return control
         if datatype in {"float", "number", "int", "integer"}:
-            # Keep an unset numeric value visibly unset. A spin box would force
-            # a fabricated zero into the editor and could submit it as a change.
+            # An unset numeric value remains visibly unset; the validator
+            # constrains edits without coercing an empty value to zero.
             control = QLineEdit(self)
             control.setText("" if value is None else str(value))
-            control.setToolTip(self._validation_text(parameter))
+            if datatype in {"int", "integer"}:
+                validator = QIntValidator(
+                    int(parameter.minimum if parameter.minimum is not None else -2147483647),
+                    int(parameter.maximum if parameter.maximum is not None else 2147483647),
+                    control,
+                )
+            else:
+                validator = QDoubleValidator(control)
+                validator.setBottom(float(parameter.minimum if parameter.minimum is not None else -1.0e15))
+                validator.setTop(float(parameter.maximum if parameter.maximum is not None else 1.0e15))
+            control.setValidator(validator)
+            control.setToolTip(tooltip)
             return control
         if datatype in {"bool", "boolean"}:
             control = QCheckBox(self)
             control.setChecked(bool(value))
-            control.setToolTip(self._validation_text(parameter))
+            control.setToolTip(tooltip)
             return control
         if datatype == "enum":
             control = QComboBox(self)
             choices = tuple(str(choice) for choice in parameter.choices)
             control.addItems(choices)
-            if str(value) in choices:
+            if value is not None and str(value) in choices:
                 control.setCurrentText(str(value))
-            control.setToolTip(self._validation_text(parameter))
+            else:
+                control.setCurrentIndex(-1)
+            control.setToolTip(tooltip)
             return control
         control = QLineEdit(self)
         control.setText("" if value is None else str(value))
-        control.setToolTip(self._validation_text(parameter))
+        control.setToolTip(tooltip)
         return control
 
     def _parameter_label(self, parameter: EngineeringParameterState) -> QLabel:
         suffix: list[str] = []
         if parameter.unit:
             suffix.append(str(parameter.unit))
+        if parameter.required_before_create:
+            suffix.append("required")
         if parameter.derived:
             suffix.append("derived / read-only")
         elif not parameter.editable:
             suffix.append("read-only")
-        text = str(parameter.parameter_id)
+        text = str(parameter.display_name or parameter.parameter_id)
         if suffix:
             text += " (" + ", ".join(suffix) + ")"
         return QLabel(text, self)
+
+    @classmethod
+    def _parameter_tooltip(cls, parameter: EngineeringParameterState) -> str:
+        details = [cls._validation_text(parameter)]
+        if parameter.minimum is not None or parameter.maximum is not None:
+            lower = "-∞" if parameter.minimum is None else str(parameter.minimum)
+            upper = "∞" if parameter.maximum is None else str(parameter.maximum)
+            details.append(f"Allowed range: {lower} to {upper}.")
+        if parameter.default_value is not None:
+            details.append(f"Catalogue default: {cls._display_value(parameter.default_value)}.")
+        if parameter.required_before_create:
+            details.append("Required by the canonical creation contract.")
+        return " ".join(details)
 
     @staticmethod
     def _display_value(value: Any) -> str:
