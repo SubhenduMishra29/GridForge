@@ -20697,3 +20697,19 @@ Verification boundary:
     issue until the follow-up items above are resolved.
 
 ======================================================================
+
+
+PROTECTION REVISION CONTRACT — TRANSACTION BOUNDARY AUDIT (PHASE 1 FOLLOW-UP)
+Date: 2026-11-03
+
+Source inspection of CommandManager, Application._coordinate_pre_commit, Transaction, and RelayModelService established the following boundary facts:
+
+1. RevisionService publication in the current implementation is reached from Application._coordinate_pre_commit for commands executed through CommandManager. The hook is invoked before Transaction.commit(); it records a revision transition and registers a transaction inverse so failed pre-commit work can restore the exact revision snapshot.
+2. Transaction is deliberately domain-agnostic. It owns inverse journals and commit/rollback lifecycle only; it has no Application revision publisher or post-commit event contract. Do not add Protection-specific revision logic to Transaction.
+3. RelayModelService is a separate Application service that directly mutates Network relay state through a caller-supplied Transaction. The inspected Application composition does not instantiate or expose RelayModelService, and its lifecycle methods do not submit canonical model commands. Therefore the command-name classifier in RevisionService cannot be treated as coverage for these service calls.
+4. The inspected model_commands.py defines Bus/Grid/Generator/Load/Shunt/Line/Transformer commands but no CT/PT/CVT or Relay lifecycle command constants/classes. Empty GitHub code-search results are not used as evidence of absence; this conclusion is limited to the fetched command module and Application composition inspected in this pass.
+5. RelayModelService on main still invalidates physical topology for in-service transitions. PR #1071 carries the independent topology correction and must be reconciled separately; PR #1072 does not include it.
+
+Decision: do not inject guessed command-name heuristics or Protection-specific behavior into the generic Transaction class. The correct follow-up is an Application-owned service mutation boundary that publishes typed revision deltas once per successful outer transaction, is composed into the actual service entry points, and leaves rollback revision-neutral. Until that boundary and CT/PT/CVT lifecycle wiring are implemented, the three new counters in PR #1072 are partial coverage only. Issue #1070 remains open; PR #1072 remains draft.
+
+Verification boundary: source inspection only. No tests, CI, syntax checks, or runtime checks were run.
