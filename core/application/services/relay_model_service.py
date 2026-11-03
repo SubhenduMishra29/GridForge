@@ -69,7 +69,9 @@ class RelayModelService(ModelServiceSupport):
     def take_relay_out_of_service(self, *, relay_id: str, transaction: Transaction) -> ApplicationResult[Relay]: return self._set_service(relay_id=relay_id, in_service=False, transaction=transaction)
 
     def _set_service(self, *, relay_id: str, in_service: bool, transaction: Transaction) -> ApplicationResult[Relay]:
-        self._require_transaction(transaction); self._require_id(relay_id, "relay_id"); relay = self._get_required("relay", relay_id, "Relay"); self._require_type(relay, Relay, relay_id, "Relay"); old = (relay.in_service, relay.picked_up, relay.tripped); relay.put_in_service() if in_service else relay.take_out_of_service()        def restore() -> None:
+        self._require_transaction(transaction); self._require_id(relay_id, "relay_id"); relay = self._get_required("relay", relay_id, "Relay"); self._require_type(relay, Relay, relay_id, "Relay"); old = (relay.in_service, relay.picked_up, relay.tripped); relay.put_in_service() if in_service else relay.take_out_of_service()
+
+        def restore() -> None:
             self._restore_service_state(relay, old)
         transaction.record_undo(restore); action = "put in service" if in_service else "taken out of service"; return self._success(relay, "relay", relay_id, f"Relay {action}: {relay_id}")
 
