@@ -379,14 +379,22 @@ class NetworkReadService(ReadService):
                 } if test_configuration is not None else None),
                 "two_winding_test_data_available": getattr(model, "zero_sequence_two_winding_test_data", None) is not None,
                 "physical_conductor_construction_available": getattr(model, "physical_conductor_construction", None) is not None,
+                # Keep the complete typed source inputs on the immutable
+                # Application read side. Counts/availability alone are not
+                # sufficient for an engineer to inspect or review the exact
+                # configured multiport and its provenance.
+                "physical_conductor_construction": getattr(model, "physical_conductor_construction", None),
                 "phase_domain_terminal_count": len(multiport) if multiport is not None else None,
                 "phase_domain_matrix_available": multiport is not None,
+                "phase_domain_terminal_admittance_siemens": multiport,
                 "phase_domain_multiport_tap_ratio": getattr(model, "phase_domain_multiport_tap_ratio", None),
                 "phase_domain_multiport_phase_shift_rad": getattr(model, "phase_domain_multiport_phase_shift_rad", None),
                 "zero_sequence_multiport_evidence_available": evidence is not None,
                 "zero_sequence_multiport_evidence_reference": (
                     getattr(evidence, "core_zero_sequence_test_reference", None) if evidence is not None else None
                 ),
+                "zero_sequence_multiport_evidence": evidence,
+                "phase_domain_delta_loop_states": tuple(getattr(model, "phase_domain_delta_loop_states", ())),
                 "delta_loop_state_count": len(getattr(model, "phase_domain_delta_loop_states", ())),
             }
         if element_type == "fuses" and "in_service" in attributes and "blown" in attributes: attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
