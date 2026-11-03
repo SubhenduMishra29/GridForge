@@ -168,6 +168,36 @@ class CreationContractRegistry:
                 raise ValueError(f"{equipment_type}: canonical parameter IDs are blank or duplicated.")
             if set(parameter_mapping) != set(parameter_ids):
                 raise ValueError(f"{equipment_type}: canonical parameter mapping must cover exactly the declared parameter IDs.")
+            raw_field_dispositions = raw_contract.get("command_field_dispositions")
+            if not isinstance(raw_field_dispositions, Mapping):
+                raise ValueError(
+                    f"{equipment_type}: every create-command field requires an explicit lifecycle disposition."
+                )
+            field_dispositions: dict[str, Mapping[str, str]] = {}
+            allowed_dispositions = {
+                "metadata", "operating_point", "later_configuration",
+                "lifecycle_state", "operational_state", "measurement_association",
+                "provisional_default", "not_applicable",
+            }
+            for field_name, raw_disposition in raw_field_dispositions.items():
+                if field_name not in command_fields or not isinstance(raw_disposition, Mapping):
+                    raise ValueError(f"{equipment_type}: invalid command-field disposition for {field_name!r}.")
+                if not isinstance(raw_disposition.get("kind"), str) or raw_disposition["kind"] not in allowed_dispositions:
+                    raise ValueError(f"{equipment_type}: {field_name!r} has an unsupported disposition kind.")
+                reason = raw_disposition.get("reason")
+                if not isinstance(reason, str) or not reason.strip():
+                    raise ValueError(f"{equipment_type}: {field_name!r} requires a non-empty disposition reason.")
+                workflow = raw_disposition.get("workflow")
+                if raw_disposition["kind"] in {
+                    "operating_point", "later_configuration", "lifecycle_state",
+                    "operational_state", "measurement_association",
+                } and (not isinstance(workflow, str) or not workflow.strip()):
+                    raise ValueError(f"{equipment_type}: {field_name!r} requires an explicit workflow.")
+                field_dispositions[field_name] = MappingProxyType({
+                    "kind": raw_disposition["kind"],
+                    "reason": reason.strip(),
+                    **({"workflow": workflow.strip()} if isinstance(workflow, str) and workflow.strip() else {}),
+                })
             for parameter_id, target in parameter_mapping.items():
                 if not isinstance(target, str) or target not in command_fields:
                     raise ValueError(f"{equipment_type}: parameter {parameter_id!r} maps to invalid command field {target!r}.")
@@ -212,6 +242,27 @@ class CreationContractRegistry:
                 raise ValueError(
                     f"{equipment_type}: ID field {id_field!r} collides with a mapped "
                     "engineering parameter or endpoint."
+                )
+            generated_presentation_fields = {
+                field for field in ("presentation_x", "presentation_y")
+                if field in command_fields
+            }
+            explicitly_supplied_fields = {
+                id_field, *parameter_mapping.values(), *endpoint_mapping.values(),
+                *generated_presentation_fields,
+            }
+            disposition_collisions = explicitly_supplied_fields & set(field_dispositions)
+            if disposition_collisions:
+                raise ValueError(
+                    f"{equipment_type}: command fields already supplied by identity, "
+                    f"parameter, endpoint, or presentation mappings cannot also have "
+                    f"dispositions: {sorted(disposition_collisions)!r}."
+                )
+            undisposed_fields = command_fields - explicitly_supplied_fields - set(field_dispositions)
+            if undisposed_fields:
+                raise ValueError(
+                    f"{equipment_type}: create-command fields have no explicit engineering "
+                    f"disposition: {sorted(undisposed_fields)!r}."
                 )
             # Every required constructor field must have an explicit source in
             # the trusted contract. Without this check, a structurally valid
@@ -263,6 +314,7 @@ class CreationContractRegistry:
                 "required_connection_terminals": required_terminals,
                 "parameter_contract": parameter_contract,
                 "conditional_requirements": conditional_requirements,
+                "command_field_dispositions": MappingProxyType(field_dispositions),
             })
         frozen = MappingProxyType(normalized)
         if self._contracts and _plain_contract_value(self._contracts) != _plain_contract_value(frozen):
