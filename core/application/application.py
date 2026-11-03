@@ -695,16 +695,19 @@ class Application:
             """Capture mutable Relay equipment state without treating it as topology."""
             relays = getattr(network, "relays", ())
             return tuple(sorted((
-                str(getattr(relay, "id", "")),
-                str(getattr(relay, "relay_type", "")),
-                getattr(relay, "plugin_id", None),
-                deepcopy(getattr(relay, "settings", {})),
-                bool(getattr(relay, "in_service", False)),
-                bool(getattr(relay, "enabled", False)),
-                bool(getattr(relay, "blocked", False)),
-                bool(getattr(relay, "picked_up", False)),
-                bool(getattr(relay, "tripped", False)),
-            ) for relay in relays, key=lambda item: item[0]))
+                (
+                    str(getattr(relay, "id", "")),
+                    str(getattr(relay, "relay_type", "")),
+                    getattr(relay, "plugin_id", None),
+                    repr(getattr(relay, "settings", {})),
+                    bool(getattr(relay, "in_service", False)),
+                    bool(getattr(relay, "enabled", False)),
+                    bool(getattr(relay, "blocked", False)),
+                    bool(getattr(relay, "picked_up", False)),
+                    bool(getattr(relay, "tripped", False)),
+                )
+                for relay in relays
+            ), key=lambda item: item[0]))
 
         captured_relay_state = relay_state_fingerprint(captured_network)
 
