@@ -127,7 +127,16 @@ class RevisionService:
         unresolved SLD equipment reference is therefore a validation
         diagnostic, not a second dirty-state authority.
         """
-        return self._current != self._persisted_state
+        current = self._current
+        persisted = self._persisted_state
+        # Instrumentation/Protection revisions are monotonic freshness tokens.
+        # User undo can advance them while restoring the persisted model state;
+        # they must not by themselves keep the project dirty.
+        return (
+            current.model_revision != persisted.model_revision
+            or current.topology_revision != persisted.topology_revision
+            or current.presentation_revision != persisted.presentation_revision
+        )
 
     def snapshot_state(self) -> tuple[
         ProjectRevision,
