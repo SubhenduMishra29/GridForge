@@ -516,3 +516,67 @@ The recursive repository tree search did not identify dedicated IEC CIM (IEC 619
 ### Verification limits
 
 This was a targeted source audit and recursive tree search, not a complete review of every serialized field, every legacy fixture, all archive schema-v1 records or all project activation callbacks. The import/constructor finding is based on direct inspection of the persisted DTO decoder; no exploit, malicious package or runtime execution was attempted. The absence of a dedicated CIM/SCL adapter is based on the inspected repository tree and does not rule out external tools or untracked integrations. No tests, CI, syntax/import execution, migration replay, save/load round-trip, runtime project transition, interoperability validation or security testing was run. No V2 source was changed.
+
+
+## 8F. Standards and Indian regulatory applicability — first official-source batch (2026-11-03)
+
+**Research boundary:** This is an applicability discovery pass, not a clause-level compliance assessment. Official IEC and Indian regulator/catalogue sources were checked. Full normative text, exact clause mapping, BIS adoption status and asset-specific applicability remain to be established before requirements or conformance claims are frozen.
+
+### A. IEC 61850 — substation automation, data models and engineering exchange
+
+- The IEC Webstore's current all-parts series listing is `IEC 61850:2026 SER`, published 2026-09-18. The package listing spans International Standards, Technical Specifications, Technical Reports and a Publicly Available Specification; it is not one monolithic normative document.
+- `IEC 61850-6:2009+AMD1:2018+AMD2:2024 CSV`, edition 2.2, is the consolidated current SCL/configuration-description publication found in this source pass. Its scope includes IED capability descriptions, IED parameters, communication system configuration, substation automation system structures and relations, and configuration exchange between engineering tools.
+- `IEC TS 61850-6-3:2025` specifies a machine-processable OCL rule format for validation of IEC 61850 XML-based files, including validation during engineering and checking upgrade/downgrade rule conformity. It is a Technical Specification, not a replacement for the normative SCL data model.
+- `IEC TR 61850-7-6:2024` is a Technical Report focused on typical information exchange and engineering conventions; it explicitly does not define application implementation requirements.
+
+**V3 implication:** define explicit supported IEC 61850 parts/profiles/use cases. SCL import/export should be a distinct engineering interchange subsystem with schema validation, profile/rule validation, IED capability modelling, communication configuration and loss reporting. Do not claim generic “IEC 61850 compliance” from supporting SCL XML alone.
+
+### B. IEC 60255 — protection equipment and digital process interfaces
+
+- `IEC 60255-1:2022`, edition 2.0, is the current common-requirements publication identified. The IEC scope includes measuring relays/protection equipment and distributed protection schemes; the edition's stated changes include merging units and communications as integral protection components, binary output clarification, environmental conditions, and low-power instrument transformers.
+- `IEC TS 60255-216-1:2025`, edition 1.0, is a Technical Specification for protection functions using digital communication as input and output. The official scope specifically covers SV subscription, GOOSE subscription/publication and time-synchronisation subscription, plus functional interoperability and functional requirements/tests.
+
+**V3 implication:** protection requirements must model digital input quality/time, SV stream identity and subscription, GOOSE input/output semantics, merging-unit interfaces, time synchronisation, functional interoperability and test evidence. Keep the relay function, protection decision, output command, physical actuation and breaker feedback as distinct lifecycle stages. This supports the existing Signal/Measurement and Protection domain separation; it does not establish product certification.
+
+### C. IEC 61131-3 — PLC programming-language scope
+
+- `IEC 61131-3:2025`, edition 4.0, is listed by IEC as valid, published 2025-05-22, with a stated stability date of 2027.
+- The official scope covers syntax and semantics for Structured Text (ST), Ladder Diagram (LD), Function Block Diagram (FBD), Sequential Function Chart (SFC), configuration elements and features facilitating communication among programmable controllers and other automation components.
+- The publication does not by itself define the complete PLC execution runtime, all task scheduling/scan-cycle semantics, controller operating-system behavior or field communication protocol profiles; related IEC 61131 parts and other standards must be evaluated separately.
+
+**V3 implication:** Control Canvas should distinguish IEC 61131-3 language representation/compiler semantics from execution scheduling, task/scan model, runtime state, I/O binding and communications. Build a language/profile support matrix rather than treating a graphical function-block editor as proof of PLC conformance.
+
+### D. India — notified regulations, regulator material and draft separation
+
+- CEA's official regulations page lists the `Central Electricity Authority (Measures relating to Safety and Electric Supply) Regulations, 2023` and a `2026 Amendment Regulations` entry as notified regulations. The 2026 amendment must be incorporated into the applicable consolidated legal baseline after Gazette text and commencement provisions are checked.
+- CEA's official Construction Standards page lists the 2022 Technical Standards for Construction of Electrical Plants and Electric Lines regulations, the 2025 amendment and a 2026 amendment entry.
+- CEA's official updates page (2026-10-05) records a request for public comments on a **draft list of relevant standards** applicable under the 2023 Safety and Electric Supply Regulations and amendments. That list is consultation material until formally adopted/notified; it must not be represented as an operative notified standards list.
+- CEA's official updates page records the `Manual on Transmission Planning Criteria, 2026` (2026-10-14). Its legal character and relationship to notified regulations must be distinguished from regulations; it is planning criteria/guidance unless the governing instrument gives a specific binding effect.
+- CERC's official current-regulations register lists the Indian Electricity Grid Code Regulations, 2023 and amendments, including an amendment dated 2026-03-10. It also lists other grid/connectivity regulations and amendments. Applicability depends on the asset, connection, voltage level, licensee/generator role and jurisdiction; central inter-state rules are not automatically universal requirements for every industrial plant.
+
+**V3 implication:** create an India applicability profile with separate legal classes: Acts/rules, notified CEA/CERC regulations, Gazette amendments/commencement, grid codes and procedures, manuals/criteria, BIS adoptions and draft consultations. Model jurisdiction, effective date, asset/workflow applicability, supersession and evidence links. A plant-specific compliance checklist must be generated only after asset and connection scope are known.
+
+### E. Open research questions and evidence gaps
+
+1. Verify the Gazette text, commencement dates and consolidated wording of each CEA 2026 amendment before encoding requirements.
+2. Obtain and reconcile the official BIS catalogue/adoption records for each relevant IEC edition; international publication status does not establish Indian adoption or identical national edition.
+3. Build an applicability matrix by asset class (industrial captive plant, generating station, transmission, distribution, substation, IED/PLC system), voltage level, owner/operator role and jurisdiction.
+4. Obtain licensed normative texts and map precise clauses to GridForge model fields, workflows, validations, reports and evidence. Public abstracts are discovery sources only.
+5. Identify relevant companion parts for IEC 61850, IEC 60255, IEC 61131, IEC 61970/61968 CIM, IEC 62443, IEC 62682 and IEC 81346; record document type and edition status individually.
+
+### Official source register — first batch
+
+- IEC 61850 all-parts series, 2026 — https://webstore.iec.ch/en/publication/6028
+- IEC 61850-6 consolidated edition 2.2 (2009+AMD1:2018+AMD2:2024) — https://webstore.iec.ch/en/publication/103863
+- IEC TS 61850-6-3:2025 — https://webstore.iec.ch/en/publication/79695
+- IEC TR 61850-7-6:2024 — https://webstore.iec.ch/en/publication/84757
+- IEC 60255-1:2022 — https://webstore.iec.ch/en/publication/59762
+- IEC TS 60255-216-1:2025 — https://webstore.iec.ch/en/publication/77735
+- IEC 61131-3:2025 — https://webstore.iec.ch/en/publication/68533
+- CEA notified safety regulations and amendments — https://cea.nic.in/regulations-subcategory/ad9da247-723a-4a60-9182-fc2753458916?lang=en
+- CEA construction standards and amendments — https://www.cea.nic.in/regulations-category/c5e1ec5f-ca2f-4057-8a31-857f91a71701?lang=en
+- CEA draft regulations — https://www.cea.nic.in/regulations/draft-regulations?lang=en
+- CEA official updates — https://www.cea.nic.in/whats-new/all-updates?lang=en
+- CERC current regulations — https://cercind.gov.in/current_reg.html
+
+**Verification limits:** Official catalogue/regulator pages and publication abstracts were inspected; licensed normative standards and all Gazette PDFs were not downloaded or clause-audited. BIS adoption records were not verified in this batch. The date/status statements are a research snapshot and must be refreshed before V3 release. No compliance claim is made.
