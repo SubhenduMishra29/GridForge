@@ -156,7 +156,7 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     },
     "transformer_configuration_summary": {
         "datatype": "mapping", "editable": False, "derived": True, "study_impact": True,
-        "validation": {"description": "Read-only winding, neutral, vector-group, zero-sequence test and multiport evidence summary. Configuration changes require the dedicated typed Transformer configurator (#939)."},
+        "validation": {"description": "Read-only winding, neutral grounding and earth-return, neutral-terminal mapping, phase-role, vector-group, zero-sequence test and multiport evidence summary. Typed configuration changes use the Application Transformer command/service boundary; the dedicated editor remains pending (#939)."},
     },
     "rated_voltage_kv": {"unit": "kV", "datatype": "float", "editable": True, "study_impact": True},
     "rated_current_a": {"unit": "A", "datatype": "float", "editable": True, "study_impact": True},
