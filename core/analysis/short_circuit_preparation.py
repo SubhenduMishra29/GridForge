@@ -37,6 +37,44 @@ class ShortCircuitPreparation:
         self.base_mva = base_mva
         self._topology_snapshot = None
 
+    @staticmethod
+    def _require_complete_physical_conductor_coverage(
+        network: Any,
+        physical_topology: Any,
+    ) -> None:
+        """Reject phase-domain studies that silently omit active scalar branches.
+
+        The topology projection intentionally contains only Line/Cable objects
+        with an explicit BranchConductorSystem. That is useful for optional
+        physical-conductor enrichment of ordinary sequence studies, but it is
+        not a complete phase-domain network when any in-service Line/Cable is
+        omitted.
+        """
+        configured_ids = {
+            item.equipment_id
+            for item in physical_topology.branches
+            if item.in_service
+        }
+        missing_ids = []
+        for collection_name in ("lines", "cables"):
+            for branch in getattr(network, collection_name, ()):
+                if not bool(getattr(branch, "in_service", True)):
+                    continue
+                equipment_id = getattr(branch, "id", None)
+                if not isinstance(equipment_id, str) or not equipment_id.strip():
+                    raise ValueError(
+                        f"In-service {collection_name[:-1]} has no canonical equipment identity for phase-domain coverage."
+                    )
+                if equipment_id not in configured_ids:
+                    missing_ids.append(equipment_id)
+        if missing_ids:
+            missing = ", ".join(sorted(set(missing_ids)))
+            raise ValueError(
+                "Phase-domain preparation requires an explicit physical "
+                "conductor system for every in-service Line/Cable branch; "
+                f"missing configuration: {missing}."
+            )
+
     def prepare(self, fault_type: FaultType, fault_bus: Any, Zf: complex = 0.0, *, elements: Any | None = None, topology_snapshot: TopologySnapshot | None = None, phase_domain_case: Any | None = None, phase_domain_sources: Any | None = None, phase_domain_faults: Any | None = None) -> ShortCircuitInput:
         network = self._network
         if network is None:
@@ -79,6 +117,7 @@ class ShortCircuitPreparation:
                 if not sources:
                     raise ValueError("Phase-domain preparation requires at least one explicit or automatically prepared source equivalent.")
                 physical_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                self._require_complete_physical_conductor_coverage(network, physical_topology)
                 if not physical_topology.branches:
                     raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
                 physical_impedances = prepare_physical_conductor_impedance_snapshot(
@@ -113,6 +152,7 @@ class ShortCircuitPreparation:
                 from core.analysis.phase_domain_network_preparation import assemble_phase_domain_admittance
                 authoritative_graph = network.build_phase_domain_conductor_snapshot()
                 authoritative_topology = build_physical_conductor_topology_snapshot(network, topology_snapshot)
+                self._require_complete_physical_conductor_coverage(network, authoritative_topology)
                 if not authoritative_topology.branches:
                     raise ValueError("Phase-domain preparation requires at least one active Line/Cable conductor branch.")
                 authoritative_impedances = prepare_physical_conductor_impedance_snapshot(
