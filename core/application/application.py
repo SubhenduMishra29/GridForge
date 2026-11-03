@@ -690,6 +690,7 @@ class Application:
         captured_configuration_service = configuration
         captured_configuration = active_configuration
         captured_channel_service = service
+        captured_revision = self.revision
 
         def ensure_current_protection_provenance() -> None:
             current_lifecycle = self.project_lifecycle
@@ -719,10 +720,14 @@ class Application:
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
+                or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
+                or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
+                or self.revision.protection_configuration_revision != captured_revision.protection_configuration_revision
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
-                    "or measurement-channel authority changed after evaluation."
+                    "measurement-channel authority, or instrumentation/Protection equipment/configuration "
+                    "revision changed after evaluation."
                 )
 
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
