@@ -420,11 +420,12 @@ class Transformer(Branch):
         array = np.asarray(matrix, dtype=complex)
         if not np.all(np.isfinite(array.real)) or not np.all(np.isfinite(array.imag)):
             raise ValueError("Transformer terminal admittance matrix must contain finite values.")
-        if not np.allclose(array, array.T, rtol=1e-9, atol=1e-12):
-            raise ValueError("Transformer terminal admittance matrix must be reciprocal.")
+        matrix_scale = max(float(np.max(np.abs(array))), float(np.finfo(float).tiny))
+        if not np.allclose(array, array.T, rtol=1e-9, atol=1e-12 * matrix_scale):
+            raise ValueError("Transformer terminal admittance matrix must be reciprocal in the declared terminal order.")
         eigenvalues = np.linalg.eigvalsh((array.real + array.real.T) * 0.5)
-        scale = max(1.0, float(np.max(np.abs(eigenvalues))))
-        if float(np.min(eigenvalues)) < -1e-10 * scale:
+        conductance_scale = max(float(np.max(np.abs(eigenvalues))), float(np.finfo(float).tiny))
+        if float(np.min(eigenvalues)) < -1e-10 * conductance_scale:
             raise ValueError("Transformer terminal conductance matrix must be positive semidefinite.")
         return matrix
 
