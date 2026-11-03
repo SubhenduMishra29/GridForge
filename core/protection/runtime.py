@@ -37,6 +37,7 @@ class ProtectionRuntime:
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
         self._composed_configuration_snapshot: Any | None = None
+        self._composed_equipment_state_snapshot: Any | None = None
 
     @property
     def activation_generation(self) -> int:
@@ -76,6 +77,51 @@ class ProtectionRuntime:
         except (TypeError, ValueError):
             return False
 
+
+    @staticmethod
+    def _equipment_state_fingerprint(network: Network) -> tuple[Any, ...]:
+        """Capture composition-relevant CT/CVT/PT and Relay state, excluding samples."""
+        specifications = (
+            ("ct", getattr(network, "current_transformers", ()),
+             ("name", "primary_rated_current_a", "secondary_rated_current_a", "burden_va", "accuracy_class", "frequency_hz", "polarity", "in_service"),
+             ("p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint")),
+            ("cvt", getattr(network, "capacitive_voltage_transformers", ()),
+             ("name", "rated_primary_voltage_kv", "rated_secondary_voltage_v", "accuracy_class", "rated_burden_va", "polarity", "frequency_hz", "in_service"),
+             ("h1_endpoint", "h2_endpoint", "x1_endpoint", "x2_endpoint")),
+            ("pt", getattr(network, "potential_transformers", ()),
+             ("name", "primary_voltage_kv", "secondary_voltage_v", "accuracy_class", "burden_va", "phase_displacement_deg", "in_service"),
+             ("primary_a_endpoint", "primary_b_endpoint", "secondary_a_endpoint", "secondary_b_endpoint")),
+        )
+        captured: list[tuple[Any, ...]] = []
+        for kind, equipment, fields, endpoint_fields in specifications:
+            for item in equipment:
+                values = tuple((field, repr(getattr(item, field, None))) for field in fields)
+                endpoints = tuple(
+                    (field, None if (endpoint := getattr(item, field, None)) is None
+                     else (type(endpoint).__name__, getattr(endpoint, "id", None), id(endpoint)))
+                    for field in endpoint_fields
+                )
+                captured.append((kind, str(getattr(item, "id", "")), values, endpoints))
+        for relay in getattr(network, "relays", ()):
+            values = tuple((field, repr(getattr(relay, field, default))) for field, default in (
+                ("relay_type", ""), ("plugin_id", None), ("settings", {}),
+                ("in_service", False), ("enabled", False), ("blocked", False),
+                ("picked_up", False), ("tripped", False),
+            ))
+            captured.append(("relay", str(getattr(relay, "id", "")), values, ()))
+        return tuple(sorted(captured, key=lambda item: (item[0], item[1])))
+
+    @property
+    def equipment_state_matches_composition(self) -> bool:
+        """Whether authoritative instrument/Relay state still matches this composition."""
+        snapshot = self._composed_equipment_state_snapshot
+        if snapshot is None:
+            return False
+        try:
+            return self._equipment_state_fingerprint(self._network) == snapshot
+        except (AttributeError, TypeError, ValueError):
+            return False
+
     def compose(self, channels: Mapping[str, Any]) -> ProtectionSystem:
         """Rebuild runtime composition from project configuration and live channels."""
         if not isinstance(channels, Mapping):
@@ -89,6 +135,7 @@ class ProtectionRuntime:
         self._system = ProtectionSystem()
         self._channels = {}
         self._composed_configuration_snapshot = None
+        self._composed_equipment_state_snapshot = None
 
         contract_diagnostics = validate_protection_input_contracts(self._configuration, channels)
         if contract_diagnostics:
@@ -148,6 +195,7 @@ class ProtectionRuntime:
         self._system = composed_system
         self._channels = composed_channels
         self._composed_configuration_snapshot = configuration_snapshot
+        self._composed_equipment_state_snapshot = self._equipment_state_fingerprint(self._network)
         return self._system
 
 
