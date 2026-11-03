@@ -154,6 +154,10 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
         "datatype": "mapping", "editable": False, "derived": True, "study_impact": True,
         "validation": {"description": "Read-only inventory and impedance-matrix summary; edit through the typed Cable conductor configuration workflow."},
     },
+    "transformer_configuration_summary": {
+        "datatype": "mapping", "editable": False, "derived": True, "study_impact": True,
+        "validation": {"description": "Read-only winding, neutral, vector-group, zero-sequence test and multiport evidence summary. Configuration changes require the dedicated typed Transformer configurator (#939)."},
+    },
     "rated_voltage_kv": {"unit": "kV", "datatype": "float", "editable": True, "study_impact": True},
     "rated_current_a": {"unit": "A", "datatype": "float", "editable": True, "study_impact": True},
     "r1_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
@@ -337,6 +341,49 @@ class NetworkReadService(ReadService):
             attributes["conductor_system_summary"] = (
                 conductor_system.summary() if conductor_system is not None else None
             )
+        if element_type == "transformers":
+            enum_value = lambda value: value.value if hasattr(value, "value") else value
+            vector_group = getattr(model, "vector_group_configuration", None)
+            test_configuration = getattr(model, "zero_sequence_test_configuration", None)
+            multiport = getattr(model, "phase_domain_terminal_admittance_siemens", None)
+            evidence = getattr(model, "zero_sequence_multiport_evidence", None)
+            attributes["transformer_configuration_summary"] = {
+                "hv_winding_connection": enum_value(getattr(model, "hv_winding_connection", None)),
+                "lv_winding_connection": enum_value(getattr(model, "lv_winding_connection", None)),
+                "hv_terminal_role": getattr(model, "hv_terminal_role", None),
+                "lv_terminal_role": getattr(model, "lv_terminal_role", None),
+                "hv_neutral_terminal_role": getattr(model, "hv_neutral_terminal_role", None),
+                "lv_neutral_terminal_role": getattr(model, "lv_neutral_terminal_role", None),
+                "hv_neutral_grounding_impedance_ohm": getattr(model, "hv_neutral_grounding_impedance_ohm", None),
+                "lv_neutral_grounding_impedance_ohm": getattr(model, "lv_neutral_grounding_impedance_ohm", None),
+                "impedance_reference_winding": getattr(model, "impedance_reference_winding", None),
+                "zero_sequence_resistance_ohm": getattr(model, "zero_sequence_resistance_ohm", None),
+                "zero_sequence_reactance_ohm": getattr(model, "zero_sequence_reactance_ohm", None),
+                "core_construction": enum_value(getattr(model, "core_construction", None)),
+                "zero_sequence_test_basis": getattr(model, "zero_sequence_test_basis", None),
+                "vector_group": ({
+                    "connection": enum_value(vector_group.connection),
+                    "clock_number": vector_group.clock_number,
+                    "hv_polarity": enum_value(vector_group.hv_polarity),
+                    "lv_polarity": enum_value(vector_group.lv_polarity),
+                    "phase_displacement_deg": vector_group.phase_displacement_deg,
+                } if vector_group is not None else None),
+                "zero_sequence_test": ({
+                    "energized_winding": enum_value(test_configuration.energized_winding),
+                    "other_winding_condition": enum_value(test_configuration.other_winding_condition),
+                    "neutral_return_included": test_configuration.neutral_return_included,
+                } if test_configuration is not None else None),
+                "two_winding_test_data_available": getattr(model, "zero_sequence_two_winding_test_data", None) is not None,
+                "physical_conductor_construction_available": getattr(model, "physical_conductor_construction", None) is not None,
+                "phase_domain_terminal_count": len(multiport) if multiport is not None else None,
+                "phase_domain_multiport_tap_ratio": getattr(model, "phase_domain_multiport_tap_ratio", None),
+                "phase_domain_multiport_phase_shift_rad": getattr(model, "phase_domain_multiport_phase_shift_rad", None),
+                "zero_sequence_multiport_evidence_available": evidence is not None,
+                "zero_sequence_multiport_evidence_reference": (
+                    getattr(evidence, "core_zero_sequence_test_reference", None) if evidence is not None else None
+                ),
+                "delta_loop_state_count": len(getattr(model, "phase_domain_delta_loop_states", ())),
+            }
         if element_type == "fuses" and "in_service" in attributes and "blown" in attributes: attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
         if element_type == "disconnectors" and "closed" in attributes: attributes["conducts"] = bool(attributes["closed"] and attributes.get("in_service", True))
         if element_type == "reactors" and "reactive_power_injection_mvar" in attributes: attributes["absorption_mvar"] = abs(float(attributes["reactive_power_injection_mvar"]))
