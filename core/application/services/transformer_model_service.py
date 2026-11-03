@@ -304,7 +304,7 @@ class TransformerModelService(ModelServiceSupport):
                 _replace_physical_conductor_configuration=True,
                 _replace_winding_configuration=True,
             )
-            if service_state_changed:
+            if service_state_changed or physical_topology_changed:
                 self._network.invalidate_topology()
 
         transaction.record_undo(restore)
