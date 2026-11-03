@@ -343,7 +343,7 @@ class UpdateTransformerCommand(Command):
             raise TypeError("replace_physical_conductor_configuration must be a bool.")
         physical_fields = (hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles)
         if replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
-            raise ValueError("Physical conductor replacement requires all four HV/LV earth-return and phase-role fields, including explicit None values.")
+            raise ValueError("Physical conductor replacement requires all six HV/LV earth-return, neutral-terminal and phase-role fields, including explicit None values.")
         if not replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
             hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles = (
                 None if field is ... else field for field in physical_fields
