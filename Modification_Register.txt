@@ -20741,3 +20741,25 @@ Reviewed the actual transaction owner path before implementing a callback API:
 No code change to Transaction was made in this pass. Introducing commit callbacks before identifying the real service composition path risks creating an unused API or missing a caller-owned transaction path. Next action is to inspect the complete repository tree / exact service factory and caller paths, then wire a typed revision publisher into the authoritative composition point. Only then add the generic callback API if it is the smallest correct transaction primitive.
 
 PR #1072 remains draft. No tests, CI, syntax checks, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — CT/CVT TOPOLOGY SEPARATION CORRECTION (2026-11-03)
+
+Composition-root inspection resolved the earlier service-wiring uncertainty:
+
+- `core/application/bootstrap.py:create_application` composes `ModelService`, which owns `MeasurementModelService` and `PTModelService`; command handlers route CT/CVT/PT commands through those services.
+- The same composition root constructs `RelayModelService` and registers it through `RelayCommandHandlers`.
+- Exact command identifiers are declared in `commands/measurement_commands.py` and `commands/relay_commands.py`: CT/CVT/PT/Relay mutations use canonical `model.*` command types and pass through `CommandManager` plus Application pre-commit revision publication. Thus the canonical command path is already wired; service-level direct use outside that command path remains a separate bypass risk and must not be confused with the normal composition.
+
+Correction applied in `core/application/services/measurement_model_service.py`:
+
+- Removed `Network.invalidate_topology()` from CT service-state changes in update and dedicated in-service/out-of-service methods.
+- Removed the corresponding topology invalidations from CT rollback inverses.
+- Applied the same correction to CVT update/service-state methods and rollback inverses.
+- Preserved CT/CVT state mutation, validation, and transaction inverse registration.
+
+Rationale: CT/CVT service availability changes measurement/instrumentation interpretation; it does not change the conductive network graph. RevisionService's instrumentation revision classification is driven by the canonical CT/CVT command identifiers. No topology revision should advance for these lifecycle transitions.
+
+Relay topology invalidation remains separately addressed by PR #1071 and is not changed here. PT service had no Network.invalidate_topology() calls in the inspected implementation.
+
+Verification boundary: source-level exact replacement only. No tests, CI, syntax checks, imports, or runtime checks were run.
