@@ -691,6 +691,23 @@ class Application:
         captured_configuration = active_configuration
         captured_channel_service = service
 
+        def relay_state_fingerprint(network: Any) -> tuple[tuple[Any, ...], ...]:
+            """Capture mutable Relay equipment state without treating it as topology."""
+            relays = getattr(network, "relays", ())
+            return tuple(sorted((
+                str(getattr(relay, "id", "")),
+                str(getattr(relay, "relay_type", "")),
+                getattr(relay, "plugin_id", None),
+                deepcopy(getattr(relay, "settings", {})),
+                bool(getattr(relay, "in_service", False)),
+                bool(getattr(relay, "enabled", False)),
+                bool(getattr(relay, "blocked", False)),
+                bool(getattr(relay, "picked_up", False)),
+                bool(getattr(relay, "tripped", False)),
+            ) for relay in relays, key=lambda item: item[0]))
+
+        captured_relay_state = relay_state_fingerprint(captured_network)
+
         def ensure_current_protection_provenance() -> None:
             current_lifecycle = self.project_lifecycle
             current_project = current_lifecycle.context
@@ -719,6 +736,7 @@ class Application:
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
+                or relay_state_fingerprint(captured_network) != captured_relay_state
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
