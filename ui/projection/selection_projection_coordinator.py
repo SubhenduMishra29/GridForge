@@ -200,6 +200,49 @@ class SelectionProjectionCoordinator:
             self.clear_projection()
             return
 
+        creation_type_by_read_model_type = {
+            "buses": "bus", "grids": "grid", "generators": "generator",
+            "synchronous_machines": "synchronous_machine", "loads": "load",
+            "motors": "motor", "shunts": "shunt", "capacitors": "capacitor",
+            "reactors": "reactor", "solar": "solar", "batteries": "battery",
+            "current_transformers": "current_transformer",
+            "potential_transformers": "potential_transformer",
+            "capacitive_voltage_transformers": "cvt", "lines": "line",
+            "cables": "cable", "transformers": "transformer", "breakers": "breaker",
+            "switches": "switch", "disconnectors": "disconnector", "fuses": "fuse",
+        }
+        creation_type = creation_type_by_read_model_type.get(
+            str(element.element_type).strip().lower(), str(element.element_type).strip().lower()
+        )
+        try:
+            catalogue_definition = creation_definition_for(creation_type)
+            metadata_by_id = {item.parameter_id: item for item in catalogue_definition.parameter_definitions}
+        except (KeyError, TypeError, ValueError):
+            metadata_by_id = {}
+
+        read_parameters = tuple(getattr(element, "engineering_parameters", ()))
+        projected_parameter_ids = {item.parameter_id for item in read_parameters}
+        unavailable_parameters = tuple(
+            EngineeringParameterState(
+                parameter_id=metadata.parameter_id,
+                value=None,
+                unit=metadata.unit,
+                datatype=metadata.datatype,
+                choices=tuple(str(choice) for choice in metadata.choices),
+                editable=False,
+                derived=metadata.derived,
+                validation=metadata.validation,
+                display_name=metadata.display_name,
+                required_before_create=metadata.required_before_create,
+                default_value=metadata.default_value,
+                minimum=metadata.minimum,
+                maximum=metadata.maximum,
+                inspectable=False,
+            )
+            for parameter_id, metadata in metadata_by_id.items()
+            if parameter_id not in projected_parameter_ids
+        )
+
         state = ProjectionState(
             object_id=element.object_id,
             display_type=element.element_type,
@@ -220,9 +263,14 @@ class SelectionProjectionCoordinator:
                     coupling_group=item.coupling_group,
                     topology_impact=item.topology_impact,
                     study_impact=item.study_impact,
+                    display_name=metadata_by_id[item.parameter_id].display_name if item.parameter_id in metadata_by_id else item.parameter_id,
+                    required_before_create=metadata_by_id[item.parameter_id].required_before_create if item.parameter_id in metadata_by_id else False,
+                    default_value=metadata_by_id[item.parameter_id].default_value if item.parameter_id in metadata_by_id else None,
+                    minimum=metadata_by_id[item.parameter_id].minimum if item.parameter_id in metadata_by_id else None,
+                    maximum=metadata_by_id[item.parameter_id].maximum if item.parameter_id in metadata_by_id else None,
                 )
-                for item in getattr(element, "engineering_parameters", ())
-            ),
+                for item in read_parameters
+            ) + unavailable_parameters,
         )
         self._set_panel_target(state)
 
@@ -285,6 +333,12 @@ class SelectionProjectionCoordinator:
                 editable=parameter.editable,
                 derived=parameter.derived,
                 validation=parameter.validation,
+                display_name=parameter.display_name,
+                required_before_create=parameter.required_before_create,
+                default_value=parameter.default_value,
+                minimum=parameter.minimum,
+                maximum=parameter.maximum,
+                inspectable=True,
             )
             for parameter in definition.parameter_definitions
         )

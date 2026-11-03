@@ -16,7 +16,7 @@ from ui.projection.projection_state import EngineeringParameterState, Projection
 from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, Signal,
+    QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
 )
 from ui.plugins.panels_plugin import PanelSpec
@@ -25,6 +25,7 @@ from .element_list_panel import ElementListPanelWidget
 from .messages_panel import MessagesPanelWidget
 from .properties_panel import PropertiesPanel
 from .engineering_parameter_editor import EngineeringParameterEditor
+from .transformer_configuration_editor import TransformerConfigurationEditor
 from .study_cases_panel import StudyCasesPanelWidget
 
 
@@ -316,6 +317,7 @@ class PropertiesPanelWidget(QWidget):
         self.logical_panel = PropertiesPanel()
         self.logical_panel.on_create()
         self._engineering_editor: EngineeringParameterEditor | None = None
+        self._transformer_configuration_editor = TransformerConfigurationEditor(self)
         self._application: Any | None = None
         self._parameter_controls: dict[str, QWidget] = {}
         self._parameter_states: dict[str, EngineeringParameterState] = {}
@@ -335,6 +337,7 @@ class PropertiesPanelWidget(QWidget):
         root = QVBoxLayout(self)
         self._form_layout = QFormLayout()
         root.addLayout(self._form_layout)
+        root.addWidget(self._transformer_configuration_editor)
         self._annotation_layout = QFormLayout()
         root.addWidget(QLabel("SLD Data Annotations", self))
         root.addLayout(self._annotation_layout)
@@ -359,6 +362,7 @@ class PropertiesPanelWidget(QWidget):
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._application = application
         self._engineering_editor = EngineeringParameterEditor(application)
+        self._transformer_configuration_editor.bind_application(application)
         self._creation_context = creation_context
         self._creation_controller = controller
         if controller is not None:
@@ -584,6 +588,7 @@ class PropertiesPanelWidget(QWidget):
 
 
     def _render_projection(self, target: ProjectionState | None) -> None:
+        self._transformer_configuration_editor.set_target(target)
         self._clear_parameter_controls()
         if target is None:
             if self._validation_label is not None:
@@ -620,8 +625,10 @@ class PropertiesPanelWidget(QWidget):
                 )
         if target.connectivity_refs:
             self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
+        unavailable_count = sum(not item.inspectable for item in target.engineering_parameters)
         self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
-            f"{len(target.engineering_parameters)} projected parameter(s); Core validation remains authoritative.",
+            f"{len(target.engineering_parameters)} catalogue parameter(s); "
+            f"{unavailable_count} unavailable in the committed read model. Core validation remains authoritative.",
             self,
         ))
         for parameter in target.engineering_parameters:
@@ -756,6 +763,7 @@ class PropertiesPanelWidget(QWidget):
                 logging.getLogger(__name__).exception("Failed to release asynchronous commit state")
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
+        self._transformer_configuration_editor.set_target(None)
         self._clear_parameter_controls()
         assert self._form_layout is not None
         for definition in draft.parameter_schema:
@@ -905,55 +913,81 @@ class PropertiesPanelWidget(QWidget):
 
     def _create_parameter_control(self, parameter: EngineeringParameterState) -> QWidget:
         value = parameter.value
+        tooltip = self._parameter_tooltip(parameter)
+        if not parameter.inspectable:
+            control = QLabel("Not available in the Application read model", self)
+            control.setToolTip("This canonical creation parameter is not exposed by the committed equipment read model.")
+            return control
         if parameter.derived or not parameter.editable:
             control = QLabel(self._display_value(value), self)
-            control.setToolTip(self._validation_text(parameter))
+            control.setToolTip(tooltip)
             return control
         datatype = str(parameter.datatype).strip().lower()
-        if datatype in {"float", "number"} and value is not None:
-            control = QDoubleSpinBox(self)
-            control.setDecimals(6)
-            control.setRange(-1.0e15, 1.0e15)
-            control.setValue(float(value))
-            control.setToolTip(self._validation_text(parameter))
-            return control
         if datatype in {"float", "number", "int", "integer"}:
-            # Keep an unset numeric value visibly unset. A spin box would force
-            # a fabricated zero into the editor and could submit it as a change.
+            # An unset numeric value remains visibly unset; the validator
+            # constrains edits without coercing an empty value to zero.
             control = QLineEdit(self)
             control.setText("" if value is None else str(value))
-            control.setToolTip(self._validation_text(parameter))
+            if datatype in {"int", "integer"}:
+                validator = QIntValidator(
+                    int(parameter.minimum if parameter.minimum is not None else -2147483647),
+                    int(parameter.maximum if parameter.maximum is not None else 2147483647),
+                    control,
+                )
+            else:
+                validator = QDoubleValidator(control)
+                validator.setBottom(float(parameter.minimum if parameter.minimum is not None else -1.0e15))
+                validator.setTop(float(parameter.maximum if parameter.maximum is not None else 1.0e15))
+            control.setValidator(validator)
+            control.setToolTip(tooltip)
             return control
         if datatype in {"bool", "boolean"}:
             control = QCheckBox(self)
             control.setChecked(bool(value))
-            control.setToolTip(self._validation_text(parameter))
+            control.setToolTip(tooltip)
             return control
         if datatype == "enum":
             control = QComboBox(self)
             choices = tuple(str(choice) for choice in parameter.choices)
             control.addItems(choices)
-            if str(value) in choices:
+            if value is not None and str(value) in choices:
                 control.setCurrentText(str(value))
-            control.setToolTip(self._validation_text(parameter))
+            else:
+                control.setCurrentIndex(-1)
+            control.setToolTip(tooltip)
             return control
         control = QLineEdit(self)
         control.setText("" if value is None else str(value))
-        control.setToolTip(self._validation_text(parameter))
+        control.setToolTip(tooltip)
         return control
 
     def _parameter_label(self, parameter: EngineeringParameterState) -> QLabel:
         suffix: list[str] = []
         if parameter.unit:
             suffix.append(str(parameter.unit))
+        if parameter.required_before_create:
+            suffix.append("required")
         if parameter.derived:
             suffix.append("derived / read-only")
         elif not parameter.editable:
             suffix.append("read-only")
-        text = str(parameter.parameter_id)
+        text = str(parameter.display_name or parameter.parameter_id)
         if suffix:
             text += " (" + ", ".join(suffix) + ")"
         return QLabel(text, self)
+
+    @classmethod
+    def _parameter_tooltip(cls, parameter: EngineeringParameterState) -> str:
+        details = [cls._validation_text(parameter)]
+        if parameter.minimum is not None or parameter.maximum is not None:
+            lower = "-∞" if parameter.minimum is None else str(parameter.minimum)
+            upper = "∞" if parameter.maximum is None else str(parameter.maximum)
+            details.append(f"Allowed range: {lower} to {upper}.")
+        if parameter.default_value is not None:
+            details.append(f"Catalogue default: {cls._display_value(parameter.default_value)}.")
+        if parameter.required_before_create:
+            details.append("Required by the canonical creation contract.")
+        return " ".join(details)
 
     @staticmethod
     def _display_value(value: Any) -> str:
@@ -981,7 +1015,7 @@ class PropertiesPanelWidget(QWidget):
         if datatype in {"bool", "boolean"}:
             return bool(control.isChecked())  # type: ignore[attr-defined]
         if datatype == "enum":
-            return str(control.currentText())  # type: ignore[attr-defined]
+            return None if control.currentIndex() < 0 else str(control.currentText())  # type: ignore[attr-defined]
         return str(control.text())  # type: ignore[attr-defined]
 
     def _apply_changes(self) -> None:
@@ -991,12 +1025,17 @@ class PropertiesPanelWidget(QWidget):
         if target is None:
             raise RuntimeError("No projected element is selected.")
         changes: dict[str, Any] = {}
-        for parameter_id, parameter in self._parameter_states.items():
-            if parameter.derived or not parameter.editable:
-                continue
-            value = self._current_value(parameter, self._parameter_controls[parameter_id])
-            if value != parameter.value:
-                changes[parameter_id] = value
+        try:
+            for parameter_id, parameter in self._parameter_states.items():
+                if parameter.derived or not parameter.editable or not parameter.inspectable:
+                    continue
+                value = self._current_value(parameter, self._parameter_controls[parameter_id])
+                if value != parameter.value:
+                    changes[parameter_id] = value
+        except (TypeError, ValueError, OverflowError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Invalid engineering value: {exc}")
+            return
         if not changes:
             if self._validation_label is not None:
                 self._validation_label.setText("No engineering changes to commit.")
@@ -1101,6 +1140,7 @@ __all__ = [
     "ProjectPanelWidget",
     "EquipmentPanelWidget",
     "PropertiesPanelWidget",
+    "TransformerConfigurationEditor",
     "ElementListPanelWidget",
     "MessagesPanelWidget",
     "StudyCasesPanelWidget",

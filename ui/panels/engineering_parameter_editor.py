@@ -73,11 +73,18 @@ class EngineeringParameterEditor:
                 + ", ".join(sorted(unknown))
             )
 
+        for parameter_id in changes:
+            paired_with = editable[parameter_id].validation.get("paired_with")
+            if paired_with and paired_with not in changes:
+                raise ValueError(
+                    f"{parameter_id} must be edited together with {paired_with}."
+                )
+
         typed_values: dict[str, Any] = {}
         for parameter_id, value in changes.items():
             parameter = editable[parameter_id]
             typed_values[parameter_id] = self._coerce_typed_value(
-                parameter.datatype, value, parameter_id
+                parameter.datatype, value, parameter_id, parameter.validation
             )
 
         return EngineeringConfigurationIntent(
@@ -97,8 +104,18 @@ class EngineeringParameterEditor:
         return self._application.execute(command)
 
     @staticmethod
-    def _coerce_typed_value(datatype: str, value: Any, parameter_id: str) -> Any:
+    def _coerce_typed_value(
+        datatype: str,
+        value: Any,
+        parameter_id: str,
+        validation: Mapping[str, Any] | None = None,
+    ) -> Any:
         normalized = str(datatype or "unknown").strip().lower()
+        rules = dict(validation or {})
+        if value is None:
+            if rules.get("nullable") is True:
+                return None
+            raise TypeError(f"{parameter_id} does not allow clearing or an empty value.")
         if normalized in {"float", "number"}:
             if isinstance(value, bool):
                 raise TypeError(f"{parameter_id} requires a numeric value.")
@@ -115,6 +132,25 @@ class EngineeringParameterEditor:
             if isinstance(value, str) and str(converted) != value.strip():
                 raise TypeError(f"{parameter_id} requires an integer value.")
             return converted
+        if normalized == "complex":
+            if isinstance(value, bool):
+                raise TypeError(f"{parameter_id} requires a complex value.")
+            if isinstance(value, Mapping):
+                if set(value) != {"real", "imag"}:
+                    raise TypeError(f"{parameter_id} requires exactly real and imag components.")
+                real, imag = value["real"], value["imag"]
+            elif isinstance(value, (tuple, list)) and len(value) == 2:
+                real, imag = value
+            elif isinstance(value, complex):
+                return value
+            else:
+                raise TypeError(f"{parameter_id} requires a complex value with real and imaginary components.")
+            if isinstance(real, bool) or isinstance(imag, bool):
+                raise TypeError(f"{parameter_id} complex components must be numeric.")
+            try:
+                return complex(float(real), float(imag))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise TypeError(f"{parameter_id} complex components must be numeric.") from exc
         if normalized in {"bool", "boolean"}:
             if not isinstance(value, bool):
                 raise TypeError(f"{parameter_id} requires a boolean value.")

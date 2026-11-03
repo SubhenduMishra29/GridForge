@@ -121,6 +121,7 @@ class CreationDefinition:
     placement_required: bool = True
     preview_supported: bool = True
     configuration_required: bool = False
+    command_field_dispositions: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.equipment_type.strip() or not self.tool_id.strip():
@@ -148,6 +149,16 @@ class CreationDefinition:
         object.__setattr__(self, "endpoint_mapping", MappingProxyType(dict(self.endpoint_mapping)))
         object.__setattr__(self, "topology_requirements", tuple(self.topology_requirements))
         object.__setattr__(self, "terminal_requirements", tuple(self.terminal_requirements))
+        dispositions: dict[str, Mapping[str, str]] = {}
+        if not isinstance(self.command_field_dispositions, Mapping):
+            raise TypeError("command_field_dispositions must be a mapping.")
+        for field_name, disposition in self.command_field_dispositions.items():
+            if not isinstance(field_name, str) or not field_name.strip() or not isinstance(disposition, Mapping):
+                raise TypeError("Command-field dispositions require non-empty field names and mapping values.")
+            dispositions[field_name.strip()] = MappingProxyType({
+                str(key): str(value) for key, value in disposition.items()
+            })
+        object.__setattr__(self, "command_field_dispositions", MappingProxyType(dispositions))
         object.__setattr__(self, "conditional_requirements", tuple(self.conditional_requirements))
 
     @property
@@ -335,6 +346,7 @@ def _definition(
         ),
         conditional_requirements=conditional,
         configuration_required=any(p.required_before_create for p in parameters),
+        command_field_dispositions=_BUILTIN_COMMAND_FIELD_DISPOSITIONS.get(equipment_type, {}),
     )
 
 
@@ -361,6 +373,161 @@ _BUILTIN_TERMINAL_NAMES: Mapping[str, tuple[str, ...]] = MappingProxyType({
     "potential_transformer": ("primary_a", "primary_b", "secondary_a", "secondary_b"),
     "cvt": ("H1", "H2", "X1", "X2"),
     "relay": (),
+})
+
+
+def _field_disposition(kind: str, reason: str, workflow: str | None = None) -> Mapping[str, str]:
+    value = {"kind": kind, "reason": reason}
+    if workflow:
+        value["workflow"] = workflow
+    return MappingProxyType(value)
+
+
+# Every create-command constructor field not supplied by a canonical parameter,
+# endpoint, identity, or generated presentation coordinate has an explicit
+# lifecycle disposition. Adding a new optional command field therefore requires
+# a corresponding engineering decision before the built-in contract is accepted.
+_BUILTIN_COMMAND_FIELD_DISPOSITIONS: Mapping[str, Mapping[str, Mapping[str, str]]] = MappingProxyType({
+    "bus": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "voltage_pu": _field_disposition("operating_point", "Initial bus voltage is operating state, not nameplate data.", "Bus operating-point editor / UpdateBusCommand"),
+        "angle_deg": _field_disposition("operating_point", "Initial bus angle is operating state, not nameplate data.", "Bus operating-point editor / UpdateBusCommand"),
+    },
+    "grid": {
+        "name": _field_disposition("metadata", "Human-facing source label; not electrical configuration."),
+        "voltage_pu": _field_disposition("operating_point", "Initial source voltage is operating state, not nameplate data.", "Grid operating-point editor / UpdateGridCommand"),
+        "angle_deg": _field_disposition("operating_point", "Initial source angle is operating state, not nameplate data.", "Grid operating-point editor / UpdateGridCommand"),
+        "p_mw": _field_disposition("operating_point", "Initial source active-power dispatch is operating state, not nameplate data.", "Grid operating-point editor / UpdateGridCommand"),
+        "q_mvar": _field_disposition("operating_point", "Initial source reactive-power dispatch is operating state, not nameplate data.", "Grid operating-point editor / UpdateGridCommand"),
+        "z1_pu": _field_disposition("later_configuration", "Complex sequence impedance is not represented by the scalar creation schema.", "Grid sequence-impedance configuration / UpdateGridCommand"),
+        "z2_pu": _field_disposition("later_configuration", "Complex sequence impedance is not represented by the scalar creation schema.", "Grid sequence-impedance configuration / UpdateGridCommand"),
+        "z0_pu": _field_disposition("later_configuration", "Complex sequence impedance is not represented by the scalar creation schema.", "Grid sequence-impedance configuration / UpdateGridCommand"),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Put/Take Grid In Service commands"),
+    },
+    "generator": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "q_limits": _field_disposition("later_configuration", "Reactive capability is a coupled lower/upper pair, not a scalar creation parameter.", "Generator capability configuration / UpdateGeneratorCommand"),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Generator service lifecycle commands"),
+    },
+    "load": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Load service lifecycle / UpdateLoadCommand"),
+    },
+    "shunt": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Shunt service lifecycle / UpdateShuntCommand"),
+    },
+    "line": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "conductor_system": _field_disposition("later_configuration", "Typed conductor construction is not a scalar creation parameter.", "Line conductor configuration / UpdateLineCommand"),
+    },
+    "transformer": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "hv_winding_connection": _field_disposition("later_configuration", "Winding connection belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "lv_winding_connection": _field_disposition("later_configuration", "Winding connection belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "hv_neutral_grounding_impedance_ohm": _field_disposition("later_configuration", "Neutral grounding evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "lv_neutral_grounding_impedance_ohm": _field_disposition("later_configuration", "Neutral grounding evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "hv_neutral_earth_return_impedance_ohm": _field_disposition("later_configuration", "Physical neutral earth-return evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "lv_neutral_earth_return_impedance_ohm": _field_disposition("later_configuration", "Physical neutral earth-return evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "hv_neutral_terminal_role": _field_disposition("later_configuration", "Physical neutral terminal mapping belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "lv_neutral_terminal_role": _field_disposition("later_configuration", "Physical neutral terminal mapping belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "hv_phase_roles": _field_disposition("later_configuration", "Explicit phase ordering belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "lv_phase_roles": _field_disposition("later_configuration", "Explicit phase ordering belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "phase_domain_terminal_admittance_siemens": _field_disposition("later_configuration", "The complete phase-domain terminal matrix is manufacturer/test-derived typed evidence, not a scalar creation field.", "Transformer multiport/evidence configuration (#939)"),
+        "zero_sequence_multiport_evidence": _field_disposition("later_configuration", "Matrix-bound zero-sequence evidence and provenance require the dedicated typed configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "phase_domain_delta_loop_states": _field_disposition("later_configuration", "Internal delta circulating-loop state is a structured phase-domain contract.", "Transformer multiport/evidence configuration (#939)"),
+        "phase_domain_multiport_tap_ratio": _field_disposition("later_configuration", "Multiport tap snapshot must be committed with the matching matrix and phase-shift snapshot.", "Transformer multiport/evidence configuration (#939)"),
+        "phase_domain_multiport_phase_shift_rad": _field_disposition("later_configuration", "Multiport phase-shift snapshot must be committed with the matching matrix and tap snapshot.", "Transformer multiport/evidence configuration (#939)"),
+        "hv_terminal_role": _field_disposition("later_configuration", "Winding terminal roles belong to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "lv_terminal_role": _field_disposition("later_configuration", "Winding terminal roles belong to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "impedance_reference_winding": _field_disposition("later_configuration", "Impedance reference winding belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "zero_sequence_resistance_ohm": _field_disposition("later_configuration", "Zero-sequence evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "zero_sequence_reactance_ohm": _field_disposition("later_configuration", "Zero-sequence evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "core_construction": _field_disposition("later_configuration", "Core construction belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "zero_sequence_test_basis": _field_disposition("later_configuration", "Test basis belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "vector_group_configuration": _field_disposition("later_configuration", "Vector-group evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "zero_sequence_test_configuration": _field_disposition("later_configuration", "Zero-sequence test evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+        "zero_sequence_two_winding_test_data": _field_disposition("later_configuration", "Two-winding test evidence belongs to the dedicated transformer configurator.", "Transformer multiport/evidence configuration (#939)"),
+    },
+    "cable": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Cable service lifecycle / UpdateCableCommand"),
+        "conductor_system": _field_disposition("later_configuration", "Typed conductor construction is not a scalar creation parameter.", "Cable conductor configuration / UpdateCableCommand"),
+    },
+    "switch": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "closed": _field_disposition("operational_state", "Initial open/closed state belongs to the switching-device lifecycle.", "Switch state commands and switching configurator (#938)"),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to the switching-device lifecycle.", "Switch service commands (#938)"),
+        "normally_closed": _field_disposition("later_configuration", "Normal operating state belongs to the switching-device construction/configuration contract.", "Switching-device configurator (#938)"),
+    },
+    "breaker": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to the switching-device lifecycle.", "Breaker service commands (#938)"),
+        "closed": _field_disposition("operational_state", "Initial contact state belongs to the switching-device lifecycle.", "Breaker state commands and switching configurator (#938)"),
+        "failed": _field_disposition("operational_state", "Failure state is runtime/operational state, not nameplate configuration.", "Breaker operational-state commands (#938)"),
+    },
+    "disconnector": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "operating_time": _field_disposition("later_configuration", "Operating-time characteristic belongs to physical switching-device configuration.", "Switching-device configurator (#938)"),
+        "closed": _field_disposition("operational_state", "Initial contact state belongs to the switching-device lifecycle.", "Disconnector state commands (#938)"),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to the switching-device lifecycle.", "Disconnector service commands (#938)"),
+    },
+    "fuse": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to the fuse lifecycle.", "Fuse service commands"),
+        "blown": _field_disposition("operational_state", "Blown state is operational state, not fuse nameplate data.", "Blow/Reset Fuse commands"),
+    },
+    "capacitor": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Capacitor service lifecycle commands"),
+    },
+    "reactor": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Reactor service lifecycle commands"),
+    },
+    "motor": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "running": _field_disposition("operational_state", "Running state is dynamic operating state, not nameplate configuration.", "Motor operating-state workflow"),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Motor service lifecycle commands"),
+    },
+    "synchronous_machine": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Synchronous-machine service lifecycle"),
+    },
+    "solar": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Solar service lifecycle"),
+    },
+    "battery": {
+        "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state is governed by explicit lifecycle operations.", "Battery service lifecycle"),
+    },
+    "current_transformer": {
+        "name": _field_disposition("metadata", "Human-facing instrument label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to instrument lifecycle.", "Current-transformer service lifecycle"),
+        "s1_endpoint": _field_disposition("measurement_association", "Secondary terminals are measurement interfaces, not SimpleWire topology.", "MeasurementChannelService association workflow"),
+        "s2_endpoint": _field_disposition("measurement_association", "Secondary terminals are measurement interfaces, not SimpleWire topology.", "MeasurementChannelService association workflow"),
+    },
+    "potential_transformer": {
+        "name": _field_disposition("metadata", "Human-facing instrument label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to instrument lifecycle.", "Potential-transformer service lifecycle"),
+        "secondary_a": _field_disposition("measurement_association", "Secondary terminals are measurement interfaces, not SimpleWire topology.", "MeasurementChannelService association workflow"),
+        "secondary_b": _field_disposition("measurement_association", "Secondary terminals are measurement interfaces, not SimpleWire topology.", "MeasurementChannelService association workflow"),
+    },
+    "cvt": {
+        "name": _field_disposition("metadata", "Human-facing instrument label; not electrical configuration."),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to instrument lifecycle.", "CVT service lifecycle"),
+        "x1_endpoint": _field_disposition("measurement_association", "Secondary terminals are measurement interfaces, not SimpleWire topology.", "MeasurementChannelService association workflow"),
+        "x2_endpoint": _field_disposition("measurement_association", "Secondary terminals are measurement interfaces, not SimpleWire topology.", "MeasurementChannelService association workflow"),
+    },
+    "relay": {
+        "name": _field_disposition("metadata", "Human-facing relay label; not protection configuration."),
+        "plugin_id": _field_disposition("later_configuration", "Plugin binding is a protection-runtime configuration decision.", "Protection relay plugin configuration workflow"),
+        "settings": _field_disposition("later_configuration", "Typed relay settings must be validated against the selected plugin contract.", "Protection relay settings workflow"),
+        "in_service": _field_disposition("lifecycle_state", "Service state belongs to relay lifecycle.", "Relay service lifecycle"),
+        "enabled": _field_disposition("operational_state", "Enable state is protection operational state.", "Protection relay operational-state workflow"),
+        "blocked": _field_disposition("operational_state", "Block state is protection operational state.", "Protection relay operational-state workflow"),
+    },
 })
 
 
@@ -413,6 +580,9 @@ def creation_definition_for(
         "grid": _definition("grid", "grid", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
+            _p("short_circuit_mva", "Short-circuit strength", unit="MVA", minimum=0.0),
+            _p("x_over_r", "X/R ratio", minimum=0.0),
+            _p("grounded", "Grounded", "bool", default=True),
         ), "model.create_grid", "grid_id", topology=single_terminal_topology, endpoint_mapping={"terminal": "endpoint"}, terminal_names=_BUILTIN_TERMINAL_NAMES["grid"]),
         "generator": _definition("generator", "generator", (
             _p("p", "Active power", unit="MW", required=True),
@@ -436,6 +606,10 @@ def creation_definition_for(
         "solar": _definition("solar", "solar", (
             _p("p_mw", "Active power", unit="MW", required=True),
             _p("q_mvar", "Reactive power", unit="MVAr", required=True),
+            _p("p_max_mw", unit="MW", minimum=0.0),
+            _p("p_min_mw", unit="MW", default=0.0, minimum=0.0),
+            _p("q_max_mvar", unit="MVAr"),
+            _p("q_min_mvar", unit="MVAr"),
         ), "model.create_solar", "solar_id", topology=single_terminal_topology, endpoint_mapping={"terminal": "endpoint"}, terminal_names=_BUILTIN_TERMINAL_NAMES["solar"]),
         "battery": _definition("battery", "battery", (
             _p("p_mw", "Active power", unit="MW", required=True),
@@ -444,6 +618,8 @@ def creation_definition_for(
             _p("max_charge_mw", unit="MW", minimum=0.0),
             _p("max_discharge_mw", unit="MW", minimum=0.0),
             _p("soc", "State of charge", unit="pu", default=1.0, minimum=0.0, maximum=1.0),
+            _p("soc_min", "Minimum state of charge", unit="pu", default=0.0, minimum=0.0, maximum=1.0),
+            _p("soc_max", "Maximum state of charge", unit="pu", default=1.0, minimum=0.0, maximum=1.0),
         ), "model.create_battery", "battery_id", topology=single_terminal_topology, endpoint_mapping={"terminal": "endpoint"}, terminal_names=_BUILTIN_TERMINAL_NAMES["battery"]),
         "motor": _definition("motor", "motor", (
             _p("rated_mva", unit="MVA", required=True, minimum=0.0),
@@ -467,6 +643,8 @@ def creation_definition_for(
             _p("reactance_ohm", unit="ohm", required=True),
             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
             _p("shunt_susceptance_siemens", unit="S", default=0.0),
+            _p("zero_sequence_resistance_ohm", unit="ohm"),
+            _p("zero_sequence_reactance_ohm", unit="ohm"),
             _p("name", "Name", "str", default=""),
         ), "model.create_line", "line_id", topology=branch_topology, endpoint_mapping=common_endpoints, terminal_names=_BUILTIN_TERMINAL_NAMES["line"]),
         "cable": _definition("cable", "cable", (
@@ -479,6 +657,8 @@ def creation_definition_for(
             _p("b0_us_per_km", unit="uS/km", minimum=0.0),
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("rated_current_a", unit="A", minimum=0.0),
+            _p("thermal_limit_mva", unit="MVA", minimum=0.0),
+            _p("conductor_count", "Conductor count", "int", default=1, minimum=1.0),
             _p("name", "Name", "str", default=""),
         ), "model.create_cable", "cable_id", topology=branch_topology, endpoint_mapping=common_endpoints, terminal_names=_BUILTIN_TERMINAL_NAMES["cable"]),
         "transformer": _definition("transformer", "transformer", (
@@ -515,6 +695,7 @@ def creation_definition_for(
         "fuse": _definition("fuse", "fuse", (
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
             _p("rated_voltage_v", unit="V", required=True, minimum=0.0),
+            _p("interrupting_rating_ka", unit="kA", required=True, minimum=0.0),
         ), "model.create_fuse", "fuse_id", topology=switching_topology, endpoint_mapping=switching_endpoints, terminal_names=_BUILTIN_TERMINAL_NAMES["fuse"]),
         "current_transformer": _definition("current_transformer", "current_transformer", (
             _p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
@@ -534,9 +715,9 @@ def creation_definition_for(
         "potential_transformer": _definition("potential_transformer", "potential_transformer", (
             _p("primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("secondary_voltage_v", unit="V", required=True, minimum=0.0),
-            _p("accuracy_class", "Accuracy class", "str"),
-            _p("burden_va", unit="VA", minimum=0.0),
-            _p("phase_displacement_deg", unit="deg"),
+            _p("accuracy_class", "Accuracy class", "str", default="0.5"),
+            _p("burden_va", unit="VA", default=100.0, minimum=0.0),
+            _p("phase_displacement_deg", unit="deg", default=0.0),
         ), "model.create_potential_transformer", "pt_id", topology=(CreationTopologyRequirement("primary_a", required=True), CreationTopologyRequirement("primary_b", required=True)),
            # Primary terminals belong to electrical topology. Secondary
            # terminals feed measurement channels and are not required to be
@@ -547,8 +728,8 @@ def creation_definition_for(
         "cvt": _definition("cvt", "cvt", (
             _p("rated_primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_secondary_voltage_v", unit="V", required=True, minimum=0.0),
-            _p("accuracy_class", "Accuracy class", "str"),
-            _p("rated_burden_va", unit="VA", minimum=0.0),
+            _p("accuracy_class", "Accuracy class", "str", default="0.5"),
+            _p("rated_burden_va", unit="VA", default=100.0, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("polarity", "Polarity", "enum", required=True, choices=("NORMAL", "REVERSED")),
         ), "model.create_capacitive_voltage_transformer", "transformer_id", topology=(CreationTopologyRequirement("H1", required=True), CreationTopologyRequirement("H2", required=True)),
@@ -634,6 +815,10 @@ def creation_contracts_from_definitions(
                 "require_any": item.require_any,
                 "require_all": item.require_all,
             } for item in definition.conditional_requirements),
+            "command_field_dispositions": {
+                field_name: dict(disposition)
+                for field_name, disposition in definition.command_field_dispositions.items()
+            },
         })
     return MappingProxyType(contracts)
 

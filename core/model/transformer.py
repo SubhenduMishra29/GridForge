@@ -23,7 +23,10 @@ from core.base.per_unit import PerUnitSystem
 
 from .branch import Branch
 from .transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
-from .transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState
+from .transformer_zero_sequence_multiport_evidence import (
+    TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState,
+    validate_transformer_zero_sequence_multiport_evidence,
+)
 
 
 class ImpedanceBasis(str, Enum):
@@ -216,32 +219,26 @@ class Transformer(Branch):
         self._vector_group_configuration = self._normalize_vector_group_configuration(vector_group_configuration)
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
-        self._phase_domain_terminal_admittance_siemens = self._validate_phase_domain_terminal_admittance(phase_domain_terminal_admittance_siemens)
-        if zero_sequence_multiport_evidence is not None and not isinstance(zero_sequence_multiport_evidence, TransformerZeroSequenceMultiportEvidence):
-            raise TypeError("zero_sequence_multiport_evidence must be TransformerZeroSequenceMultiportEvidence.")
-        if zero_sequence_multiport_evidence is not None and phase_domain_terminal_admittance_siemens is None:
-            raise ValueError("Zero-sequence multiport evidence requires an explicit terminal admittance matrix.")
-        self._zero_sequence_multiport_evidence = zero_sequence_multiport_evidence
-        loop_states = tuple(phase_domain_delta_loop_states)
-        if any(not isinstance(item, TransformerDeltaLoopState) for item in loop_states):
-            raise TypeError("phase_domain_delta_loop_states must contain TransformerDeltaLoopState records.")
-        if len({item.loop_id for item in loop_states}) != len(loop_states):
-            raise ValueError("Transformer delta loop ids must be unique.")
-        if loop_states and phase_domain_terminal_admittance_siemens is None:
-            raise ValueError("Explicit delta loop states require the transformer terminal admittance matrix.")
-        self._phase_domain_delta_loop_states = loop_states
-        if phase_domain_terminal_admittance_siemens is None:
-            if phase_domain_multiport_tap_ratio is not None or phase_domain_multiport_phase_shift_rad is not None:
-                raise ValueError("Transformer multiport tap/shift snapshots require an explicit terminal admittance matrix.")
-            self._phase_domain_multiport_tap_ratio = None
-            self._phase_domain_multiport_phase_shift_rad = None
-        else:
-            if phase_domain_multiport_tap_ratio is None or phase_domain_multiport_phase_shift_rad is None:
-                raise ValueError("Explicit transformer multiport matrix requires tap and phase-shift snapshots.")
-            self._phase_domain_multiport_tap_ratio = self._validate_positive(phase_domain_multiport_tap_ratio, "phase_domain_multiport_tap_ratio")
-            self._phase_domain_multiport_phase_shift_rad = self._validate_finite(phase_domain_multiport_phase_shift_rad, "phase_domain_multiport_phase_shift_rad")
-            if not math.isclose(self._phase_domain_multiport_tap_ratio, self._tap, rel_tol=1e-10, abs_tol=1e-12) or not math.isclose(self._phase_domain_multiport_phase_shift_rad, self._shift, rel_tol=1e-10, abs_tol=1e-12):
-                raise ValueError("Transformer multiport matrix tap/shift snapshots must match the active transformer tap and phase shift.")
+        (
+            self._phase_domain_terminal_admittance_siemens,
+            self._zero_sequence_multiport_evidence,
+            self._phase_domain_delta_loop_states,
+            self._phase_domain_multiport_tap_ratio,
+            self._phase_domain_multiport_phase_shift_rad,
+        ) = self._validate_phase_domain_multiport_configuration(
+            matrix=phase_domain_terminal_admittance_siemens,
+            evidence=zero_sequence_multiport_evidence,
+            loop_states=phase_domain_delta_loop_states,
+            tap_ratio=phase_domain_multiport_tap_ratio,
+            phase_shift_rad=phase_domain_multiport_phase_shift_rad,
+            tap=self._tap, shift=self._shift,
+            hv_connection=self._hv_winding_connection, lv_connection=self._lv_winding_connection,
+            hv_terminal_role=self._hv_terminal_role, lv_terminal_role=self._lv_terminal_role,
+            hv_phase_roles=self._hv_phase_roles, lv_phase_roles=self._lv_phase_roles,
+            hv_neutral_terminal_role=self._hv_neutral_terminal_role,
+            lv_neutral_terminal_role=self._lv_neutral_terminal_role,
+            core_construction=self._core_construction,
+        )
         self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
         if self._zero_sequence_two_winding_test_data is not None and (self._hv_terminal_role is None or self._lv_terminal_role is None or self._impedance_reference_winding != "HV"):
             raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
@@ -350,6 +347,62 @@ class Transformer(Branch):
             raise ValueError(f"{side} winding phase roles must explicitly be ('A', 'B', 'C') in order.")
         return roles
 
+    @classmethod
+    def _validate_phase_domain_multiport_configuration(
+        cls, *, matrix, evidence, loop_states, tap_ratio, phase_shift_rad,
+        tap, shift, hv_connection, lv_connection, hv_terminal_role, lv_terminal_role,
+        hv_phase_roles, lv_phase_roles, hv_neutral_terminal_role, lv_neutral_terminal_role,
+        core_construction,
+    ):
+        matrix = cls._validate_phase_domain_terminal_admittance(matrix)
+        loops = tuple(loop_states)
+        if any(not isinstance(item, TransformerDeltaLoopState) for item in loops):
+            raise TypeError("phase_domain_delta_loop_states must contain TransformerDeltaLoopState records.")
+        if len({item.loop_id for item in loops}) != len(loops):
+            raise ValueError("Transformer delta loop ids must be unique.")
+        if matrix is None:
+            if evidence is not None or loops or tap_ratio is not None or phase_shift_rad is not None:
+                raise ValueError("Transformer multiport evidence, loops and snapshots require an explicit terminal admittance matrix.")
+            return None, None, (), None, None
+        if tap_ratio is None or phase_shift_rad is None:
+            raise ValueError("Explicit transformer multiport matrix requires tap and phase-shift snapshots.")
+        normalized_tap = cls._validate_positive(tap_ratio, "phase_domain_multiport_tap_ratio")
+        normalized_shift = cls._validate_finite(phase_shift_rad, "phase_domain_multiport_phase_shift_rad")
+        if not math.isclose(normalized_tap, tap, rel_tol=1e-10, abs_tol=1e-12) or not math.isclose(normalized_shift, shift, rel_tol=1e-10, abs_tol=1e-12):
+            raise ValueError("Transformer multiport matrix tap/shift snapshots must match the active transformer tap and phase shift.")
+        if loops and len({item.loop_id for item in loops}) != len(loops):
+            raise ValueError("Transformer delta loop ids must be unique.")
+        if matrix is not None or evidence is not None or loops:
+            if hv_connection is None or lv_connection is None or hv_terminal_role is None or lv_terminal_role is None or hv_phase_roles is None or lv_phase_roles is None:
+                raise ValueError("Transformer multiport requires complete HV/LV winding, phase-role and terminal-role configuration.")
+            labels = [f"HV:{role}" for role in hv_phase_roles]
+            if hv_neutral_terminal_role is not None:
+                labels.append("HV:N")
+            labels.extend(f"LV:{role}" for role in lv_phase_roles)
+            if lv_neutral_terminal_role is not None:
+                labels.append("LV:N")
+            if len(matrix) != len(labels):
+                raise ValueError("Transformer terminal admittance matrix dimension must match the ordered HV/LV phase and neutral terminal inventory.")
+            delta_windings = tuple(
+                side for side, connection in (("HV", hv_connection), ("LV", lv_connection))
+                if connection is TransformerWindingConnection.DELTA
+            )
+            if loops:
+                loop_windings = {item.winding for item in loops}
+                if loop_windings != set(delta_windings):
+                    raise ValueError("Explicit delta-loop states must cover exactly the delta-connected Transformer windings.")
+                if any(len(item.coupling_coefficients) != len(labels) for item in loops):
+                    raise ValueError("Transformer delta-loop coupling vectors must match the ordered physical terminal inventory.")
+            if evidence is not None or loops:
+                if core_construction is None:
+                    raise ValueError("Evidence-backed Transformer multiport requires explicit core construction.")
+            if evidence is not None:
+                validate_transformer_zero_sequence_multiport_evidence(
+                    evidence, matrix=matrix, terminal_labels=labels, core_construction=core_construction,
+                    delta_windings=delta_windings, delta_loop_states=loops,
+                )
+        return matrix, evidence, loops, normalized_tap, normalized_shift
+
     @staticmethod
     def _validate_phase_domain_terminal_admittance(value):
         if value is None:
@@ -367,11 +420,12 @@ class Transformer(Branch):
         array = np.asarray(matrix, dtype=complex)
         if not np.all(np.isfinite(array.real)) or not np.all(np.isfinite(array.imag)):
             raise ValueError("Transformer terminal admittance matrix must contain finite values.")
-        if not np.allclose(array, array.T, rtol=1e-9, atol=1e-12):
-            raise ValueError("Transformer terminal admittance matrix must be reciprocal.")
+        matrix_scale = max(float(np.max(np.abs(array))), float(np.finfo(float).tiny))
+        if not np.allclose(array, array.T, rtol=1e-9, atol=1e-12 * matrix_scale):
+            raise ValueError("Transformer terminal admittance matrix must be reciprocal in the declared terminal order.")
         eigenvalues = np.linalg.eigvalsh((array.real + array.real.T) * 0.5)
-        scale = max(1.0, float(np.max(np.abs(eigenvalues))))
-        if float(np.min(eigenvalues)) < -1e-10 * scale:
+        conductance_scale = max(float(np.max(np.abs(eigenvalues))), float(np.finfo(float).tiny))
+        if float(np.min(eigenvalues)) < -1e-10 * conductance_scale:
             raise ValueError("Transformer terminal conductance matrix must be positive semidefinite.")
         return matrix
 
@@ -442,6 +496,22 @@ class Transformer(Branch):
             vector_group=self._vector_group_configuration,
             core_construction=self._core_construction,
         )
+
+    @property
+    def hv_neutral_earth_return_impedance_ohm(self) -> complex | None:
+        return self._hv_neutral_earth_return_impedance_ohm
+
+    @property
+    def lv_neutral_earth_return_impedance_ohm(self) -> complex | None:
+        return self._lv_neutral_earth_return_impedance_ohm
+
+    @property
+    def hv_phase_roles(self) -> tuple[str, ...] | None:
+        return self._hv_phase_roles
+
+    @property
+    def lv_phase_roles(self) -> tuple[str, ...] | None:
+        return self._lv_phase_roles
 
     @property
     def hv_neutral_grounding_impedance_ohm(self) -> complex | None:
@@ -698,6 +768,19 @@ class Transformer(Branch):
         vector_group_configuration: Any | None = None,
         zero_sequence_test_configuration: Any | None = None,
         zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+        hv_neutral_earth_return_impedance_ohm: complex | None = None,
+        lv_neutral_earth_return_impedance_ohm: complex | None = None,
+        hv_neutral_terminal_role: str | None = None,
+        lv_neutral_terminal_role: str | None = None,
+        hv_phase_roles: tuple[str, ...] | None = None,
+        lv_phase_roles: tuple[str, ...] | None = None,
+        _replace_physical_conductor_configuration: bool = False,
+        phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
+        zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None = None,
+        phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] | None = None,
+        phase_domain_multiport_tap_ratio: float | None = None,
+        phase_domain_multiport_phase_shift_rad: float | None = None,
+        _replace_phase_domain_multiport_configuration: bool = False,
         _replace_winding_configuration: bool = False,
     ) -> None:
         """Atomically apply a validated Transformer engineering configuration.
@@ -782,6 +865,20 @@ class Transformer(Branch):
         )
         target_hv_grounding = self._validate_neutral_grounding(target_hv_grounding_value, target_hv_connection, "HV")
         target_lv_grounding = self._validate_neutral_grounding(target_lv_grounding_value, target_lv_connection, "LV")
+        if _replace_physical_conductor_configuration:
+            target_hv_earth_return = self._validate_neutral_earth_return(hv_neutral_earth_return_impedance_ohm, target_hv_connection, "HV")
+            target_lv_earth_return = self._validate_neutral_earth_return(lv_neutral_earth_return_impedance_ohm, target_lv_connection, "LV")
+            target_hv_phase_roles = self._validate_winding_phase_roles(hv_phase_roles, "HV")
+            target_lv_phase_roles = self._validate_winding_phase_roles(lv_phase_roles, "LV")
+            target_hv_neutral_role = self._validate_neutral_terminal_role(hv_neutral_terminal_role, target_hv_connection, "HV")
+            target_lv_neutral_role = self._validate_neutral_terminal_role(lv_neutral_terminal_role, target_lv_connection, "LV")
+        else:
+            target_hv_earth_return = self._validate_neutral_earth_return(self._hv_neutral_earth_return_impedance_ohm if hv_winding_connection is None else hv_neutral_earth_return_impedance_ohm, target_hv_connection, "HV")
+            target_lv_earth_return = self._validate_neutral_earth_return(self._lv_neutral_earth_return_impedance_ohm if lv_winding_connection is None else lv_neutral_earth_return_impedance_ohm, target_lv_connection, "LV")
+            target_hv_phase_roles = self._validate_winding_phase_roles(self._hv_phase_roles if hv_phase_roles is None else hv_phase_roles, "HV")
+            target_lv_phase_roles = self._validate_winding_phase_roles(self._lv_phase_roles if lv_phase_roles is None else lv_phase_roles, "LV")
+            target_hv_neutral_role = self._validate_neutral_terminal_role(self._hv_neutral_terminal_role if hv_neutral_terminal_role is None else hv_neutral_terminal_role, target_hv_connection, "HV")
+            target_lv_neutral_role = self._validate_neutral_terminal_role(self._lv_neutral_terminal_role if lv_neutral_terminal_role is None else lv_neutral_terminal_role, target_lv_connection, "LV")
         target_hv_role = self._hv_terminal_role if hv_terminal_role is None and not _replace_winding_configuration else hv_terminal_role
         target_lv_role = self._lv_terminal_role if lv_terminal_role is None and not _replace_winding_configuration else lv_terminal_role
         target_hv_role, target_lv_role = self._validate_terminal_mapping(target_hv_role, target_lv_role)
@@ -813,6 +910,30 @@ class Transformer(Branch):
             target_vector_group, target_test_configuration, target_reference_winding,
             target_hv_connection, target_lv_connection, target_z0r, target_two_winding_test_data,
         )
+        if _replace_phase_domain_multiport_configuration:
+            multiport_values = (
+                phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence,
+                () if phase_domain_delta_loop_states is None else phase_domain_delta_loop_states,
+                phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad,
+            )
+        else:
+            multiport_values = (
+                self._phase_domain_terminal_admittance_siemens, self._zero_sequence_multiport_evidence,
+                self._phase_domain_delta_loop_states, self._phase_domain_multiport_tap_ratio,
+                self._phase_domain_multiport_phase_shift_rad,
+            )
+        (
+            target_multiport_matrix, target_multiport_evidence, target_delta_loops,
+            target_multiport_tap, target_multiport_shift,
+        ) = self._validate_phase_domain_multiport_configuration(
+            matrix=multiport_values[0], evidence=multiport_values[1], loop_states=multiport_values[2],
+            tap_ratio=multiport_values[3], phase_shift_rad=multiport_values[4],
+            tap=target_tap, shift=target_shift, hv_connection=target_hv_connection,
+            lv_connection=target_lv_connection, hv_terminal_role=target_hv_role,
+            lv_terminal_role=target_lv_role, hv_phase_roles=target_hv_phase_roles,
+            lv_phase_roles=target_lv_phase_roles, hv_neutral_terminal_role=target_hv_neutral_role,
+            lv_neutral_terminal_role=target_lv_neutral_role, core_construction=target_core,
+        )
 
         # Validate the complete candidate before mutating any authoritative state.
         self._validate_finite(target_r, "r")
@@ -827,11 +948,17 @@ class Transformer(Branch):
             self._rate_mva, self.name, self._in_service,
             self._hv_winding_connection, self._lv_winding_connection,
             self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
+            self._hv_neutral_earth_return_impedance_ohm, self._lv_neutral_earth_return_impedance_ohm,
+            self._hv_phase_roles, self._lv_phase_roles,
+            self._hv_neutral_terminal_role, self._lv_neutral_terminal_role,
             self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
             self._core_construction, self._zero_sequence_test_basis,
             self._vector_group_configuration, self._zero_sequence_test_configuration,
             self._zero_sequence_two_winding_test_data,
+            self._phase_domain_terminal_admittance_siemens, self._zero_sequence_multiport_evidence,
+            self._phase_domain_delta_loop_states, self._phase_domain_multiport_tap_ratio,
+            self._phase_domain_multiport_phase_shift_rad,
         )
         try:
             self._r = target_r
@@ -848,6 +975,10 @@ class Transformer(Branch):
             self._lv_winding_connection = target_lv_connection
             self._hv_neutral_grounding_impedance_ohm = target_hv_grounding
             self._lv_neutral_grounding_impedance_ohm = target_lv_grounding
+            self._hv_neutral_earth_return_impedance_ohm = target_hv_earth_return
+            self._lv_neutral_earth_return_impedance_ohm = target_lv_earth_return
+            self._hv_phase_roles, self._lv_phase_roles = target_hv_phase_roles, target_lv_phase_roles
+            self._hv_neutral_terminal_role, self._lv_neutral_terminal_role = target_hv_neutral_role, target_lv_neutral_role
             self._hv_terminal_role, self._lv_terminal_role = target_hv_role, target_lv_role
             self._impedance_reference_winding = target_reference_winding
             self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm = target_z0r, target_z0x
@@ -855,6 +986,11 @@ class Transformer(Branch):
             self._vector_group_configuration = target_vector_group
             self._zero_sequence_test_configuration = target_test_configuration
             self._zero_sequence_two_winding_test_data = target_two_winding_test_data
+            self._phase_domain_terminal_admittance_siemens = target_multiport_matrix
+            self._zero_sequence_multiport_evidence = target_multiport_evidence
+            self._phase_domain_delta_loop_states = target_delta_loops
+            self._phase_domain_multiport_tap_ratio = target_multiport_tap
+            self._phase_domain_multiport_phase_shift_rad = target_multiport_shift
             self.validate()
         except Exception:
             (
@@ -863,11 +999,17 @@ class Transformer(Branch):
                 self._rate_mva, old_name, self._in_service,
                 self._hv_winding_connection, self._lv_winding_connection,
                 self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
+                self._hv_neutral_earth_return_impedance_ohm, self._lv_neutral_earth_return_impedance_ohm,
+                self._hv_phase_roles, self._lv_phase_roles,
+                self._hv_neutral_terminal_role, self._lv_neutral_terminal_role,
                 self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
                 self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
                 self._core_construction, self._zero_sequence_test_basis,
                 self._vector_group_configuration, self._zero_sequence_test_configuration,
                 self._zero_sequence_two_winding_test_data,
+                self._phase_domain_terminal_admittance_siemens, self._zero_sequence_multiport_evidence,
+                self._phase_domain_delta_loop_states, self._phase_domain_multiport_tap_ratio,
+                self._phase_domain_multiport_phase_shift_rad,
             ) = old_state
             self.name = old_name
             raise
@@ -926,6 +1068,26 @@ class Transformer(Branch):
             self._impedance_reference_winding, self._hv_winding_connection,
             self._lv_winding_connection, self._zero_sequence_resistance_ohm,
             self._zero_sequence_two_winding_test_data,
+        )
+        (
+            self._phase_domain_terminal_admittance_siemens,
+            self._zero_sequence_multiport_evidence,
+            self._phase_domain_delta_loop_states,
+            self._phase_domain_multiport_tap_ratio,
+            self._phase_domain_multiport_phase_shift_rad,
+        ) = self._validate_phase_domain_multiport_configuration(
+            matrix=getattr(self, "_phase_domain_terminal_admittance_siemens", None),
+            evidence=getattr(self, "_zero_sequence_multiport_evidence", None),
+            loop_states=getattr(self, "_phase_domain_delta_loop_states", ()),
+            tap_ratio=getattr(self, "_phase_domain_multiport_tap_ratio", None),
+            phase_shift_rad=getattr(self, "_phase_domain_multiport_phase_shift_rad", None),
+            tap=self._tap, shift=self._shift, hv_connection=self._hv_winding_connection,
+            lv_connection=self._lv_winding_connection, hv_terminal_role=self._hv_terminal_role,
+            lv_terminal_role=self._lv_terminal_role, hv_phase_roles=getattr(self, "_hv_phase_roles", None),
+            lv_phase_roles=getattr(self, "_lv_phase_roles", None),
+            hv_neutral_terminal_role=getattr(self, "_hv_neutral_terminal_role", None),
+            lv_neutral_terminal_role=getattr(self, "_lv_neutral_terminal_role", None),
+            core_construction=self._core_construction,
         )
         return True
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from core.application.read_models import ElementReadModel
 
 from ui.projection.projection import Projection
-from ui.projection.projection_state import ProjectionState
+from ui.projection.projection_state import EngineeringParameterState, ProjectionState
 from ui.sld.sld_vocabulary import SLD_TOPOLOGY_BRANCH_TYPES
 
 
@@ -59,12 +59,30 @@ class SLDProjection(Projection):
         self._element_type = read_model.element_type
         self._connectivity_refs = tuple(read_model.connectivity_refs)
         self._attributes = dict(read_model.attributes)
+        engineering_parameters = tuple(
+            EngineeringParameterState(
+                parameter_id=parameter.parameter_id,
+                value=parameter.value,
+                unit=parameter.unit,
+                datatype=parameter.datatype,
+                choices=parameter.choices,
+                editable=parameter.editable,
+                derived=parameter.derived,
+                validation=parameter.validation,
+                coupling_group=parameter.coupling_group,
+                topology_impact=parameter.topology_impact,
+                study_impact=parameter.study_impact,
+            )
+            for parameter in read_model.engineering_parameters
+        )
         self.set_state(
             ProjectionState(
                 object_id=read_model.object_id,
                 display_type=read_model.element_type,
                 labels=labels,
                 connectivity_refs=read_model.connectivity_refs,
+                engineering_parameters=engineering_parameters,
+                attributes=read_model.attributes,
             )
         )
 

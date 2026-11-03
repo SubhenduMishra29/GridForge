@@ -43,12 +43,22 @@ class EngineeringParameterState:
     coupling_group: str | None = None
     topology_impact: bool = False
     study_impact: bool = False
+    display_name: str | None = None
+    required_before_create: bool = False
+    default_value: Any = None
+    minimum: float | None = None
+    maximum: float | None = None
+    inspectable: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.parameter_id, str) or not self.parameter_id:
             raise ValueError("EngineeringParameterState.parameter_id must be non-empty")
         object.__setattr__(self, "value", _freeze(self.value))
         object.__setattr__(self, "choices", tuple(self.choices))
+        object.__setattr__(self, "display_name", (self.display_name or self.parameter_id).strip())
+        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
+            raise ValueError("EngineeringParameterState minimum cannot exceed maximum.")
+        object.__setattr__(self, "default_value", _freeze(self.default_value))
         object.__setattr__(self, "validation", _freeze(self.validation))
 
 
@@ -75,6 +85,7 @@ class ProjectionState:
     terminal_contract: tuple[str, ...] = ()
     endpoint_references: Mapping[str, Any] = field(default_factory=dict)
     validation_state: Mapping[str, Any] = field(default_factory=dict)
+    attributes: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.object_id, str) or not self.object_id:
@@ -95,6 +106,7 @@ class ProjectionState:
         object.__setattr__(self, "terminal_contract", tuple(str(value) for value in self.terminal_contract))
         object.__setattr__(self, "endpoint_references", _freeze(self.endpoint_references))
         object.__setattr__(self, "validation_state", _freeze(self.validation_state))
+        object.__setattr__(self, "attributes", _freeze(self.attributes))
 
     @classmethod
     def empty(cls, object_id: str, display_type: str) -> "ProjectionState":

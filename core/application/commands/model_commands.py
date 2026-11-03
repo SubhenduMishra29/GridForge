@@ -16,6 +16,7 @@ from core.model import EndpointReference
 from ...model.transformer import ImpedanceBasis, TransformerWindingConnection
 from ...model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
 from ...model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
+from ...model.transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState
 from ...model.conductor import BranchConductorSystem
 
 CREATE_BUS = "model.create_bus"
@@ -107,13 +108,17 @@ class CreateGridCommand(Command):
     def __init__(self, *, grid_id: str, endpoint: EndpointReference | None = None, name: str = "", nominal_voltage_kv: float = 0.0, frequency_hz: float = 50.0,
                  voltage_pu: float = 1.0, angle_deg: float = 0.0, p_mw: float = 0.0, q_mvar: float = 0.0,
                  short_circuit_mva: float | None = None, x_over_r: float | None = None, z1_pu: complex | None = None,
-                 z2_pu: complex | None = None, z0_pu: complex | None = None, in_service: bool = True,
+                 z2_pu: complex | None = None, z0_pu: complex | None = None,
+                 impedance_base_mva: float | None = None, impedance_base_voltage_kv: float | None = None,
+                 neutral_grounding_impedance_ohm: complex | None = None, in_service: bool = True,
                  grounded: bool = True, presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         _endpoint(endpoint, "endpoint")
         super().__init__(**_command(CREATE_GRID, {"presentation_x": presentation_x, "presentation_y": presentation_y, "grid_id": grid_id, "endpoint": endpoint, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
             "frequency_hz": frequency_hz, "voltage_pu": voltage_pu, "angle_deg": angle_deg, "p_mw": p_mw, "q_mvar": q_mvar,
             "short_circuit_mva": short_circuit_mva, "x_over_r": x_over_r, "z1_pu": z1_pu, "z2_pu": z2_pu, "z0_pu": z0_pu,
+            "impedance_base_mva": impedance_base_mva, "impedance_base_voltage_kv": impedance_base_voltage_kv,
+            "neutral_grounding_impedance_ohm": neutral_grounding_impedance_ohm,
             "in_service": in_service, "grounded": grounded}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class DeleteGridCommand(Command):
@@ -125,13 +130,29 @@ class UpdateGridCommand(Command):
                  frequency_hz: float | None = None, voltage_pu: float | None = None, angle_deg: float | None = None,
                  p_mw: float | None = None, q_mvar: float | None = None, short_circuit_mva: float | None = None,
                  x_over_r: float | None = None, z1_pu: complex | None = None, z2_pu: complex | None = None,
-                 z0_pu: complex | None = None, in_service: bool | None = None, grounded: bool | None = None,
+                 z0_pu: complex | None = None, impedance_base_mva: float | None = None,
+                 impedance_base_voltage_kv: float | None = None,
+                 neutral_grounding_impedance_ohm: complex | None = None,
+                 clear_impedance_base: bool = False, clear_neutral_grounding_impedance: bool = False,
+                 in_service: bool | None = None, grounded: bool | None = None,
                  command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        values = (name, nominal_voltage_kv, frequency_hz, voltage_pu, angle_deg, p_mw, q_mvar, short_circuit_mva, x_over_r, z1_pu, z2_pu, z0_pu, in_service, grounded)
-        if all(v is None for v in values): raise ValueError("UpdateGridCommand requires at least one mutable Grid field.")
+        clear_flags = (clear_impedance_base, clear_neutral_grounding_impedance)
+        if any(not isinstance(value, bool) for value in clear_flags):
+            raise TypeError("Grid clear flags must be bool.")
+        if clear_impedance_base and any(value is not None for value in (impedance_base_mva, impedance_base_voltage_kv)):
+            raise ValueError("Specify Grid impedance base values or clear_impedance_base, not both.")
+        if clear_neutral_grounding_impedance and neutral_grounding_impedance_ohm is not None:
+            raise ValueError("Specify neutral_grounding_impedance_ohm or clear_neutral_grounding_impedance, not both.")
+        values = (name, nominal_voltage_kv, frequency_hz, voltage_pu, angle_deg, p_mw, q_mvar, short_circuit_mva, x_over_r, z1_pu, z2_pu, z0_pu, impedance_base_mva, impedance_base_voltage_kv, neutral_grounding_impedance_ohm, in_service, grounded)
+        if all(value is None for value in values) and not any(clear_flags):
+            raise ValueError("UpdateGridCommand requires at least one mutable Grid field.")
         super().__init__(**_command(UPDATE_GRID, {"grid_id": grid_id, "name": name, "nominal_voltage_kv": nominal_voltage_kv,
             "frequency_hz": frequency_hz, "voltage_pu": voltage_pu, "angle_deg": angle_deg, "p_mw": p_mw, "q_mvar": q_mvar,
             "short_circuit_mva": short_circuit_mva, "x_over_r": x_over_r, "z1_pu": z1_pu, "z2_pu": z2_pu, "z0_pu": z0_pu,
+            "impedance_base_mva": impedance_base_mva, "impedance_base_voltage_kv": impedance_base_voltage_kv,
+            "neutral_grounding_impedance_ohm": neutral_grounding_impedance_ohm,
+            "clear_impedance_base": clear_impedance_base,
+            "clear_neutral_grounding_impedance": clear_neutral_grounding_impedance,
             "in_service": in_service, "grounded": grounded}, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 class CreateGeneratorCommand(Command):
@@ -229,6 +250,12 @@ class CreateTransformerCommand(Command):
                  lv_winding_connection: TransformerWindingConnection | str | None = None,
                  hv_neutral_grounding_impedance_ohm: complex | None = None,
                  lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 hv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 lv_neutral_earth_return_impedance_ohm: complex | None = None,
+                 hv_neutral_terminal_role: str | None = None,
+                 lv_neutral_terminal_role: str | None = None,
+                 hv_phase_roles: tuple[str, ...] | None = None,
+                 lv_phase_roles: tuple[str, ...] | None = None,
                  hv_terminal_role: str | None = None,
                  lv_terminal_role: str | None = None,
                  impedance_reference_winding: str | None = None,
@@ -238,6 +265,11 @@ class CreateTransformerCommand(Command):
                  vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
                  zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
                  zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+                 phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None = None,
+                 zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None = None,
+                 phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] = (),
+                 phase_domain_multiport_tap_ratio: float | None = None,
+                 phase_domain_multiport_phase_shift_rad: float | None = None,
                  presentation_x: float | None = None, presentation_y: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
         _endpoint(endpoint_from, "endpoint_from")
         _endpoint(endpoint_to, "endpoint_to")
@@ -263,6 +295,12 @@ class CreateTransformerCommand(Command):
             "lv_winding_connection": lv_winding_connection,
             "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
             "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
+            "hv_neutral_earth_return_impedance_ohm": hv_neutral_earth_return_impedance_ohm,
+            "lv_neutral_earth_return_impedance_ohm": lv_neutral_earth_return_impedance_ohm,
+            "hv_neutral_terminal_role": hv_neutral_terminal_role,
+            "lv_neutral_terminal_role": lv_neutral_terminal_role,
+            "hv_phase_roles": hv_phase_roles,
+            "lv_phase_roles": lv_phase_roles,
             "hv_terminal_role": hv_terminal_role,
             "lv_terminal_role": lv_terminal_role,
             "impedance_reference_winding": impedance_reference_winding,
@@ -273,6 +311,11 @@ class CreateTransformerCommand(Command):
             "vector_group_configuration": vector_group_configuration,
             "zero_sequence_test_configuration": zero_sequence_test_configuration,
             "zero_sequence_two_winding_test_data": zero_sequence_two_winding_test_data,
+            "phase_domain_terminal_admittance_siemens": phase_domain_terminal_admittance_siemens,
+            "zero_sequence_multiport_evidence": zero_sequence_multiport_evidence,
+            "phase_domain_delta_loop_states": phase_domain_delta_loop_states,
+            "phase_domain_multiport_tap_ratio": phase_domain_multiport_tap_ratio,
+            "phase_domain_multiport_phase_shift_rad": phase_domain_multiport_phase_shift_rad,
             "tap": tap,
             "shift": shift,
             "name": name,
@@ -289,6 +332,13 @@ class UpdateTransformerCommand(Command):
                  lv_winding_connection: TransformerWindingConnection | str | None = None,
                  hv_neutral_grounding_impedance_ohm: complex | None = None,
                  lv_neutral_grounding_impedance_ohm: complex | None = None,
+                 hv_neutral_earth_return_impedance_ohm: complex | None | object = ...,
+                 lv_neutral_earth_return_impedance_ohm: complex | None | object = ...,
+                 hv_neutral_terminal_role: str | None | object = ...,
+                 lv_neutral_terminal_role: str | None | object = ...,
+                 hv_phase_roles: tuple[str, ...] | None | object = ...,
+                 lv_phase_roles: tuple[str, ...] | None | object = ...,
+                 replace_physical_conductor_configuration: bool = False,
                  hv_terminal_role: str | None = None,
                  lv_terminal_role: str | None = None,
                  impedance_reference_winding: str | None = None,
@@ -298,10 +348,39 @@ class UpdateTransformerCommand(Command):
                  vector_group_configuration: TransformerVectorGroupConfiguration | None = None,
                  zero_sequence_test_configuration: TransformerZeroSequenceTestConfiguration | None = None,
                  zero_sequence_two_winding_test_data: TransformerZeroSequenceTwoWindingTestData | None = None,
+                 phase_domain_terminal_admittance_siemens: tuple[tuple[complex, ...], ...] | None | object = ...,
+                 zero_sequence_multiport_evidence: TransformerZeroSequenceMultiportEvidence | None | object = ...,
+                 phase_domain_delta_loop_states: tuple[TransformerDeltaLoopState, ...] | object = ...,
+                 phase_domain_multiport_tap_ratio: float | None | object = ...,
+                 phase_domain_multiport_phase_shift_rad: float | None | object = ...,
+                 replace_phase_domain_multiport_configuration: bool = False,
                  command_id: UUID | None = None,
                  correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
-        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
-        if all(value is None for value in values):
+        if not isinstance(replace_physical_conductor_configuration, bool):
+            raise TypeError("replace_physical_conductor_configuration must be a bool.")
+        physical_fields = (hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles)
+        if replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
+            raise ValueError("Physical conductor replacement requires all six HV/LV earth-return, neutral-terminal and phase-role fields, including explicit None values.")
+        if not replace_physical_conductor_configuration and any(field is ... for field in physical_fields):
+            hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_neutral_terminal_role, lv_neutral_terminal_role, hv_phase_roles, lv_phase_roles = (
+                None if field is ... else field for field in physical_fields
+            )
+        if not isinstance(replace_phase_domain_multiport_configuration, bool):
+            raise TypeError("replace_phase_domain_multiport_configuration must be a bool.")
+        multiport_fields = (phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence, phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad)
+        if replace_phase_domain_multiport_configuration and any(field is ... for field in multiport_fields):
+            raise ValueError("Multiport replacement requires all five matrix/evidence/loop/tap/shift fields, including explicit None or empty values.")
+        if not replace_phase_domain_multiport_configuration and any(field is not ... for field in multiport_fields):
+            raise ValueError(
+                "Transformer multiport fields must be updated as one complete group with "
+                "replace_phase_domain_multiport_configuration=True."
+            )
+        if not replace_phase_domain_multiport_configuration and any(field is ... for field in multiport_fields):
+            phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence, phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad = (
+                None if field is ... else field for field in multiport_fields
+            )
+        values = (name, r, x, b, impedance_basis, impedance_base_mva, tap, shift, rate_mva, in_service, hv_winding_connection, lv_winding_connection, hv_neutral_grounding_impedance_ohm, lv_neutral_grounding_impedance_ohm, hv_neutral_earth_return_impedance_ohm, lv_neutral_earth_return_impedance_ohm, hv_phase_roles, lv_phase_roles, hv_terminal_role, lv_terminal_role, impedance_reference_winding, zero_sequence_resistance_ohm, zero_sequence_reactance_ohm, core_construction, zero_sequence_test_basis, vector_group_configuration, zero_sequence_test_configuration, zero_sequence_two_winding_test_data)
+        if all(value is None for value in values) and not replace_physical_conductor_configuration and not replace_phase_domain_multiport_configuration:
             raise ValueError("UpdateTransformerCommand requires at least one mutable Transformer field.")
         normalized_basis = None
         if impedance_basis is not None:
@@ -316,6 +395,13 @@ class UpdateTransformerCommand(Command):
             "hv_winding_connection": hv_winding_connection, "lv_winding_connection": lv_winding_connection,
             "hv_neutral_grounding_impedance_ohm": hv_neutral_grounding_impedance_ohm,
             "lv_neutral_grounding_impedance_ohm": lv_neutral_grounding_impedance_ohm,
+            "hv_neutral_earth_return_impedance_ohm": hv_neutral_earth_return_impedance_ohm,
+            "lv_neutral_earth_return_impedance_ohm": lv_neutral_earth_return_impedance_ohm,
+            "hv_neutral_terminal_role": hv_neutral_terminal_role,
+            "lv_neutral_terminal_role": lv_neutral_terminal_role,
+            "hv_phase_roles": hv_phase_roles,
+            "lv_phase_roles": lv_phase_roles,
+            "replace_physical_conductor_configuration": replace_physical_conductor_configuration,
             "hv_terminal_role": hv_terminal_role,
             "lv_terminal_role": lv_terminal_role,
             "impedance_reference_winding": impedance_reference_winding,
@@ -326,6 +412,12 @@ class UpdateTransformerCommand(Command):
             "vector_group_configuration": vector_group_configuration,
             "zero_sequence_test_configuration": zero_sequence_test_configuration,
             "zero_sequence_two_winding_test_data": zero_sequence_two_winding_test_data,
+            "phase_domain_terminal_admittance_siemens": phase_domain_terminal_admittance_siemens,
+            "zero_sequence_multiport_evidence": zero_sequence_multiport_evidence,
+            "phase_domain_delta_loop_states": phase_domain_delta_loop_states,
+            "phase_domain_multiport_tap_ratio": phase_domain_multiport_tap_ratio,
+            "phase_domain_multiport_phase_shift_rad": phase_domain_multiport_phase_shift_rad,
+            "replace_phase_domain_multiport_configuration": replace_phase_domain_multiport_configuration,
         }, command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 class DeleteTransformerCommand(Command):
     def __init__(self, *, transformer_id: str, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
@@ -423,7 +515,7 @@ __all__ = [
     "CREATE_GENERATOR", "UPDATE_GENERATOR", "DELETE_GENERATOR", "CreateGeneratorCommand", "UpdateGeneratorCommand", "DeleteGeneratorCommand",
     "CREATE_LOAD", "DELETE_LOAD", "UPDATE_LOAD", "CreateLoadCommand", "DeleteLoadCommand", "UpdateLoadCommand",
     "CREATE_SHUNT", "UPDATE_SHUNT", "DELETE_SHUNT", "CreateShuntCommand", "UpdateShuntCommand", "DeleteShuntCommand",
-    "CREATE_LINE", "DELETE_LINE", "CreateLineCommand", "DeleteLineCommand", "CREATE_TRANSFORMER", "DELETE_TRANSFORMER", "CreateTransformerCommand", "DeleteTransformerCommand",
+    "CREATE_LINE", "DELETE_LINE", "CreateLineCommand", "DeleteLineCommand", "CREATE_TRANSFORMER", "UPDATE_TRANSFORMER", "DELETE_TRANSFORMER", "CreateTransformerCommand", "UpdateTransformerCommand", "DeleteTransformerCommand",
     "CREATE_CABLE", "UPDATE_CABLE", "DELETE_CABLE", "CreateCableCommand", "UpdateCableCommand", "DeleteCableCommand",
     "CREATE_SWITCH", "UPDATE_SWITCH", "DELETE_SWITCH", "OPEN_SWITCH", "CLOSE_SWITCH", "PUT_SWITCH_IN_SERVICE", "TAKE_SWITCH_OUT_OF_SERVICE", "CreateSwitchCommand", "UpdateSwitchCommand", "DeleteSwitchCommand", "OpenSwitchCommand", "CloseSwitchCommand", "PutSwitchInServiceCommand", "TakeSwitchOutOfServiceCommand",
     "CREATE_DISCONNECTOR", "UPDATE_DISCONNECTOR", "DELETE_DISCONNECTOR", "OPEN_DISCONNECTOR", "CLOSE_DISCONNECTOR", "PUT_DISCONNECTOR_IN_SERVICE", "TAKE_DISCONNECTOR_OUT_OF_SERVICE", "CreateDisconnectorCommand", "UpdateDisconnectorCommand", "DeleteDisconnectorCommand", "OpenDisconnectorCommand", "CloseDisconnectorCommand", "PutDisconnectorInServiceCommand", "TakeDisconnectorOutOfServiceCommand",
