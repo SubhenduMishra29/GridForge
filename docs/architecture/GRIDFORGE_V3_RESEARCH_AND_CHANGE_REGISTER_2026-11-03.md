@@ -188,6 +188,61 @@ This is more than a directory-layout question: the preparation and numerical-exe
 - No production defect or V2 correction is declared from these V3 research observations.
 - Next audit pass must inspect all Core imports and all direct consumers of the preparation/snapshot contracts, then trace plugin/UI boundaries.
 
+## 8B. Core dependency audit — preparation/execution contract trace (2026-11-03)
+
+This pass inspected the complete source bodies of the key Power Flow and Short Circuit preparation/input/solver modules identified in the first audit. The evidence refines the initial cycle finding.
+
+### Power Flow dependency trace
+
+Observed source dependencies:
+
+- `core/analysis/power_flow_preparation.py` builds `PreparedPowerFlow` and imports `PowerFlowInput` / `PowerFlowBusType` from `core.solver.power_flow.input`.
+- `core/analysis/power_flow.py` orchestrates preparation and numerical execution, importing `NewtonRaphsonSolver`, `PowerFlowResult` and solver options from Solver.
+- `core/solver/power_flow/preparation.py` is a wrapper that imports and delegates to `core.analysis.power_flow_preparation.PowerFlowPreparation`.
+- `core/solver/power_flow/input.py` defines a frozen `PowerFlowInput` contract and is solver-owned by package location.
+
+**Interpretation:** the numerical solver can consume a clean input DTO, but preparation implementation currently lives in Analysis while a Solver-namespaced wrapper points back to Analysis. This creates an ambiguous ownership/facade boundary even if the solver kernel itself only consumes its input contract.
+
+**V3 direction:** choose one canonical owner for study preparation. Keep the numerical kernel dependent only on immutable numerical inputs. Either (a) make a distinct Study Preparation layer produce solver-neutral contracts, or (b) make Analysis own orchestration/preparation and remove the misleading Solver preparation wrapper through a compatibility adapter. The correct option must be decided after all public consumers and plugin integrations are mapped.
+
+### Short Circuit dependency trace
+
+Observed source dependencies:
+
+- `core/analysis/short_circuit_preparation.py` imports Solver-owned `FaultType`, `ShortCircuitInput`, sequence snapshot contracts and `PhaseDomainShortCircuitCase`.
+- The same Analysis preparation module imports `PhaseDomainShortCircuitCase` directly from `core.solver.short_circuit.phase_domain_solver`.
+- `core/solver/short_circuit/phase_domain_solver.py` imports `PhaseDomainAdmittanceSnapshot` from `core.analysis.phase_domain_network_preparation` and `PhysicalConductorImpedanceSnapshot` from `core.analysis.physical_conductor_preparation`.
+- `core/solver/short_circuit/input.py` imports `PhaseDomainShortCircuitCase` from the solver's phase-domain solver module.
+- `core/analysis/phase_domain_network_preparation.py` builds `PhaseDomainAdmittanceSnapshot` using network conductor topology and a prepared physical-conductor impedance snapshot.
+- `core/analysis/physical_conductor_preparation.py` builds `PhysicalConductorImpedanceSnapshot` from Core Network's physical conductor topology snapshot.
+
+**Interpretation:** the case/input data contract and solver implementation are entangled, while solver implementation imports study-preparation snapshot classes from Analysis. This is a genuine bidirectional package dependency, not merely a lazy-export concern. The phase-domain solver's local import of `assemble_phase_domain_admittance` further indicates preparation logic has crossed into the execution module.
+
+**V3 direction:** move stable immutable data contracts (case, prepared admittance and impedance snapshots, source/fault equivalents) into a neutral study-contract package or a carefully bounded Solver input-contract package. The preparation service should create those values; Solver should consume them and return typed solutions. Solver must not import Analysis preparation implementations. Keep network topology snapshots as inputs from the Network domain. Avoid moving engineering preparation algorithms into a numerical kernel.
+
+### Additional package/API evidence
+
+- `core/analysis/__init__.py` re-exports many study and preparation modules as a broad package facade.
+- `core/solver/short_circuit/__init__.py` uses lazy attribute loading for phase-domain exports, consistent with a known import-cycle workaround.
+- `core/solver/power_flow/preparation.py` presents a Solver package API while delegating its implementation to Analysis. This is a compatibility façade candidate, not evidence that preparation should automatically move to Solver.
+- `PowerFlowInput` is a frozen dataclass with validation and typed bus categories; it is a useful existing pattern for explicit numerical input contracts. It should be assessed for completeness/provenance rather than replaced by a new abstraction without need.
+- `ShortCircuitInput` is also frozen and validates its phase-domain fault data, but currently imports its phase-domain case from the solver implementation module. That coupling should be reversed by extracting the case contract.
+- Network-owned topology snapshots and physical conductor topology are appropriate domain inputs; the unresolved ownership is the study-prepared numerical representation built from them.
+
+### Refined findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F07 | P0 | Analysis Short Circuit preparation imports Solver input/case types; Solver phase-domain implementation imports Analysis prepared snapshots | Extract stable DTOs/contracts; enforce Preparation → Solver one-way dependency |
+| V3-ARCH-F08 | P1 | Solver Power Flow preparation wrapper delegates back to Analysis implementation | Decide canonical preparation ownership and treat wrapper as compatibility-only or replace it with an explicit contract |
+| V3-ARCH-F09 | P1 | ShortCircuitInput imports PhaseDomainShortCircuitCase from solver implementation module | Move case DTO to a contract module independent of solver algorithm implementation |
+| V3-ARCH-F10 | P1 | Phase-domain solver locally imports Analysis admittance assembly | Keep assembly in preparation; solver consumes completed immutable snapshot |
+| V3-ARCH-F11 | P1 | PowerFlowInput already provides a frozen typed numerical input contract | Reuse and strengthen existing contract pattern, including assumptions/provenance/version metadata as justified |
+
+### Verification limits
+
+This pass is source inspection of named files, not an exhaustive consumer search or runtime import graph. Direct call sites of the wrappers and public exports remain to be mapped. No tests, CI, syntax/import execution or performance measurements were run.
+
 ## 9. Status and next sequence
 
 **Completed:** V3 research register opened and initial research tracks captured.  
