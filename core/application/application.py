@@ -601,6 +601,55 @@ class Application:
                 diagnostics=(f"Measurement-triggered protection cycle failed: {type(exc).__name__}: {exc}",)
             )
 
+    @staticmethod
+    def _protection_measurement_source_diagnostic(
+        network: Any,
+        channel: Any,
+        prefix: str,
+    ) -> str | None:
+        """Fail closed when a physical CT/PT/CVT source is stale or unavailable."""
+        source = getattr(channel, "source", None)
+        if source is None:
+            return None
+
+        source_type = getattr(source, "element_type", None)
+        source_type = getattr(source_type, "value", source_type)
+        if not isinstance(source_type, str) or not source_type.strip():
+            source_type = type(source).__name__
+        source_type = source_type.strip().lower()
+        source_type = {
+            "currenttransformer": "current_transformer",
+            "capacitivevoltagetransformer": "capacitive_voltage_transformer",
+            "potentialtransformer": "potential_transformer",
+        }.get(source_type, source_type)
+        if source_type not in {
+            "current_transformer",
+            "capacitive_voltage_transformer",
+            "potential_transformer",
+            "pt",
+        }:
+            return None
+
+        source_id = getattr(source, "id", None)
+        if not isinstance(source_id, str) or not source_id.strip():
+            return f"{prefix}: configured CT/PT/CVT source has no canonical equipment identity."
+        try:
+            active_source = network.get_by_identity(source_id)
+        except (KeyError, TypeError, ValueError):
+            return f"{prefix}: configured CT/PT/CVT source is absent from the active canonical Network."
+        if active_source is not source:
+            return f"{prefix}: MeasurementChannel does not reference the active canonical CT/PT/CVT object."
+
+        source_terminal = getattr(channel, "source_terminal", None)
+        if (
+            source_terminal is None
+            or getattr(source_terminal, "equipment_id", None) != source_id
+        ):
+            return f"{prefix}: MeasurementChannel source terminal does not match its canonical instrument identity."
+        if getattr(source, "in_service", None) is not True:
+            return f"{prefix}: configured CT/PT/CVT source is out of service or unavailable."
+        return None
+
     def _evaluate_protection_cycle_unlocked(
         self,
         evaluation_time: float,
@@ -810,6 +859,12 @@ class Application:
                     continue
                 if getattr(channel, "id", None) != channel_id:
                     diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
+                    continue
+                source_diagnostic = self._protection_measurement_source_diagnostic(
+                    captured_network, channel, prefix
+                )
+                if source_diagnostic is not None:
+                    diagnostics.append(source_diagnostic)
                     continue
                 # Read the sample sequence around the complete validation
                 # window. When a producer supplies a sequence, any change means
@@ -1306,6 +1361,12 @@ class Application:
                 channel = channels.get(channel_id)
                 if channel is None or runtime_channels.get(channel_id) is not channel:
                     diagnostics.append(f"{prefix}, channel={channel_id!r}: authoritative runtime channel is unavailable.")
+                    continue
+                source_diagnostic = self._protection_measurement_source_diagnostic(
+                    lifecycle.network, channel, prefix
+                )
+                if source_diagnostic is not None:
+                    diagnostics.append(source_diagnostic)
                     continue
                 if (
                     sample.scenario_id != scenario_id
