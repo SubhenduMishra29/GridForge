@@ -380,6 +380,7 @@ class NetworkReadService(ReadService):
                 "two_winding_test_data_available": getattr(model, "zero_sequence_two_winding_test_data", None) is not None,
                 "physical_conductor_construction_available": getattr(model, "physical_conductor_construction", None) is not None,
                 "phase_domain_terminal_count": len(multiport) if multiport is not None else None,
+                "phase_domain_matrix_available": multiport is not None,
                 "phase_domain_multiport_tap_ratio": getattr(model, "phase_domain_multiport_tap_ratio", None),
                 "phase_domain_multiport_phase_shift_rad": getattr(model, "phase_domain_multiport_phase_shift_rad", None),
                 "zero_sequence_multiport_evidence_available": evidence is not None,
