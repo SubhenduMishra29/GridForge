@@ -909,6 +909,7 @@ class Transformer(Branch):
                 self._hv_neutral_grounding_impedance_ohm, self._lv_neutral_grounding_impedance_ohm,
                 self._hv_neutral_earth_return_impedance_ohm, self._lv_neutral_earth_return_impedance_ohm,
                 self._hv_phase_roles, self._lv_phase_roles,
+                self._hv_neutral_terminal_role, self._lv_neutral_terminal_role,
                 self._hv_terminal_role, self._lv_terminal_role, self._impedance_reference_winding,
                 self._zero_sequence_resistance_ohm, self._zero_sequence_reactance_ohm,
                 self._core_construction, self._zero_sequence_test_basis,
