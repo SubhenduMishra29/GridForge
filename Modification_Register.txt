@@ -20727,3 +20727,17 @@ Additional direct-service evidence:
 Implementation decision remains unchanged: first add a generic transaction commit-callback lifecycle facility (no domain knowledge in Transaction), then provide an Application-owned typed revision publisher to service constructors/composition. Each service must register a typed delta with the outer transaction; the publisher applies it once on commit. Rollback must discard pending deltas. This is not implemented yet. Avoid publishing revisions directly in service methods because nested/shared transactions could otherwise increment more than once or publish changes that later roll back.
 
 No tests, CI, syntax checks, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — COMMIT CALLBACK DESIGN REVIEW (2026-11-03)
+
+Reviewed the actual transaction owner path before implementing a callback API:
+
+- `CommandManager._execute_command` owns the command Transaction. It executes the handler and Application pre-commit hook, then calls `transaction.commit()`, then records history. A failure after Transaction leaves OPEN is treated as committed/degraded; it is not rolled back.
+- `Transaction.commit()` currently transitions COMMITTING -> COMMITTED and returns the undo journal. It has no callback facility. A generic commit-callback extension is architecturally possible, but callbacks must execute after the state is COMMITTED; callback failure must propagate so CommandManager marks the Application degraded rather than attempting rollback of committed Core state.
+- RelayModelService and PTModelService accept externally supplied Transaction objects and register inverses. They do not own transaction commit. Therefore a service-level revision publisher must stage a typed delta against the same transaction; it cannot independently increment the RevisionService in the service method.
+- Repository code-search returned no construction/use references for PTModelService or RelayModelService. Because this search path has known indexing gaps, this is inconclusive and is not evidence that there are no callers. The exact service composition/creation boundary is still unverified.
+
+No code change to Transaction was made in this pass. Introducing commit callbacks before identifying the real service composition path risks creating an unused API or missing a caller-owned transaction path. Next action is to inspect the complete repository tree / exact service factory and caller paths, then wire a typed revision publisher into the authoritative composition point. Only then add the generic callback API if it is the smallest correct transaction primitive.
+
+PR #1072 remains draft. No tests, CI, syntax checks, or runtime checks were run.
