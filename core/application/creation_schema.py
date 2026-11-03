@@ -569,6 +569,9 @@ def creation_definition_for(
         "grid": _definition("grid", "grid", (
             _p("nominal_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
+            _p("short_circuit_mva", "Short-circuit strength", unit="MVA", minimum=0.0),
+            _p("x_over_r", "X/R ratio", minimum=0.0),
+            _p("grounded", "Grounded", "bool", default=True),
         ), "model.create_grid", "grid_id", topology=single_terminal_topology, endpoint_mapping={"terminal": "endpoint"}, terminal_names=_BUILTIN_TERMINAL_NAMES["grid"]),
         "generator": _definition("generator", "generator", (
             _p("p", "Active power", unit="MW", required=True),
@@ -592,6 +595,10 @@ def creation_definition_for(
         "solar": _definition("solar", "solar", (
             _p("p_mw", "Active power", unit="MW", required=True),
             _p("q_mvar", "Reactive power", unit="MVAr", required=True),
+            _p("p_max_mw", unit="MW", minimum=0.0),
+            _p("p_min_mw", unit="MW", default=0.0, minimum=0.0),
+            _p("q_max_mvar", unit="MVAr"),
+            _p("q_min_mvar", unit="MVAr"),
         ), "model.create_solar", "solar_id", topology=single_terminal_topology, endpoint_mapping={"terminal": "endpoint"}, terminal_names=_BUILTIN_TERMINAL_NAMES["solar"]),
         "battery": _definition("battery", "battery", (
             _p("p_mw", "Active power", unit="MW", required=True),
@@ -600,6 +607,8 @@ def creation_definition_for(
             _p("max_charge_mw", unit="MW", minimum=0.0),
             _p("max_discharge_mw", unit="MW", minimum=0.0),
             _p("soc", "State of charge", unit="pu", default=1.0, minimum=0.0, maximum=1.0),
+            _p("soc_min", "Minimum state of charge", unit="pu", default=0.0, minimum=0.0, maximum=1.0),
+            _p("soc_max", "Maximum state of charge", unit="pu", default=1.0, minimum=0.0, maximum=1.0),
         ), "model.create_battery", "battery_id", topology=single_terminal_topology, endpoint_mapping={"terminal": "endpoint"}, terminal_names=_BUILTIN_TERMINAL_NAMES["battery"]),
         "motor": _definition("motor", "motor", (
             _p("rated_mva", unit="MVA", required=True, minimum=0.0),
@@ -623,6 +632,8 @@ def creation_definition_for(
             _p("reactance_ohm", unit="ohm", required=True),
             _p("rate_mva", unit="MVA", required=True, minimum=0.0),
             _p("shunt_susceptance_siemens", unit="S", default=0.0),
+            _p("zero_sequence_resistance_ohm", unit="ohm"),
+            _p("zero_sequence_reactance_ohm", unit="ohm"),
             _p("name", "Name", "str", default=""),
         ), "model.create_line", "line_id", topology=branch_topology, endpoint_mapping=common_endpoints, terminal_names=_BUILTIN_TERMINAL_NAMES["line"]),
         "cable": _definition("cable", "cable", (
@@ -635,6 +646,8 @@ def creation_definition_for(
             _p("b0_us_per_km", unit="uS/km", minimum=0.0),
             _p("rated_voltage_kv", unit="kV", minimum=0.0),
             _p("rated_current_a", unit="A", minimum=0.0),
+            _p("thermal_limit_mva", unit="MVA", minimum=0.0),
+            _p("conductor_count", "Conductor count", "int", default=1, minimum=1.0),
             _p("name", "Name", "str", default=""),
         ), "model.create_cable", "cable_id", topology=branch_topology, endpoint_mapping=common_endpoints, terminal_names=_BUILTIN_TERMINAL_NAMES["cable"]),
         "transformer": _definition("transformer", "transformer", (
@@ -671,6 +684,7 @@ def creation_definition_for(
         "fuse": _definition("fuse", "fuse", (
             _p("rated_current_a", unit="A", required=True, minimum=0.0),
             _p("rated_voltage_v", unit="V", required=True, minimum=0.0),
+            _p("interrupting_rating_ka", unit="kA", required=True, minimum=0.0),
         ), "model.create_fuse", "fuse_id", topology=switching_topology, endpoint_mapping=switching_endpoints, terminal_names=_BUILTIN_TERMINAL_NAMES["fuse"]),
         "current_transformer": _definition("current_transformer", "current_transformer", (
             _p("primary_rated_current_a", unit="A", required=True, minimum=0.0),
@@ -690,9 +704,9 @@ def creation_definition_for(
         "potential_transformer": _definition("potential_transformer", "potential_transformer", (
             _p("primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("secondary_voltage_v", unit="V", required=True, minimum=0.0),
-            _p("accuracy_class", "Accuracy class", "str"),
-            _p("burden_va", unit="VA", minimum=0.0),
-            _p("phase_displacement_deg", unit="deg"),
+            _p("accuracy_class", "Accuracy class", "str", default="0.5"),
+            _p("burden_va", unit="VA", default=100.0, minimum=0.0),
+            _p("phase_displacement_deg", unit="deg", default=0.0),
         ), "model.create_potential_transformer", "pt_id", topology=(CreationTopologyRequirement("primary_a", required=True), CreationTopologyRequirement("primary_b", required=True)),
            # Primary terminals belong to electrical topology. Secondary
            # terminals feed measurement channels and are not required to be
@@ -703,8 +717,8 @@ def creation_definition_for(
         "cvt": _definition("cvt", "cvt", (
             _p("rated_primary_voltage_kv", unit="kV", required=True, minimum=0.0),
             _p("rated_secondary_voltage_v", unit="V", required=True, minimum=0.0),
-            _p("accuracy_class", "Accuracy class", "str"),
-            _p("rated_burden_va", unit="VA", minimum=0.0),
+            _p("accuracy_class", "Accuracy class", "str", default="0.5"),
+            _p("rated_burden_va", unit="VA", default=100.0, minimum=0.0),
             _p("frequency_hz", unit="Hz", required=True, minimum=0.0),
             _p("polarity", "Polarity", "enum", required=True, choices=("NORMAL", "REVERSED")),
         ), "model.create_capacitive_voltage_transformer", "transformer_id", topology=(CreationTopologyRequirement("H1", required=True), CreationTopologyRequirement("H2", required=True)),
