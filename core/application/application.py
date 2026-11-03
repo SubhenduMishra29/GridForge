@@ -704,8 +704,6 @@ class Application:
                     bool(getattr(relay, "in_service", False)),
                     bool(getattr(relay, "enabled", False)),
                     bool(getattr(relay, "blocked", False)),
-                    bool(getattr(relay, "picked_up", False)),
-                    bool(getattr(relay, "tripped", False)),
                 )
                 for relay in relays
             ), key=lambda item: item[0]))
