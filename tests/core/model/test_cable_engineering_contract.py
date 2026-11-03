@@ -52,3 +52,30 @@ def test_cable_engineering_values_are_not_double_converted() -> None:
     assert cable.r == 0.0
     assert cable.x == 0.0
     assert cable.b == 0.0
+
+
+def test_cable_does_not_infer_zero_sequence_data_from_positive_sequence() -> None:
+    cable = Cable(
+        id="C3",
+        length_km=1.0,
+        r1_ohm_per_km=0.10,
+        x1_ohm_per_km=0.20,
+    )
+
+    assert cable.r0_ohm_per_km is None
+    assert cable.x0_ohm_per_km is None
+    assert cable.b0_us_per_km is None
+    assert cable.zero_sequence_resistance_ohm is None
+    assert cable.zero_sequence_reactance_ohm is None
+    assert cable.zero_sequence_shunt_susceptance_siemens is None
+
+
+def test_cable_requires_zero_sequence_resistance_and_reactance_as_a_pair() -> None:
+    with pytest.raises(ValueError, match="must be supplied together"):
+        Cable(
+            id="C4",
+            length_km=1.0,
+            r1_ohm_per_km=0.10,
+            x1_ohm_per_km=0.20,
+            r0_ohm_per_km=0.30,
+        )

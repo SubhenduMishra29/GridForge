@@ -55,12 +55,10 @@ class Cable(Branch):
         in_service: bool = True,
         conductor_system: BranchConductorSystem | None = None,
     ) -> None:
-        if r0_ohm_per_km is None:
-            r0_ohm_per_km = r1_ohm_per_km
-        if x0_ohm_per_km is None:
-            x0_ohm_per_km = x1_ohm_per_km
-        if b0_us_per_km is None:
-            b0_us_per_km = b1_us_per_km
+        if (r0_ohm_per_km is None) != (x0_ohm_per_km is None):
+            raise ValueError(
+                "Cable zero-sequence resistance and reactance must be supplied together."
+            )
 
         # Branch owns connectivity. Its generic electrical fields are
         # intentionally neutral for Cable; preparation reads Cable's
@@ -94,14 +92,15 @@ class Cable(Branch):
         self.b1_us_per_km = self._validate_finite(
             b1_us_per_km, "b1_us_per_km"
         )
-        self.r0_ohm_per_km = self._validate_non_negative(
+        self.r0_ohm_per_km = self._validate_optional_non_negative(
             r0_ohm_per_km, "r0_ohm_per_km"
         )
-        self.x0_ohm_per_km = self._validate_non_negative(
+        self.x0_ohm_per_km = self._validate_optional_non_negative(
             x0_ohm_per_km, "x0_ohm_per_km"
         )
-        self.b0_us_per_km = self._validate_finite(
-            b0_us_per_km, "b0_us_per_km"
+        self.b0_us_per_km = (
+            None if b0_us_per_km is None
+            else self._validate_finite(b0_us_per_km, "b0_us_per_km")
         )
 
         if thermal_limit_mva is None:
@@ -141,15 +140,21 @@ class Cable(Branch):
         return self.b1_us_per_km * self.length_km * 1.0e-6
 
     @property
-    def zero_sequence_resistance_ohm(self) -> float:
+    def zero_sequence_resistance_ohm(self) -> float | None:
+        if self.r0_ohm_per_km is None:
+            return None
         return self.r0_ohm_per_km * self.length_km
 
     @property
-    def zero_sequence_reactance_ohm(self) -> float:
+    def zero_sequence_reactance_ohm(self) -> float | None:
+        if self.x0_ohm_per_km is None:
+            return None
         return self.x0_ohm_per_km * self.length_km
 
     @property
-    def zero_sequence_shunt_susceptance_siemens(self) -> float:
+    def zero_sequence_shunt_susceptance_siemens(self) -> float | None:
+        if self.b0_us_per_km is None:
+            return None
         return self.b0_us_per_km * self.length_km * 1.0e-6
 
     # ------------------------------------------------------------
@@ -208,13 +213,18 @@ class Cable(Branch):
             self.x1_ohm_per_km, "x1_ohm_per_km"
         )
         self.b1_us_per_km = self._validate_finite(self.b1_us_per_km, "b1_us_per_km")
-        self.r0_ohm_per_km = self._validate_non_negative(
+        if (self.r0_ohm_per_km is None) != (self.x0_ohm_per_km is None):
+            raise ValueError(
+                "Cable zero-sequence resistance and reactance must be supplied together."
+            )
+        self.r0_ohm_per_km = self._validate_optional_non_negative(
             self.r0_ohm_per_km, "r0_ohm_per_km"
         )
-        self.x0_ohm_per_km = self._validate_non_negative(
+        self.x0_ohm_per_km = self._validate_optional_non_negative(
             self.x0_ohm_per_km, "x0_ohm_per_km"
         )
-        self.b0_us_per_km = self._validate_finite(self.b0_us_per_km, "b0_us_per_km")
+        if self.b0_us_per_km is not None:
+            self.b0_us_per_km = self._validate_finite(self.b0_us_per_km, "b0_us_per_km")
         self.rated_voltage_kv = self._validate_optional_non_negative(
             self.rated_voltage_kv, "rated_voltage_kv"
         )
@@ -233,9 +243,15 @@ class Cable(Branch):
             raise ValueError(
                 f"Cable '{self.id}' must have non-zero positive-sequence series impedance."
             )
-        if self.zero_sequence_resistance_ohm == 0.0 and self.zero_sequence_reactance_ohm == 0.0:
+        if (
+            self.zero_sequence_resistance_ohm is not None
+            and self.zero_sequence_reactance_ohm is not None
+            and self.zero_sequence_resistance_ohm == 0.0
+            and self.zero_sequence_reactance_ohm == 0.0
+        ):
             raise ValueError(
-                f"Cable '{self.id}' must have non-zero zero-sequence series impedance."
+                f"Cable '{self.id}' has zero zero-sequence series impedance; "
+                "an explicit non-zero Z0 is required when zero-sequence data is supplied."
             )
         return True
 
