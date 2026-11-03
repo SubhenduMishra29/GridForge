@@ -620,8 +620,10 @@ class PropertiesPanelWidget(QWidget):
                 )
         if target.connectivity_refs:
             self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
+        unavailable_count = sum(not item.inspectable for item in target.engineering_parameters)
         self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
-            f"{len(target.engineering_parameters)} projected parameter(s); Core validation remains authoritative.",
+            f"{len(target.engineering_parameters)} catalogue parameter(s); "
+            f"{unavailable_count} unavailable in the committed read model. Core validation remains authoritative.",
             self,
         ))
         for parameter in target.engineering_parameters:
@@ -911,15 +913,9 @@ class PropertiesPanelWidget(QWidget):
             control.setToolTip(tooltip)
             return control
         datatype = str(parameter.datatype).strip().lower()
-        if datatype in {"float", "number"} and value is not None:
-            control = QDoubleSpinBox(self)
-            control.setDecimals(6)
-            control.setRange(
-                float(parameter.minimum if parameter.minimum is not None else -1.0e15),
-                float(parameter.maximum if parameter.maximum is not None else 1.0e15),
-            )
-            control.setValue(float(value))
-            control.setToolTip(tooltip)
+        if not parameter.inspectable:
+            control = QLabel("Not available in the Application read model", self)
+            control.setToolTip("This canonical creation parameter is not exposed by the committed equipment read model.")
             return control
         if datatype in {"float", "number", "int", "integer"}:
             # An unset numeric value remains visibly unset; the validator
