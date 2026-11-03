@@ -48,6 +48,7 @@ class EngineeringParameterState:
     default_value: Any = None
     minimum: float | None = None
     maximum: float | None = None
+    inspectable: bool = True
 
     def __post_init__(self) -> None:
         if not isinstance(self.parameter_id, str) or not self.parameter_id:
