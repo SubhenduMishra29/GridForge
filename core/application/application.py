@@ -712,6 +712,42 @@ class Application:
 
         captured_relay_state = relay_state_fingerprint(captured_network)
 
+        def instrumentation_state_fingerprint(network: Any) -> tuple[tuple[Any, ...], ...]:
+            """Capture CT/CVT/PT state independently from physical topology."""
+            specifications = (
+                (
+                    "ct", getattr(network, "current_transformers", ()),
+                    ("name", "primary_rated_current_a", "secondary_rated_current_a", "burden_va", "accuracy_class", "frequency_hz", "polarity", "in_service"),
+                    ("p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint"),
+                ),
+                (
+                    "cvt", getattr(network, "capacitive_voltage_transformers", ()),
+                    ("name", "rated_primary_voltage_kv", "rated_secondary_voltage_v", "accuracy_class", "rated_burden_va", "polarity", "frequency_hz", "in_service"),
+                    ("h1_endpoint", "h2_endpoint", "x1_endpoint", "x2_endpoint"),
+                ),
+                (
+                    "pt", getattr(network, "potential_transformers", ()),
+                    ("name", "primary_voltage_kv", "secondary_voltage_v", "accuracy_class", "burden_va", "phase_displacement_deg", "in_service"),
+                    ("primary_a_endpoint", "primary_b_endpoint", "secondary_a_endpoint", "secondary_b_endpoint"),
+                ),
+            )
+            captured: list[tuple[Any, ...]] = []
+            for kind, equipment, fields, endpoint_fields in specifications:
+                for item in equipment:
+                    values = tuple((field, repr(getattr(item, field, None))) for field in fields)
+                    endpoints = tuple(
+                        (
+                            field,
+                            None if (endpoint := getattr(item, field, None)) is None
+                            else (type(endpoint).__name__, getattr(endpoint, "id", None), id(endpoint)),
+                        )
+                        for field in endpoint_fields
+                    )
+                    captured.append((kind, str(getattr(item, "id", "")), values, endpoints))
+            return tuple(sorted(captured, key=lambda item: (item[0], item[1])))
+
+        captured_instrumentation_state = instrumentation_state_fingerprint(captured_network)
+
         def ensure_current_protection_provenance() -> None:
             current_lifecycle = self.project_lifecycle
             current_project = current_lifecycle.context
@@ -741,14 +777,15 @@ class Application:
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
                 or relay_state_fingerprint(captured_network) != captured_relay_state
+                or instrumentation_state_fingerprint(captured_network) != captured_instrumentation_state
                 or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
                 or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
                 or self.revision.protection_configuration_revision != captured_revision.protection_configuration_revision
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
-                    "measurement-channel authority, Relay equipment state, or instrumentation/Protection "
-                    "equipment/configuration revision changed after evaluation."
+                    "measurement-channel authority, instrumentation equipment state, Relay equipment state, "
+                    "or Protection configuration/revision changed after evaluation."
                 )
 
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
