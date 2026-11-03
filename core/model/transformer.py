@@ -23,7 +23,10 @@ from core.base.per_unit import PerUnitSystem
 
 from .branch import Branch
 from .transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
-from .transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState
+from .transformer_zero_sequence_multiport_evidence import (
+    TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState,
+    validate_transformer_zero_sequence_multiport_evidence,
+)
 
 
 class ImpedanceBasis(str, Enum):
@@ -216,32 +219,26 @@ class Transformer(Branch):
         self._vector_group_configuration = self._normalize_vector_group_configuration(vector_group_configuration)
         self._zero_sequence_test_configuration = self._normalize_zero_sequence_test_configuration(zero_sequence_test_configuration)
         self._zero_sequence_two_winding_test_data = self._normalize_zero_sequence_two_winding_test_data(zero_sequence_two_winding_test_data)
-        self._phase_domain_terminal_admittance_siemens = self._validate_phase_domain_terminal_admittance(phase_domain_terminal_admittance_siemens)
-        if zero_sequence_multiport_evidence is not None and not isinstance(zero_sequence_multiport_evidence, TransformerZeroSequenceMultiportEvidence):
-            raise TypeError("zero_sequence_multiport_evidence must be TransformerZeroSequenceMultiportEvidence.")
-        if zero_sequence_multiport_evidence is not None and phase_domain_terminal_admittance_siemens is None:
-            raise ValueError("Zero-sequence multiport evidence requires an explicit terminal admittance matrix.")
-        self._zero_sequence_multiport_evidence = zero_sequence_multiport_evidence
-        loop_states = tuple(phase_domain_delta_loop_states)
-        if any(not isinstance(item, TransformerDeltaLoopState) for item in loop_states):
-            raise TypeError("phase_domain_delta_loop_states must contain TransformerDeltaLoopState records.")
-        if len({item.loop_id for item in loop_states}) != len(loop_states):
-            raise ValueError("Transformer delta loop ids must be unique.")
-        if loop_states and phase_domain_terminal_admittance_siemens is None:
-            raise ValueError("Explicit delta loop states require the transformer terminal admittance matrix.")
-        self._phase_domain_delta_loop_states = loop_states
-        if phase_domain_terminal_admittance_siemens is None:
-            if phase_domain_multiport_tap_ratio is not None or phase_domain_multiport_phase_shift_rad is not None:
-                raise ValueError("Transformer multiport tap/shift snapshots require an explicit terminal admittance matrix.")
-            self._phase_domain_multiport_tap_ratio = None
-            self._phase_domain_multiport_phase_shift_rad = None
-        else:
-            if phase_domain_multiport_tap_ratio is None or phase_domain_multiport_phase_shift_rad is None:
-                raise ValueError("Explicit transformer multiport matrix requires tap and phase-shift snapshots.")
-            self._phase_domain_multiport_tap_ratio = self._validate_positive(phase_domain_multiport_tap_ratio, "phase_domain_multiport_tap_ratio")
-            self._phase_domain_multiport_phase_shift_rad = self._validate_finite(phase_domain_multiport_phase_shift_rad, "phase_domain_multiport_phase_shift_rad")
-            if not math.isclose(self._phase_domain_multiport_tap_ratio, self._tap, rel_tol=1e-10, abs_tol=1e-12) or not math.isclose(self._phase_domain_multiport_phase_shift_rad, self._shift, rel_tol=1e-10, abs_tol=1e-12):
-                raise ValueError("Transformer multiport matrix tap/shift snapshots must match the active transformer tap and phase shift.")
+        (
+            self._phase_domain_terminal_admittance_siemens,
+            self._zero_sequence_multiport_evidence,
+            self._phase_domain_delta_loop_states,
+            self._phase_domain_multiport_tap_ratio,
+            self._phase_domain_multiport_phase_shift_rad,
+        ) = self._validate_phase_domain_multiport_configuration(
+            matrix=phase_domain_terminal_admittance_siemens,
+            evidence=zero_sequence_multiport_evidence,
+            loop_states=phase_domain_delta_loop_states,
+            tap_ratio=phase_domain_multiport_tap_ratio,
+            phase_shift_rad=phase_domain_multiport_phase_shift_rad,
+            tap=self._tap, shift=self._shift,
+            hv_connection=self._hv_winding_connection, lv_connection=self._lv_winding_connection,
+            hv_terminal_role=self._hv_terminal_role, lv_terminal_role=self._lv_terminal_role,
+            hv_phase_roles=self._hv_phase_roles, lv_phase_roles=self._lv_phase_roles,
+            hv_neutral_terminal_role=self._hv_neutral_terminal_role,
+            lv_neutral_terminal_role=self._lv_neutral_terminal_role,
+            core_construction=self._core_construction,
+        )
         self._validate_zero_sequence_two_winding_test_data(self._zero_sequence_two_winding_test_data, self._hv_winding_connection, self._lv_winding_connection, self._vector_group_configuration)
         if self._zero_sequence_two_winding_test_data is not None and (self._hv_terminal_role is None or self._lv_terminal_role is None or self._impedance_reference_winding != "HV"):
             raise ValueError("Yg-Yg three-test data requires explicit distinct HV/LV terminal roles and HV impedance reference.")
@@ -349,6 +346,56 @@ class Transformer(Branch):
         if roles != ("A", "B", "C"):
             raise ValueError(f"{side} winding phase roles must explicitly be ('A', 'B', 'C') in order.")
         return roles
+
+    @classmethod
+    def _validate_phase_domain_multiport_configuration(
+        cls, *, matrix, evidence, loop_states, tap_ratio, phase_shift_rad,
+        tap, shift, hv_connection, lv_connection, hv_terminal_role, lv_terminal_role,
+        hv_phase_roles, lv_phase_roles, hv_neutral_terminal_role, lv_neutral_terminal_role,
+        core_construction,
+    ):
+        matrix = cls._validate_phase_domain_terminal_admittance(matrix)
+        loops = tuple(loop_states)
+        if any(not isinstance(item, TransformerDeltaLoopState) for item in loops):
+            raise TypeError("phase_domain_delta_loop_states must contain TransformerDeltaLoopState records.")
+        if len({item.loop_id for item in loops}) != len(loops):
+            raise ValueError("Transformer delta loop ids must be unique.")
+        if matrix is None:
+            if evidence is not None or loops or tap_ratio is not None or phase_shift_rad is not None:
+                raise ValueError("Transformer multiport evidence, loops and snapshots require an explicit terminal admittance matrix.")
+            return None, None, (), None, None
+        if tap_ratio is None or phase_shift_rad is None:
+            raise ValueError("Explicit transformer multiport matrix requires tap and phase-shift snapshots.")
+        normalized_tap = cls._validate_positive(tap_ratio, "phase_domain_multiport_tap_ratio")
+        normalized_shift = cls._validate_finite(phase_shift_rad, "phase_domain_multiport_phase_shift_rad")
+        if not math.isclose(normalized_tap, tap, rel_tol=1e-10, abs_tol=1e-12) or not math.isclose(normalized_shift, shift, rel_tol=1e-10, abs_tol=1e-12):
+            raise ValueError("Transformer multiport matrix tap/shift snapshots must match the active transformer tap and phase shift.")
+        if loops and len({item.loop_id for item in loops}) != len(loops):
+            raise ValueError("Transformer delta loop ids must be unique.")
+        if evidence is not None or loops:
+            if hv_connection is None or lv_connection is None or hv_terminal_role is None or lv_terminal_role is None or hv_phase_roles is None or lv_phase_roles is None or core_construction is None:
+                raise ValueError("Evidence-backed Transformer multiport requires complete HV/LV winding, phase-role, terminal-role and core construction.")
+            labels = [f"HV:{role}" for role in hv_phase_roles] + [f"LV:{role}" for role in lv_phase_roles]
+            if hv_neutral_terminal_role is not None:
+                labels.append("HV:N")
+            if lv_neutral_terminal_role is not None:
+                labels.append("LV:N")
+            delta_windings = tuple(
+                side for side, connection in (("HV", hv_connection), ("LV", lv_connection))
+                if connection is TransformerWindingConnection.DELTA
+            )
+            if loops:
+                loop_windings = {item.winding for item in loops}
+                if loop_windings != set(delta_windings):
+                    raise ValueError("Explicit delta-loop states must cover exactly the delta-connected Transformer windings.")
+                if any(len(item.coupling_coefficients) != len(labels) for item in loops):
+                    raise ValueError("Transformer delta-loop coupling vectors must match the ordered physical terminal inventory.")
+            if evidence is not None:
+                validate_transformer_zero_sequence_multiport_evidence(
+                    evidence, matrix=matrix, terminal_labels=labels, core_construction=core_construction,
+                    delta_windings=delta_windings, delta_loop_states=loops,
+                )
+        return matrix, evidence, loops, normalized_tap, normalized_shift
 
     @staticmethod
     def _validate_phase_domain_terminal_admittance(value):
