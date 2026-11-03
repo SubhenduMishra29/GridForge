@@ -515,7 +515,7 @@ __all__ = [
     "CREATE_GENERATOR", "UPDATE_GENERATOR", "DELETE_GENERATOR", "CreateGeneratorCommand", "UpdateGeneratorCommand", "DeleteGeneratorCommand",
     "CREATE_LOAD", "DELETE_LOAD", "UPDATE_LOAD", "CreateLoadCommand", "DeleteLoadCommand", "UpdateLoadCommand",
     "CREATE_SHUNT", "UPDATE_SHUNT", "DELETE_SHUNT", "CreateShuntCommand", "UpdateShuntCommand", "DeleteShuntCommand",
-    "CREATE_LINE", "DELETE_LINE", "CreateLineCommand", "DeleteLineCommand", "CREATE_TRANSFORMER", "DELETE_TRANSFORMER", "CreateTransformerCommand", "DeleteTransformerCommand",
+    "CREATE_LINE", "DELETE_LINE", "CreateLineCommand", "DeleteLineCommand", "CREATE_TRANSFORMER", "UPDATE_TRANSFORMER", "DELETE_TRANSFORMER", "CreateTransformerCommand", "UpdateTransformerCommand", "DeleteTransformerCommand",
     "CREATE_CABLE", "UPDATE_CABLE", "DELETE_CABLE", "CreateCableCommand", "UpdateCableCommand", "DeleteCableCommand",
     "CREATE_SWITCH", "UPDATE_SWITCH", "DELETE_SWITCH", "OPEN_SWITCH", "CLOSE_SWITCH", "PUT_SWITCH_IN_SERVICE", "TAKE_SWITCH_OUT_OF_SERVICE", "CreateSwitchCommand", "UpdateSwitchCommand", "DeleteSwitchCommand", "OpenSwitchCommand", "CloseSwitchCommand", "PutSwitchInServiceCommand", "TakeSwitchOutOfServiceCommand",
     "CREATE_DISCONNECTOR", "UPDATE_DISCONNECTOR", "DELETE_DISCONNECTOR", "OPEN_DISCONNECTOR", "CLOSE_DISCONNECTOR", "PUT_DISCONNECTOR_IN_SERVICE", "TAKE_DISCONNECTOR_OUT_OF_SERVICE", "CreateDisconnectorCommand", "UpdateDisconnectorCommand", "DeleteDisconnectorCommand", "OpenDisconnectorCommand", "CloseDisconnectorCommand", "PutDisconnectorInServiceCommand", "TakeDisconnectorOutOfServiceCommand",
