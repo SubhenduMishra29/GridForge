@@ -150,6 +150,10 @@ _PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     "length_km": {"unit": "km", "datatype": "float", "editable": True, "study_impact": True},
     "thermal_limit_mva": {"unit": "MVA", "datatype": "float", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "non_negative": True}},
     "conductor_count": {"datatype": "int", "editable": True, "study_impact": True, "validation": {"authoritative": "Core", "minimum": 1}},
+    "conductor_system_summary": {
+        "datatype": "mapping", "editable": False, "derived": True, "study_impact": True,
+        "validation": {"description": "Read-only inventory and impedance-matrix summary; edit through the typed Cable conductor configuration workflow."},
+    },
     "rated_voltage_kv": {"unit": "kV", "datatype": "float", "editable": True, "study_impact": True},
     "rated_current_a": {"unit": "A", "datatype": "float", "editable": True, "study_impact": True},
     "r1_ohm_per_km": {"unit": "ohm/km", "datatype": "float", "editable": True, "study_impact": True},
@@ -328,6 +332,11 @@ class NetworkReadService(ReadService):
             if isinstance(value, (str, int, float, bool, complex)): attributes[canonical] = value
             elif canonical in _REQUIRED_FIELDS.get(element_type, ()): missing_required.append(canonical)
         if missing_required: raise ValueError(f"Missing required Application field(s) for {element_type}: {', '.join(missing_required)}")
+        if element_type == "cables":
+            conductor_system = getattr(model, "conductor_system", None)
+            attributes["conductor_system_summary"] = (
+                conductor_system.summary() if conductor_system is not None else None
+            )
         if element_type == "fuses" and "in_service" in attributes and "blown" in attributes: attributes["conducts"] = bool(attributes["in_service"] and not attributes["blown"])
         if element_type == "disconnectors" and "closed" in attributes: attributes["conducts"] = bool(attributes["closed"] and attributes.get("in_service", True))
         if element_type == "reactors" and "reactive_power_injection_mvar" in attributes: attributes["absorption_mvar"] = abs(float(attributes["reactive_power_injection_mvar"]))
@@ -380,6 +389,12 @@ class NetworkReadService(ReadService):
                 metadata["editable"] = True
             if element_type == "lines" and parameter_id == "in_service":
                 metadata["editable"] = True
+            if element_type == "cables" and parameter_id == "conductor_count" and attributes.get("conductor_system_summary") is not None:
+                metadata["editable"] = False
+                metadata["validation"] = {
+                    **dict(metadata.get("validation", {})),
+                    "reason": "Conductor count is owned by the explicit physical conductor inventory.",
+                }
             if element_type == "capacitive_voltage_transformers" and parameter_id == "polarity":
                 metadata["choices"] = tuple(value.value for value in CVTPolarity)
                 metadata["datatype"] = "enum"
