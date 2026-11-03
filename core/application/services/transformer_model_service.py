@@ -302,6 +302,16 @@ class TransformerModelService(ModelServiceSupport):
                 )
             )
         )
+        multiport_configuration_changed = replace_phase_domain_multiport_configuration and any(
+            old_state[key] != value
+            for key, value in (
+                ("phase_domain_terminal_admittance_siemens", phase_domain_terminal_admittance_siemens),
+                ("zero_sequence_multiport_evidence", zero_sequence_multiport_evidence),
+                ("phase_domain_delta_loop_states", phase_domain_delta_loop_states),
+                ("phase_domain_multiport_tap_ratio", phase_domain_multiport_tap_ratio),
+                ("phase_domain_multiport_phase_shift_rad", phase_domain_multiport_phase_shift_rad),
+            )
+        )
 
         # Transformer.update_configuration validates the complete candidate
         # and restores its prior state if the candidate is invalid.
@@ -345,7 +355,7 @@ class TransformerModelService(ModelServiceSupport):
             _replace_phase_domain_multiport_configuration=replace_phase_domain_multiport_configuration,
         )
 
-        if service_state_changed or physical_topology_changed:
+        if service_state_changed or physical_topology_changed or multiport_configuration_changed:
             self._network.invalidate_topology()
 
         def restore() -> None:
@@ -355,7 +365,7 @@ class TransformerModelService(ModelServiceSupport):
                 _replace_phase_domain_multiport_configuration=True,
                 _replace_winding_configuration=True,
             )
-            if service_state_changed or physical_topology_changed:
+            if service_state_changed or physical_topology_changed or multiport_configuration_changed:
                 self._network.invalidate_topology()
 
         transaction.record_undo(restore)
