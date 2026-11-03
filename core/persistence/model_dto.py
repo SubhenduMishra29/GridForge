@@ -14,6 +14,7 @@ from typing import Any
 
 from core.model.base import ElectricalObject
 from core.model.terminal import Terminal
+from .project_package import TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
 
 
 class ModelSerializationError(ValueError):
@@ -48,15 +49,54 @@ class ModelDTO:
     id: str
     state: dict[str, Any]
     terminals: tuple[TerminalDTO, ...]
+    transformer_configuration_schema: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"type": self.type, "id": self.id, "state": self.state, "terminals": [terminal.to_dict() for terminal in self.terminals]}
+        payload = {
+            "type": self.type,
+            "id": self.id,
+            "state": self.state,
+            "terminals": [terminal.to_dict() for terminal in self.terminals],
+        }
+        if self.type == "Transformer":
+            payload["transformer_configuration_schema"] = (
+                TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
+                if self.transformer_configuration_schema is None
+                else self.transformer_configuration_schema
+            )
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ModelDTO":
+        model_type = str(data["type"])
+        configuration_schema = data.get("transformer_configuration_schema")
+        if model_type == "Transformer":
+            # Historical Transformer DTOs predate the explicit marker. Their
+            # tagged Core state is interpreted as schema 1 and validated by
+            # the Transformer model after reconstruction.
+            configuration_schema = (
+                TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
+                if configuration_schema is None
+                else configuration_schema
+            )
+            if (
+                isinstance(configuration_schema, bool)
+                or not isinstance(configuration_schema, int)
+                or configuration_schema != TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
+            ):
+                raise ModelSerializationError(
+                    f"Unsupported Transformer configuration schema: {configuration_schema!r}."
+                )
+        elif configuration_schema is not None:
+            raise ModelSerializationError(
+                "Only Transformer DTOs may declare transformer_configuration_schema."
+            )
         return cls(
-            type=str(data["type"]), id=str(data["id"]), state=dict(data.get("state") or {}),
+            type=model_type,
+            id=str(data["id"]),
+            state=dict(data.get("state") or {}),
             terminals=tuple(TerminalDTO.from_dict(item) for item in data.get("terminals", ())),
+            transformer_configuration_schema=configuration_schema,
         )
 
 
@@ -159,7 +199,17 @@ def model_to_dto(model: Any) -> ModelDTO:
         endpoint_id = endpoint.id if isinstance(endpoint, ElectricalObject) else None
         terminals.append(TerminalDTO(attribute=attribute, role=terminal.role, endpoint_type=endpoint_type, endpoint_id=endpoint_id))
 
-    return ModelDTO(type=type(model).__name__, id=model.id, state=state, terminals=tuple(terminals))
+    return ModelDTO(
+        type=type(model).__name__,
+        id=model.id,
+        state=state,
+        terminals=tuple(terminals),
+        transformer_configuration_schema=(
+            TRANSFORMER_CONFIGURATION_SCHEMA_VERSION
+            if type(model).__name__ == "Transformer"
+            else None
+        ),
+    )
 
 
 def _decode(value: Any) -> Any:
