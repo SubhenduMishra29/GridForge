@@ -58,6 +58,43 @@ def _parse_json(control: QLineEdit, field: str, *, blank: Any = None) -> Any:
         raise ValueError(f"{field} must contain valid JSON: {exc.msg}.") from exc
 
 
+def _validate_terminal_admittance_matrix(matrix: Any, labels: tuple[str, ...]) -> list[list[list[float]]]:
+    """Validate imported/entered SI terminal admittance data before submission."""
+    if not isinstance(matrix, (tuple, list)) or len(matrix) != len(labels):
+        raise ValueError("Matrix dimensions must match the complete ordered HV/LV terminal inventory.")
+    normalized: list[list[list[float]]] = []
+    for row_index, row in enumerate(matrix):
+        if not isinstance(row, (tuple, list)) or len(row) != len(labels):
+            raise ValueError(f"Matrix row {row_index + 1} must contain exactly {len(labels)} terminal values.")
+        cells: list[list[float]] = []
+        for column_index, cell in enumerate(row):
+            if isinstance(cell, Mapping) and set(cell) == {"real", "imag"}:
+                parts = (cell["real"], cell["imag"])
+            elif isinstance(cell, (tuple, list)) and len(cell) == 2:
+                parts = cell
+            else:
+                parts = (cell, 0.0)
+            try:
+                real, imag = float(parts[0]), float(parts[1])
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"Matrix cell {labels[row_index]} × {labels[column_index]} must be a real or [real, imag] Siemens value.") from exc
+            if not __import__("math").isfinite(real) or not __import__("math").isfinite(imag):
+                raise ValueError(f"Matrix cell {labels[row_index]} × {labels[column_index]} must be finite.")
+            cells.append([real, imag])
+        normalized.append(cells)
+
+    import numpy as np
+    values = np.asarray([[complex(real, imag) for real, imag in row] for row in normalized], dtype=complex)
+    if not np.allclose(values, values.T, rtol=1e-9, atol=1e-12):
+        raise ValueError("Terminal admittance matrix is not reciprocal: Y must equal its transpose in the declared terminal order.")
+    conductance = (values.real + values.real.T) * 0.5
+    eigenvalues = np.linalg.eigvalsh(conductance)
+    scale = max(1.0, float(np.max(np.abs(eigenvalues))))
+    if float(np.min(eigenvalues)) < -1e-10 * scale:
+        raise ValueError("Terminal admittance matrix is not passive: its symmetric conductance part must be positive semidefinite.")
+    return normalized
+
+
 def _parse_optional_complex(control: QLineEdit, field: str) -> Any:
     value = _parse_json(control, field)
     if value is None:
@@ -138,7 +175,7 @@ class TransformerConfigurationEditor(QWidget):
         multiport_form.addRow("Ordered terminal matrix", self._matrix_grid_button)
         multiport_form.addRow("Admittance matrix (S)", self._matrix_table)
         for field, label, hint in (
-            ("phase_domain_terminal_admittance_siemens", "Terminal admittance matrix (S)", "JSON square matrix; each complex cell is [real, imag]"),
+            ("phase_domain_terminal_admittance_siemens", "Terminal admittance matrix (S)", 'Import JSON envelope: {"units":"S","terminal_order":["HV:A",...],"values":[[ [real,imag],... ],...] }'),
             ("zero_sequence_multiport_evidence", "Manufacturer / test evidence", 'JSON object: {"core_zero_sequence_test_reference":"...","delta_circulating_test_references":{"HV":"..."} }'),
             ("phase_domain_delta_loop_states", "Internal delta-loop states", "JSON array of explicit loop-state records; not external terminal currents"),
             ("phase_domain_multiport_tap_ratio", "Matrix tap-ratio snapshot", "Numeric ratio used when the matrix was supplied"),
@@ -261,28 +298,42 @@ class TransformerConfigurationEditor(QWidget):
             self._matrix_table.setRowCount(0)
             self._matrix_table.setColumnCount(0)
             return
-        self._build_matrix_grid(matrix)
+        self._build_matrix_grid(matrix, allow_projection_matrix=True)
 
     def _on_build_matrix_grid(self, checked: bool = False) -> None:
         del checked
         try:
             self._build_matrix_grid()
         except (TypeError, ValueError, OverflowError) as exc:
-            self._status.setText(f"Cannot build terminal matrix grid: {exc}")
+            self._status.setText(f"Cannot import terminal matrix: {exc}")
 
-    def _build_matrix_grid(self, matrix: Any = None) -> None:
+    def _build_matrix_grid(self, matrix: Any = None, *, allow_projection_matrix: bool = False) -> None:
         labels = self._terminal_labels()
         if matrix is None:
-            matrix = _parse_json(
+            payload = _parse_json(
                 self._controls["phase_domain_terminal_admittance_siemens"],
                 "phase_domain_terminal_admittance_siemens",
             )
-        if matrix is not None and (
-            not isinstance(matrix, (tuple, list))
-            or len(matrix) != len(labels)
-            or any(not isinstance(row, (tuple, list)) or len(row) != len(labels) for row in matrix)
-        ):
-            raise ValueError("Matrix dimensions must match the current ordered HV/LV terminal inventory.")
+            if payload is None:
+                matrix = None
+            elif isinstance(payload, Mapping):
+                if set(payload) != {"units", "terminal_order", "values"}:
+                    raise ValueError("Matrix import must contain exactly units, terminal_order and values.")
+                if payload["units"] != "S":
+                    raise ValueError("Matrix import units must be explicitly declared as SIEMENS (S); conversions are not inferred.")
+                if not isinstance(payload["terminal_order"], list) or tuple(payload["terminal_order"]) != labels:
+                    raise ValueError("Imported terminal_order must exactly match the current ordered inventory: " + ", ".join(labels))
+                matrix = payload["values"]
+            else:
+                raise ValueError("Matrix import requires the versioned envelope with explicit units and terminal_order.")
+        elif isinstance(matrix, Mapping):
+            if set(matrix) != {"units", "terminal_order", "values"} or matrix.get("units") != "S" or tuple(matrix.get("terminal_order", ())) != labels:
+                raise ValueError("Imported matrix units and terminal_order must exactly match the active Transformer inventory.")
+            matrix = matrix["values"]
+        elif not allow_projection_matrix:
+            raise ValueError("External matrix imports require explicit SIEMENS (S) units and terminal_order metadata.")
+        if matrix is not None:
+            matrix = _validate_terminal_admittance_matrix(matrix, labels)
         self._matrix_table.setRowCount(len(labels))
         self._matrix_table.setColumnCount(len(labels))
         self._matrix_table.setHorizontalHeaderLabels(list(labels))
@@ -322,7 +373,10 @@ class TransformerConfigurationEditor(QWidget):
                     raise ValueError(f"Matrix cell {labels[row]} × {labels[column]} must be real or real,imag.")
                 cells.append([real, imag])
             matrix.append(cells)
-        self._controls["phase_domain_terminal_admittance_siemens"].setText(_json_text(matrix))
+        matrix = _validate_terminal_admittance_matrix(matrix, labels)
+        self._controls["phase_domain_terminal_admittance_siemens"].setText(_json_text({
+            "units": "S", "terminal_order": list(labels), "values": matrix,
+        }))
         return matrix
 
     def _base_inventory(self) -> dict[str, Any]:
@@ -384,7 +438,21 @@ class TransformerConfigurationEditor(QWidget):
     def _submit_multiport(self) -> None:
         try:
             values = self._winding_values()
-            matrix = self._matrix_from_grid() if self._matrix_table.rowCount() else _parse_json(self._controls["phase_domain_terminal_admittance_siemens"], "phase_domain_terminal_admittance_siemens")
+            if self._matrix_table.rowCount():
+                matrix = self._matrix_from_grid()
+            else:
+                payload = _parse_json(self._controls["phase_domain_terminal_admittance_siemens"], "phase_domain_terminal_admittance_siemens")
+                if payload is None:
+                    matrix = None
+                elif not isinstance(payload, Mapping) or set(payload) != {"units", "terminal_order", "values"}:
+                    raise ValueError("Matrix import requires explicit units, terminal_order and values metadata.")
+                else:
+                    labels = self._terminal_labels()
+                    if payload["units"] != "S":
+                        raise ValueError("Matrix units must be explicitly declared as SIEMENS (S).")
+                    if not isinstance(payload["terminal_order"], list) or tuple(payload["terminal_order"]) != labels:
+                        raise ValueError("Matrix terminal_order does not match the active ordered winding inventory.")
+                    matrix = _validate_terminal_admittance_matrix(payload["values"], labels)
             evidence = _parse_json(self._controls["zero_sequence_multiport_evidence"], "zero_sequence_multiport_evidence")
             loops = _parse_json(self._controls["phase_domain_delta_loop_states"], "phase_domain_delta_loop_states", blank=[])
             if matrix is not None and (not isinstance(matrix, list) or not matrix or any(not isinstance(row, list) for row in matrix)):
