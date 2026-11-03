@@ -112,8 +112,13 @@ def _prepare_transformer_values(values: dict[str, Any]) -> dict[str, Any]:
                 "earth-return, neutral-terminal and phase-role fields plus "
                 "replace_physical_conductor_configuration=True."
             )
-        for field in ("hv_neutral_earth_return_impedance_ohm", "lv_neutral_earth_return_impedance_ohm"):
-            if values[field] is not None:
+        for field in (
+            "hv_neutral_earth_return_impedance_ohm",
+            "lv_neutral_earth_return_impedance_ohm",
+            "hv_neutral_grounding_impedance_ohm",
+            "lv_neutral_grounding_impedance_ohm",
+        ):
+            if field in values and values[field] is not None:
                 values[field] = _complex_value(values[field], field)
         values["hv_phase_roles"] = None if values["hv_phase_roles"] is None else tuple(values["hv_phase_roles"])
         values["lv_phase_roles"] = None if values["lv_phase_roles"] is None else tuple(values["lv_phase_roles"])
