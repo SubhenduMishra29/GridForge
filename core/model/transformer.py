@@ -375,11 +375,14 @@ class Transformer(Branch):
         if evidence is not None or loops:
             if hv_connection is None or lv_connection is None or hv_terminal_role is None or lv_terminal_role is None or hv_phase_roles is None or lv_phase_roles is None or core_construction is None:
                 raise ValueError("Evidence-backed Transformer multiport requires complete HV/LV winding, phase-role, terminal-role and core construction.")
-            labels = [f"HV:{role}" for role in hv_phase_roles] + [f"LV:{role}" for role in lv_phase_roles]
+            labels = [f"HV:{role}" for role in hv_phase_roles]
             if hv_neutral_terminal_role is not None:
                 labels.append("HV:N")
+            labels.extend(f"LV:{role}" for role in lv_phase_roles)
             if lv_neutral_terminal_role is not None:
                 labels.append("LV:N")
+            if len(matrix) != len(labels):
+                raise ValueError("Transformer terminal admittance matrix dimension must match the ordered HV/LV phase and neutral terminal inventory.")
             delta_windings = tuple(
                 side for side, connection in (("HV", hv_connection), ("LV", lv_connection))
                 if connection is TransformerWindingConnection.DELTA
@@ -1061,6 +1064,26 @@ class Transformer(Branch):
             self._impedance_reference_winding, self._hv_winding_connection,
             self._lv_winding_connection, self._zero_sequence_resistance_ohm,
             self._zero_sequence_two_winding_test_data,
+        )
+        (
+            self._phase_domain_terminal_admittance_siemens,
+            self._zero_sequence_multiport_evidence,
+            self._phase_domain_delta_loop_states,
+            self._phase_domain_multiport_tap_ratio,
+            self._phase_domain_multiport_phase_shift_rad,
+        ) = self._validate_phase_domain_multiport_configuration(
+            matrix=getattr(self, "_phase_domain_terminal_admittance_siemens", None),
+            evidence=getattr(self, "_zero_sequence_multiport_evidence", None),
+            loop_states=getattr(self, "_phase_domain_delta_loop_states", ()),
+            tap_ratio=getattr(self, "_phase_domain_multiport_tap_ratio", None),
+            phase_shift_rad=getattr(self, "_phase_domain_multiport_phase_shift_rad", None),
+            tap=self._tap, shift=self._shift, hv_connection=self._hv_winding_connection,
+            lv_connection=self._lv_winding_connection, hv_terminal_role=self._hv_terminal_role,
+            lv_terminal_role=self._lv_terminal_role, hv_phase_roles=getattr(self, "_hv_phase_roles", None),
+            lv_phase_roles=getattr(self, "_lv_phase_roles", None),
+            hv_neutral_terminal_role=getattr(self, "_hv_neutral_terminal_role", None),
+            lv_neutral_terminal_role=getattr(self, "_lv_neutral_terminal_role", None),
+            core_construction=self._core_construction,
         )
         return True
 
