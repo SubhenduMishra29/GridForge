@@ -580,3 +580,92 @@ This was a targeted source audit and recursive tree search, not a complete revie
 - CERC current regulations — https://cercind.gov.in/current_reg.html
 
 **Verification limits:** Official catalogue/regulator pages and publication abstracts were inspected; licensed normative standards and all Gazette PDFs were not downloaded or clause-audited. BIS adoption records were not verified in this batch. The date/status statements are a research snapshot and must be refreshed before V3 release. No compliance claim is made.
+
+
+## 8G. BIS adoption evidence, CEA 2026 Gazette amendments and asset applicability (2026-11-03)
+
+**Research boundary:** This is a second official-source batch. It records verified publication/adoption evidence and regulatory applicability dimensions; it is not a legal opinion or complete BIS catalogue export. The current V3 requirements baseline must distinguish publication date, notification date, commencement date and project/asset applicability.
+
+### A. BIS adoption evidence — confirmed subset
+
+The BIS ETD 34 (Instrument Transformers) official Program of Work identifies the following as published Indian Standards, with identical-under-dual-numbering equivalence to the cited IEC editions:
+- IS 16227 (Part 1):2016 — IEC 61869-1:2007, general requirements.
+- IS 16227 (Part 2):2016 — IEC 61869-2:2012, current transformers.
+- IS 16227 (Part 3):2015 — IEC 61869-3:2011, inductive voltage transformers.
+- IS 16227 (Part 4):2015 — IEC 61869-4:2013, combined transformers.
+- IS 16227 (Part 5):2015 — IEC 61869-5:2015, capacitor voltage transformers.
+- IS 16227 (Part 6):2018 — IEC 61869-6:2016, low-power instrument transformers.
+- IS 16227 (Part 9):2018 — IEC 61869-9:2016, digital interface for instrument transformers.
+- IS 16227 (Part 100):2018 — IEC 61869-100:2017, CT application in power-system protection.
+- IS 16227 (Part 102):2018 and Part 103:2018 are listed as identical-under-dual-numbering adoptions of the corresponding IEC technical reports on ferroresonance and power-quality measurement use of instrument transformers.
+
+The BIS Program of Work is strong official evidence for these published standards. It is not a substitute for checking each standard's current status, amendments, reaffirmation and supersession in the BIS Know Your Standard catalogue before a compliance profile is generated.
+
+A separate BIS draft document (ETD 42, September 2023) lists Indian counterparts for IEC 60255-121:2014, IEC 60255-127:2010, IEC 60255-151:2009 and IEC 60255-181:2019, but that document is explicitly marked **Draft for Comments Only**. These references are useful discovery leads, not proof in this audit that the corresponding Indian Standards are currently published/in force. Current catalogue verification is still required. This pass did not establish current BIS adoption of IEC 61850-6:2024 consolidated edition or IEC 61131-3:2025; do not infer non-adoption from the absence of a search result.
+
+**V3 implication:** make each standards record carry both international document identity and Indian adoption identity, including edition equivalence, modification status, amendments, reaffirmation, withdrawal/supersession and authoritative catalogue evidence. A newer IEC edition must not silently overwrite a different-edition IS adoption.
+
+### B. CEA Safety and Electric Supply Amendment Regulations, 2026 — BESS safety
+
+The Gazette of India Extraordinary, Part III, Section 4, No. 231, dated 30 March 2026 (notification dated 27 March 2026; Gazette ID CG-DL-E-31032026-271455) publishes the CEA (Measures relating to Safety and Electric Supply) Amendment Regulations, 2026. The commencement clause states **1 April 2027**. This is a notified amendment with a future commencement date, not a draft and not yet operative on the 2026-11-03 research snapshot.
+
+The amendment inserts Chapter XA (regulations 122(A) onward) for additional BESS safety. The inspected Gazette text includes:
+- chemistry-appropriate PCS design;
+- two-independent-fault tolerance with safe operation or safe shutdown;
+- fire/explosion protection at cell, module, rack, container and site levels;
+- BMS monitoring/recording of voltage and temperature at cell/module/rack, thermal runaway and rack current;
+- alarms and charge/discharge stop requirements tied to OEM operating limits;
+- automatic PCS operation, synchronisation/disconnection, self-protection and diagnostics.
+
+The complete chapter contains additional requirements; this summary is intentionally not exhaustive. The amendment's precise voltage-scope split and all regulation-level applicability conditions must be taken from the complete Gazette text, not inferred from the headline or BESS definition.
+
+**V3 implication:** BESS cannot be represented merely as a battery object attached to a generic inverter. The engineering model and safety/Control/Protection workflows need explicit cell/module/rack/container/site hierarchy; chemistry; rated power and energy; SoC/SoH; BMS and PCS identities; temperature/voltage/current/thermal-runaway channels; alarm and trip/stop behavior; fire detection/suppression; ventilation; emergency stop; earthing; and safety evidence. Model regulatory requirements with an effective-from date and transition status so design checks can preview future requirements without falsely asserting they are currently mandatory.
+
+### C. CEA Technical Standards for Construction Amendment Regulations, 2026 — renewable and BESS construction
+
+The CEA's official Construction Standards listing identifies a 2026 Amendment Regulations PDF alongside the 2022 principal construction regulations and 2025 amendment. A Gazette transcript for notification CG-DL-E-27062026-273858 (Gazette issue dated 23 June 2026; published 27 June 2026) reports the CEA Technical Standards for Construction of Electrical Plants and Electric Lines Amendment Regulations, 2026, with commencement **1 April 2027**. It introduces a Chapter VI for construction of renewable energy power plants and BESS, split into solar, floating solar, onshore wind, offshore wind and BESS parts. It adds BESS equipment definitions and detailed construction requirements.
+
+The official CEA listing corroborates that the 2026 amendment is notified/listed; the Gazette transcript source used for detailed section discovery is not the eGazette host itself. Before clause-level implementation, retrieve the original Gazette PDF from the official eGazette/CEA document link and verify every provision against it. Do not treat the separate September 2026 proposal for a second amendment (grid-forming inverter and co-located storage proposals) as enacted: CEA's public-comment archive lists that proposal as closed consultation material.
+
+**V3 implication:** BESS and renewable-plant models require design/construction compliance profiles as well as operational safety profiles. Requirements must distinguish the notified 2027 amendment from draft proposals and should be activated according to commissioning date, technology and applicable plant category.
+
+### D. Regulatory applicability matrix — initial classification
+
+| Instrument class | Initial asset/use applicability | V3 treatment |
+|---|---|---|
+| CEA Safety and Electric Supply Regulations 2023 and amendments | Broad electrical-installation/electrical-plant/electric-line and persons engaged in generation, transmission, distribution, trading, supply or use of electricity, subject to the regulation's specific clauses and exemptions | Base Indian electrical safety rule set; capture installation, owner/operator, voltage, activity, effective date and clause scope |
+| CEA Technical Standards for Construction of Electrical Plants and Electric Lines | Construction of covered electrical plants and electric lines; renewable/BESS additions commence 2027 | Asset/construction-stage profile, not blanket application to every industrial process asset |
+| CERC Indian Electricity Grid Code and related CERC regulations | Entities, grid interfaces and transactions within CERC's statutory/inter-state jurisdiction and defined scope | Apply only when entity, connection and transaction fall within scope; do not use as universal plant-internal design law |
+| State Electricity Regulatory Commission regulations, State Grid Code, distribution supply code and State Electrical Inspector requirements | State jurisdiction and connection/supply conditions; may apply to Rajasthan industrial installations depending on supply voltage, licensee and captive/open-access arrangements | Add state/jurisdiction profile; validate current Rajasthan instruments and local inspectorate requirements before issuing a project compliance assessment |
+| BIS Indian Standards and adopted IEC standards | Depends on the regulation, contract, procurement specification, product certification scheme and standard's own scope | Store adoption/status separately from legal applicability; identify mandatory incorporation vs voluntary/contractual engineering reference |
+| Draft regulations, consultation papers and proposed standards | No operative requirement solely by virtue of draft publication | Store as proposed/future watch items, never as current compliance failures |
+
+### E. CERC and draft-status watch
+
+The CERC current-regulations register identifies the Indian Electricity Grid Code Regulations, 2023 (Gazette No. 488, 11 July 2023) and the First Amendment Regulations, 2024 (Gazette No. 880, 29 October 2024). On the 2026-11-03 snapshot, CERC's website lists a Second Amendment draft with comment deadline extended to 02 November 2026 and a public hearing scheduled for 04 November 2026. It remains a draft on the snapshot date; the hearing is future-dated relative to this audit. V3's regulatory catalogue therefore needs explicit lifecycle states (draft consultation, notified, published, commenced, amended, superseded, repealed) and event history rather than a simple current-version field.
+
+### F. Refined findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F31 | P1 | BIS ETD 34 identifies published IS 16227 instrument-transformer family and their IEC edition/equivalence relationships | Add Indian adoption-aware standards catalogue and instrument-transformer requirements mapped to CT/VT/CVT/digital interface models |
+| V3-ARCH-F32 | P1 | CEA 2026 Safety and Electric Supply amendment introduces BESS safety chapter effective 2027-04-01 | Add BESS safety domain model, monitored signals, interlocks, alarm/trip/stop workflows and future-effective compliance profile |
+| V3-ARCH-F33 | P1 | CEA 2026 Construction amendment introduces renewable/BESS construction chapter effective 2027-04-01; September 2026 further amendment remains draft consultation | Separate notified construction requirements from proposed requirements and support effective-dated asset/commissioning applicability |
+| V3-ARCH-F34 | P1 | CEA/CERC/BIS requirements have different jurisdiction, asset scope, legal status and effective dates | Create applicability engine using jurisdiction, entity role, asset category, voltage, activity, project dates and instrument lifecycle |
+| V3-ARCH-F35 | P2 | BIS draft ETD 42 lists older IS/IEC 60255 adoption leads but is not itself proof of publication/current status; current editions are newer | Require catalogue-level verification and edition-equivalence review before protection standards are marked adopted or mandatory |
+
+### Official source register — second batch
+
+- BIS ETD 34 Instrument Transformers Program of Work (published IS list) — https://www.services.bis.gov.in/php/BIS_2.0/bisconnect/pow_new/Pow/download_pow_pdf_dept_commtt/65/267/
+- BIS Know Your Standard catalogue — https://www.bis.gov.in/know-your-standard/?lang=en
+- BIS ETD 42 September 2023 draft document (discovery lead only; explicitly draft for comments) — https://www.services.bis.gov.in/tmp/WCETD32523628_21092023_1.pdf
+- CEA Safety and Electric Supply Amendment Regulations, 2026, Gazette PDF — https://egazette.gov.in/WriteReadData/2026/271455.pdf
+- CEA official Safety and Electric Supply regulations listing — https://cea.nic.in/regulations-subcategory/ad9da247-723a-4a60-9182-fc2753458916?lang=en
+- CEA official Construction Standards listing — https://www.cea.nic.in/regulations-category/ffd27059-ea49-469f-a732-74da3cc6b31c?lang=en
+- CEA 2026 Construction Amendment Gazette transcript discovery record (verify original Gazette PDF before clause use) — https://gazettetracker.com/g/CG-DL-E-27062026-273858
+- CEA September 2026 draft second amendment consultation — https://cea.nic.in/notification/draft-central-electricity-authority-technical-standards-for-construction-of-electric-plants-and-electric-lines-2nd-amendment-regulations-2026-invitation-of-public-comments-till-04-10-2026/?lang=en
+- CEA public-comment archive (closed drafts) — https://www.cea.nic.in/whats-new/public-comments-archive?lang=en
+- CERC current regulations — https://cercind.gov.in/current_reg.html
+- CERC draft regulations — https://cercind.gov.in/Draft_reg.html
+
+**Verification limits:** BIS ETD 34 Program of Work and catalogue discovery were inspected; every IS detail was not independently opened in the Know Your Standard record. The ETD 42 protection adoption references are from a draft document and remain unconfirmed. The CEA Safety amendment was checked against its original eGazette PDF. The 2026 Construction amendment's existence and commencement were cross-checked against the CEA official listing and a Gazette transcript, but the original eGazette PDF was not retrieved in this pass; its detailed clauses remain provisional until verified. Rajasthan state-specific rules, licence/connection arrangements and Electrical Inspector requirements have not yet been audited. No compliance conclusion is made.
