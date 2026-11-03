@@ -153,11 +153,34 @@ class ProtectionGraphicsSurface(QGraphicsView):
             for input_node in input_nodes:
                 self._link(input_node, relay_node, connection_id=f"{input_node.object_id}->{relay.object_id}")
 
+            # A physical Relay is not itself an executable protection function.
+            # Only project-scoped ProtectionFunctionConfiguration entries
+            # commission functions for it. Do not draw a decision/trip chain
+            # from the Relay's descriptive function_type when none is configured.
+            if not relay_configs:
+                status_node = self._add_node(
+                    f"{relay.object_id}:configuration",
+                    "PROTECTION NOT COMMISSIONED\nNO FUNCTION CONFIGURATION",
+                    735.0, base_y + 30.0, 260.0,
+                    kind="configuration_status",
+                    relay_id=str(relay.object_id),
+                )
+                self._link(
+                    relay_node,
+                    status_node,
+                    connection_id=f"{relay.object_id}->configuration",
+                )
+                continue
+
+            configured_functions = ", ".join(
+                sorted({str(item.function_code) for item in relay_configs})
+            )
             function_node = self._add_node(
                 f"{relay.object_id}:function",
-                f"PROTECTION FUNCTION\n{relay.function_type}",
+                f"CONFIGURED PROTECTION\n{configured_functions}",
                 735.0, base_y + 30.0, 190.0,
                 kind="function",
+                relay_id=str(relay.object_id),
             )
             decision_node = self._add_node(
                 f"{relay.object_id}:decision",
@@ -344,7 +367,8 @@ class ProtectionInspector(QGroupBox):
         if relay is None:
             self._label.setText(f"Protection presentation object: {object_id}")
             return
-        settings = dict(relay.settings or {})
+        # Physical Relay settings are not the executable function's settings.
+        # Those belong exclusively to ProtectionFunctionConfiguration below.
         relay_configurations = tuple(
             item for item in configurations if str(item.relay_id) == relay_id
         )
@@ -390,11 +414,14 @@ class ProtectionInspector(QGroupBox):
             ])
         else:
             lines.extend([
-                "Pickup", f"  {settings.get('pickup', settings.get('picked_up', 'n/a'))}",
-                "Operate", f"  {settings.get('operate', settings.get('operating', 'n/a'))}",
-                "Trip Request", f"  {settings.get('trip_request', settings.get('tripped', 'n/a'))}",
-                "Decision Reason", f"  {settings.get('decision_reason', settings.get('reason', 'n/a'))}",
-                "Operating Time", f"  {settings.get('operating_time', 'n/a')}",
+                "Protection Decision",
+                "  No evaluated ProtectionDecision is currently available.",
+            ])
+        if not relay_configurations:
+            lines.extend([
+                "Commissioning Status",
+                "  NOT COMMISSIONED — no ProtectionFunctionConfiguration is associated with this Relay.",
+                "  Protection evaluation is not implied by the physical Relay function label or its settings.",
             ])
         self._label.setText("\n".join(lines))
 
