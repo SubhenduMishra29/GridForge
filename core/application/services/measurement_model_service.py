@@ -48,7 +48,6 @@ class MeasurementModelService(ModelServiceSupport):
         values = (name, primary_rated_current_a, secondary_rated_current_a, burden_va, accuracy_class, frequency_hz, polarity, in_service)
         if all(value is None for value in values): raise DomainError(code="NO_CT_UPDATE", message="At least one mutable CurrentTransformer property must be specified.", details={"ct_id": ct_id})
         old = {"name": ct.name, "primary_rated_current_a": ct.primary_rated_current_a, "secondary_rated_current_a": ct.secondary_rated_current_a, "burden_va": ct.burden_va, "accuracy_class": ct.accuracy_class, "frequency_hz": ct.frequency_hz, "polarity": ct.polarity, "in_service": ct.in_service}
-        service_state_changed = in_service is not None and in_service != old["in_service"]
 
         def restore_snapshot() -> None:
             for key, value in old.items():
@@ -63,14 +62,9 @@ class MeasurementModelService(ModelServiceSupport):
             restore_snapshot()
             raise
 
-        if service_state_changed:
-            self._network.invalidate_topology()
-
         def restore() -> None:
             restore_snapshot()
             ct.validate_parameters()
-            if service_state_changed:
-                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(ct, "ct", ct_id, f"CurrentTransformer updated: {ct_id}")
@@ -89,14 +83,9 @@ class MeasurementModelService(ModelServiceSupport):
         self._require_type(ct, CurrentTransformer, ct_id, "CurrentTransformer")
         old = ct.in_service
         ct.in_service = in_service
-        service_state_changed = old != ct.in_service
-        if service_state_changed:
-            self._network.invalidate_topology()
 
         def restore() -> None:
             ct.in_service = old
-            if service_state_changed:
-                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         state = "put in service" if in_service else "taken out of service"
@@ -116,7 +105,6 @@ class MeasurementModelService(ModelServiceSupport):
         values = (name, rated_primary_voltage_kv, rated_secondary_voltage_v, accuracy_class, rated_burden_va, polarity, frequency_hz, in_service)
         if all(value is None for value in values): raise DomainError(code="NO_CVT_UPDATE", message="At least one mutable CapacitiveVoltageTransformer property must be specified.", details={"cvt_id": cvt_id})
         old = {"name": cvt.name, "rated_primary_voltage_kv": cvt.rated_primary_voltage_kv, "rated_secondary_voltage_v": cvt.rated_secondary_voltage_v, "accuracy_class": cvt.accuracy_class, "rated_burden_va": cvt.rated_burden_va, "polarity": cvt.polarity, "frequency_hz": cvt.frequency_hz, "in_service": cvt.in_service}
-        service_state_changed = in_service is not None and in_service != old["in_service"]
 
         def restore_snapshot() -> None:
             for key, value in old.items():
@@ -131,14 +119,9 @@ class MeasurementModelService(ModelServiceSupport):
             restore_snapshot()
             raise
 
-        if service_state_changed:
-            self._network.invalidate_topology()
-
         def restore() -> None:
             restore_snapshot()
             cvt.validate_parameters()
-            if service_state_changed:
-                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         return self._success(cvt, "cvt", cvt_id, f"CapacitiveVoltageTransformer updated: {cvt_id}")
@@ -155,14 +138,9 @@ class MeasurementModelService(ModelServiceSupport):
         self._require_type(cvt, CapacitiveVoltageTransformer, cvt_id, "CapacitiveVoltageTransformer")
         old = cvt.in_service
         cvt.in_service = in_service
-        service_state_changed = old != cvt.in_service
-        if service_state_changed:
-            self._network.invalidate_topology()
 
         def restore() -> None:
             cvt.in_service = old
-            if service_state_changed:
-                self._network.invalidate_topology()
 
         transaction.record_undo(restore)
         state = "put in service" if in_service else "taken out of service"
