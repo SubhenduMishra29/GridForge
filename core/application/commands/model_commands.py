@@ -370,6 +370,11 @@ class UpdateTransformerCommand(Command):
         multiport_fields = (phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence, phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad)
         if replace_phase_domain_multiport_configuration and any(field is ... for field in multiport_fields):
             raise ValueError("Multiport replacement requires all five matrix/evidence/loop/tap/shift fields, including explicit None or empty values.")
+        if not replace_phase_domain_multiport_configuration and any(field is not ... for field in multiport_fields):
+            raise ValueError(
+                "Transformer multiport fields must be updated as one complete group with "
+                "replace_phase_domain_multiport_configuration=True."
+            )
         if not replace_phase_domain_multiport_configuration and any(field is ... for field in multiport_fields):
             phase_domain_terminal_admittance_siemens, zero_sequence_multiport_evidence, phase_domain_delta_loop_states, phase_domain_multiport_tap_ratio, phase_domain_multiport_phase_shift_rad = (
                 None if field is ... else field for field in multiport_fields
