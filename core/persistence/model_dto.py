@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
+from collections.abc import Mapping
 from typing import Any
 
 from core.model.base import ElectricalObject
@@ -110,8 +111,21 @@ def _encode(value: Any, *, terminal_attributes: dict[str, Terminal], path: str) 
         return {"$tuple": [_encode(item, terminal_attributes=terminal_attributes, path=f"{path}[]") for item in value]}
     if isinstance(value, list):
         return [_encode(item, terminal_attributes=terminal_attributes, path=f"{path}[]") for item in value]
-    if isinstance(value, dict):
-        return {str(key): _encode(item, terminal_attributes=terminal_attributes, path=f"{path}.{key}") for key, item in value.items()}
+    if isinstance(value, Mapping):
+        encoded: dict[str, Any] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise ModelSerializationError(
+                    f"Mapping keys at {path} must be strings; got {type(key).__name__}."
+                )
+            if key in encoded:
+                raise ModelSerializationError(f"Duplicate mapping key at {path}: {key!r}.")
+            encoded[key] = _encode(
+                item,
+                terminal_attributes=terminal_attributes,
+                path=f"{path}.{key}",
+            )
+        return encoded
     raise ModelSerializationError(f"Unsupported state value at {path}: {type(value).__module__}.{type(value).__qualname__}")
 
 
