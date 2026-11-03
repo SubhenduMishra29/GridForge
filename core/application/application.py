@@ -650,10 +650,10 @@ class Application:
             raise RuntimeError(
                 "Protection runtime configuration is not the exact active Application configuration."
             )
-        if not runtime.configuration_matches_composition:
+        if not runtime.configuration_matches_composition or not runtime.equipment_state_matches_composition:
             return ProtectionExecutionResult(
                 diagnostics=(
-                    f"project={project.project_id!r}: protection configuration changed after runtime "
+                    f"project={project.project_id!r}: protection configuration or CT/CVT/PT/Relay equipment state changed after runtime "
                     "composition; runtime is stale and evaluation was refused.",
                 )
             )
@@ -771,6 +771,7 @@ class Application:
                 or current_runtime.activation_generation != captured_generation
                 or current_runtime.configuration is not captured_configuration
                 or not current_runtime.configuration_matches_composition
+                or not current_runtime.equipment_state_matches_composition
                 or current_channels is not captured_channel_service
                 or current_channels.project_id != captured_project.project_id
                 or current_channels.activation_generation != captured_generation
@@ -1245,6 +1246,7 @@ class Application:
             or runtime.project_id != project.project_id
             or runtime.activation_generation != lifecycle.activation_generation
             or not runtime.configuration_matches_composition
+            or not runtime.equipment_state_matches_composition
         ):
             raise RuntimeError("Scenario protection runtime/configuration provenance is stale.")
         if (
