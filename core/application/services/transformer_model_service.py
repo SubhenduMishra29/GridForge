@@ -20,6 +20,7 @@ from core.model.terminal import Terminal
 from core.model.transformer import Transformer, TransformerWindingConnection
 from core.model.transformer_zero_sequence_contracts import TransformerVectorGroupConfiguration, TransformerZeroSequenceTestConfiguration
 from core.model.transformer_zero_sequence_test_data import TransformerZeroSequenceTwoWindingTestData
+from core.model.transformer_zero_sequence_multiport_evidence import TransformerZeroSequenceMultiportEvidence, TransformerDeltaLoopState
 from core.network.network import Network
 
 
