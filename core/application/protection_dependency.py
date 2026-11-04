@@ -384,6 +384,18 @@ def build_protection_dependency_registry(
                 element_diagnostics.append(
                     f"{prefix}: Protection function {element.function_code!r} has no dispatchable, supported input contract."
                 )
+            if element.function_code in {"50N", "51N"}:
+                # The live evaluator currently validates ordinary
+                # input_channel_ids but does not yet build an Application-
+                # authorized snapshot from the persisted residual-source
+                # bindings. The scenario evaluator has a separate derivation
+                # path; it must not be mistaken for live sample coverage.
+                # Keep these live descriptors incomplete so they cannot
+                # authorize selective dispatch until that path is implemented.
+                element_diagnostics.append(
+                    f"{prefix}: live ANSI {element.function_code} residual-current source samples "
+                    "are not yet captured into the Application-authorized per-element snapshot."
+                )
             add_dependency(
                 "protection_function_contract",
                 element.function_code,
