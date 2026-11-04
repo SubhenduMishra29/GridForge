@@ -8466,3 +8466,259 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - Frozen V2 architecture remains unchanged; V3 proposals require review and approval before implementation.
 
 **Scope boundary:** research register only. No event bus, alarm engine, historian, SOE service, waveform recorder, audit subsystem, trace graph service, UI, storage backend, source code, runtime behavior, benchmark, test or CI was implemented or executed. V2 main remains unchanged.
+
+
+## 8I-37. Proposed V3 engineering reporting, calculation reports, compliance evidence and reproducible document-generation architecture (2026-11-04)
+
+### A. Research objective and architectural position
+
+V3 reporting shall be treated as a reproducible engineering-evidence pipeline, not as a collection of print buttons or formatted exports. A report is a controlled interpretation of identified engineering inputs, model and calculation results, standards evidence, and approved presentation rules. It must be possible to explain what was reported, which exact project and study state supported it, which calculation implementation produced the results, which assumptions and limitations applied, who reviewed and issued it, and whether the artifact has subsequently been superseded.
+
+The proposed pipeline is:
+
+accepted project revision + immutable study/input snapshot + model/solver/settings revisions + result snapshot + report definition/template/version + locale and rendering profile → validated report-generation request → generation execution → report artifact + provenance manifest + evidence bundle → technical review → approval/signature → controlled issue and distribution.
+
+The pipeline must not read mutable live UI state during generation. A report generated from a draft, an accepted revision, a historical study snapshot or a commissioned/as-operated baseline must identify that source state explicitly. Opening an old report must never silently regenerate it against current project data.
+
+Reporting is an Application-level orchestration capability over domain-owned read models and evidence contracts. Core remains authoritative for engineering facts and calculations; report rendering must not become a second calculation engine or mutate domain state. Domain-specific report providers own the meaning and validity of their content. A central reporting capability owns request orchestration, template governance, artifact lifecycle, provenance, rendering isolation, approval and distribution.
+
+### B. Separate report lifecycle concepts
+
+V3 should model the following concepts separately rather than combine them into a generic Report object:
+
+1. **Report definition** — stable report type and purpose, required sections, required source data, domain owner, validation rules, permitted output profiles and applicability.
+2. **Report template** — versioned presentation structure, styles, headers, footers, tables, diagrams, charts, localization resources and accessibility metadata. A template does not own engineering facts.
+3. **Generation request** — explicit request identifying source project revision, input/result snapshots, report definition/template versions, output profile, locale, intended audience and requesting actor.
+4. **Generation execution** — one bounded execution with captured inputs, generator version, environment, progress, diagnostics, completion state and idempotency identity.
+5. **Report data package** — immutable, typed, validated content assembled from domain read models and evidence references before rendering.
+6. **Report artifact** — rendered output bytes and cryptographic digest, media type, page count where applicable, artifact identity and generation provenance.
+7. **Evidence bundle** — manifest and referenced source evidence needed to verify the artifact's engineering basis and history.
+8. **Review record** — technical review outcome, reviewer identity, comments, exceptions and reviewed artifact digest.
+9. **Approval/signature record** — authorization decision bound to a precise artifact digest and defined approval scope.
+10. **Issue/distribution record** — controlled issue number, recipient/audience, issue purpose, delivery channel, timestamp, watermark/redaction profile and distribution outcome.
+11. **Supersession/correction record** — explicit relation from a new artifact to the artifact it replaces or corrects, with reason and retained history.
+
+A generation execution may fail without creating an issued report. A draft artifact may be regenerated or discarded under controlled rules; an issued artifact is immutable. A correction produces a new artifact and linked issue record, never a silent replacement of issued bytes.
+
+### C. Report taxonomy and domain ownership
+
+The report catalogue should be discoverable by engineering task and domain, with each report type declaring its authoritative content provider and required evidence:
+
+- Project definition and design-basis reports.
+- SLD/network drawings, equipment schedules, bus and connection schedules, load lists, cable schedules and equipment datasheets.
+- Load-flow and operating-point reports.
+- Short-circuit and fault-duty reports.
+- Protection settings, coordination studies, TCC curves, relay configuration and protection coverage reports.
+- Motor-starting, motor-dynamics, transient-stability and other time-domain study reports.
+- Harmonic, power-quality, grounding/earthing and insulation-coordination reports where supported by validated models.
+- Arc-flash reports only where the applicable method, input data, boundaries and limitations are explicitly supported.
+- Transformer, rotating-machine, cable and other equipment-specific calculation reports.
+- Control narratives, functional descriptions, I/O lists, interlock matrices, cause-and-effect matrices, sequence descriptions and alarm rationalization reports.
+- Instrumentation/channel lists, loop schedules, calibration and measurement-quality reports.
+- Commissioning, inspection, test, FAT/SAT and field-verification reports.
+- Standards applicability matrices, clause/evidence matrices, deviations, equivalence and waiver reports.
+- Validation, diagnostics, change-history, audit, alarm, SOE and operational-trace reports.
+- Custom project reports assembled from approved domain providers.
+
+Every report definition must state whether it is design, study, configuration, commissioning, operational or compliance evidence; identify its lifecycle status and intended decision; define its domain authority; and declare mandatory inputs. A report type must not be advertised as available merely because a template exists. It is available only when its source contract, validation rules and supported engineering scope are implemented and reviewed.
+
+### D. Engineering correctness and result-state semantics
+
+Every reported engineering quantity must preserve its source identity, value, unit, base, phase/sequence interpretation, sign convention, reference direction, operating condition and applicable assumptions. Per-unit values must identify their bases. Three-phase, phase-domain, sequence-domain, DC and frequency-dependent quantities must not be presented as interchangeable without an explicit conversion contract.
+
+Calculation status must be explicit and typed. At minimum distinguish: not calculated; queued; running; cancelled; stale; failed; invalid/incomplete input; converged; converged with warnings; and result accepted for the stated engineering purpose. A report must not turn missing, stale, failed, partially converged or unsupported calculations into a visually normal result table. Required values that are unavailable must be marked unavailable with a reason; they must not be silently omitted where omission could imply a clean result.
+
+Warnings, convergence metrics, model fidelity, boundary conditions, excluded equipment, topology reductions, assumptions, uncertainty and known limitations must travel with the reported result. A convergence flag alone is not a declaration of engineering adequacy. Domain validation must decide whether a result is suitable for a particular report purpose. The report layer may format and organize these facts but may not upgrade a result's validity status.
+
+Charts, schedules, diagrams and summary metrics must be generated from canonical domain read models or immutable report data packages, not from screen scraping, copied UI text, screenshots or transient widget state. A chart must retain units, axes, base, series identity, data range, filters and provenance. A TCC plot must identify the device/curve revisions, settings, CT ratios, curve family and relevant operating/fault assumptions. A one-line diagram must be generated from the canonical SLD/network and layout snapshot.
+
+### E. Calculation provenance and reproducibility
+
+A calculation report's evidence manifest should capture, as applicable:
+
+- Project identity and accepted project revision or explicitly identified draft snapshot.
+- Study identity, study configuration revision and immutable input snapshot identifier.
+- Equipment/model parameter revisions, library identities and source provenance.
+- Topology and operating-scenario revision, phase model and network reduction/equivalent assumptions.
+- Solver/algorithm name, implementation version, software build and numerical method.
+- Solver settings, tolerances, convergence criteria, iteration limits, discretization/time-step settings and relevant numerical options.
+- Initial conditions, boundary conditions, constraints, contingency definitions and exclusions.
+- Random seed and stochastic configuration where applicable.
+- CPU/GPU/NPU execution pathway, relevant device/runtime version and precision mode where material.
+- Start/end timestamps, time source, execution identity and completion status.
+- Warnings, residuals, convergence history, uncertainty and model-fidelity declarations.
+- Result snapshot identity and checksum, plus report-data-package and artifact checksums.
+
+Reproducibility must be defined at multiple levels: provenance reproducibility (same identified inputs and method can be reconstructed); semantic reproducibility (engineering results agree within declared tolerances); and byte-for-byte artifact reproducibility (identical rendered bytes). These are different guarantees. Font subsets, timestamps, PDF object ordering or renderer metadata can prevent byte identity even when the report is semantically identical. V3 should record the guarantee actually provided rather than promise bitwise determinism universally.
+
+CPU reference execution may be used as a numerical comparison baseline where available. GPU numerical acceleration must record precision and implementation context and must not imply bitwise identity if the algorithm/device does not guarantee it. NPU inference or surrogate-model output must be identified as such, including model version, training/validation scope and uncertainty; it must never be labelled as an authoritative engineering solver result unless a separately approved domain contract explicitly establishes that role. For safety-relevant Protection decisions, an inferred report value is not a substitute for the authoritative Protection execution record.
+
+### F. Standards and compliance evidence
+
+Compliance reports must be evidence matrices, not unsupported declarations of conformity. Each requirement or clause reference should identify:
+
+- Issuing body, standard identifier/title, edition, amendment/corrigendum and publication date where known.
+- National adoption and applicable BIS designation/edition where relevant.
+- Clause/subclause or requirement identifier and concise controlled interpretation.
+- Applicability decision and rationale for the project, equipment, system and lifecycle stage.
+- Required evidence type, source artifact and exact revision/hash.
+- Coverage status: not assessed, not applicable (with rationale), not implemented, partially covered, evidence pending, verified, deviation, approved equivalence or approved waiver.
+- Responsible assessor, reviewer, approval authority and assessment date.
+- Open gaps, corrective action, due date and closure evidence.
+
+A standard reference in a report does not prove compliance. A clause marked verified must link to evidence that actually demonstrates the requirement and must identify the assessor and applicable scope. Equivalence and waiver are explicit governed decisions, not automatic mappings. A report must distinguish normative requirements, informative guidance, statutory/legal requirements and contractual requirements.
+
+Candidate technical sources include IEC 60909 for short-circuit calculations, IEC 60255 for measuring relays and protection equipment, IEC 61850 for power utility automation communication, IEC 60076 for power transformers, IEC 60034 for rotating electrical machines, IEC 61000 for EMC/power-quality subjects and IEC 60255-24 for COMTRADE disturbance data. Document control and archival references may include ISO 9001, ISO 19005 (PDF/A) and ISO 32000 (PDF). These are candidate mappings only. Applicable editions, amendments, Indian adoption, BIS catalogue status, licensing and clause-level applicability require separate evidence-driven verification. This section makes no current-edition or conformance claim. The outstanding BIS catalogue verification for Protection, Automation and Control remains a separate task.
+
+### G. SLD, diagrams and graphical evidence
+
+SLD and other engineering diagrams must be rendered from canonical domain/network data plus a versioned layout snapshot. They are not screenshots of the canvas and are not serialized graphics-scene objects. The diagram artifact should record project and topology revision, layout revision, drawing status, legend, symbol-library/version identity, layer/visibility policy, annotation set, page/scale settings where meaningful and source references.
+
+Rendering is a read-only projection. It cannot create, remove or alter equipment, terminals, connections, ownership, topology or study inputs. Any diagram editing action must go through the normal command/Application/Core lifecycle and produce a revisioned layout or domain change as appropriate. Export should support vector output where the format permits, preserve text and line fidelity, and expose a clear distinction between omitted/hidden layers and absent engineering objects.
+
+Diagrams embedded in calculation reports must be bound to the same project/topology snapshot as the calculations. If a report intentionally includes a different revision for comparison, both revisions and their roles must be labelled. A report must not combine a current diagram with historical numerical results without explicit disclosure.
+
+### H. Output formats and document fidelity
+
+Format selection should follow the purpose and downstream use:
+
+- PDF for controlled, reviewable and issued reports; apply an appropriate archival profile when required.
+- DOCX or ODT for editable report documents where editing is permitted and the artifact is clearly marked draft/uncontrolled until issued.
+- XLSX and CSV for schedules and tabular data, with typed columns, units, stable identifiers and machine-readable values.
+- SVG/PDF or another supported vector format for diagrams and plots.
+- JSON/CSV evidence exports for programmatic interchange, with schema/version and provenance manifest.
+- COMTRADE for disturbance waveform exchange, governed separately by its format and capture metadata contract.
+
+The canonical report data package and provenance manifest, not PDF or DOCX bytes, remain the authoritative representation of what was generated. Output renderers must preserve engineering semantics, stable identifiers, units, significant figures and warning status. Localization may change labels, decimal separators and display formatting, but must not change canonical numerical values or engineering meaning.
+
+PDF generation should address embedded fonts, Unicode glyph coverage, selectable/searchable text, bookmarks, links, tagged structure, reading order, table headers, metadata, page numbering and accessibility. Print layout must handle page breaks, repeated table headings, wide tables, long identifiers, diagrams, footnotes and references without clipping or ambiguous continuation. Spreadsheet exports must distinguish numeric values from formatted strings, avoid locale-dependent corruption, preserve units and include source identifiers. CSV must declare delimiter/encoding and escape content safely. Export validation must detect missing fonts, substituted symbols, broken links, clipped content and unsupported features.
+
+### I. Template engine and extension contracts
+
+Templates should be declarative, versioned and validated against a typed report-data schema. Untrusted template content must execute in a sandbox with bounded resource use and no arbitrary filesystem, network, process or Python execution. A template cannot mutate Core or Application state. It cannot suppress mandatory warnings, omit required limitations, fabricate missing values, relabel a failed calculation as valid or alter the engineering interpretation of a source field.
+
+A template version is part of report provenance. Updating a template must not change an existing issued artifact. Template migration requires explicit review and regeneration. Templates should declare required data fields, optional sections, localization resources, supported media types, accessibility expectations and compatibility range.
+
+V3 plugins should be consolidated under the central plugin architecture and contribute report definitions, typed data providers, validated visualizations, export adapters or templates through public contracts. A domain plugin remains responsible for domain semantics and validation. It must consume Application services and approved read models; it must not directly mutate Core, bypass authorization, access private persistence internals or install a competing report manager. The central reporting service owns lifecycle, evidence packaging and issue governance. Plugin removal or version change must not make archived report artifacts unverifiable; provider/template identity and required schema metadata must be retained.
+
+### J. Draft, review, approval and issue workflow
+
+The proposed workflow is: select source snapshot → select report definition and template → validate prerequisites → generate draft → inspect preview and provenance → resolve or explicitly accept permitted warnings → technical review → approval/signature → controlled issue → distribution and archive. The system must distinguish draft, generated-unreviewed, in-review, rejected, approved, issued, superseded, withdrawn and generation-failed states.
+
+A review decision must reference the exact report-data package and artifact digest reviewed. Any change to source data, report package, template or rendered artifact after review invalidates the review/approval binding and requires a new review path. The workflow should support comments, annotations, review assignments, separation of duties and configurable approval thresholds. Self-approval must be prevented where the project quality system or applicable governance requires independent review.
+
+Electronic signature records should bind signer identity, role/authority, intent, timestamp/time source, signed content hash, signature scope and verification policy. Certificate validation, revocation checking, trusted timestamping, identity proofing and jurisdictional legal effect are separate security/legal requirements. The application must not claim that a signature is legally binding merely because a user clicked an approval button.
+
+An issued artifact is immutable and assigned a stable issue identity. Withdrawal, correction or supersession creates a new linked record and preserves prior distribution history. Recipients and distribution channels are recorded. Re-issuing an identical artifact for a new purpose should remain distinguishable from a new technical revision.
+
+### K. Evidence bundle and long-term verification
+
+An evidence bundle should contain a versioned manifest with at least:
+
+- Report identity, definition/version, template/version, generation request and execution identities.
+- Artifact media type, byte length, checksum and creation metadata.
+- Canonical report-data package identity/schema/checksum.
+- Project identity and revision; study and input snapshot identities.
+- Relevant topology, equipment, model, parameter, solver and settings revisions.
+- Result identities/checksums, calculation status and warnings.
+- Software release/build, generator and renderer versions.
+- Locale, language, timezone, units/display policy and execution environment.
+- Standards references, editions, applicability decisions and evidence links.
+- Source documents and external evidence identifiers, revision, retrieval time and integrity digest where legally/technically permitted.
+- Review, approval, signature, issue, distribution and supersession records.
+- Known limitations, missing evidence, redactions, exclusions and transformation disclosures.
+
+The verifier should be able to validate the artifact checksum, manifest integrity, source references and signature status without executing the original calculation. Where original solver/runtime versions remain available, a controlled re-run may provide additional reproducibility evidence. A missing external source or unavailable legacy plugin must be reported as a verification limitation, not silently substituted.
+
+Long-term verification needs schema evolution and retention rules. Preserve the original manifest and artifact; use explicit versioned migration/interpretation tools for later readers. Do not rewrite historical manifests in place. If an external standard or library reference becomes unavailable, preserve its identity and permitted evidence extract/hash rather than claiming current availability.
+
+### L. Staleness, dependency tracking and selective invalidation
+
+Report freshness must be computed from an explicit dependency graph. Dependencies may include project revision, topology, equipment parameters, study configuration, model version, solver settings, result snapshot, standards applicability/evidence, report definition, template, locale and rendering profile. A change to a dependency marks only reports that actually depend on it as stale. A cable schedule need not become stale because an unrelated motor transient model changed; a protection coordination report must become stale when relevant relay settings, CT ratios, topology, fault levels or curve definitions change.
+
+Staleness does not mutate or invalidate an already issued artifact. The issued artifact remains a historical record of what was issued. The current report workspace should show that its source dependencies have changed and offer an explicit new generation. Opening, viewing or exporting an archived artifact must never trigger silent regeneration. A regenerated report should link to its predecessor and summarize material source/result changes where meaningful.
+
+A report can be reproducible but stale, current but unapproved, approved but not issued, or issued and subsequently superseded. These states must not be collapsed into a single green/valid badge.
+
+### M. Localization, accessibility and human factors
+
+Report generation must preserve canonical SI values and unit metadata while supporting controlled display units, per-unit conventions and project-specific engineering notation. The report must record the display-unit policy and locale. Decimal/grouping separators, date/time formats, language, timezone and symbol conventions must be explicit. Time-series and SOE reports must distinguish source time, receive time and display timezone.
+
+Unicode and font coverage must include engineering symbols, Greek characters, subscripts/superscripts, phase labels and applicable scripts. Right-to-left layout should be supported where required by deployment locale. Tables must have semantic headers and logical reading order; charts must include textual summaries or data tables and must not encode status solely by colour. Tagged PDF, keyboard-accessible report preview, meaningful document titles, bookmarks and accessible link descriptions should be considered part of the report contract rather than cosmetic enhancements.
+
+### N. Reporting UX and navigation
+
+The reporting workspace should expose a report catalogue organized by engineering task and domain; source revision/study selection; prerequisite validation; generation options; progress and diagnostics; preview; source-data inspection; warnings/limitations; provenance; review/approval status; revision comparison; issue/distribution history; and export controls.
+
+Selecting a reported value, table row, curve or diagram annotation should navigate to its source equipment, terminal, signal, study input, calculation result or standards clause when the source contract supports that link. This creates a traceable engineering workflow rather than an isolated document viewer. The viewer must distinguish report content from interactive live project state and show the source revision prominently.
+
+Preview and issued report must use the same rendering pipeline and versioned template. A preview is not an approval. Draft watermarking, uncontrolled-copy labels and issue metadata must be unambiguous. Report navigation and filtering must not modify the source project or calculation result.
+
+### O. Failure handling, atomicity and recovery
+
+Generation should be an atomic, idempotent operation over a frozen report-data package. Render to a temporary artifact, validate media structure and required sections, calculate checksums, assemble the manifest, then publish the draft artifact as one completed unit. Never expose a partially rendered file as a successful report or permit a partial artifact to be issued.
+
+Explicit failure states and recovery paths are required for: source snapshot unavailable; source becomes stale before generation starts; permission revoked; required data provider unavailable; template/schema mismatch; template sandbox timeout; missing font or glyph; diagram renderer failure; chart/data validation failure; disk full; process interruption; checksum mismatch; signature verification failure; archive failure; distribution failure; and plugin/provider version unavailable.
+
+Retries must be idempotent with respect to the generation request and must not create duplicate issue numbers or duplicate distribution events. A retry after an uncertain completion must reconcile using execution identity and artifact digest. A failure during archival or signing must leave the artifact unissued until the complete governed operation succeeds. Recovery must preserve diagnostic evidence and never silently downgrade security or validation.
+
+### P. Security, privacy and distribution governance
+
+Report access derives from project, domain, document classification and user role. Generation, preview, download, approval, signature, redaction, issue, distribution, withdrawal and archive access should be separately permissioned where risk requires. Confidential equipment data, customer information, personnel information, credentials, network addresses and security-sensitive configuration must not leak through metadata, hidden spreadsheet sheets, comments, embedded attachments or diagnostic logs.
+
+Redaction must be an explicit transformation with a recorded policy and must not alter engineering values needed for the stated purpose. Watermarks must identify draft/uncontrolled/issued status without obscuring required information. Export and distribution records should include actor, recipient, channel, time, purpose, artifact digest and outcome. Signing keys and private credentials must remain in an appropriate secure key-management boundary; they must never be embedded in project files, templates or ordinary report manifests.
+
+### Q. Candidate standards and evidence limits
+
+Potential document/report governance references include ISO 9001 document control and documented information, ISO 19005 PDF/A archival conformance, ISO 32000 PDF specification and ISO/IEC 27001 information-security management. Technical report content should map to the relevant domain standards, such as IEC 60909, IEC 60255, IEC 61850, IEC 60076, IEC 60034, IEC 61000 and IEC 60255-24, only where applicable.
+
+These are candidate references, not a verified standards catalogue. The exact edition, amendments, national adoption, BIS designation, licensing, clause applicability and project contractual/legal obligations require source verification. PDF/A conformance does not by itself prove report correctness, authenticity or legal admissibility. ISO 9001 certification does not establish that a particular calculation or report is technically correct. No certification, compliance or legal conclusion is made by this research entry.
+
+### R. Candidate acceptance and usability scenarios
+
+1. **UI-ACC-REPORT-01** — Generate a load-flow report from an explicitly selected accepted project revision and immutable study snapshot; manifest identifies both.
+2. **UI-ACC-REPORT-02** — Attempt to report a failed or stale calculation; status and warnings remain explicit and no normal-looking valid result is fabricated.
+3. **UI-ACC-REPORT-03** — Change an unrelated equipment parameter; only reports whose dependency graph includes it become stale.
+4. **UI-ACC-REPORT-04** — Change relay settings or CT ratio; dependent protection coordination and settings reports become stale while unrelated reports remain current.
+5. **UI-ACC-REPORT-05** — Reopen an issued historical report after project changes; original artifact remains unchanged and is not silently regenerated.
+6. **UI-ACC-REPORT-06** — Regenerate a superseding report; predecessor, source revisions and material changes are traceable.
+7. **UI-ACC-REPORT-07** — Verify an artifact checksum and manifest without running the original solver.
+8. **UI-ACC-REPORT-08** — Re-run a calculation with recorded solver/model/settings and compare semantic results against declared tolerances.
+9. **UI-ACC-REPORT-09** — GPU execution context and precision are disclosed; no unsupported bitwise-determinism claim is shown.
+10. **UI-ACC-REPORT-10** — NPU inference output is labelled with model provenance and cannot masquerade as authoritative solver output.
+11. **UI-ACC-REPORT-11** — A compliance matrix identifies exact standard edition/clause, applicability, evidence and assessor; missing evidence cannot be marked verified.
+12. **UI-ACC-REPORT-12** — An SLD export is rendered from canonical topology and layout snapshots and does not mutate the project.
+13. **UI-ACC-REPORT-13** — A report containing historical calculations and a different diagram revision clearly labels both and explains the difference.
+14. **UI-ACC-REPORT-14** — A template cannot suppress mandatory warnings, fabricate values or execute arbitrary host code.
+15. **UI-ACC-REPORT-15** — Review and approval bind to the exact artifact digest; changing content after approval invalidates the approval binding.
+16. **UI-ACC-REPORT-16** — Issued report correction creates a new immutable artifact and supersession relation while preserving prior distribution history.
+17. **UI-ACC-REPORT-17** — PDF export preserves Unicode engineering symbols, embedded fonts, bookmarks, tagged reading order and non-clipped tables.
+18. **UI-ACC-REPORT-18** — CSV/XLSX exports preserve typed numeric values, units, stable IDs, encoding and source provenance.
+19. **UI-ACC-REPORT-19** — Interrupted generation, disk-full or archive failure cannot create a partially issued artifact; retry is idempotent.
+20. **UI-ACC-REPORT-20** — Role-based access, redaction, signing and distribution audit prevent unauthorized disclosure and preserve a verifiable issue history.
+
+### S. Open decisions, dependencies and gates
+
+Open decisions include: report catalogue ownership and initial supported types; report definition/schema versioning; canonical report-data package format; immutable snapshot retention; artifact and evidence-bundle storage boundary; report identity and issue numbering; template language and sandbox technology; supported PDF/A profile and accessibility target; document format compatibility matrix; semantic reproducibility tolerances by solver/domain; CPU/GPU comparison policy; NPU inference disclosure; standards-source licensing and evidence retention; signature identity/certificate/trusted-time policy; review separation-of-duties rules; retention, archival and legal-hold policy; redaction and distribution classification; plugin provider compatibility; stale dependency granularity; and migration of historical reports.
+
+Dependencies: 8I-10 UI/UX gates; 8I-12 cross-domain traceability; 8I-20 Inspector/property provenance; 8I-21 diagnostics/events; 8I-22 collaboration/change control; 8I-23 persistence/recovery; 8I-24 data exchange; 8I-25 standards/compliance traceability; 8I-26 calculation/solver governance; 8I-27 simulation runtime; 8I-31 network modelling; 8I-32 parameter calibration/uncertainty; 8I-33 signal/measurement infrastructure; 8I-34 Protection/Control consumer contracts; 8I-35 operational lifecycle; and 8I-36 event/alarm/SOE/historian/disturbance/audit evidence.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. This entry closes no gate. Report lifecycle and archival decisions require engineering, quality, security and legal review before approval.
+
+### T. Frozen invariants and research boundary
+
+- Core remains the authority for domain facts, topology, engineering models, validation and calculation results; reporting is not a parallel engineering engine.
+- Application orchestrates report requests, controlled read-model access, generation, evidence packaging and lifecycle transitions.
+- UI is a projection and interaction surface; report generation never depends on screenshots or mutable widget state.
+- Report definitions, templates, data packages, executions, artifacts, evidence bundles, reviews, signatures, issues and distributions remain distinct concepts.
+- Every report is bound to immutable source snapshots and explicit provenance; missing or failed evidence is never fabricated or silently upgraded.
+- Issued artifacts are immutable; correction and supersession create linked new artifacts and preserve history.
+- Staleness is dependency-specific and does not rewrite historical issued reports.
+- Standards references and compliance claims require edition-, clause-, applicability- and evidence-level traceability.
+- Diagram generation is read-only and based on canonical engineering data plus layout snapshots.
+- Templates and plugin providers use public contracts, are versioned and sandboxed; they cannot bypass Application authorization or mutate Core.
+- CPU/GPU/NPU execution context and reproducibility guarantees are disclosed accurately; inference is not presented as an authoritative solver without explicit domain approval.
+- Canonical report data and provenance remain authoritative; rendered formats are controlled representations.
+- V2 main remains unchanged. V3 proposals require review and approval before implementation.
+
+**Scope boundary:** research register only. No reporting service, report schema, template engine, renderer, PDF/DOCX/XLSX exporter, compliance engine, signature workflow, archive, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. No standards catalogue or BIS edition verification was performed in this entry. V2 main remains unchanged.
