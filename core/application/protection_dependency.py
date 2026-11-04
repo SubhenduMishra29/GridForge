@@ -269,7 +269,15 @@ def build_protection_dependency_registry(
     bindings_by_element: dict[str, list[Any]] = {}
     bindings_by_id: dict[str, Any] = {}
     diagnostics: list[str] = []
+    element_ids = [element.element_id for element in configuration.elements]
+    if len(set(element_ids)) != len(element_ids):
+        diagnostics.append("duplicate Protection element identities prevent dependency ownership classification.")
+    known_element_ids = set(element_ids)
     for binding in configuration.measurement_bindings:
+        if binding.protection_element_id not in known_element_ids:
+            diagnostics.append(
+                f"measurement binding {binding.binding_id!r} has no configured Protection element owner."
+            )
         if binding.binding_id in bindings_by_id:
             diagnostics.append(f"duplicate binding identity {binding.binding_id!r}.")
             continue
