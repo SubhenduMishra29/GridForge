@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .command import Command
 from .revision import ProjectRevision
@@ -302,6 +302,55 @@ class RevisionService:
     def record_command_success(self, command: Command, *, topology_revision: int | None = None) -> ProjectRevision:
         """Record a successful mutation using the committed Core topology revision when supplied."""
         return self._record_transition(self._next_for_command(self._current, command, topology_revision=topology_revision), command_id=str(command.command_id))
+
+    def record_draft_commit(
+        self,
+        command: Command,
+        created_elements: tuple[dict, ...] | list[dict],
+        *,
+        topology_revision: int | None = None,
+    ) -> ProjectRevision:
+        """Record one aggregate Draft→Core commit, including equipment revision domains.
+
+        Child creation commands share the outer transaction and intentionally do
+        not run independent pre-commit hooks. Classify their committed equipment
+        here so CT/PT/CVT and Relay creation cannot bypass their freshness domains.
+        """
+        if not isinstance(command, Command) or command.command_type != "network.commit_draft":
+            raise ValueError("record_draft_commit requires network.commit_draft.")
+        if not isinstance(created_elements, (tuple, list)):
+            raise TypeError("created_elements must be a tuple or list.")
+
+        element_types = {
+            str(item.get("element_type", "")).strip().lower()
+            for item in created_elements
+            if isinstance(item, dict)
+        }
+        after = self._next_for_command(
+            self._current,
+            command,
+            topology_revision=topology_revision,
+        )
+        instrumentation_types = {
+            "current_transformer",
+            "cvt",
+            "capacitive_voltage_transformer",
+            "pt",
+            "potential_transformer",
+        }
+        protection_equipment_types = {"relay"}
+        after = replace(
+            after,
+            instrumentation_revision=(
+                after.instrumentation_revision
+                + int(bool(element_types & instrumentation_types))
+            ),
+            protection_equipment_revision=(
+                after.protection_equipment_revision
+                + int(bool(element_types & protection_equipment_types))
+            ),
+        )
+        return self._record_transition(after, command_id=str(command.command_id))
 
     def record_presentation_change(self, command: Command) -> ProjectRevision:
         """Record one successfully committed persistent SLD presentation command.
