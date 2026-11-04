@@ -19,6 +19,7 @@ from core.network.connectivity import ConnectivityResolver
 from core.network.network import Network
 from core.network.topology_endpoint_reference import TopologyEndpointReference
 from core.protection.configuration_fingerprint import canonical_configuration_value
+from core.protection.function_catalog import ProtectionFunctionStatus, get_protection_function
 from core.protection.project_configuration import (
     DifferentialProtectionSchemeConfiguration,
     ProtectionProjectConfiguration,
@@ -288,6 +289,39 @@ def build_protection_dependency_registry(
         element_id = element.element_id
         prefix = f"element={element_id!r}"
         add_dependency("protection_element", element_id, element.to_dict())
+
+        try:
+            function_specification = get_protection_function(element.function_code)
+        except (KeyError, TypeError, ValueError) as exc:
+            element_diagnostics.append(
+                f"{prefix}: canonical Protection function specification is unavailable: {exc}."
+            )
+        else:
+            input_contract = function_specification.input_contract
+            if (
+                function_specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
+                or input_contract is None
+                or not input_contract.supported
+            ):
+                element_diagnostics.append(
+                    f"{prefix}: Protection function {element.function_code!r} has no dispatchable, supported input contract."
+                )
+            add_dependency(
+                "protection_function_contract",
+                element.function_code,
+                {
+                    "status": function_specification.status.value,
+                    "implementation": (
+                        None
+                        if function_specification.implementation is None
+                        else (
+                            function_specification.implementation.__module__,
+                            function_specification.implementation.__qualname__,
+                        )
+                    ),
+                    "input_contract": input_contract,
+                },
+            )
 
         try:
             relay = network.get_by_id("relay", element.relay_id)
