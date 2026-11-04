@@ -523,10 +523,26 @@ class ProtectionConfigurationService:
             raise TypeError("binding must be ProtectionMeasurementBinding.")
         active = self._require_configuration()
         element = active.get(binding.protection_element_id)
-        if element.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+        residual = element.residual_current_input
+        residual_binding_ids = frozenset()
+        if residual is not None:
+            residual_binding_ids = (
+                frozenset((residual.phase_binding_ids or {}).values())
+                if residual.mode == "THREE_PHASE_SUM"
+                else frozenset((residual.direct_binding_id,))
+            )
+        is_residual_source = (
+            element.function_code in {"50N", "51N"}
+            and binding.relay_input_id == "residual_current"
+            and binding.binding_id in residual_binding_ids
+        )
+        if (
+            not is_residual_source
+            and element.input_channel_ids.get(binding.relay_input_id) != binding.channel_id
+        ):
             raise DomainError(
                 code="PROTECTION_MEASUREMENT_BINDING_INPUT_MISMATCH",
-                message="Measurement binding does not match the configured element input channel.",
+                message="Measurement binding does not match the configured element input channel or explicit residual-current source membership.",
                 details={
                     "element_id": binding.protection_element_id,
                     "input_name": binding.relay_input_id,
