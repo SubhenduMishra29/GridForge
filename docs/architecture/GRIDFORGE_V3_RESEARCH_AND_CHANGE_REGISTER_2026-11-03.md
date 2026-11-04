@@ -2880,3 +2880,357 @@ Candidate release review should verify at minimum:
 All earlier UI gates remain subject to their recorded dispositions; no approval is inferred from this roadmap. The V3 source baseline remains an explicit prerequisite for source-level implementation planning.
 
 **Scope boundary:** research register only. No source implementation, UI behavior, project schema, V2 code, tests or CI were changed or run.
+
+
+## 8I-17. Proposed V3 role-based engineering workflow and task-journey contracts (2026-11-04)
+
+### A. Purpose, evidence class and boundary
+
+This section translates the V3 architecture and UI/UX contracts into candidate end-to-end engineering task journeys. It defines what each user is trying to accomplish, the information required, the interaction sequence, the system response, failure/recovery behavior and completion evidence.
+
+These are **proposed task models**, not findings from observed user research, usability testing or a runtime walkthrough. The role names describe common responsibilities, not mutually exclusive account types or permission groups. One engineer may perform several roles. The journeys must be validated with representative engineers and actual project workflows before they become approved product requirements.
+
+The journeys do not alter the frozen domain boundaries:
+- Core remains the authority for engineering entities, terminals, topology, domain validation, Protection/Control models and study calculations.
+- Application services and commands own controlled changes, orchestration, persistence and event publication.
+- UI gathers user intent, displays typed read models and diagnostics, and routes commands through the approved application boundary.
+- SLD, Control, Protection and Study retain discipline-specific models and interactions. A shared shell or interaction contract must not turn them into one generic editor.
+- Signal/measurement infrastructure provides typed values, source identity, units, timestamps, calibration and quality/provenance. It does not own Protection or Control execution decisions.
+- ProtectionDecision, Control evaluation/action, DeviceCommand, transport acknowledgement and physical DeviceFeedback remain distinct evidence stages.
+
+### B. Common task-journey contract
+
+Every primary journey should use the following structure:
+
+1. **Orient:** identify the active project/document, workspace, saved/dirty state, active operating context and relevant revision.
+2. **Locate:** find the equipment, network object, channel, logic element, study case or operational event through the appropriate explorer, canvas, list or search.
+3. **Inspect:** see identity, engineering properties, source/provenance, status, units, quality and applicable constraints without confusing missing information with a valid default.
+4. **Act:** make a typed user request through a task-appropriate editor/tool; distinguish preview/draft from committed engineering state.
+5. **Validate:** show object-specific and cross-object validation with severity, source, affected object, revision and corrective guidance. Do not silently repair or discard user intent.
+6. **Commit or execute:** make the explicit transition through the owning Application/domain contract. Editing a UI projection is never a domain mutation.
+7. **Verify outcome:** display the authoritative resulting state and any asynchronous processing, command acknowledgement or physical feedback separately.
+8. **Recover or continue:** preserve the user's work where safe; provide actionable recovery, undo/redo where supported, and navigation to related evidence.
+9. **Close or hand off:** identify what was saved, committed, executed, blocked or left as a draft; expose unresolved issues and next required action.
+
+Common UI requirements:
+- Persistent document/workspace identity and clear active-selection context.
+- A predictable distinction between selection, editing, preview, draft, committed state and execution.
+- No success indication before the owning service reports success.
+- Validation and operational diagnostics must not be collapsed into one untyped message stream.
+- All actionable errors must identify the affected object/context and provide a safe next step or explain why no action is available.
+- High-impact actions require explicit confirmation or a domain-defined authorization mechanism; confirmation dialogs must not replace domain validation.
+- Long-running work must expose progress/cancellation semantics where cancellation is actually supported, and must not block the UI event loop.
+- On document switch/close, late asynchronous results must remain bound to their originating document and revision.
+- Keyboard access and accessible names/semantics must exist for the primary journey, not merely for surrounding panels.
+
+### C. Journey E-01 — Electrical engineer: create and maintain the network in SLD
+
+**User goal:** construct or revise a single-line representation that corresponds to canonical electrical equipment and connectivity, then inspect and save a valid project.
+
+**Entry context**
+- Start or open a named project; SLD is the primary electrical-network workspace for a new project.
+- The project/session indicator identifies the active document and whether it is saved, dirty, recovering or read-only.
+- Project Explorer, equipment palette, canvas and Inspector are discoverable without requiring the engineer to infer hidden panel state.
+
+**Candidate sequence**
+1. Create/open project and confirm project identity and initial workspace state.
+2. Select equipment from a searchable, categorized palette; inspect symbol/type and required engineering properties.
+3. Place equipment using a live preview. The preview is explicitly non-domain state.
+4. Commit placement through the owning command, creating the Core equipment and a separate SLD representation. The symbol is not itself the equipment.
+5. Select the placed equipment and enter/edit required engineering values through a typed Inspector. Show units, valid ranges, defaults and required fields.
+6. Place additional equipment and connect terminals using the SLD wire/connection workflow. Show compatible terminals and snap candidates without allowing a visual snap to silently imply a valid electrical connection.
+7. Inspect the connection and endpoint identities; expose validation for incompatible, missing, duplicate or ambiguous connectivity at the appropriate commit/validation boundary.
+8. Run project/network validation. Present findings by severity, object and corrective action, and allow navigation from a finding to the affected equipment or connection.
+9. Save the canonical project. Show save completion and document revision only after persistence succeeds.
+10. Reopen or revisit the project and verify the saved equipment, topology and SLD layout are restored.
+
+**Required information**
+- Equipment identity/type, rating and applicable engineering parameters.
+- Terminal identity and compatibility.
+- Connection endpoint identities and connectivity state.
+- Object/project revisions, validation result and save state.
+- Clear distinction between committed Core objects, SLD projection/layout and transient tool preview.
+
+**Failure and recovery**
+- Failed placement must not leave an orphan symbol or hidden Core object.
+- Failed connection must preserve the pre-existing network and explain the rejected intent.
+- Invalid/incomplete equipment properties must remain inspectable and correctable; do not imply the network is validated.
+- Stale selection or asynchronous projection updates must not redirect an edit to a different object.
+- Save failure must leave the project visibly unsaved and preserve recoverable user work.
+- Reopening must not convert a screenshot or graphics-scene serialization into the canonical electrical model.
+
+**Completion evidence**
+- Equipment and terminal identities resolve to Core-owned objects.
+- Connections/topology match the committed engineering model.
+- Validation findings are explicit and navigable.
+- Canonical project save/reopen preserves the agreed project scope and layout.
+- No UI symbol, graphics item or scene object is treated as engineering truth.
+
+### D. Journey P-01 — Protection engineer: configure measurement inputs and protection functions
+
+**User goal:** configure a protection device using trustworthy measurement sources, establish protection functions/settings and verify that the configuration is complete without confusing configuration with live operation.
+
+**Entry context**
+- Open a project with the relevant network and protection equipment.
+- Protection workspace identifies relay/device, configuration revision and available measurement channels.
+- The engineer can discover eligible channels, not only channels already bound to the selected relay.
+
+**Candidate sequence**
+1. Locate the relay/protection device and inspect identity, installed functions, settings revision and configuration status.
+2. Discover candidate CT/PT/CVT instruments and measurement channels through source identity and electrical association; show physical instrument, primary/secondary terminals, channel, units, scaling/calibration and source provenance.
+3. Inspect sample availability, timestamp, freshness and quality separately from configuration validity. A configured channel is not automatically a trusted live measurement.
+4. Bind or change the measurement source using a typed configuration action. Show the target relay input/function and the exact source being associated.
+5. Configure protection elements and settings using the applicable function catalogue and typed engineering units/ranges.
+6. Validate instrument association, input type, phase/polarity/scaling where modeled, function configuration, setting dependencies and required measurement inputs.
+7. Commit the configuration through the Protection/Application contract; show the resulting configuration revision and any rejected fields.
+8. Inspect operational evaluation separately: input measurements and quality, evaluation status, ProtectionDecision (if produced), target mapping and subsequent command/feedback evidence if the system has progressed to those stages.
+9. Inspect TCC/coordination views and analysis coverage using canonical settings/results; clearly identify unavailable or incomplete model coverage.
+10. Save the project/configuration and record unresolved configuration or operational limitations.
+
+**Required information**
+- Relay/device identity, function identity/code and configuration revision.
+- Instrument/channel identity and source-terminal/network association.
+- Measurement units, timestamp, quality, calibration/scaling and availability.
+- Function settings, validation results and model/coverage limitations.
+- Distinct ProtectionDecision, output intent/mapping, DeviceCommand, acknowledgement and DeviceFeedback evidence.
+
+**Failure and recovery**
+- Missing, stale, bad-quality or uncalibrated measurements must not be displayed as trusted live inputs.
+- A missing channel must not be silently substituted with another source.
+- A configuration edit must not silently alter physical topology revision.
+- Instrumentation/configuration changes must be distinguishable from topology changes in revision and audit history.
+- Unsupported or incomplete protection-function model coverage must be disclosed; do not fabricate a result.
+- No command or trip success is implied by a ProtectionDecision alone.
+- Failed configuration commit must preserve the previous accepted configuration and show field/object-level diagnostics.
+
+**Completion evidence**
+- Each configured input traces to an identifiable instrument/channel and source.
+- Configuration and measurement quality are independently visible.
+- The accepted Protection configuration revision is known.
+- Evaluation and downstream actuation stages are presented only when supported by actual evidence.
+- Protection remains a separate execution authority.
+
+### E. Journey C-01 — Control engineer: build, inspect and evaluate control logic
+
+**User goal:** construct or modify control logic, map its inputs/outputs, evaluate the logic and understand blocked actions and resulting device commands/feedback.
+
+**Entry context**
+- Open the Control workspace and its dedicated canvas/model.
+- Control palette exposes categorized equipment/logic elements with meaningful names, icons, keyboard access and tool descriptions.
+- The active Control document and revision are visible.
+
+**Candidate sequence**
+1. Locate the target control scheme and inspect its current logic, I/O mappings and revision.
+2. Add logic elements (contacts, coils, timers, gates, latches or supported control blocks) using a preview-then-commit workflow.
+3. Connect logic terminals/channels using Control-specific connection semantics. Do not reuse SLD electrical wire rules merely because both canvases use lines.
+4. Configure each element's parameters and equipment action binding through distinct, task-oriented Inspector sections.
+5. Discover available input/output channels and inspect source, direction, type, units/value representation, quality, freshness and binding status.
+6. Validate logic connectivity, required inputs, type compatibility, output mapping, interlocks and action targets before accepting the configuration.
+7. Commit the logic/configuration revision through the Control/Application contract.
+8. Request an evaluation or observe the configured execution cycle. Present cycle identity, inputs, evaluated logic, decisions, blocked actions, diagnostics and execution timing as read-only evidence.
+9. Where an action is authorized, distinguish Control intent/decision from DeviceCommand dispatch, transport acknowledgement and physical DeviceFeedback.
+10. Inspect the result and navigate from blocked action or diagnostic to the relevant logic element, input, interlock or target.
+
+**Required information**
+- Control element identity/type, parameters and connection graph.
+- Channel identity, direction, data type, quality/freshness and binding.
+- Logic/configuration revision and cycle/evaluation identity.
+- Interlock condition, blocked-action reason and authorized target.
+- Command, acknowledgement and physical feedback as separate records.
+
+**Failure and recovery**
+- Missing channel availability must be visible before or during binding; do not invent a channel or treat a placeholder as a live source.
+- Type/connection errors must identify both endpoints and the violated contract.
+- A blocked action must show the specific interlock/condition and must not be represented as a successful actuation.
+- An evaluation completion message must not be interpreted as every requested action succeeding.
+- UI refresh and rendering cadence must not throttle or alter Control execution cadence.
+- Failed edits/commit must preserve the last accepted logic revision and expose recovery.
+- Late cycle results must remain bound to their originating Control document/configuration revision.
+
+**Completion evidence**
+- The Control logic graph and channel mappings are accepted by the Control domain.
+- The evaluated cycle and its inputs/diagnostics are traceable.
+- Blocked actions and commands are not conflated.
+- Device feedback is displayed only when actually received and correlated.
+- Control remains a separate execution authority from Protection.
+
+### F. Journey S-01 — Study engineer: configure, run and interpret an engineering study
+
+**User goal:** configure a reproducible study from a known project state, execute the selected solver and inspect results without confusing display transformations with canonical numerical data.
+
+**Entry context**
+- Select a project and a named study case.
+- Show the project/model revision and study configuration revision used by the case.
+- Identify the study type and required model inputs before exposing advanced options.
+
+**Candidate sequence**
+1. Create or select a study case and choose the study type.
+2. Inspect the applicable model snapshot and required inputs. Identify missing or invalid model data before execution.
+3. Configure study options using progressive disclosure: common settings first, advanced solver/model settings when requested.
+4. Validate the configuration and show the exact model/configuration revisions that will be used.
+5. Start the study through the owning Application service; show queued/running/completed/failed/cancelled states only when supported by actual task state.
+6. Present result summary, convergence/status, warnings and limitations. Distinguish a valid completed result from partial, failed or unsupported output.
+7. Explore results through tables, plots, one-line overlays or reports while preserving units, sign conventions, base values, reference directions and relevant numerical precision.
+8. Compare cases only when their model/configuration basis is visible and comparison is technically meaningful.
+9. Export/report results with source project, study case, revisions, solver/options and result provenance.
+10. Save study configuration/results according to the approved project persistence contract.
+
+**Required information**
+- Study type, case identity and solver/configuration options.
+- Source project/model revision and input snapshot identity.
+- Execution lifecycle, diagnostics, convergence and limitations.
+- Result units, bases, precision, provenance and canonical dataset identity.
+- Display transformations such as filtering, decimation or resampling, clearly separated from source numerical data.
+
+**Failure and recovery**
+- Missing model data must not be replaced with guessed defaults without an explicit domain-approved rule.
+- Solver failure or non-convergence must not appear as a valid result.
+- Stale background results must not attach to a changed project or another active document.
+- Plot decimation/LOD must not alter canonical result datasets or exported numerical values.
+- Cancellation must be reported only if the solver/service confirms cancellation semantics.
+- Export failure must not mark the study result as saved or exported.
+
+**Completion evidence**
+- Study execution is traceable to an immutable or otherwise identified input snapshot and configuration.
+- Result status and limitations are explicit.
+- Plots/tables preserve engineering interpretation and canonical values.
+- Exported reports identify source and result provenance.
+
+### G. Journey O-01 — Operations/commissioning engineer: trace a condition across measurement, Protection, Control and actuation
+
+**User goal:** investigate an operational condition and determine what was measured, evaluated, decided, commanded, acknowledged and physically observed.
+
+**Entry context**
+- Enter from a typed alarm/event, device, relay, Control scheme, measurement channel or time-window search.
+- Identify the selected asset/project and time basis; distinguish current live state from historical evidence.
+
+**Candidate sequence**
+1. Locate the event/condition and inspect its source, timestamp, severity, acknowledgement state and affected asset.
+2. Navigate to the originating measurement or input sample; inspect source identity, units, timestamp, quality, calibration and freshness.
+3. Inspect the relevant Protection evaluation or Control cycle without implying that one domain owns the other's execution.
+4. Follow explicit typed relationships: input/evidence, evaluation, decision, interlock, output intent, command dispatch, transport acknowledgement, physical feedback and correlated event.
+5. Compare event times and revision identities; expose clock uncertainty, missing historian intervals, stale samples and configuration/topology drift.
+6. Inspect the affected equipment and network context in its discipline-specific workspace.
+7. Acknowledge or otherwise act on the event only through the category's authorized lifecycle; acknowledgement must not clear a physical condition or alter a Protection/Control decision.
+8. Produce/export an investigation record with linked evidence and explicit gaps.
+
+**Required information**
+- Event and sample identities, source and timestamps.
+- Quality/freshness and historian completeness.
+- Protection and Control execution identities/revisions.
+- Typed causal/evidence relationships with provenance.
+- Command/acknowledgement/feedback state and correlation confidence.
+- Current versus historical context and revision drift.
+
+**Failure and recovery**
+- Missing evidence must appear as a gap, not a synthetic link or inferred success.
+- Correlation by timestamp alone must not be presented as proven causation.
+- An alarm acknowledgement must not be treated as clearance, reset or physical restoration.
+- A Protection decision must not be represented as a Control command; a command must not be represented as physical feedback.
+- If data sources disagree or clocks are uncertain, expose the uncertainty and preserve original timestamps.
+- Historical investigation must not mutate current operational state.
+
+**Completion evidence**
+- The investigation record distinguishes measured fact, domain evaluation, decision, command, acknowledgement and physical feedback.
+- Every relationship is typed and traceable to its source.
+- Gaps, stale data and revision drift are explicit.
+- User acknowledgement/action follows the owning lifecycle and leaves operational authority unchanged.
+
+### H. Journey X-01 — Project owner/reviewer: open, review, save, recover and hand off work
+
+**User goal:** manage the project and session safely across normal work, interruption, failure and handoff.
+
+**Candidate sequence**
+1. Create/open a project and verify identity, package validity and schema compatibility.
+2. Inspect recent/recovery candidates without silently opening or overwriting a different project.
+3. Review dirty-state scope: canonical engineering model, persisted engineering draft, workspace layout, preferences and viewport metadata must be distinguishable.
+4. Save or Save As with clear target path, overwrite behavior and atomic success/failure reporting.
+5. Close or switch documents with explicit Save/Discard/Cancel semantics for each relevant dirty scope.
+6. Recover after interrupted work using an identified recovery point and show which changes are restored, omitted or unresolved.
+7. Migrate an older package only through an explicit, versioned and recoverable migration path.
+8. Hand off the project with canonical content and required dependencies contained in the approved package contract; machine-specific preferences and transient state must not silently contaminate canonical engineering content.
+
+**Required information**
+- Project/package identity, schema version and integrity state.
+- Canonical model revision, draft state and per-scope dirty indicators.
+- Save destination, atomicity and overwrite consequences.
+- Recovery point identity/time and restoration scope.
+- Migration source/target versions and warnings.
+
+**Failure and recovery**
+- Corrupt or incompatible project packages must fail safely and preserve the original.
+- Save failure must not clear dirty state.
+- Recovery must not silently overwrite newer canonical data.
+- Discard must identify the state being discarded; no hidden draft or committed engineering mutation may be lost without the corresponding user decision.
+- Workspace and viewport restoration failures must not corrupt the canonical project.
+- No external dependency may be required for a portable canonical project where the frozen package contract requires self-containment.
+
+**Completion evidence**
+- Open/save/close/recovery/migration outcomes are explicit and reproducible.
+- Canonical engineering content remains portable and integrity-checked.
+- Drafts, preferences, workspace layout, viewport metadata and transient state follow approved persistence boundaries.
+- The reviewer can identify what is committed, saved, recoverable and unresolved.
+
+### I. Cross-journey navigation and handoff requirements
+
+The journeys should be connected through stable semantic references, not duplicated or loosely matched display labels.
+
+- Selecting an equipment object in SLD should allow navigation to related Protection, Control and Study views only where a real typed relationship exists.
+- A Protection measurement input should navigate to its instrument/channel provenance and relevant network location without changing topology.
+- A Control channel mapping should navigate to the channel source and affected Control element; the UI must preserve the distinction between input source and output target.
+- A Study result should navigate to the source case, model revision and relevant network objects without mutating the study snapshot.
+- An operational event should navigate to source measurement, Protection/Control evaluation, command and feedback evidence using typed relationships.
+- Navigation across documents/workspaces must preserve origin context, selection identity and revision; if the target is stale or unavailable, explain why and offer a safe refresh/reload path.
+- Cross-domain links are evidence/navigation relationships; they do not transfer domain ownership or execution authority.
+
+### J. Candidate journey acceptance scenarios
+
+| ID | Scenario | Candidate pass evidence |
+|---|---|---|
+| UI-ACC-JRN-01 | Place and configure SLD equipment | Preview is transient; commit creates domain equipment and separate SLD projection; properties are typed and editable |
+| UI-ACC-JRN-02 | Connect SLD terminals | Committed connection resolves exact terminal identities; invalid connection is rejected with actionable diagnostics |
+| UI-ACC-JRN-03 | Save/reopen SLD project | Canonical equipment/topology and approved layout persist; no scene/screenshot is treated as model |
+| UI-ACC-JRN-04 | Discover and bind Protection channel | Eligible source channels can be discovered; source, instrument and quality are visible before accepted binding |
+| UI-ACC-JRN-05 | Change Protection configuration | Configuration revision changes independently from physical topology revision; failed commit preserves accepted configuration |
+| UI-ACC-JRN-06 | Inspect Protection-to-actuation chain | Decision, output intent, command, acknowledgement and physical feedback remain distinct and evidence-backed |
+| UI-ACC-JRN-07 | Build and evaluate Control logic | Control-specific graph semantics and channel mapping validate; cycle and blocked-action diagnostics are navigable |
+| UI-ACC-JRN-08 | Trace Control action | Evaluation, interlock, command, acknowledgement and physical feedback are separate and correlated by explicit evidence |
+| UI-ACC-JRN-09 | Configure and run Study | Run identifies source snapshot/configuration; failed or partial results are not shown as valid completion |
+| UI-ACC-JRN-10 | Explore/export Study results | Display transformations do not change canonical numerical data; export includes provenance and units |
+| UI-ACC-JRN-11 | Investigate cross-domain event | Timeline/graph exposes typed links, data gaps, time uncertainty and revision drift; no causation is invented |
+| UI-ACC-JRN-12 | Recover and hand off project | Recovery scope is explicit; canonical package remains portable; save/recovery failures preserve user data |
+| UI-ACC-JRN-13 | Complete primary task by keyboard | Core journey can be completed without pointer-only controls; focus and shortcut behavior are predictable |
+| UI-ACC-JRN-14 | Switch document during background work | Late results remain bound to origin document/revision and cannot contaminate active document |
+| UI-ACC-JRN-15 | Navigate from diagnostic to object | Typed diagnostic retains source, severity, timestamp and object identity through navigation |
+
+These scenarios are candidates for future validation. They are not approved release criteria and do not establish that the current application passes them.
+
+### K. Research and validation still required
+
+1. Conduct contextual interviews and task observation with electrical, Protection, Control, Study and commissioning/operations engineers across representative plant and utility contexts.
+2. Validate role/task overlap, actual terminology, common task frequency, exception paths and handoff responsibilities.
+3. Collect representative project artifacts and workflows, with sensitive operational data protected and appropriately anonymized.
+4. Observe real SLD placement/edit/connect/validate/save workflows, including large and partially configured networks.
+5. Validate instrument/channel discovery and configuration with real CT/PT/CVT and measurement-channel models, including missing, stale and bad-quality samples.
+6. Validate Control logic editing, channel availability, interlocks, cycle diagnostics and command/feedback visibility against supported Control equipment and execution semantics.
+7. Validate Protection function configuration and live evaluation with actual supported function models and model-coverage boundaries.
+8. Validate study setup, solver progress, result interpretation and export with domain engineers and canonical numerical datasets.
+9. Validate operational trace with historian gaps, clock skew, revision drift, missing acknowledgements and unavailable physical feedback.
+10. Run moderated usability sessions and record task completion, errors, recovery, time-on-task and user confidence; do not infer usability from code inspection alone.
+11. Confirm keyboard, screen-reader and accessibility behavior on the supported Qt/platform matrix.
+12. Reconcile findings into requirement IDs, priority proposals, domain ownership and implementation work packages before authorization.
+
+### L. Gate disposition and invariants
+
+**UI-GATE-01 remains Open pending owner approval of context-of-use and role/task evidence. UI-GATE-07 remains Open pending approval of initial release scope and priority.** The candidate journeys also depend on the project/session, diagnostics, accessibility, performance and cross-domain trace gates already recorded in this register.
+
+Frozen invariants:
+- The SLD symbol is a representation, not the electrical equipment.
+- Control and Protection remain separate execution authorities.
+- Shared measurement infrastructure does not own domain decisions.
+- UI status is derived from typed, authoritative evidence and cannot invent acknowledgement, success, clearance or physical feedback.
+- Draft, committed model, persisted project, workspace preferences and transient interaction remain distinct.
+- A rendering, navigation or display optimization cannot alter engineering truth or canonical numerical data.
+- Every mutation follows the UI → Controller → Command → Application → Core → Event → Projection → UI path, with the owning domain contract enforced.
+
+**Scope boundary:** research register only. No source implementation, UI behavior, permission model, project schema, V2 code, tests or CI were changed or run.
