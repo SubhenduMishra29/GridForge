@@ -3018,6 +3018,7 @@ class Application:
                     next_control_execution,
                     signal_mapping=self._control_signal_mapping,
                     read_service=read_service,
+                    measurement_read_service=self._measurement_channel_read_service,
                 )
             command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         except BaseException as setup_error:
