@@ -21914,3 +21914,16 @@ Additional reconciliation finding — DIGITAL MeasurementChannel typing:
   Python truthiness conversion is used.
 - The resolved envelope records the explicit BOOLEAN_OR_EXACT_0_1 encoding.
 - Static source inspection only; no tests or CI run.
+
+Additional fail-closed correction — direct ControlInput consumer:
+- ControlInput.is_usable_at(require_freshness=True) now requires a finite
+  non-negative stale-after ceiling, a non-negative integer sample sequence,
+  a sample timestamp, and an exact match to a non-empty caller-provided
+  cycle timestamp domain. Missing policy/provenance is rejected.
+- UndervoltageComparator.evaluate_input() now accepts an explicit
+  timestamp_domain and passes it to the freshness gate. Omitting the
+  authoritative cycle domain therefore blocks evaluation rather than
+  trusting the sample's self-declared domain.
+- This closes a direct-consumer bypass not covered by the
+  ControlSignalMapping resolver's own stricter validation.
+- Static source inspection only; no tests or CI run.
