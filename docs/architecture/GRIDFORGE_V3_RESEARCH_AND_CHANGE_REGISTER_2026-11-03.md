@@ -4451,3 +4451,295 @@ Frozen invariants:
 - All accepted engineering changes follow UI → Controller → Command → Application → owning domain → Event → Projection → UI.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, collaboration server, locking service, approval engine, signature system, project schema, tests or CI were changed or run.
+
+
+## 8I-23. Proposed V3 project persistence, recovery and data-integrity architecture (2026-11-04)
+
+**Disposition:** Research proposal; not an approved implementation contract. This section extends the frozen V2 project-package baseline and the V3 project/session and collaboration research. It does not authorize changing the V2 package format or implementing a new persistence service.
+
+### A. Persistence authority and package invariants
+
+The Project remains the sole engineering persistence root. SLD, Signals/Instrumentation, Protection, Control, Studies, equipment, topology and plugin-owned engineering data must not introduce competing project roots or independently authoritative save files.
+
+The frozen V2 package baseline remains the reference boundary:
+- A `.gridforge` file is a ZIP package.
+- `manifest.json` identifies package/schema/version metadata.
+- Canonical `project.json` contains the current saved project scope, including SLD, required Core equipment, connections/topology and SLD layout.
+- A valid delivered project is self-contained and does not require external files to reconstruct its saved engineering state.
+
+V3 may evolve internal serialization, migration and integrity mechanisms only through an explicitly approved schema/version transition. Do not silently redefine the manifest, canonical project document, package extension or persistence root.
+
+The package must distinguish authoritative engineering state from reconstructible projections, caches, thumbnails, indexes, transient UI state, local recovery data and operational history. A cache must never be the only surviving representation of engineering truth. A rendered SLD image or graphics-scene serialization is not a substitute for domain objects, topology and layout data.
+
+### B. Consistent project snapshot and save transaction
+
+A save must capture one internally consistent project snapshot. It must not serialize topology from one revision, Protection configuration from another and Control references from a third without recording and validating the cross-domain revision relationship.
+
+Candidate snapshot envelope:
+- stable project ID and package identity;
+- accepted project revision or local working revision;
+- per-domain revision vector for topology, instrumentation/signals, Protection, Control, Studies and other persisted domains;
+- schema and serializer versions;
+- snapshot creation metadata and provenance;
+- canonical payload inventory and integrity digests.
+
+The revision vector is not a replacement for domain ownership or cross-domain validation. The Application/project lifecycle coordinates snapshot capture; each owning domain supplies its authoritative serializable state through an explicit contract. UI widgets, graphics items and plugin runtime objects are not serialized as domain truth.
+
+Proposed save transaction:
+1. Resolve the target project and expected working revision.
+2. Request a consistent snapshot from the project/application boundary.
+3. Validate required domain payloads, references, stable IDs, ownership and schema compatibility.
+4. Serialize canonical project data and manifest deterministically where practical.
+5. Write a new package to a temporary file in the destination filesystem.
+6. Flush file contents and, where supported, synchronize the file and containing directory before publishing.
+7. Reopen/verify the temporary package structure and integrity metadata.
+8. Atomically replace the target package where the filesystem supports it.
+9. Only after successful publication, advance the persisted revision and clear the corresponding dirty state.
+10. Preserve the previous known-good package or recoverable journal until the new package is confirmed durable.
+
+Atomic rename/replace semantics differ across filesystems and platforms. The implementation must detect or document weaker guarantees; it must not claim universal crash atomicity merely because a temporary file is used. Cross-volume moves, network shares, removable media, cloud-synced folders and interrupted device writes require explicit policy.
+
+A failed save must leave the last known-good package identifiable and must not mark unsaved changes as persisted. Save failure, partial write, permission denial, disk-full, target replacement conflict and post-write verification failure require distinct diagnostics.
+
+### C. Dirty tracking, save semantics and concurrent mutation
+
+Dirty state must be revision-based, not inferred solely from widget signals or a global boolean. Track at least:
+- current in-memory working revision;
+- last successfully persisted revision;
+- last accepted project revision, where collaboration/review is enabled;
+- pending local recovery snapshot;
+- active migration or repair state.
+
+A save requested while domain state is changing must either capture a consistent snapshot at a defined revision or retry/fail with an explicit stale-snapshot outcome. It must not silently combine partial states.
+
+Save, engineering commit, review acceptance, export and operational action are different operations:
+- Save persists the current local project working state.
+- Engineering commit validates and accepts a domain/project change under its defined transaction boundary.
+- Collaboration acceptance advances an accepted shared revision.
+- Export creates a delivery artifact for an exact identified revision.
+- Protection dispatch, Control execution and physical actuation are operational actions and are never implied by save or recovery.
+
+The UI must show which revision is saved, which is locally modified, whether recovery data exists and whether the project is in a conflict or migration state. A generic “saved” indicator must not conceal unsaved domain changes or failed persistence.
+
+### D. Autosave, local recovery and crash consistency
+
+Autosave is a recovery mechanism, not an implicit engineering approval or replacement for explicit save. It must not overwrite the last known-good deliverable package in a way that destroys the ability to recover from a bad working state.
+
+Proposed recovery model:
+- Maintain bounded, versioned recovery checkpoints or a journal for local working changes.
+- Associate each checkpoint with project ID, base revision, domain revision vector, schema version, creation time and integrity digest.
+- Store recovery material separately from the canonical deliverable package, with a clear lifecycle and storage location.
+- Use configurable checkpoint triggers such as elapsed time, meaningful change volume and explicit user action; exact cadence is an open product decision.
+- Avoid writing a full package on every keystroke. Coalesce changes and bound write amplification.
+- Ensure recovery checkpoints are atomic and independently verifiable.
+- Never recover by replaying external physical actions, Protection trips, Control dispatches, acknowledgements or device feedback as if they were ordinary project edits.
+
+On next launch after abnormal termination, detect candidate recovery data and present a clear choice to inspect/recover, open the last saved revision, or discard recovery data. Show the source revision, checkpoint time, affected domains and integrity status. Do not silently replace the canonical package or auto-accept recovered changes.
+
+Recovery must distinguish:
+- cleanly saved project;
+- valid unsaved local draft;
+- interrupted save with a recoverable previous package;
+- valid checkpoint based on an older project revision;
+- stale checkpoint with conflicting project identity/revision;
+- corrupt or incomplete recovery data;
+- unsupported schema or plugin payload;
+- recovery that requires user-directed repair.
+
+If multiple checkpoints exist, offer a deterministic recovery point and preserve the original evidence until the user explicitly resolves it. Recovery itself must be auditable and must not erase the original failed-save evidence.
+
+### E. Backup, restore, export and retention
+
+Backup is distinct from autosave and collaboration revision history. A backup must identify the exact project revision and include enough package metadata to verify its identity and integrity.
+
+Proposed controls:
+- explicit backup creation and restore;
+- configurable retention by count, age or storage budget;
+- preservation of a last-known-good backup before risky migration or repair;
+- integrity verification before restore;
+- restore to a new destination by default, avoiding destructive overwrite;
+- clear preview of project identity, revision, timestamp, schema and contents before restore;
+- post-restore validation of references, domain consistency and plugin compatibility.
+
+Point-in-time restore must not silently merge operational historian records, external event archives or collaboration drafts into engineering project state. Their retention and export policies are separate and must be explicitly linked when a delivery requires them.
+
+Export must state whether it is a full self-contained project package, a revision-bound engineering handover, a report, a study result package or a partial exchange artifact. Partial exports must declare omitted domains and dependencies; they must not be represented as a complete project.
+
+### F. Integrity, corruption and tamper evidence
+
+Integrity checks should cover the package structure and the canonical payload inventory. Candidate metadata includes per-entry cryptographic digests, canonical manifest digest, payload sizes and serializer/schema identity. The chosen digest algorithm and any signing/trust model remain decisions for security review.
+
+Integrity verification must distinguish:
+- accidental corruption or truncation;
+- missing or duplicate package entries;
+- inconsistent manifest/payload inventory;
+- digest mismatch;
+- unsupported or malformed schema;
+- structurally valid but semantically invalid engineering data;
+- an untrusted or invalid signature, if signing is later approved.
+
+A checksum detects accidental changes only when its expected value is trusted. It does not by itself establish author identity, authenticity or tamper resistance. Digital signatures, trusted timestamps, key custody, revocation, trust roots and legal acceptance must be separately specified; do not imply that a package digest is a digital signature.
+
+Opening a damaged package must be non-destructive. Preserve the original file, report exact validation failures and offer safe copy-based repair/recovery where possible. Never silently drop unknown or invalid engineering records and then save the reduced project over the source.
+
+### G. Schema evolution and migration safety
+
+Every persisted package and domain payload must declare a schema identity/version. Serializer implementation version and application release version should not be conflated with the data schema version.
+
+Migration requirements:
+- explicit supported source and target schema ranges;
+- deterministic, ordered migration steps;
+- pre-migration backup or recoverable source preservation;
+- migration preview where material engineering meaning may change;
+- validation before and after each migration boundary;
+- migration report listing transformed, defaulted, deprecated, rejected and preserved fields;
+- idempotency or explicit one-time migration semantics;
+- rollback to the preserved source package if migration or validation fails;
+- no silent replacement of unknown fields or plugin payloads.
+
+Forward/backward compatibility must be declared per schema and per domain. An older application must not open and overwrite a newer package after ignoring unknown fields. It should fail safely or enter a clearly marked read-only/limited mode if that mode is demonstrably safe. Unknown extension data should be preserved losslessly where the contract allows; if preservation cannot be guaranteed, the application must not save the package destructively.
+
+Plugin-owned schemas remain within the plugin's public persistence contract, but the project package owns the inventory, identity and compatibility declaration. Missing, disabled or incompatible plugins must not cause unrelated core project data to be discarded. A project with unavailable plugin data should be marked incomplete/limited and preserve opaque payloads where safe.
+
+Migration must preserve stable project and domain object IDs, electrical connectivity, terminal references, signal provenance, Protection/Control configuration and study traceability. Any unavoidable semantic conversion must be explicit and reviewable. No migration may fabricate measurement values, Protection decisions, Control execution results or physical feedback.
+
+### H. Package parser and archive security
+
+A project package is untrusted input, including packages received from colleagues or external sources. ZIP handling must defend against:
+- path traversal and zip-slip entry names;
+- absolute paths, drive prefixes and path separator ambiguity;
+- duplicate entry names and case/normalization collisions;
+- symlinks or special-file entries;
+- encrypted or unsupported entries;
+- excessive entry count, nested archives or decompression ratios;
+- oversized individual entries and total expanded size;
+- malformed central directory/local headers and truncated streams;
+- manifest/payload path mismatch;
+- unexpected executable content or plugin binaries.
+
+The loader must use an allowlisted package-entry model and normalized relative paths. It must never extract arbitrary archive paths directly to user-controlled filesystem locations. Enforce configurable but safe limits before and during decompression, including total expanded bytes and entry count. Reject or quarantine packages that exceed limits; do not trust archive-reported sizes alone.
+
+Plugin code installation/execution is not part of opening a project. A project package may reference a plugin identity/version/schema, but must not silently install or execute code. External references must be treated as metadata and must not trigger arbitrary network or filesystem access during load.
+
+### I. Canonical serialization, reproducibility and precision
+
+Canonical serialization improves reviewability, deterministic integrity checks, reproducible exports and meaningful revision comparison. Candidate rules:
+- stable ordering of objects and mapping keys where order has no domain meaning;
+- stable IDs rather than array position or UI item identity;
+- explicit units and quantity dimensions;
+- explicit numeric precision and round-trip policy;
+- normalized text encoding and line endings;
+- normalized package-relative paths;
+- explicit null/default/omitted-field semantics;
+- deterministic representation of enums and typed values;
+- no dependence on dictionary iteration order, widget creation order or graphics-scene traversal.
+
+Floating-point engineering values must not be rounded merely for compact or attractive JSON. Define domain-specific precision, serialization round-trip guarantees and comparison tolerances. Exact decimal quantities may require decimal or integer-scaled representations where appropriate; numerical solver arrays may require a separate typed binary payload contract if scale justifies it. Any binary payload must remain versioned, typed, integrity-protected and self-contained within the package.
+
+Reproducible serialization does not mean every save must produce byte-identical archives if timestamps or compression metadata vary. Separate canonical engineering payload identity from ZIP container byte identity. A semantic project digest should be based on canonicalized authoritative content, not incidental archive metadata.
+
+### J. Large-project performance and incremental persistence
+
+Optimize only after representative project-size and save/load profiling. Initial design should prioritize correctness, atomicity and recoverability over premature content-addressed storage or a complex database embedded in the package.
+
+Candidate improvements, subject to evidence:
+- streaming JSON/payload serialization and parsing;
+- incremental dirty-domain serialization where cross-domain snapshot consistency is preserved;
+- bounded compression and memory use;
+- indexed lookup structures that are rebuildable from canonical data;
+- background serialization from immutable snapshots, never from live mutable UI/domain objects;
+- progress, cancellation and clear cancellation semantics;
+- content-addressed or deduplicated blobs only if measured duplication/storage cost justifies the added lifecycle and garbage-collection complexity.
+
+Cancellation before publication must leave the previous package intact. Once atomic publication begins, cancellation must not leave an ambiguous target state. UI responsiveness must not be achieved by allowing background workers to access Qt widgets or mutable project state without an explicit immutable snapshot.
+
+### K. Separation from collaboration, session state and operational history
+
+Persistence/recovery must align with the 8I-13 project/session and 8I-22 collaboration proposals without collapsing their evidence classes:
+- canonical project package: saved engineering project state;
+- local recovery store: unsaved working checkpoints and interrupted-save evidence;
+- collaboration store: proposals, review decisions, approvals and accepted revision graph;
+- operational historian/event store: measurements, alarms, SOE, Protection and Control execution evidence, commands, actuation and feedback;
+- workspace preferences/session state: window layout, open documents, recent selections and user-specific presentation preferences.
+
+A local workspace preference must not mutate engineering project state unless explicitly promoted through an engineering command. Operational records must not be mistaken for project configuration. A project restore must not replay an operational action. Collaboration approval must reference a precise project revision and must not be inferred from the existence of a saved file.
+
+### L. Failure model and user-visible diagnostics
+
+The persistence layer should expose typed outcomes rather than generic success/failure strings. Candidate categories include snapshot unavailable/stale, validation failure, serialization failure, storage unavailable, insufficient space, permission denied, package publication failure, integrity verification failure, unsupported schema, migration failure, recovery checkpoint failure, conflicting target revision and cancellation.
+
+Diagnostics should identify:
+- operation and target package;
+- project identity and revision;
+- affected domain or payload entry;
+- stage at which failure occurred;
+- whether the original package remains intact;
+- whether recovery data exists and whether it verified;
+- safe next action.
+
+Do not report “saved” until the target package has been published and the defined durability/verification contract has succeeded. Do not report “recovered” until the recovered snapshot has been validated and explicitly opened as a working revision. Do not report “restored” until the target package has been verified.
+
+### M. Candidate acceptance scenarios
+
+The following are proposed V3 acceptance scenarios, not tests executed or approved:
+
+- **UI-ACC-PERSIST-01:** Save a valid project and reopen it with identical project identity, stable object IDs, topology and SLD layout.
+- **UI-ACC-PERSIST-02:** A save during concurrent domain mutation captures one consistent revision or fails explicitly; no mixed-revision package is published.
+- **UI-ACC-PERSIST-03:** Simulated write failure before publication leaves the previous known-good package intact and the project dirty.
+- **UI-ACC-PERSIST-04:** Disk-full, permission-denied and target-conflict outcomes remain distinct and actionable.
+- **UI-ACC-PERSIST-05:** Interrupted save is detected on next launch; recovery is offered without overwriting the original package.
+- **UI-ACC-PERSIST-06:** Recovery checkpoint identity and base revision are checked; stale or foreign checkpoints are not silently applied.
+- **UI-ACC-PERSIST-07:** Autosave creates recoverable local state but does not accept, commit or operationally execute engineering changes.
+- **UI-ACC-PERSIST-08:** Restore verifies backup integrity and defaults to a non-destructive destination.
+- **UI-ACC-PERSIST-09:** Corrupt/truncated ZIP, missing manifest and missing canonical payload are diagnosed without destructive repair.
+- **UI-ACC-PERSIST-10:** Duplicate entries, path traversal, symlink entries and decompression-limit violations are rejected safely.
+- **UI-ACC-PERSIST-11:** Digest mismatch is distinguished from semantic engineering validation failure and signature trust failure.
+- **UI-ACC-PERSIST-12:** A schema migration preserves stable IDs, topology, signal provenance and Protection/Control configuration or aborts with source package preserved.
+- **UI-ACC-PERSIST-13:** An older application cannot destructively overwrite a newer package after dropping unknown fields.
+- **UI-ACC-PERSIST-14:** Missing or incompatible plugin data does not erase unrelated Core project data; opaque payload preservation is explicit.
+- **UI-ACC-PERSIST-15:** Canonical serialization produces stable semantic digests for equivalent authoritative project content.
+- **UI-ACC-PERSIST-16:** Floating-point and engineering-unit values round-trip within their declared domain precision contract.
+- **UI-ACC-PERSIST-17:** Cancellation during snapshot/serialization leaves the target unchanged; publication has unambiguous completion semantics.
+- **UI-ACC-PERSIST-18:** Large-project save/load remains bounded in memory and reports progress without accessing live UI objects from workers.
+- **UI-ACC-PERSIST-19:** Project restore does not merge or replay operational historian records, Protection trips, Control actions or device feedback.
+- **UI-ACC-PERSIST-20:** Export identifies exact project revision, included domains, omitted content and integrity metadata.
+
+### N. Open design decisions and evidence required
+
+1. Define the authoritative V3 project schema owner and its relation to the frozen V2 manifest/project.json package.
+2. Decide whether the package remains a single ZIP artifact for all V3 deliveries and define any separately managed local recovery store.
+3. Specify snapshot consistency and transaction boundaries across Core, Signals, Protection, Control and Studies.
+4. Select a journal/checkpoint strategy and recovery location, retention, encryption and privacy policy.
+5. Define platform/filesystem durability guarantees and behavior on network/removable/cloud-synced storage.
+6. Select integrity digest algorithm, canonicalization contract and whether digital signatures are in scope.
+7. Define schema version policy, migration compatibility matrix, unknown-field preservation and plugin schema lifecycle.
+8. Set package size, entry count, decompression, memory and parser safety limits based on realistic project profiles.
+9. Define autosave cadence, user controls, checkpoint retention and crash-recovery UX.
+10. Define backup retention, restore permissions, restore-to-new-target defaults and handover/export semantics.
+11. Decide whether binary numerical payloads, content-addressed blobs or incremental package updates are justified by measured workloads.
+12. Define the boundary between project revisions, local recovery, collaboration history, session preferences and operational historian retention.
+
+### O. Gate impact and frozen invariants
+
+Relevant approval gates remain open:
+- **UI-GATE-02 — Project/session lifecycle:** save, dirty-state, recovery, restore and session boundary require a reviewed lifecycle contract.
+- **UI-GATE-03 — Diagnostics:** persistence, migration, integrity and recovery failures need typed diagnostics and user-action semantics.
+- **UI-GATE-05 — Display/performance:** large-project save/load and background snapshot behavior require representative performance evidence.
+- **UI-GATE-06 — Cross-domain traceability:** snapshot revision vectors and cross-domain consistency require explicit evidence.
+- **UI-GATE-07 — Scope/priority:** V3 project schema, recovery store and migration work need approved scope and sequencing.
+
+Frozen invariants:
+- Project remains the sole engineering persistence root.
+- The `.gridforge` ZIP, manifest metadata and canonical project payload baseline are not silently redefined.
+- SLD persistence stores domain/topology/layout data, never a screenshot or graphics-scene object graph as engineering truth.
+- A save is not an engineering acceptance, collaboration approval or operational action.
+- A failed save never advances persisted revision or clears dirty state.
+- Recovery and restore preserve the original source evidence and do not silently overwrite known-good state.
+- Migrations preserve engineering meaning, stable IDs and domain ownership or fail safely.
+- Unknown plugin/domain payloads are never silently discarded.
+- Package parsing treats all input as untrusted and never extracts arbitrary archive paths.
+- Project revisions, local recovery, collaboration decisions, session preferences and operational history remain distinct.
+- UI remains a projection; Application coordinates persistence; Core and owning domains remain authoritative for engineering data.
+- No save, recovery, restore or migration may fabricate measurements, Protection decisions, Control execution, acknowledgements, actuation or feedback.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, package schema, serializer, migration, autosave, recovery, backup, archive parser, tests or CI were changed or run.
