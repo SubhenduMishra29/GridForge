@@ -9947,3 +9947,236 @@ V3 assurance capabilities must not introduce Qt/UI dependencies into Core, permi
 ### 8I-41.24. Research disposition
 
 Research-only proposal. No implementation, tests, CI, benchmarks, runtime validation, certification or compliance assessment was performed. No changes to V2 main. UI-GATE-02 through UI-GATE-07 remain open. BIS catalogue verification for Protection, Automation and Control remains a separate outstanding evidence task.
+
+
+## 8I-42. Proposed V3 multidisciplinary plant engineering and physical-system integration architecture (2026-11-04)
+
+### 8I-42.1. Scope and architectural objective
+
+Coordinate electrical, mechanical, process, instrumentation, control, civil, structural and spatial engineering without collapsing them into one geometry-centric model. The objective is consistent multidisciplinary engineering and change-impact traceability, not a universal plant object.
+
+Maintain independently governed but linked representations:
+- electrical network topology, terminals, connectivity and study abstractions;
+- physical assets, installation positions, spatial envelopes and maintenance access;
+- instrumentation devices, loops, channels, signal paths and calibration;
+- cables, conductors, trays, ducts, conduits and routing systems;
+- mechanical equipment, shafts, couplings, loads and package interfaces;
+- process equipment, piping systems, line lists, nozzles and process connections;
+- civil/structural models, foundations, supports, platforms, buildings and penetrations;
+- 2D drawings, 3D coordination models, BIM/CAD references and field markups.
+
+A common asset identity does not imply a common domain model. A geometry clash must not mutate electrical connectivity; an electrical connection must not imply a physically routed or installed cable; a detailed 3D object must not become the source of engineering calculations merely because it is visually rich.
+
+### 8I-42.2. Plant breakdown, locations and identity
+
+Model plant hierarchy separately from spatial containment and functional relationships. Candidate hierarchy: site, plant, area, unit, system, subsystem, package, equipment and component. Functional location, physical installation position, electrical network location, process location, building/room/level/grid and asset identity are distinct typed references.
+
+Stable equipment/asset identity must survive tag changes, relocation, replacement in a functional location, movement between projects, and changes to drawing numbers or external BIM identifiers. External IDs and discipline tags are aliases with source-system provenance, not universal primary keys. A functional location may persist across equipment replacement; a physical equipment instance may move. Preserve temporal history and effective dates.
+
+### 8I-42.3. Discipline ownership and authority boundaries
+
+Define ownership by technical meaning, not file format:
+- Electrical Core owns electrical equipment semantics, terminals, connectivity, topology and electrical validation.
+- Mechanical/process models own their equipment, interfaces and discipline calculations when introduced.
+- Instrumentation and Signal infrastructure owns instrument identity, channels, measurement semantics, signal routing, quality and calibration.
+- Protection and Control remain separate execution authorities.
+- Civil/structural models own foundations, structural members, loads and constraints when supported.
+- Spatial coordination owns reference frames, placement, envelopes, clearances and clash findings, not the engineering truth of connected systems.
+- Application owns cross-domain commands, transactions, orchestration, controlled mutation and revision coordination.
+- UI presents coordinated projections and discipline-specific editing experiences.
+- Plugins contribute through public contracts and Application services; no plugin may mutate Core directly.
+
+Do not create a monolithic PlantObject with every discipline field optional. Use bounded contexts and typed cross-domain references.
+
+### 8I-42.4. Coordinate reference and spatial semantics
+
+Spatial data must declare coordinate reference system, units, axis orientation, origin, handedness, elevation datum, local/project/site transform, precision and transformation provenance. Distinguish geodetic, site/project, building/area, equipment-local, drawing/sheet and model-local coordinates.
+
+Every transform must be explicit and versioned. Avoid implicit assumptions about millimetres/metres, Z-up/Y-up, north direction, elevation datum or handedness. Preserve transformation chains and source model metadata.
+
+Geometry must identify its representation and purpose: symbolic footprint, bounding box, simplified envelope, detailed solid, mesh, centreline, route path, point cloud or 2D annotation. A bounding box is not a certified clearance envelope. A display mesh is not a fabrication model. Precision and tolerances must be declared, not inferred from pixels.
+
+### 8I-42.5. Equipment spatial representation and maintainability
+
+Equipment placement references stable asset/equipment identity and retains insertion point, orientation, coordinate frame, placement revision, envelope type/source, service/operation/removal/maintenance clearances, access zones, lifting/removal path, transport envelope, nozzle/terminal/cable-entry/shaft/foundation interfaces, weight, centre of gravity, support loads, provenance and installation state.
+
+Clearance checks distinguish mandatory code/owner constraints, manufacturer recommendations, project rules and heuristic warnings. A clash result includes rule/source, geometry revisions, tolerance, severity, uncertainty and disposition. Never label a heuristic overlap a code violation without an applicable verified rule.
+
+### 8I-42.6. Electrical topology versus physical connectivity
+
+The electrical network graph remains authoritative for electrical connectivity. Spatial models may display equipment location, terminals, cable routes and physical interfaces, but geometry touching must not create or delete electrical edges.
+
+Distinguish electrical terminal connection, physical conductor/cable assembly, cable cores and terminations, tray/duct/conduit route, containment/support, wiring-diagram representation and as-installed connection evidence. A physical cable route is not itself electrical topology; an abstract electrical connection may exist before routing is designed. Preserve traceability from terminal to cable/core/termination and installation evidence.
+
+Busbars, overhead lines, underground cables, bus ducts, GIS conductors and internal equipment connections need domain-appropriate physical representations. Do not force every electrical connection into a generic cable segment.
+
+### 8I-42.7. Cable, tray and routing architecture
+
+Model cable as a typed physical assembly with stable identity, service, voltage class, conductor/core structure, material, insulation, screen/armour, length, terminations, route and status. Keep cable schedule, electrical model parameters and physical routing linked but distinct.
+
+Routing networks include tray, ladder, trench, duct, conduit, tunnel, riser, building penetration and direct-buried segments. Routes may need segment geometry, containment capacity, fill/occupancy, bend radius, separation, fire barriers, environment, support spacing and accessibility.
+
+A shortest path is not automatically acceptable. Consider electrical segregation, EMC, fire zones, hazardous areas, heat derating, maintainability, installation sequence and spare capacity. Preliminary cable length is an estimate, not an approved construction quantity.
+
+### 8I-42.8. Instrumentation and signal physical integration
+
+Link field instrument identity to physical location, process connection, instrument loop, signal channel, cable/core, marshalling cabinet, I/O card/channel and consuming Control/Protection function as distinct relationships.
+
+Instrument location, tapping point, impulse tubing, thermowell, sample line, junction box and cable route are not substitutes for measurement semantics. The shared Signal and Measurement Infrastructure from 8I-33 remains authoritative for typed values, units, quality, timestamp, calibration and processing. Spatial routing adds installation/accessibility evidence, not measurement validity.
+
+A physical wiring or channel assignment change triggers impact assessment for affected consumers and Protection/Control elements without indiscriminately invalidating unrelated electrical topology.
+
+### 8I-42.9. Mechanical and process interfaces
+
+Use typed interface contracts for supported mechanical/process scope: shaft/coupling, nozzle, flange, piping tie-in, support, load, rotation direction, speed, torque, fluid/service, pressure, temperature, vibration and package boundary. These are not generic untyped ports.
+
+Mechanical trains and process flow paths are separate graphs from electrical topology. A motor may connect electrically to a bus and mechanically to a driven load; those relationships remain independently traceable. Pump nozzles do not become electrical terminals. Detailed piping stress, fluid dynamics or structural analysis must not be claimed until the corresponding domain solver and validation scope are designed.
+
+### 8I-42.10. Civil, structural and building coordination
+
+Support references to foundations, plinths, anchor bolts, embedded plates, structural steel, supports, trenches, buildings, rooms, platforms, access ways and penetrations. Physical loads and reactions require source, units, load case, combination and approval provenance.
+
+Spatial coordination may identify conflicts among equipment, foundation, steelwork, tray, piping, access route or building opening. Structural adequacy requires discipline-specific calculation and authorized review; clash-free geometry is not proof of structural safety. Geometry-only changes must not silently alter accepted load assumptions or certified calculations.
+
+### 8I-42.11. 2D drawings, 3D models and BIM/CAD interoperability
+
+Treat drawings and federated models as controlled representations with source identity, revision, coordinate reference, discipline, scope, authoring application/version, exchange settings and fidelity metadata.
+
+Potential exchange families:
+- IFC for building/infrastructure BIM exchange, subject to supported schema/view and implementation validation;
+- ISO 10303 STEP for product/engineering geometry and product data;
+- DXF/DWG and other CAD formats, subject to licensing and implementation constraints;
+- BCF for issue/clash communication where supported;
+- discipline-native formats such as electrical SLD/SCL and plant design formats through explicit adapters.
+
+No format becomes the canonical GridForge domain model by default. Import adapters stage, validate, map and report loss before controlled acceptance. Export adapters operate on immutable revision-bound snapshots. Preserve identity, units, coordinate transforms, provenance, topology references and unsupported extension data where feasible. Assign explicit fidelity grades and document dropped, approximated or flattened information.
+
+### 8I-42.12. Model federation and clash detection
+
+Federation composes read-only or controlled references from discipline models. Each source retains its revision and authority. A federation manifest records model identity, revision, coordinate transform, discipline, scope, units, visibility and load status.
+
+Differentiate hard geometric interference, clearance/access violation, maintenance/removal envelope conflict, route capacity/segregation conflict, structural support/foundation conflict, interface mismatch, data/identity inconsistency and schedule/sequence conflict.
+
+A clash is a reviewable issue, not an automatic design mutation. Record source object references and revisions, rule, geometric method, tolerance, severity, responsible discipline, status, resolution proposal, approval and retest. Accepted exceptions require explicit scope and expiry/review conditions.
+
+### 8I-42.13. Revision, change impact and synchronization
+
+Discipline models evolve at different rates. Federation records each source revision and detects stale references. Synchronization is controlled exchange, not silent overwrite or bidirectional last-write-wins merge.
+
+Impact analysis identifies affected electrical equipment/topology, instrument channels, Protection/Control dependencies, cable schedules/routes, mechanical/process interfaces, structural calculations, drawings, asset baselines, studies, reports and commissioning evidence.
+
+A geometry-only move may leave connectivity unchanged but affect cable length, clearance, access, foundation and installation evidence. A terminal change may affect topology, termination, instrument loop and tests. A tag change may affect references/deliverables without changing physical or electrical behavior. Dependency-specific invalidation preserves unaffected evidence.
+
+### 8I-42.14. Installation, construction and field reconciliation
+
+Support design, approved-for-construction, construction, redline, installed and as-built states as separate baselines. Field capture includes actual location/orientation, tag/serial, terminal/connection, cable route, support, foundation, deviations, photographs/document references and survey source.
+
+Observations carry recorder, time, coordinate system, accuracy, survey method and confidence. Mobile/offline capture preserves provenance and synchronizes through conflict-aware change sets. A field markup is proposed evidence, not automatically an approved design change.
+
+Construction progress is not technical acceptance or operational release. Permit-to-work, isolation, lifting authorization and site safety controls remain external authoritative processes unless a separately approved integration is specified.
+
+### 8I-42.15. Digital twin and operational feedback boundary
+
+A coordinated plant model may combine design geometry, asset metadata, measured signals, alarms/events, maintenance records and device readback. This does not automatically constitute a validated digital twin.
+
+Label data by source and temporal meaning: design intent, model prediction, vendor data, field survey, live measurement, historian record, manual observation and inferred state. Show quality, timestamp, latency and missing coverage. Predicted/inferred geometry must not appear as surveyed fact.
+
+Operational feedback may update a separate observed-state projection and create a proposed engineering change. It must not silently rewrite approved design or as-operated baseline. Reconciliation requires authority, evidence and effective-time semantics.
+
+### 8I-42.16. Performance and rendering architecture
+
+Large models require progressive loading, spatial partitioning, level of detail, view-frustum culling, instancing, geometry simplification, bounded caches and asynchronous preparation. UI rendering remains on the UI thread; heavy geometry processing and federation indexing run in controlled workers/services.
+
+Maintain separate geometry for engineering computation, clash analysis, selection and display. Rendering meshes are disposable projections, never canonical engineering data. Selection resolves to stable domain identity, not transient graphics-item IDs.
+
+Support coordinated 2D/3D navigation, discipline filters, visibility sets, section/clipping planes, saved viewpoints and cross-selection. Accessibility and keyboard navigation remain available; clash status cannot rely only on colour or 3D cues.
+
+### 8I-42.17. Plugin and extension boundaries
+
+Centralize discipline extensions under the governed plugin host. Candidate capabilities include discipline model providers, import/export adapters, geometry readers, clash rule packs, symbol libraries, drawing providers and property editors.
+
+Each plugin declares API/schema compatibility, publisher identity, permissions, data access, file/network/process capabilities and resource limits under 8I-39. Plugin output is untrusted until validated by the owning domain/Application contract. Plugins cannot directly mutate electrical topology, Protection state, Control execution state or accepted baselines.
+
+Avoid separate plugin managers per discipline or duplicated event buses, project persistence, identity, transactions and revision services.
+
+### 8I-42.18. Data governance and canonical records
+
+Candidate records: PlantLocation, FunctionalLocationRef, SpatialPlacement, CoordinateReference, TransformRevision, GeometryRepresentation, InterfaceDefinition, PhysicalRoute, CableAssembly, CableCore, Termination, FoundationReference, FederatedModelManifest, ClashFinding and FieldObservation.
+
+Each carries stable identity, schema revision, source/owner domain, effective/recorded time, units/coordinate reference where relevant, provenance, quality, lifecycle status and links to immutable source revisions. Geometry payloads may be stored separately from project JSON through an explicitly governed package/resource scheme, but the frozen V2 persistence baseline remains unchanged until V3 migration is approved.
+
+Package portability, archive safety, integrity, resource limits and external-reference handling follow the concerns in 8I-23 and 8I-39. Avoid silently embedding huge source models or relying on broken external paths.
+
+### 8I-42.19. Candidate standards and exchange references
+
+Candidate references for later clause-level and edition/adoption verification:
+- ISO 19650 series — information management using BIM for buildings and civil engineering works.
+- ISO 16739-1 — Industry Foundation Classes (IFC) data schema.
+- ISO 10303 series — product data representation and exchange (STEP).
+- ISO 12006 series — building construction classification framework.
+- ISO 81346 series — structuring principles and reference designations.
+- IEC 81346-2 — object classification, subject to current edition/adoption verification.
+- IEC 61970/61968 — CIM and utility enterprise integration where applicable.
+- IEC 61850-6 — SCL engineering configuration exchange for power utility automation.
+- IEC 62424 — process control engineering requests in P&ID tools, where applicable.
+- ISO 55000 series — asset management context and lifecycle alignment.
+- Relevant national electrical installation, fire, structural, building, hazardous-area and owner standards according to jurisdiction and project scope.
+
+Candidate map only. No clause-level applicability, current edition, BIS adoption, licensing, conformance or certification has been established. Verify official catalogues and project contract/jurisdiction before implementation.
+
+### 8I-42.20. Proposed acceptance scenarios
+
+Candidate scenarios:
+- UI-ACC-PLANT-01: Maintain stable equipment identity across electrical, spatial, asset and drawing representations.
+- UI-ACC-PLANT-02: Preserve separate functional location and physical asset identity during replacement.
+- UI-ACC-PLANT-03: Reject ambiguous coordinate systems or undeclared unit transformations.
+- UI-ACC-PLANT-04: Transform federated models while retaining source and transform provenance.
+- UI-ACC-PLANT-05: Distinguish equipment envelope, service clearance and removal envelope.
+- UI-ACC-PLANT-06: Report a spatial clash without mutating electrical connectivity.
+- UI-ACC-PLANT-07: Preserve topology when equipment moves without a topology change.
+- UI-ACC-PLANT-08: Require an explicit electrical-domain command for terminal/connectivity changes.
+- UI-ACC-PLANT-09: Link terminals to cable cores/terminations without conflating route geometry and topology.
+- UI-ACC-PLANT-10: Validate route capacity, bend radius and segregation against versioned rules.
+- UI-ACC-PLANT-11: Distinguish preliminary cable length estimate from approved construction quantity.
+- UI-ACC-PLANT-12: Trace field instruments through loop, channel, cable and consuming function.
+- UI-ACC-PLANT-13: Invalidate affected signal consumers after channel/termination change without invalidating unrelated topology.
+- UI-ACC-PLANT-14: Link mechanical shaft/load interfaces to motor assets without treating them as electrical terminals.
+- UI-ACC-PLANT-15: Report foundation/equipment conflict without claiming structural adequacy or failure.
+- UI-ACC-PLANT-16: Import IFC/STEP/CAD through staging, mapping and fidelity reporting.
+- UI-ACC-PLANT-17: Preserve unsupported exchange properties or explicitly report their loss.
+- UI-ACC-PLANT-18: Detect stale source revisions in a federated model.
+- UI-ACC-PLANT-19: Tie a clash finding to exact source object and geometry revisions.
+- UI-ACC-PLANT-20: Resolve and retest a clash while preserving original finding history.
+- UI-ACC-PLANT-21: Reconcile field redlines as proposed changes, not silent baseline mutation.
+- UI-ACC-PLANT-22: Maintain as-designed, as-installed and as-built representations independently.
+- UI-ACC-PLANT-23: Display measured, inferred and predicted plant state with distinct provenance and quality.
+- UI-ACC-PLANT-24: Navigate large federated models without making display geometry authoritative.
+
+### 8I-42.21. Open architectural decisions
+
+1. Define V3 discipline scope and sequence: electrical-first coordination, then instrumentation/cabling, followed by mechanical/process and civil/structural references.
+2. Decide whether GridForge owns native spatial geometry editing or initially consumes federated read-only references.
+3. Select supported coordinate reference systems, transform library and precision policy.
+4. Define identity mapping across equipment, assets, functional locations, IFC GUIDs, drawing IDs and vendor package IDs.
+5. Decide geometry storage/resource packaging without weakening project portability and archive security.
+6. Define initial cable routing and clearance rule scope, source licensing and jurisdiction-specific applicability.
+7. Define clash severity, tolerance, issue ownership, waiver and revalidation policies.
+8. Define BIM/CAD adapter priorities, supported schemas/views, fidelity grades and licensing constraints.
+9. Define which mechanical/process/civil data is authoritative in GridForge versus external systems.
+10. Define spatial-model performance budgets and minimum supported workstation hardware.
+11. Define field survey and mobile/offline reconciliation contracts.
+12. Verify BIS adoptions and project-specific normative requirements before compliance statements.
+
+### 8I-42.22. UI/UX gate impact
+
+Impacts UI-GATE-02 (project/session and model references), UI-GATE-04 (accessibility and multi-view interaction), UI-GATE-05 (large-model rendering performance), UI-GATE-06 (cross-domain identity/traceability) and UI-GATE-07 (scope/priority). UI-GATE-03 remains relevant to clash, import, coordinate and stale-model diagnostics. All gates remain open pending decisions and acceptance evidence.
+
+### 8I-42.23. Frozen V2 invariants and migration boundary
+
+Preserve frozen V2 architecture: Core owns electrical/domain truth; Application owns commands, services and controlled mutation; UI is projection and interaction; plugins use public contracts and Application services; Protection and Control remain separate authorities; the established V2 project package contract remains unchanged.
+
+V3 integration must not introduce geometry or Qt dependencies into electrical Core, make external BIM/CAD models implicit sources of electrical connectivity, permit plugin mutation outside Application or turn rendering objects into persistent domain objects. Package/geometry migration requires explicit V3 approval. This research authorizes no V2 source change.
+
+### 8I-42.24. Research disposition
+
+Research-only proposal. No implementation, tests, CI, benchmarks, runtime validation, standards conformity assessment or certification was performed. V2 main remains unchanged. UI-GATE-02 through UI-GATE-07 remain open. BIS catalogue verification for Protection, Automation and Control remains a separate outstanding task.
