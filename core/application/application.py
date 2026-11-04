@@ -880,6 +880,10 @@ class Application:
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
         )
+        diagnostics.extend(
+            f"project={project.project_id!r}: {message}"
+            for message in captured_configuration_service.validate_measurement_binding_associations(captured_network)
+        )
         for element in runtime.configuration.elements:
             if not element.enabled:
                 continue
@@ -1355,6 +1359,13 @@ class Application:
             raise RuntimeError("Protection runtime retains stale MeasurementChannel objects.")
 
         diagnostics = list(validate_protection_input_contracts(configuration, channels))
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        if configuration_service is None or configuration_service.configuration is not configuration:
+            diagnostics.append("Scenario Protection configuration service does not own the active runtime configuration.")
+        else:
+            diagnostics.extend(
+                configuration_service.validate_measurement_binding_associations(lifecycle.network)
+            )
         samples_by_binding = {item.binding_id: item for item in samples}
         bindings_by_input: dict[tuple[str, str], list[Any]] = {}
         bindings_by_id = {
