@@ -20582,3 +20582,55 @@ Status:
     RUNTIME IMPORT-INTEGRITY VERIFICATION REMAINS PENDING.
 
 ======================================================================
+
+
+================================================================================
+ARCHITECTURE AMENDMENT — 2026-11-03
+================================================================================
+Topic: Shared Signal and Measurement Infrastructure + Heterogeneous Simulation Runtime
+Authority: SubhenduMishra29/GridForge:main
+Decision: APPROVED ARCHITECTURAL DIRECTION; IMPLEMENTATION NOT YET AUDITED
+
+1. Establish one shared Signal and Measurement Infrastructure for physical and
+   virtual instrumentation, acquisition channels, typed measurements, units,
+   timestamps, quality, provenance, processing, routing and subscriptions.
+   Instrument families include CT/PT/CVT, RTD/thermocouple, BTD/OTD/WTD,
+   analog/digital I/O and explicitly supported communication-derived signals.
+2. Protection and Control consume canonical shared signals but retain separate
+   execution and decision ownership. Cross-domain signals are explicit.
+3. Keep protection/control decision, DeviceCommand, output activation, physical
+   or simulated actuation, and DeviceFeedback as separate traceable facts.
+4. Establish one shared Historian for time-series measurements, quality,
+   alarms, protection/control events, commands, feedback, SOE and disturbance
+   records. Preserve physical-vs-simulated source identity and provenance.
+5. Establish hardware-independent equipment physics models and a common
+   Heterogeneous Simulation Runtime:
+   - CPU: universal reference implementation and fallback.
+   - GPU: suitable parallel numerical physics and batch/scenario workloads.
+   - NPU: supported AI inference/predictive analytics only; not safety-critical
+     protection decision execution.
+6. Use explicit simulation time, backend capability selection, numerical
+   tolerance/provenance, bounded memory, deadline diagnostics and safe failure
+   handling. Ordinary desktop execution is not hard real-time.
+7. Virtual instruments and simulated actuators must use the same signal,
+   command, feedback and Historian contracts as physical sources/devices.
+8. First reference integration: Motor Dynamics plugin, demonstrating the full
+   closed loop: equipment physics -> virtual instruments -> signal acquisition
+   and routing -> Protection/Control -> simulated actuator -> feedback ->
+   Historian.
+9. This is additive. Preserve frozen Core/Application/UI/SLD/Protection/
+   Control/plugin boundaries. Reconcile existing contracts before creating
+   duplicate classes, services or managers. Do not claim implementation,
+   runtime verification or numerical validation from this architecture record.
+
+Canonical detail:
+docs/architecture/SIGNAL_INFRASTRUCTURE_AND_HETEROGENEOUS_SIMULATION_AMENDMENT_2026-11-03.md
+
+Reconciliation matrix:
+audit/ARCHITECTURE_RECONCILIATION_MATRIX.md (2026-11-03 section)
+
+Workflow:
+FETCH -> AUDIT -> RECONCILE -> CORRECT -> CHECK -> FREEZE
+
+Documentation-only update. No tests/CI, syntax/import checks, runtime
+simulation or numerical validation were performed.
