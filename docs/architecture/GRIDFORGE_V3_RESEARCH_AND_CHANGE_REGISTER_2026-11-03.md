@@ -10827,3 +10827,277 @@ No V2 source, project archive schema, runtime behavior or implementation branch 
 ### 8I-44.33. Research disposition
 
 Research-only proposal based on Blender's published interface guidance, Qt 6.12 main-window/docking documentation and existing GridForge issue records/prior V3 UI/UX contracts. Issue descriptions with static source findings are recorded as such; runtime symptoms were not reproduced in this work. No implementation, tests, CI, benchmarks, user study, accessibility conformance evaluation or runtime validation was performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A fresh file-by-file audit requires a designated V3 implementation ref; V2 main may be inspected only as frozen reference evidence.
+
+
+## 8I-45. V2 UI source-reference audit: application shell, workspace areas, editor hosting and lifecycle
+
+**Audit class:** Frozen V2 reference audit; not a V3 implementation audit.  
+**Scope:** MainWindow, composition root, workspace contracts/realizer, editor host, editor-surface adapter, SLD editor, panel host and CanvasComposition lifecycle.  
+**Repository/ref:** SubhenduMishra29/GridForge, main.  
+**Method:** Static file-by-file source inspection plus reconciliation against existing UI issue records and Qt 6 official documentation. No runtime reproduction was performed.
+
+### 8I-45.1. Audit boundary and evidence labels
+
+This audit deliberately inspects V2 main as frozen reference evidence. The research branch remains a specification register; no V3 implementation ref has been designated. Findings below must not be represented as V3 defects or runtime-confirmed behavior.
+
+Evidence labels:
+- **Source-confirmed:** directly visible in the inspected source structure or implementation.
+- **Issue-reported:** present in a GitHub issue description; not independently reproduced unless separately marked source-confirmed.
+- **Recommendation:** proposed V3 architecture or correction direction.
+- **Unverified:** requires runtime, user-task, performance or accessibility evidence.
+
+Inspected source files and blob identities:
+- main.py — d71671a2ae38f4afd070351841694000132a2595
+- ui/main_window.py — 1f3a4242117bb396f82fcf2751ccb30dc07c8dc0
+- ui/workspace/workspace_controller.py — 91518c5ce889a5b1409e100124a2e97394d19a40
+- ui/workspace/workspace_realizer.py — 621546310df7a16d3799f3ccf03a6377fce7d68c
+- ui/workspace/workspace_layout.py — 23b10231cee4b60bd2d2801d35da709e9a31e784
+- ui/workspace/workspace_definition.py — ea7e56bca6ca3ff4d66cc34ed728947079199388
+- ui/workspace/workspace_defaults.py — 5eaaca1e5b48982d0de9ef0ca40dd0981d71c9da
+- ui/workspace/area.py — d89d1214336213afc0f684aeddfc2b215f0ff458
+- ui/workspace/editor.py — e665924b73ef35155e3e70be3d90c3ca040ac326
+- ui/workspace/region.py — 6b6c5c548a74dca759d31ef98034b25ee726baed
+- ui/editors/common/editor_host.py — 118ab48f7d46333f652497b58cb2c11940702320
+- ui/control/control_surface_host.py — 59064b4c2aad51cf8d09de503aa8e23e19efcade
+- ui/editors/sld/sld_editor.py — fa243c6fd03c5a4c24b522ee76f9f26d782f6c66
+- ui/plugins/panels_plugin.py — e4d0751a848ae0f68c6f92d88aca087e3aa487ce
+- ui/plugins/shell_plugin.py — dd27db099b7dc3971ef2185d3222af0215d7c63c
+- ui/canvas/canvas_composition.py — d3494a5d25d6e0b6d6aac587cfa5dfc061338412
+- ui/core/tool_manager.py — bd91fbb2d422550644b3f5f8d19abf9d9e5f2a57
+- ui/core/qt.py — inspected through main import/export surface; full Qt adapter audit remains separate.
+
+### 8I-45.2. Finding UI-SRC-01 — MainWindow boundary is comparatively clean
+
+**Source-confirmed.** MainWindow is a mechanical QMainWindow host. It receives a pre-composed central surface, Controller and plugin registry. Its methods expose dock add/remove/visibility/floating/tabification/resize operations. It does not construct workspaces or own WorkspaceManager, WorkspaceController or WorkspaceRealizer. Its close handler delegates dirty-project transition approval and fails closed if no handler is installed.
+
+**Assessment:** Preserve this boundary. Do not move editor/workspace policy into MainWindow. V3 may extend the host with shell-level menu, toolbar, status and dock services, but should continue to delegate logical workspace and editor-area policy.
+
+### 8I-45.3. Finding UI-SRC-02 — Logical area contracts are immutable but do not define an area tree
+
+**Source-confirmed.** WorkspaceDefinition contains an ordered tuple of AreaDefinition objects. WorkspaceLayout also contains an ordered tuple of areas. AreaDefinition points to one EditorDefinition; EditorDefinition contains ordered RegionDefinition objects. These are Qt-independent value contracts and provide a sound logical separation.
+
+The inspected contracts do not define:
+- nested horizontal/vertical split nodes;
+- tab groups or tab ordering;
+- relative split proportions and minimum viable area sizes;
+- an independent editor-instance identity for each occurrence of an editor type;
+- per-area active document, selection, tool, viewport and local context;
+- detachable editor-window ownership and restoration;
+- constraints for joining, closing or replacing an area.
+
+All four default V2 workspaces define a single main area. This is a valid single-editor preset, but does not exercise multi-editor composition.
+
+**Assessment:** The contracts are a useful starting point, not a complete Blender-like workspace model. Do not overload RegionDefinition to represent editor-area splits: regions are internal parts of one editor, whereas areas are independently hosted editor instances.
+
+### 8I-45.4. Finding UI-SRC-03 — The current editor host can display only one editor widget at a time
+
+**Source-confirmed.** EngineeringEditorHost stores registered editor widgets and mounts them in one QStackedWidget. Its activate method selects one current widget and installs one active area, region and EditorContext. Its deactivate method clears active identifiers/context but leaves registered widgets in the stack.
+
+WorkspaceRealizer iterates visible areas and invokes editor_host.activate for each visible main area. With multiple main areas, the same single-active stack is repeatedly switched; it cannot display all those editors simultaneously. The current one-area defaults avoid this limitation.
+
+Qt documentation explicitly defines QStackedWidget as a stack in which only one widget is visible at a time. This is therefore a direct consequence of the chosen host primitive, not an inference from UI appearance.
+
+**Assessment:** This is the primary structural gap for the requested Blender-like split-editor workflow. Adding more AreaDefinition records alone will not provide simultaneous editors.
+
+### 8I-45.5. Finding UI-SRC-04 — ControlSurfaceHost is a compatibility facade with centralized editor-type wiring
+
+**Source-confirmed.** ControlSurfaceHost wraps EngineeringEditorHost and registers SLD, Control, Protection and Study editors, plus compatibility views. It constructs one ToolShelf per editor type and maps editor types to tool activators and active-tool providers. It also exposes contextual region widgets, SLD document lifecycle and editor-context refresh methods.
+
+**Assessment:** Preserve its useful centralized registration intent, but avoid making the facade the long-term owner of all editor composition. V3 should use a formal EditorFactory/EditorRegistry and per-instance EditorHost contract. Editor type registration and editor instance creation must be distinct: two SLD views must be possible without duplicating the SLD domain service or creating ambiguous tool/selection authority.
+
+### 8I-45.6. Finding UI-SRC-05 — MainWindow docking and editor-area composition are separate mechanisms
+
+**Source-confirmed.** MainWindow exposes QDockWidget host operations. PanelsPlugin creates and owns panel widgets and docks. WorkspaceRealizer retains a legacy DockBinding compatibility API, explicitly separated from WorkspaceDefinition and WorkspaceLayout. Meanwhile, EngineeringEditorHost uses a central QStackedWidget for editor switching.
+
+Qt QMainWindow is designed to host a central widget plus toolbars and dock widgets; Qt supports dock splitting/tabification and saveState/restoreState. QSplitter supports user-resizable child regions and save/restore of splitter state. These mechanisms solve related but different layout problems.
+
+**Recommendation:** Adopt a hybrid:
+1. QMainWindow owns the application shell: menus, global toolbars, global status and utility docks.
+2. A dedicated central EditorAreaHost owns the Blender-like editor-area tree.
+3. Each area leaf owns one editor instance; split nodes use QSplitter; tab groups use QTabWidget or a controlled tab-stack abstraction.
+4. Each editor instance realizes its own internal regions through its domain editor layout.
+5. Utility panels may dock or float independently; they are not substitutes for editor areas.
+6. A panel may be pinned, tabbed or detached without changing its domain identity or command authority.
+
+Do not implement every editor as a QDockWidget. That would conflate the semantics of editor areas and utility panels and make central-area layout depend on the global dock system.
+
+### 8I-45.7. Finding UI-SRC-06 — WorkspaceRealizer currently activates a main editor rather than realizing a simultaneous area graph
+
+**Source-confirmed.** The realizer validates a visible main area, chooses a visible canvas region (or first visible region), creates context and activates the editor host. It can focus areas/regions and request area maximization, but the inspected WorkspaceLayout does not provide a split/tab tree for the realizer to construct.
+
+**Recommendation:** Replace the single activation pass with a transactional area-tree realization boundary. The realizer should:
+- validate the complete candidate tree before touching the visible layout;
+- resolve each leaf to an editor instance and region configuration;
+- build/reuse the widget tree;
+- apply sizing and tab state;
+- preserve the previous realized tree until the candidate is successfully mounted;
+- atomically publish the new layout/context;
+- restore the previous tree on failure;
+- expose stable area IDs for focus, drag/drop, command context and persistence.
+
+### 8I-45.8. Finding UI-SRC-07 — Editor activation context is singular and requires per-area context isolation
+
+**Source-confirmed.** EngineeringEditorHost retains one active editor ID, one active area, one active region and one EditorContext. ControlSurfaceHost updates this singular context and refreshes tool shelves from the active editor.
+
+**Recommendation:** V3 needs an EditorInstanceContext per area instance, with explicit active-window and focused-area pointers. It must distinguish:
+- project context;
+- document context;
+- editor-instance context;
+- focused region and keyboard scope;
+- local selection/browse context;
+- shared or linked selection groups;
+- active tool and tool settings;
+- viewport and presentation state;
+- pinned Inspector target.
+
+Selection synchronization must be policy-driven. A Protection editor and an SLD editor may display related objects, but must not accidentally share one mutable selection authority or cross-domain tool state. A pinned Inspector must not silently follow another area.
+
+### 8I-45.9. Finding UI-SRC-08 — Editor lifecycle lacks explicit deactivate/reset/dispose distinctions
+
+**Source-confirmed.** EngineeringEditorHost.deactivate clears current context identifiers but does not call an editor lifecycle method or remove the editor from the stack. WorkspaceController deactivation delegates to WorkspaceRealizer.clear_realization, which calls host deactivation. CanvasComposition exposes its widget but has no aggregate clear/dispose operation in the inspected source. Individual canvas services expose their own cleanup operations.
+
+**Issue-reported and source-correlated:** #991 describes the missing aggregate CanvasComposition teardown and the editor-host deactivation path. The inspected methods confirm the relevant structural gap; they do not prove that every project transition leaks resources at runtime.
+
+**Recommendation:** Define separate idempotent lifecycle operations:
+- activate(context);
+- deactivate_context(reason);
+- reset_for_document(document_context);
+- clear_project_state(project_id);
+- suspend/resume for hidden tabs or background editors;
+- dispose() for permanent editor removal.
+
+A lifecycle owner must declare which services are shared and which are editor-instance/document scoped. Teardown must stop input dispatch, cancel previews/transient gestures, detach observers, clear document-scoped projections and registrations, then release instance-owned resources. Shared Application, Controller and domain services must not be destroyed by an editor close.
+
+### 8I-45.10. Finding UI-SRC-09 — Composition root is the principal integration bottleneck
+
+**Source-confirmed.** main.py contains a 1,419-line composition implementation. _build_application_impl constructs the Application, plugin host, SLD projection/rendering, canvas composition, tools, Control/Protection/Study surfaces, editor surface host, plugin manager, panel bridge, MainWindow, workspace realizer/controller and lifecycle. It also defines many project, selection, editing, action, status, diagnostic and transition callbacks as nested functions.
+
+**Assessment:** A composition root necessarily wires dependencies. The issue is not its existence or line count alone; it is the concentration of unrelated workflow behavior and domain-specific UI callbacks in the same function. This makes adding a new editor, panel or lifecycle path likely to require edits across a large function and increases the risk of hidden ordering dependencies.
+
+**Recommendation:** Decompose V3 presentation composition into explicit bounded builders:
+- Application bootstrap and shared-service assembly;
+- editor registry and editor-instance factories;
+- workspace/area host assembly;
+- panel and Inspector composition;
+- action/command presentation registration;
+- project/document lifecycle integration;
+- diagnostics/status integration;
+- plugin contribution activation;
+- shutdown/lifecycle registry.
+
+Each builder receives explicit dependencies and returns a typed composition result with ownership and teardown. Keep one top-level composition root; do not replace it with a second service locator, event bus, plugin manager or duplicate command router.
+
+### 8I-45.11. Finding UI-SRC-10 — SLD editor already has useful contextual region primitives
+
+**Source-confirmed.** SLDEditor composes header, document tabs, tool shelf, tool settings, canvas, explorer, Inspector, overlay, diagnostics and status regions. It uses nested QSplitters, region frames and explicit visibility controls. This demonstrates a viable internal-editor region pattern.
+
+**Assessment:** Reuse the pattern as an editor-local layout implementation, not as the global workspace-area system. Avoid hard-coding all editors to identical regions; Control, Protection, Signals and Studies need domain-specific region sets and semantics.
+
+### 8I-45.12. Finding UI-SRC-11 — Panels and shell have explicit ownership boundaries worth retaining
+
+**Source-confirmed.** PanelsPlugin owns panel widgets/docks and receives its context from the plugin composition. ShellPlugin assembles already-created widgets into the central root and explicitly avoids plugin discovery, manager ownership, editor/tool construction and domain state.
+
+**Assessment:** Preserve the ownership split. V3 should improve contribution contracts and layout integration rather than merge panel ownership, shell composition, workspace policy and plugin lifecycle into one global class.
+
+### 8I-45.13. Finding UI-SRC-12 — Existing issue evidence maps to bounded UI correction packages
+
+| Issue | Evidence/disposition from this audit | Required package |
+|---|---|---|
+| #989 | Existing static source finding remains supported by the issue description; selector/zoom binding needs a focused source correction audit | Canonical interaction-state binding |
+| #991 | Core lifecycle concern is corroborated by inspected host/composition structure | Aggregate editor/canvas lifecycle |
+| #992 | Inspector metadata completeness is a separate open concern; not fully audited in this section | Typed parameter/constraint Inspector |
+| #1003 | Relay configuration projection/workflow is separate and remains open | Protection Inspector and configuration projection |
+| #1004 | Protection projection refresh is separate and remains open | Event-driven Protection read-model refresh |
+| #1032 | Issue describes component capability drift across Core, persistence, palette, canvas and Inspector; not fully re-audited here | Canonical Control component capability contract |
+| #1037 | Issue describes missing unit/signal semantic compatibility and dropped metadata; not fully re-audited here | Core-owned typed Control port compatibility |
+| #815 | User-reported one-shot placement friction | Explicit repeat/sticky/chained tool policy |
+| #817 | User-reported routing overlap and near-miss connection ambiguity | Geometry-aware routing and connectivity diagnostics |
+| #763, #886 | Performance/concurrency symptoms are issue-reported only | Instrumented rendering/update pipeline audit |
+
+Do not close these issues merely because a V3 architecture proposal exists. Issue state changes require an implementation or a documented decision that the issue is obsolete/duplicate/out of scope, with provenance.
+
+### 8I-45.14. Proposed V3 target architecture
+
+Use the following hierarchy:
+
+1. Application Shell
+   - MainWindow, menu/action presentation, global search, workspace selector, global status, utility dock host.
+2. Workspace Profile
+   - named task-oriented workspace, role/task defaults, visibility policy and user-owned layout profile.
+3. Editor Area Tree
+   - split nodes, tab groups and editor-instance leaves; stable IDs and explicit proportions.
+4. Editor Instance
+   - domain editor type, document/project context, local selection/browse state, active tool, viewport state and lifecycle.
+5. Editor Regions
+   - domain-specific header, tool shelf, tool settings, canvas/view, Inspector/sidebar, diagnostics, timeline and status.
+6. Domain Read Models and Application Commands
+   - canonical data, validation, authorization, controlled mutation and event/projection flow.
+
+The editor-area tree is presentation configuration, never electrical topology or canonical project model. Store user layouts in user/workspace settings with schema version and migration. Project files may reference an approved shared workspace profile but must not absorb private panel geometry or machine-specific window positions.
+
+### 8I-45.15. V3 implementation package sequence
+
+Do not begin by implementing drag-and-drop splitting. Establish ownership and contracts first.
+
+- **UI-V3-AREA-01 — Editor instance and lifecycle contract:** stable EditorInstanceId; activation/deactivation/reset/disposal; scoped context and service ownership.
+- **UI-V3-AREA-02 — Area tree schema:** SplitNode, TabGroupNode and EditorLeaf; validation, serialization, versioning, migration and recovery.
+- **UI-V3-AREA-03 — Area tree realizer:** transactional realization using QSplitter and tab groups; rollback and stable identity.
+- **UI-V3-AREA-04 — Focus and context routing:** active window/area/region, shortcut precedence, local selection, linked selection and pinned Inspector.
+- **UI-V3-AREA-05 — Panel/dock integration:** stable panel IDs, dock/float/tab policy, restoreState boundary and missing-plugin recovery.
+- **UI-V3-AREA-06 — Composition root decomposition:** explicit builders, typed composition results, ownership registry and deterministic teardown.
+- **UI-V3-AREA-07 — Workspace persistence:** user-owned profile, safe versioned restore, multi-monitor recovery and separation from .gridforge project data.
+- **UI-V3-AREA-08 — Editor contributions:** public editor factory/descriptor contracts and plugin compatibility/lifecycle.
+- **UI-V3-AREA-09 — Domain editor parity:** SLD, Control, Protection, Signals and Studies retain independent semantic contracts while sharing shell conventions.
+- **UI-V3-AREA-10 — User workflow validation:** representative electrical, protection, control, study and commissioning journeys before broad implementation.
+
+No package may introduce Qt into Core, duplicate Application services, duplicate command/event/plugin managers, persist QGraphicsScene state, or make a visual connection authoritative engineering topology.
+
+### 8I-45.16. Candidate acceptance scenarios
+
+- UI-ACC-AREA-01: Open one workspace with two simultaneous editor areas and verify both remain visible and independently interactive.
+- UI-ACC-AREA-02: Split an area horizontally and vertically, resize it and preserve stable area identities.
+- UI-ACC-AREA-03: Tabify editors within one area and restore the selected tab.
+- UI-ACC-AREA-04: Move an editor tab to another area without duplicating its domain authority.
+- UI-ACC-AREA-05: Close one editor instance while retaining other editor instances and shared Application services.
+- UI-ACC-AREA-06: Reopen an editor and restore its permitted document/view state without restoring stale transient gestures.
+- UI-ACC-AREA-07: Activate/deactivate a project and clear project-scoped projections while retaining reusable editor infrastructure.
+- UI-ACC-AREA-08: Permanently remove an editor and verify all instance-owned subscriptions, callbacks and graphics resources are released.
+- UI-ACC-AREA-09: Fail an area-tree realization and restore the previous visible layout and context.
+- UI-ACC-AREA-10: Change focus between areas and route keyboard shortcuts only to the correct focused context.
+- UI-ACC-AREA-11: Keep local tool state independent across two instances of the same editor type.
+- UI-ACC-AREA-12: Pin an Inspector to one object while browsing a different object in another area.
+- UI-ACC-AREA-13: Link selection across explicitly configured areas without merging domain selection authorities.
+- UI-ACC-AREA-14: Dock, float, tabify, hide and restore a utility panel independently of editor-area layout.
+- UI-ACC-AREA-15: Restore a valid user layout after restart and recover safely from an unavailable editor/plugin.
+- UI-ACC-AREA-16: Move a detached editor between monitors and recover after monitor removal or resolution change.
+- UI-ACC-AREA-17: Add an editor through a plugin contract without creating duplicate tool, selection, command or event managers.
+- UI-ACC-AREA-18: Confirm that workspace layout changes never mutate project electrical topology or project revision.
+- UI-ACC-AREA-19: Verify each visible editor control is bound to a canonical command or state source and exposes disabled reasons.
+- UI-ACC-AREA-20: Verify editor-area, panel and document lifecycle operations produce typed diagnostics when cleanup or restoration fails.
+
+### 8I-45.17. Qt and interface research references
+
+- Qt 6.12 QMainWindow: https://doc.qt.io/qt-6/qmainwindow.html — central widget, toolbars, dock widgets, dock split/tab operations and versioned window-state persistence.
+- Qt 6.12 QSplitter: https://doc.qt.io/qt-6/qsplitter.html — resizable child widgets and splitter-state persistence.
+- Qt 6.11 QStackedWidget: https://doc.qt.io/qt-6/qstackedwidget.html — only one stacked page is visible at a time; this confirms the single-active-editor limitation.
+- Qt 6.12 QDockWidget: https://doc.qt.io/qt-6/qdockwidget.html — dockable/floating helper-panel primitive.
+- Blender interface paradigms: https://developer.blender.org/docs/features/interface/human_interface_guidelines/paradigms/
+- Blender editor guidelines: https://developer.blender.org/docs/features/interface/human_interface_guidelines/editors/
+
+Qt warns that QMainWindow.restoreState and QSplitter.restoreState deserialize layout state and should only receive state produced by the same or a compatible application version, not untrusted or arbitrary network/shared data. V3 layout restoration must therefore validate provenance/version and fall back safely.
+
+### 8I-45.18. Audit disposition and remaining scope
+
+This section completes only the first source-audit tranche: application shell, composition root, workspace contracts, editor hosting, panel/dock ownership and canvas lifecycle. It does not complete the full UI audit.
+
+Still required:
+- inspect every editor implementation and region composition;
+- inspect ToolShelf, tool settings, icon resolution, repeat/sticky lifecycle and keymap routing;
+- inspect Inspector/property schemas and selection/browse/pin behavior;
+- inspect menu/action catalog, command search, context menus and disabled-state explanations;
+- inspect project explorer/Outliner, diagnostics, status and notification presentation;
+- inspect workspace and dock persistence, restoration and migration;
+- inspect accessibility, DPI, multi-monitor and keyboard navigation;
+- reconcile all open UI issues against the designated implementation ref once V3 source exists.
+
+**Disposition:** Research/reference audit only. No production source changed. No implementation, tests, CI, benchmarks, runtime validation or user study performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A designated V3 implementation ref is still required before any finding can be promoted to a V3 implementation defect.
