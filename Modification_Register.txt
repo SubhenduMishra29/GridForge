@@ -21383,3 +21383,62 @@ Verification boundary:
   and persistence compatibility contract.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-151 — DIFFERENTIAL SCHEME OWNER AND LEGACY MIGRATION CONTRACT
+======================================================================
+
+Audit finding:
+- DifferentialProtectionSchemeConfiguration persists scheme identity,
+  protected-object identity, measurement binding IDs, current directions,
+  phase compensation, settings and metadata, but no owning
+  protection_element_id.
+- ProtectionMeasurementBinding already persists an explicit
+  protection_element_id for each member binding.
+- ProtectionProjectConfiguration.add_differential_scheme() and
+  replace_differential_scheme() verify binding existence and current
+  measurement type, but do not require all member bindings to belong to
+  one Protection element. A scheme can therefore span multiple elements.
+- ProtectionConfigurationService.create_differential_scheme() validates
+  protected-object identity/type but does not establish a unique Protection
+  element owner. Update has the same gap.
+- Schemes are persisted in project.json under protection.differential_schemes.
+  Project package schema is 4. ProjectPersistenceMigration currently has
+  schema steps 1->2, 2->3 and 3->4 only; no 4->5 migration or separate
+  Protection configuration schema exists.
+- ProjectPersistenceService migrates the raw project before restoring
+  ProtectionProjectConfiguration.from_dict(), making the persistence
+  migration pipeline the correct compatibility boundary.
+
+Required migration contract:
+- A legacy scheme owner may be populated only when every referenced
+  ProtectionMeasurementBinding exists and every explicit
+  protection_element_id is identical.
+- Missing bindings, mixed owners, malformed membership or absent owner
+  evidence must fail closed with a migration error. Never choose an owner
+  from binding order, relay name, scheme name or protected-object identity.
+- New and updated schemes must enforce the same single-owner invariant in
+  the aggregate and Application service boundary.
+- Runtime composition must bind the scheme to that exact Protection element;
+  owner persistence alone does not make the numerical kernel executable.
+
+Scope boundary:
+- The standalone differential kernel remains pure and non-actuating.
+- No owner field, project schema bump, migration or runtime bridge is added
+  by this audit-only entry. Implementation requires coordinated changes to
+  project schema migration, ProtectionProjectConfiguration, Application
+  command validation, runtime composition, canonical decision provenance
+  and action authorization.
+- CT topology association identity/rebind and per-element stale-decision
+  isolation remain separate open items under #1070/GF-AUD-148/GF-AUD-145.
+
+Verification boundary:
+- Inspected project configuration serialization/restoration, differential
+  scheme aggregate CRUD, Application differential scheme create/update,
+  ProtectionMeasurementBinding persistence, ProjectPersistenceService
+  load/save and ProjectPersistenceMigration schema registry.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+
+======================================================================
