@@ -66,6 +66,7 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .protection_dependency import build_protection_dependency_registry
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -1078,6 +1079,85 @@ class Application:
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
 
+        # Capture the exact dependency identities that produced this cycle.
+        # Incomplete element descriptors remain non-dispatchable; they do not
+        # authorize a project-wide fallback to guessed ownership.
+        captured_dependency_registry = build_protection_dependency_registry(
+            captured_network,
+            runtime.configuration,
+            channels,
+            activation_generation=captured_generation,
+            runtime_channels=runtime.channels,
+        )
+
+        def ensure_current_protection_decision_dependency(decision: Any) -> None:
+            """Require one decision's complete dependency token to remain unchanged."""
+            if captured_dependency_registry.diagnostics:
+                raise StaleProtectionExecutionError(
+                    "Protection dependency registry contains duplicate or unclassifiable binding identities."
+                )
+            try:
+                captured_descriptor = captured_dependency_registry.descriptor_for(
+                    str(decision.element_id)
+                )
+            except KeyError as exc:
+                raise StaleProtectionExecutionError(
+                    f"No captured dependency descriptor exists for element {decision.element_id!r}."
+                ) from exc
+            if not captured_descriptor.complete:
+                raise StaleProtectionExecutionError(
+                    "; ".join(captured_descriptor.diagnostics)
+                    or "Captured element dependency descriptor is incomplete."
+                )
+            current_lifecycle = self.project_lifecycle
+            current_project = current_lifecycle.context
+            current_runtime = getattr(self, "protection_runtime", None)
+            current_configuration_service = getattr(self, "protection_configuration_service", None)
+            current_channel_service = self.measurement_channel_service
+            if (
+                current_lifecycle.state != "ACTIVE"
+                or current_project is None
+                or current_project.project_id != captured_dependency_registry.project_id
+                or current_lifecycle.activation_generation != captured_dependency_registry.activation_generation
+                or current_runtime is None
+                or current_runtime.network is not captured_network
+                or current_runtime.configuration is not captured_configuration
+                or current_configuration_service is not captured_configuration_service
+                or current_configuration_service.configuration is not captured_configuration
+                or current_channel_service is not captured_channel_service
+                or current_channel_service.network is not captured_network
+            ):
+                raise StaleProtectionExecutionError(
+                    "Active project, runtime, configuration, channel registry or activation generation changed."
+                )
+            current_registry = build_protection_dependency_registry(
+                captured_network,
+                current_configuration_service.configuration,
+                current_channel_service.channels,
+                activation_generation=current_lifecycle.activation_generation,
+                runtime_channels=current_runtime.channels,
+            )
+            if current_registry.diagnostics:
+                raise StaleProtectionExecutionError(
+                    "Current Protection dependency registry contains duplicate or unclassifiable binding identities."
+                )
+            try:
+                current_descriptor = current_registry.descriptor_for(
+                    str(decision.element_id)
+                )
+            except KeyError as exc:
+                raise StaleProtectionExecutionError(
+                    f"Current dependency descriptor is unavailable for element {decision.element_id!r}."
+                ) from exc
+            if (
+                not current_descriptor.complete
+                or current_descriptor.fingerprint != captured_descriptor.fingerprint
+            ):
+                raise StaleProtectionExecutionError(
+                    "; ".join(current_descriptor.diagnostics)
+                    or f"Protection dependencies changed for element {decision.element_id!r}."
+                )
+
         context_metadata = dict(evaluation_metadata or {})
         context_metadata.update({
             "project_id": project.project_id,
@@ -1270,6 +1350,7 @@ class Application:
             self.control_execution.dispatcher,
             action_resolver=resolve_explicit_protection_action,
             pre_dispatch_guard=ensure_current_protection_dispatch_provenance,
+            decision_guard=ensure_current_protection_decision_dependency,
             state_observer=observe_protection_command_state,
         )
         return execution.execute(decisions)
