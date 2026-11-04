@@ -771,3 +771,133 @@ The CERC current-regulations register identifies the Indian Electricity Grid Cod
 - BIS current catalogue landing page — https://standards.bis.gov.in/
 
 **Verification limits:** The BIS indexed results and official publication sources were inspected. Individual current standard records were not all opened; exact amendment/reaffirmation/withdrawal status for every listed part remains to be checked before any compliance determination. BIS's 2023 publication and 2025 compendium are official discovery evidence but are not a live, exhaustive catalogue export. No current IS adoption was established for IEC 61850, IEC 61131-3:2025 or IEC 62682 in this pass; this is “not verified”, not proof of non-adoption. No licensed normative text was reviewed and no clause-level compliance assessment was performed. No V2 source, tests, CI or implementation were changed.
+
+
+## 8I. GridForge UI/UX architecture and engineering-workflow research — first detailed pass (2026-11-04)
+
+**Objective:** Establish a source-backed UI research baseline for GridForge V3. This is not authorization to redesign or modify V2. The audit distinguishes documented architecture, source-observed implementation, runtime/visual behavior not yet verified, and proposed V3 usability requirements.
+
+**Scope inspected:** ui/README.md, ui/main_window.py, ui/bootstrap/presentation_bootstrap.py, ui/workspace, ui/editors/common, SLD/Control/Protection editor and workspace modules, canvas/navigation modules, tool shelf/icon adapter, panels, style tokens/theme/stylesheet/style manager, and the September 2026 UI architecture/audit documents.
+
+### A. Human-centred design and interaction standards baseline
+
+- **ISO 9241-210:2019** — human-centred design throughout the lifecycle of interactive systems. ISO records the 2019 edition as current after review/confirmation in 2025. Use it to structure context-of-use research, user requirements, iterative design solutions and evaluation; it is not a ready-made engineering CAD UI specification.
+- **ISO 9241-110:2020** — interaction principles. ISO records the edition as current after review/confirmation in 2025. Apply suitability for the task, self-descriptiveness, conformity with user expectations, suitability for learning, controllability, error tolerance and suitability for individualization.
+- **ISO 9241-115:2024** — conceptual design, user-system interaction design, UI design and navigation design. It is relevant to GridForge's multi-editor workspace and cross-discipline navigation.
+- **ISO 25065:2019** — Common Industry Format for usability user-requirements specification. Use it to turn vague preferences into traceable user/task/interaction requirements.
+- **ISA-101.01-2015 and ISA-TR101.01-2022 / ISA-TR101.02-2019** — process-automation HMI lifecycle, HMI philosophy, usability and performance. Relevant to Control-room/plant-operation views, alarm/status presentation and operational modes, but not indiscriminately to every engineering design editor.
+- **ISA-18.2 / ISA-18 series** — alarm lifecycle, prioritization, rationalization and performance monitoring. Relevant to alarm-management surfaces, not a substitute for engineering validation/diagnostic UX.
+- **WCAG 2.2** — accessibility reference for perceivable, operable, understandable and robust interaction. Its web-content scope requires careful translation for native Qt desktop controls; use equivalent accessibility outcomes and Qt platform support rather than claim automatic WCAG conformance.
+- **NIST human-centred design guidance** summarizes the ISO HCD cycle and interaction principles and supports task/context research and iterative evaluation rather than visual preference alone.
+
+### B. Engineering-software comparative research
+
+- **KiCad 10 documentation** provides useful EDA conventions: project-centred work, multiple integrated editors, customizable toolbars, selection windows, explicit active-tool indication and keyboard-driven interaction. Its schematic and PCB editing semantics are analogies, not direct electrical power-system requirements.
+- **Altium Designer documentation (updated 2026-11-02)** describes a design-space/panel/menu/active-bar structure and a consistent placement flow: select placement command, preview/place, edit properties, terminate placement, then inspect/edit selected objects. This provides a benchmark for predictable tool state and contextual property editing.
+- **Horizon EDA** describes a unified interactive manipulator with explicit tools and a property editor for low-complexity changes. This supports evaluating whether GridForge's placement, connection, selection and property-editing flows have a coherent interaction vocabulary.
+- CAD usability research highlights consistency, visibility, feedback, recoverability, workspace maximization, direct manipulation, familiarity, customizability, assistance, minimalist design and context recognition. Treat these as candidate inspection heuristics, not normative requirements.
+
+**Design principle:** borrow proven interaction conventions, not another product's architecture or domain semantics. GridForge's domain workflows (SLD, protection coordination, Control logic, study setup) must drive interaction design.
+
+### C. Repository architecture and implementation observations
+
+**C1. Main shell and workspace composition**
+- ui/main_window.py deliberately remains a mechanical Qt host. It does not own workspace orchestration or Application/Core state.
+- ui/workspace/README.md defines WorkspaceManager → WorkspaceDefinition/Layout → Area → Editor → Region → EditorContext → discipline tools.
+- ui/editors/common/editor_host.py realizes editor widgets through a shared host; ui/workspace/workspace_realizer.py realizes the logical workspace.
+- ui/workspace/workspace_defaults.py defines four workspaces: SLD, Control, Protection and Study.
+- The SLD default region definition hides Explorer, Inspector and Diagnostics initially; ui/editors/sld/sld_editor.py provides header toggles for Explorer, Inspector and Messages and a Restore control.
+- SLD uses a compact 44/52 px tool-shelf region. The generic editor region definition specifies a wider 180/250 px tool shelf. This may be intentional discipline-specific density, but workspace sizing and panel discoverability need usability evaluation.
+- The SLD workspace is not simply missing panels; the question is whether hidden-by-default regions are discoverable and whether new-project first-use gives enough context.
+
+**C2. Editor consistency and canvas interaction**
+- SLD editor is composed from explicit regions and uses the canonical canvas surface/GraphicsView path.
+- ui/canvas/graphics_view.py is a thin injected viewport; it uses shared NavigationController and InteractionManager contracts.
+- ui/control/control_workspace.py contains a dedicated _LadderView(QGraphicsView) and its own mouse event path; it calls fitInView on show and uses ScrollHandDrag.
+- ui/protection/protection_workspace.py contains a dedicated ProtectionGraphicsSurface(QGraphicsView) and its own scene/refresh/rendering logic; fit-to-content is implemented in that discipline surface.
+- Control and Protection also have ControlEditor and ProtectionEditor region-based compositions. The source indicates shared workspace vocabulary but discipline-specific canvas realizations and event paths.
+- This does not prove a defect: Control ladder semantics and Protection coordination diagrams have different needs. It creates a V3 requirement to define shared interaction conventions (selection, focus, pan/zoom, fit, active tool, Escape/cancel, snapping, status, undo/redo, keyboard shortcuts) while permitting discipline-specific tools and rendering.
+- Runtime behavior, current application composition and whether any historical surface remains active were not visually verified in this pass. Trace the actual composition path before proposing consolidation.
+
+**C3. Tool shelf and palette**
+- ui/editors/common/tool_shelf.py uses ToolDefinition, optional action routing, active-tool provider, contextual editor filtering, keyboard shortcut/description tooltips and a fallback text glyph when icon resolution fails.
+- ui/editors/common/tool_icon_adapter.py resolves explicit icon metadata and logs fallback glyphs instead of silently choosing unrelated artwork.
+- These are positive foundations for discoverability and truthful affordances.
+- Icon fallback text derived from the first two characters of a tool ID is a technical fallback, not a complete visual language. Tool icons, labels, grouping, selected/disabled states, keyboard hints and accessible names need an explicit reviewed catalogue and consistent treatment across all editors.
+- Tool activation must visibly identify the active mode and how to exit/cancel it. A disabled or missing action must explain why it is unavailable rather than only appear inactive.
+
+**C4. Properties, configuration and diagnostics**
+- ui/panels/properties_panel.py is a logical, non-Qt panel lifecycle/target abstraction; it is not itself the full widget implementation.
+- ui/panels/engineering_parameter_editor.py converts projected parameter metadata and user changes into typed engineering configuration intent for Application execution. This is a strong architectural foundation.
+- ui/control/control_inspector.py provides Control-specific inspection/configuration behavior.
+- ui/panels/messages_panel.py currently renders validation messages and event messages into one QListWidget; it stores the two categories separately but displays them together without a richer structured diagnostic model in this widget.
+- ui/panels/study_cases_panel.py places study-case creation fields for Power Flow, Short Circuit and Transient Stability in one panel form. Evaluate progressive disclosure and context-sensitive forms so users see only fields relevant to the selected study type.
+- V3 should define a consistent contextual inspector contract: identity/summary, editable properties, read-only calculated values, units/bases, validation state, provenance, grouped sections, inline errors, Apply/Reset/Undo semantics, and links to related objects. Discipline-specific property editors can extend the contract.
+- Diagnostics should distinguish validation errors/warnings/information, application events, study execution status, data-quality warnings and Protection/Control operational alarms. Each actionable diagnostic should identify source, severity, timestamp/context, affected object, reason, recommended next action and navigation target. Do not conflate an engineering validation finding with an operational alarm or generic event.
+
+**C5. Visual theme and accessibility**
+- ui/styling/style_tokens.py defines semantic dark-window/panel tokens, a white canvas, semantic engineering colors, selection and state colors, and palette-specific icon strokes.
+- ui/styling/theme.py defines DEFAULT_THEME as “GridForge Engineering Dark”.
+- ui/styling/style_manager.py supports loading/rendering/applying QSS and a theme object; its own design notes describe light/dark variants, high contrast, user themes, density and persisted preferences as future capabilities.
+- Source inspection establishes a token/theme foundation, not a verified user-facing theme selector, light theme, high-contrast mode or accessibility conformance.
+- V3 should test symbol/line/state contrast on both canvas and dark panels; never use color alone for selected/valid/invalid/alarm states. Provide shape, line style, text/icon and explicit status labels. Include scalable typography, keyboard focus visibility, accessible names, tooltips, keyboard alternatives and user-adjustable density.
+- Engineering canvas color must preserve electrical discipline conventions and status semantics. Do not optimize only for a fashionable dark palette.
+
+### D. Initial UX risk and opportunity register
+
+| Candidate finding | Priority | Source evidence / risk | V3 research recommendation |
+|---|---|---|---|
+| V3-UI-F01 | P1 | Editor shells share Region vocabulary but Control/Protection use separate canvas implementations and event paths from SLD | Define cross-editor interaction contract and compare active composition paths before any unification |
+| V3-UI-F02 | P1 | SLD Explorer, Inspector and Diagnostics are hidden by default; discoverability for first-time users not established | Research first-project onboarding, default workspace composition, panel toggles, restore behavior and saved layout preferences |
+| V3-UI-F03 | P1 | Canvas navigation/fit/selection behavior differs across SLD, Control and Protection implementations | Define common navigation/selection/active-tool/cancel/status semantics; permit domain-specific gesture extensions |
+| V3-UI-F04 | P1 | Logical PropertiesPanel, generic EngineeringParameterEditor and discipline-specific inspectors form multiple concepts | Specify a unified contextual inspection/editing model with typed Application commands, units, provenance and validation |
+| V3-UI-F05 | P1 | Messages panel displays validation and events in one list; operational alarms/study status are separate semantic concerns | Design structured diagnostics centre with categories, severity, filters, object navigation and recovery actions |
+| V3-UI-F06 | P1 | Dark-only default theme is evident; high-contrast, light theme, density and persisted appearance remain future design notes | Establish accessible visual tokens and appearance profiles; evaluate contrast, color independence, scaling and focus |
+| V3-UI-F07 | P1 | Tool shelf has fallback glyph and action routing, but no evidence yet of full icon/label/shortcut/accessibility consistency across every discipline | Create audited tool catalogue and tool-state language; active mode, disabled reason, keyboard hints, accessible labels |
+| V3-UI-F08 | P1 | Study Cases panel exposes fields for several study types in one form | Evaluate progressive disclosure, study-specific configuration steps, contextual validation and result-to-source navigation |
+| V3-UI-F09 | P1 | No user/task requirements or usability evaluation evidence was identified in the inspected UI architecture docs | Establish role-based personas, context of use, task scenarios, usability requirements and evaluation plan using ISO 9241-210/25065 |
+| V3-UI-F10 | P2 | UI architecture and visual style documents define component boundaries but do not establish complete end-to-end task usability | Create traceable workflow maps and scenario acceptance criteria for new project, SLD build/edit, Control logic, Protection configuration, studies, save/reopen and diagnostics recovery |
+
+These are research findings/candidate risks, not confirmed runtime defects. Priorities express the importance of investigating the risk, not severity of a reproduced failure.
+
+### E. V3 UI research method and required evidence
+
+1. **User/task model:** distinguish electrical design engineer, protection engineer, Control/automation engineer, study/analysis engineer, commissioning/operations engineer, reviewer and administrator. A person may hold multiple roles; do not assume one universal persona.
+2. **Context of use:** desktop workstation, display resolution/scaling, keyboard/mouse, project size, diagram density, session duration, engineering responsibility, offline/poor-network constraints, and novice/expert experience.
+3. **Critical workflows:** create/open project; build SLD; place/edit equipment; connect terminals; inspect and validate; configure CT/PT/relay; map Protection-to-Control actions; build ladder logic; configure/run studies; interpret results; resolve diagnostics; save/reopen/recover.
+4. **Scenario-based evaluation:** document goal, preconditions, task steps, expected result, user-visible feedback, failure/recovery path and evidence. Evaluate first-use discoverability and expert efficiency separately.
+5. **Quantitative measures:** task completion rate, critical error rate, time-on-task, unnecessary actions, recovery time, navigation depth, tool-mode mistakes, validation rework, and user-rated workload/satisfaction. Set thresholds only after baseline measurement.
+6. **Qualitative methods:** contextual inquiry, task observation, think-aloud walkthroughs, expert review, cognitive walkthrough, accessibility inspection and structured user feedback.
+7. **Visual/runtime evidence:** screenshots and recordings of the current running application at defined resolution/DPI; inspect light/dark and scaling states; do not infer visual quality from QSS or source alone.
+8. **Traceability:** map each UX requirement to workflow, UI surface, interaction contract, evidence, severity, proposed change and verification scenario.
+9. **Change control:** V3 recommendations remain research-only until reviewed/approved. No V2 architecture change is implied.
+
+### F. First-pass audit boundaries and next research sequence
+
+**Inspected:** selected workspace/editor/canvas/panel/theme/tool source and architecture docs in the authoritative repository branch. The source tree contains 339 paths under ui/ and related UI documentation at this snapshot.
+
+**Not yet inspected:** all menu/action definitions and actual menu completeness; full MainWindow/application composition; every panel and editor; keyboard shortcut registry and conflicts; accessibility metadata; undo/redo and cancel semantics across tools; context menus; dialogs/wizards; project open/save/close UX; error and exception presentation; study result visualization; large-diagram navigation/performance; persisted workspace layouts; plugin-contributed UI; live application screenshots; user observation or usability metrics.
+
+**Next sequence:**
+- 8I-2: trace actual application startup/composition and shell menus/toolbars/actions, identify what users can really access (not merely what classes exist).
+- 8I-3: deep SLD workflow audit — new project, palette discovery, preview, placement, connection, selection, property editing, validation, commit, undo/redo, save/reopen.
+- 8I-4: Control canvas/ladder usability and Protection workspace interaction audit; compare common interaction contract without forcing identical domain behavior.
+- 8I-5: inspector, diagnostics, study configuration/results, navigation, shortcuts, keyboard/accessibility, themes/density and layout persistence.
+- 8I-6: consolidate evidence into a V3 UI requirements and design proposal, prioritized by workflow impact and engineering risk.
+
+### G. Official standards and comparative sources
+
+- ISO 9241-210:2019 Human-centred design for interactive systems (confirmed current 2025) — https://www.iso.org/standard/77520.html
+- ISO 9241-110:2020 Interaction principles (confirmed current 2025) — https://www.iso.org/standard/75258.html
+- ISO 9241-115:2024 Conceptual design, interaction, UI and navigation design — https://committee.iso.org/cms/live/live/en/sites/isoorg/contents/data/standard/08/07/80773.html
+- ISO 25065:2019 Usability user requirements specification — https://www.iso.org/standard/72189.html
+- ISA-101 series HMI design and lifecycle — https://www.isa.org/standards-and-publications/isa-standards/isa-101-standards
+- ISA-18 series alarm management — https://www.isa.org/standards-and-publications/isa-standards/isa-18-series-of-standards
+- W3C WCAG 2.2 — https://www.w3.org/TR/WCAG22/
+- NIST Human-Centred Design overview — https://www.nist.gov/itl/iad/human-centered-technologies/human-factors-human-centered-design
+- KiCad 10 user documentation — https://docs.kicad.org/10.0/en/introduction/introduction.html
+- Altium Designer design environment documentation (updated 2026-11-02) — https://www.altium.com/documentation/altium-designer/design-environment
+- Horizon EDA theory of operation — https://docs.horizon-eda.org/en/v2.5.0/theory-of-operation.html
+- ISA TR101.02 HMI Usability and Performance — https://webstore.ansi.org/standards/isa/isatr101022019
+
+**Research limits:** ISO/ISA standards are referenced by scope and public abstracts/official descriptions; normative licensed clauses were not reviewed. Comparative vendor manuals are interaction examples, not standards. Repository inspection was source-level and selective. No running GridForge UI was launched, no screenshot/recording or user test was collected, and no runtime defect is declared reproduced. No tests, CI, V2 source changes or implementation were performed.
