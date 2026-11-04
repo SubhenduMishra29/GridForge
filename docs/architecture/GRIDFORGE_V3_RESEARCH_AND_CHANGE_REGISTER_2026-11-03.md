@@ -5930,3 +5930,296 @@ No gate is closed by this entry. No candidate scenario is represented as execute
 - HIL and real-time operation require separate explicit approval and safety architecture.
 
 **Scope boundary:** research register only. No simulation runtime, participant, model, co-simulation coordinator, FMI/SSP adapter, solver, plugin, backend, project schema, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+
+## 8I-28. Proposed V3 equipment model, equipment library and engineering parameterization architecture (2026-11-04)
+
+### A. Purpose and architectural decision
+
+V3 should establish a canonical, extensible equipment information model that represents installed engineering assets independently from their graphical representation, catalogue source, manufacturer documentation, simulation implementation and project-specific configuration.
+
+The governing separation is:
+
+1. **Equipment identity and lifecycle:** the installed or planned asset in the project.
+2. **Equipment type and design template:** the semantic class and applicable terminal/functional contract.
+3. **Engineering parameter set:** project- and instance-specific ratings, settings, dimensions, limits and model parameters.
+4. **Catalogue record:** externally sourced manufacturer/product data with provenance and publication lifecycle.
+5. **Physical/model representation:** electrical, thermal, mechanical, control, protection or other domain model.
+6. **Connectivity and instrumentation:** terminals, ports, sensors, instrument transformers and signal associations.
+7. **Presentation representation:** SLD symbol, canvas glyph, 2D/3D geometry, annotation and layout.
+8. **Evidence and compliance:** standards clauses, datasheets, certificates, calculations, inspection and approval records.
+
+These are related through explicit stable identifiers and typed relationships. They must not be collapsed into one mutable equipment dictionary or a graphical item.
+
+Equipment remains canonical domain data owned by Core. Application owns controlled creation, parameter changes, catalogue selection, migration, validation and lifecycle orchestration. UI presents and edits through typed contracts. Plugins provide optional domain-aligned equipment families, model providers, catalogue adapters and renderers through consolidated public extension contracts; they do not create a parallel equipment authority.
+
+### B. Canonical identity and lifecycle
+
+An installed equipment instance requires a stable project-scoped identity that survives symbol replacement, layout movement, parameter edits, catalogue refresh and model-provider changes. Display tag, nameplate serial number, manufacturer part number, external catalogue identifier and symbol identifier are not substitutes for the canonical identity.
+
+The model should distinguish:
+- equipment instance;
+- equipment family/type;
+- design/template revision;
+- catalogue product and catalogue revision;
+- manufacturer and manufacturer-document identity;
+- physical installation/location and functional position;
+- project lifecycle state (planned, specified, selected, procured, installed, commissioned, in-service, out-of-service, decommissioned, archived);
+- engineering configuration revision;
+- model assignment and model revision;
+- presentation reference.
+
+Lifecycle states are governed transitions, not arbitrary strings. A lifecycle transition must record actor, time, rationale, authority, source revision and required evidence. Planned or catalogue-selected equipment must not be represented as installed or commissioned. Decommissioning must not erase historical topology, studies, settings, event references or evidence.
+
+Equipment identity is independent from the tag/name. Tag uniqueness scope must be explicit (project, plant, voltage level, functional location or another configured namespace); tag renaming must preserve identity and audit history. Duplicate tags must be reported as a governed validation issue, not silently auto-renamed after engineering references exist.
+
+### C. Type system and semantic capabilities
+
+The equipment type system should be semantic and capability-based, not merely a flat inheritance tree or a list of display names. Equipment families can share typed capabilities while preserving domain-specific invariants.
+
+Candidate capability contracts include:
+- electrical two-terminal, multi-terminal and multi-winding behaviour;
+- busbar/node and connection-point behaviour;
+- switching and isolation;
+- source, load, conversion and energy storage;
+- transformer winding and vector-group semantics;
+- rotating electrical machine and mechanical shaft coupling;
+- instrument transformer and measurement-channel association;
+- sensor, transducer and signal source;
+- protection device, relay and trip interface;
+- control device, actuator and feedback interface;
+- thermal, mechanical, fluid or process interfaces where supported;
+- grounding, shielding and enclosure attributes;
+- maintainability, inspection and lifecycle attributes.
+
+Capabilities must declare their typed ports/terminals, directions, quantity domains, units, nominal ranges, connection constraints, optional/required status and supported operations. A capability must not imply that every instance has every optional port. Multi-terminal and multi-winding equipment must model the actual physical/electrical interface rather than flattening it into a generic two-terminal element.
+
+The canonical model must distinguish terminals from graphical connection handles, physical terminals from logical signal ports, and internal model ports from project network nodes. Port identity and topology remain domain-owned; UI snapping is only an interaction mechanism.
+
+A generic property bag may be used for extension metadata, but it must not replace typed, validated, dimensioned parameters for engineering-critical quantities. Unknown extension payloads should be preserved during round-trip persistence where safe, while unknown fields must never be interpreted as trusted engineering values.
+
+### D. Engineering parameterization and quantity semantics
+
+Each engineering parameter should carry a stable parameter identifier, semantic definition, quantity kind, dimension, canonical unit, value representation, permitted range/constraints, precision policy, source/provenance, owner domain, revision, applicability and editability policy.
+
+The parameter value model must distinguish:
+- specified/design value;
+- manufacturer/nameplate value;
+- selected/catalogue value;
+- project-configured value;
+- calculated/derived value;
+- measured/live value;
+- estimated value;
+- defaulted value;
+- assumed value;
+- historical/as-built value.
+
+These statuses are not interchangeable. A default or assumption must remain visibly identified and must not silently become a manufacturer or measured value. Conflicting values from a datasheet, nameplate, project specification and field measurement must be retained with provenance and resolved through an explicit engineering decision.
+
+Quantity handling must be dimensionally typed. Unit conversion must preserve physical meaning and expose the source and destination units. Per-unit values require an explicit base set and base revision, including voltage, apparent power, frequency and phase convention as applicable. No silent unit, base, phase, sign convention, RMS/peak, line/phase or temperature-reference conversion is acceptable.
+
+Precision, significant figures, rounding, tolerance and uncertainty must be explicit where they affect calculation or acceptance. Display formatting must not overwrite stored precision. Parameter ranges must distinguish hard physical limits, manufacturer operating limits, project design limits, recommended ranges and warning thresholds.
+
+Parameter constraints may be conditional on other values (e.g. transformer winding configuration, CT ratio, motor connection, breaker interrupting rating). Such constraints must be typed, explainable and evaluated by the owning domain/application service. Cross-field validation must not be implemented as hidden UI-only logic.
+
+### E. Equipment family coverage and domain-specific contracts
+
+The common equipment framework must not erase family semantics. Initial V3 family specifications should cover at least:
+
+- **Network primary equipment:** busbars, overhead lines, cables, bus ducts, transformers, reactors, capacitors, generators, motors, loads, converters, inverters, storage and grounding equipment.
+- **Switchgear:** circuit breakers, disconnectors, earthing switches, fuses, contactors and switching assemblies, with rated voltage/current, making/breaking duty, short-time withstand, operating mechanism and state/feedback semantics where applicable.
+- **Instrument transformers and sensors:** CT, VT/PT, CVT, current/voltage sensors, RTD, thermocouple and other supported transducers, with ratio, class, burden, accuracy, saturation/frequency response, polarity, grounding and secondary interface semantics as applicable.
+- **Protection equipment:** relay hardware/product identity, protection function configuration, input channels, settings groups, logic and trip interfaces. Protection settings and decisions remain Protection-domain-owned; equipment identity does not itself grant trip authority.
+- **Control and automation equipment:** PLC, IED, controller, remote I/O, communication interface, actuator and field device, with typed signals, protocol capabilities and command/feedback contracts. Control execution remains Control-domain-owned.
+- **Rotating machines and drives:** motor/generator electrical ratings, equivalent-circuit or dynamic model parameters, mechanical inertia, torque/load characteristics, thermal limits, drive/converter configuration and model fidelity.
+- **Auxiliary/process equipment:** cooling, lubrication, excitation, protection auxiliaries, interlocks and process dependencies where relevant, with explicit interfaces rather than hidden attributes.
+
+A family specification should define mandatory and optional parameters, terminal/port topology, quantity definitions, validation rules, supported calculation domains, model compatibility, required evidence, lifecycle constraints and presentation-independent defaults. Equipment-specific extensions must not leak family assumptions into Core-wide generic code.
+
+### F. Manufacturer catalogue and product data governance
+
+The equipment library should distinguish a manufacturer, product family, product variant, catalogue publication/revision, datasheet/document, certification/evidence record and project-installed instance.
+
+Catalogue records are external reference data, not project equipment instances and not inherently authoritative for a specific installation. They should record:
+- manufacturer identity and source authority;
+- product designation and variant;
+- publication/edition/revision and retrieval date;
+- source URL or document identity and content digest where lawful;
+- declared parameter values, units, tolerances and operating conditions;
+- applicability/region/market and lifecycle/availability status;
+- evidence type and verification status;
+- licensing and permitted-use restrictions;
+- supersession or withdrawal relationship.
+
+Catalogue ingestion must preserve original source values and normalized interpretations separately. Automated extraction from PDF, OCR or web catalogue must be marked as machine-extracted and unverified until reviewed. Ambiguous units, missing conditions, conflicting variants or incomplete ratings must not be silently inferred.
+
+A catalogue update must not silently overwrite project equipment parameters or historical study inputs. It should create a proposed change set with a field-level comparison, affected calculations and engineering review. Catalogue availability does not prove product suitability, compliance, procurement, authenticity or installed configuration.
+
+### G. Datasheets, nameplates and evidence provenance
+
+Datasheets, nameplate records, test reports, type-test certificates, routine-test certificates, inspection reports, commissioning records, calibration certificates and field measurements should be represented as evidence objects linked to exact equipment identity and relevant configuration revision.
+
+Evidence metadata should include issuer, document identifier, issue/revision/date, source, validity period where applicable, scope, equipment serial/variant, test conditions, units, reviewer, verification status, access/licensing restrictions and digest/signature metadata where supported.
+
+Extracted parameter values must link to the exact evidence location (page/table/row/field or image region where available), extraction method, reviewer and confidence/uncertainty. The original evidence remains immutable; corrections create a new interpretation or review record. A document attached to an equipment record must not automatically certify every parameter in that record.
+
+Manufacturer nameplate values, catalogue values and measured commissioning values may differ legitimately. The model must retain all three and require an explicit selection/rationale for the value used in a given engineering calculation.
+
+### H. Domain model assignments and fidelity
+
+An equipment instance may participate in multiple domain models without those models becoming the identity record. For example, a motor may have nameplate data, a steady-state equivalent-circuit model, a transient dynamic model, a thermal model and a mechanical load model. These are distinct model assignments with explicit applicability and revision.
+
+A model assignment must declare:
+- equipment and model family compatibility;
+- model provider and version;
+- equations/assumptions or model class identifier;
+- required parameter set and units;
+- supported operating range and boundary conditions;
+- initialization requirements;
+- numerical method constraints where relevant;
+- model fidelity and omitted phenomena;
+- validation/verification evidence;
+- source/provenance and licensing;
+- supported CPU/GPU backend and any inference dependency.
+
+Model fidelity should be explicit (e.g. nameplate-only, approximate, steady-state, dynamic, electromagnetic transient, thermal/mechanical coupled), but labels must be defined per family and not treated as a universal scalar ranking. A higher-fidelity model is not automatically more accurate if its parameters or validation evidence are weaker.
+
+Missing parameters must produce a typed model-readiness result (ready, ready with declared assumptions, incomplete, incompatible, invalid, unsupported). The system must never fabricate parameters or silently substitute a default model without exposing the assumption and its engineering impact.
+
+### I. Cross-domain integration and revision dependencies
+
+Equipment provides stable identity and declared capabilities. Domain owners consume the relevant typed facts:
+- electrical topology and steady-state studies consume electrical ratings, terminals, impedance and configuration;
+- Short Circuit consumes applicable sequence/impedance, grounding and fault-duty parameters;
+- Protection consumes instrument transformer characteristics, relay settings and breaker/trip interface facts through Protection-owned contracts;
+- Control consumes signal/actuator capabilities, state and feedback contracts through Control-owned contracts;
+- Signal/Measurement consumes sensor/channel configuration, calibration, units, timestamp and quality contracts;
+- dynamic simulation consumes assigned physical models and coupled ports;
+- asset/lifecycle functions consume procurement, installation, maintenance and evidence state.
+
+The equipment model must not become a back door for one domain to mutate another. For example, a CT ratio change is an instrumentation/configuration revision with a defined impact on affected measurement channels and Protection elements; it is not a physical network topology revision. A breaker rating change is equipment configuration, while a breaker state transition is an operational state/event. A motor nameplate correction may invalidate selected motor models and dependent studies without invalidating unrelated bus topology.
+
+Maintain separate revision dimensions for at least physical topology, equipment configuration, instrumentation/calibration, Protection configuration, Control configuration, model assignment/parameterization, project standards baseline and presentation/layout. Dependency declarations must identify exact input revisions and affected consumers. Invalidation should be selective and per dependent calculation or Protection element; stale decisions must be isolated and fail-closed dispatch protections must not be weakened.
+
+### J. SLD and presentation separation
+
+An equipment instance may have one or more presentation representations (SLD symbol, panel layout, control schematic, 3D asset, report graphic) linked by stable references. Presentation objects own geometry, visual state, annotation and view-specific metadata only.
+
+A symbol may declare which equipment family/capability it can represent, but symbol identity is not equipment identity. Replacing, rotating, resizing, moving or restyling a symbol must not change ratings, terminals, connectivity, model assignment or lifecycle. Equipment creation from the palette must instantiate a domain object and a separate presentation reference through the Application lifecycle.
+
+One equipment instance may be represented in multiple sheets/views without duplicating the equipment object. View-specific omissions, aggregation, off-page references and annotations must not be mistaken for missing or altered physical topology. Presentation compatibility errors should be explicit and must not silently coerce an incompatible equipment type.
+
+### K. Library organization, plugin consolidation and extensibility
+
+V3 should maintain one consolidated equipment-extension location and one public registration/discovery contract for:
+- equipment family/type definitions;
+- parameter schemas and validation providers;
+- catalogue/source adapters;
+- domain model providers;
+- import/export mappings;
+- presentation symbol/rendering providers;
+- optional reports and engineering tools.
+
+The extension contract must identify owner domain, version, compatibility, capabilities, dependencies, licensing, security/trust level and migration support. Avoid separate competing plugin registries for each equipment family or UI canvas. Do not create a second equipment manager, model registry or event bus if an existing Application service already owns the lifecycle.
+
+Plugins may contribute type definitions and model implementations, but Core must not import plugin implementations or depend on UI packages. Plugin registration is not permission to mutate Core directly. All installed equipment changes pass through Application commands/services and domain validation. Plugin removal or version change must not destroy project data; unresolved plugin-owned payloads remain preserved and are reported as unsupported until a compatible provider is available.
+
+### L. Persistence, migration and interoperability
+
+The equipment model must persist as canonical project data within the frozen project package contract, with stable IDs, explicit schema versions and deterministic serialization. Catalogue caches, downloaded source documents, plugin binaries, model executables and temporary solver data must not become undeclared external dependencies of the project package.
+
+The package must preserve the installed equipment instance, engineering parameters, model assignment references, terminal identities, topology references, lifecycle/provenance and SLD presentation references required to reopen the saved project. Large external evidence files and catalogue libraries may use governed content-addressed or managed storage only when project portability and availability are explicitly defined; the existing no-external-dependency project baseline must not be silently weakened.
+
+Schema migration must preserve unknown safe fields, identities, units, precision, provenance and historical revisions. Migration must report any lossy conversion, unsupported equipment family, unresolved unit or changed model interpretation. Import/export adapters must map semantics and terminal topology explicitly; a format's product code or graphical block must not be treated as sufficient evidence of semantic equivalence.
+
+### M. Validation, diagnostics and engineering readiness
+
+Validation should be layered and typed:
+1. structural/schema validity;
+2. identity and reference integrity;
+3. family/capability and terminal consistency;
+4. dimensional/unit/base correctness;
+5. parameter range and conditional constraints;
+6. source/provenance and evidence completeness;
+7. model compatibility/readiness;
+8. domain-specific engineering validation;
+9. project/standards applicability and deviation review;
+10. lifecycle and approval readiness.
+
+A structurally valid equipment record may still be engineering-incomplete. A catalogue-selected product may still be unsuitable. A model-ready motor may still have insufficient evidence for a particular study. A validation pass must state exactly which scope and rules were evaluated, against which revisions and standards baseline.
+
+Diagnostics should identify equipment ID, parameter ID, affected domain/calculation, observed and expected values, units, source evidence, severity, remediation and whether the issue blocks a calculation, project acceptance or operational action. Warnings and assumptions must remain visible in downstream results; they must not disappear after calculation.
+
+### N. Security, licensing and trust boundaries
+
+Treat manufacturer documents, catalogue feeds, import files, plugin packages, model metadata and external scripts as untrusted inputs. Validate file types and sizes, archive paths, embedded links, parser resource consumption and content integrity. Avoid executing vendor-supplied macros/scripts or model code in the privileged application process.
+
+Catalogue connectors and model providers require explicit trust, permissions and version pinning. External code execution, if supported, should be isolated with bounded CPU/memory/time, controlled filesystem/network access and a documented data boundary. Project opening must not automatically download or execute plugin/model code.
+
+Standards, datasheets and catalogue content may be copyrighted or licensed. Store only content and derived extracts permitted by the applicable licence; preserve source references and do not redistribute full protected documents without authorization.
+
+### O. Candidate acceptance scenarios
+
+The following are proposed scenarios only; none is represented as executed or passed:
+
+- UI-ACC-EQ-01: create equipment with stable identity independent of its symbol and display tag.
+- UI-ACC-EQ-02: rename a tag without changing equipment identity or references.
+- UI-ACC-EQ-03: enforce declared family terminal and capability contracts.
+- UI-ACC-EQ-04: represent multi-terminal and multi-winding equipment without flattening connectivity.
+- UI-ACC-EQ-05: distinguish specified, nameplate, catalogue, configured, calculated and measured values.
+- UI-ACC-EQ-06: reject dimensionally invalid units and expose per-unit bases.
+- UI-ACC-EQ-07: preserve precision, tolerances and uncertainty across save/load and calculation.
+- UI-ACC-EQ-08: compare catalogue revisions without overwriting installed project parameters.
+- UI-ACC-EQ-09: trace an extracted datasheet parameter to its exact evidence location and review status.
+- UI-ACC-EQ-10: preserve conflicting manufacturer, nameplate and field-measured values with provenance.
+- UI-ACC-EQ-11: report model readiness and missing required parameters without fabricating defaults.
+- UI-ACC-EQ-12: assign multiple domain models to one equipment identity with independent revisions.
+- UI-ACC-EQ-13: selectively invalidate only calculations affected by a parameter/model change.
+- UI-ACC-EQ-14: isolate affected Protection elements after CT/VT or relay-input changes while preserving fail-closed dispatch.
+- UI-ACC-EQ-15: change or replace an SLD symbol without changing equipment parameters or topology.
+- UI-ACC-EQ-16: represent one equipment instance in multiple views without duplicating domain identity.
+- UI-ACC-EQ-17: preserve plugin-owned equipment data when its provider is unavailable.
+- UI-ACC-EQ-18: migrate an equipment schema while reporting lossy or ambiguous unit/model transformations.
+- UI-ACC-EQ-19: import/export equipment and terminals with explicit semantic mapping and fidelity report.
+- UI-ACC-EQ-20: reject untrusted catalogue/model payloads and prevent automatic execution on project open.
+
+### P. Open research and decisions
+
+1. Establish the canonical equipment family taxonomy and capability vocabulary, including which types belong in Core versus domain-owned extensions.
+2. Define the initial typed parameter schema and quantity ontology, including per-unit bases, phase conventions and uncertainty.
+3. Decide whether manufacturer catalogue data is delivered as versioned built-in datasets, optional downloadable libraries or connector-provided sources, without compromising project portability.
+4. Define evidence storage and licensing policy for datasheets, certificates, extracted values and source documents.
+5. Specify model-provider compatibility and model-fidelity taxonomy per equipment family.
+6. Define the equipment lifecycle states and role/approval requirements for planned, selected, procured, installed and commissioned states.
+7. Reconcile the equipment schema with the 8I-23 persistence model and 8I-24 interoperability mappings.
+8. Reconcile parameter provenance and normative clause links with 8I-25 standards traceability.
+9. Define exact dependency keys for equipment, instrumentation, Protection, Control and solver invalidation, aligned with 8I-26 and 8I-27.
+10. Prioritize initial families based on engineering workflows and the first closed-loop Motor Dynamics reference implementation; do not attempt to model every industrial asset in the first V3 release.
+
+### Q. Gate and scope disposition
+
+This section informs:
+- UI-GATE-02 — Project/session and canonical equipment persistence;
+- UI-GATE-03 — Typed diagnostics and engineering readiness;
+- UI-GATE-04 — Accessible parameter editing and evidence presentation;
+- UI-GATE-05 — Large equipment libraries, catalogue lookup and model performance;
+- UI-GATE-06 — Cross-domain provenance, revision and dependency traceability;
+- UI-GATE-07 — V3 scope, family prioritization and implementation sequencing.
+
+All remain open. This entry does not approve a family taxonomy, schema, catalogue source, plugin API, evidence store or implementation plan. Candidate scenarios are not test results.
+
+### R. Frozen invariants and scope boundary
+
+- Core remains the owner of canonical equipment identity, terminals, topology and domain engineering truth.
+- Application owns controlled mutation, lifecycle, transactions and cross-domain orchestration.
+- Equipment identity, type, parameterization, catalogue record, model assignment, evidence and presentation remain distinct linked concepts.
+- Typed engineering quantities, units, bases, precision, provenance and uncertainty are mandatory for engineering-critical parameters.
+- Electrical topology, instrumentation, Protection, Control, equipment configuration, model assignment and presentation revisions remain distinct.
+- Protection and Control retain independent domain authority and fail-closed execution boundaries.
+- SLD symbols and other renderers remain projections, never equipment truth.
+- Plugins use one consolidated public extension architecture and cannot mutate Core directly.
+- The frozen .gridforge package and canonical project persistence contract are not weakened by external catalogue or model dependencies.
+- Simulation/model results remain immutable, revision-bound and traceable to exact parameter/model inputs.
+- No catalogue, extracted document value, assumed parameter or AI inference is silently promoted to verified engineering truth.
+
+**Scope boundary:** research register only. No equipment schema, catalogue dataset, family implementation, parameter database, evidence repository, plugin, model provider, UI, project migration, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
