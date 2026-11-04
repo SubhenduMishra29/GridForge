@@ -416,29 +416,66 @@ class ProtectionInspector(QGroupBox):
         if relay is None:
             self._label.setText(f"Protection presentation object: {object_id}")
             return
-        # Physical Relay settings are not the executable function's settings.
-        # Those belong exclusively to ProtectionFunctionConfiguration below.
+
         relay_configurations = tuple(
-            item for item in configurations if str(item.relay_id) == relay_id
+            sorted(
+                (item for item in configurations if str(item.relay_id) == relay_id),
+                key=lambda item: str(item.element_id),
+            )
+        )
+        selected_configuration = next(
+            (
+                item for item in relay_configurations
+                if object_id.startswith(f"{relay_id}:element:{item.element_id}:")
+            ),
+            None,
+        )
+        visible_configurations = (
+            (selected_configuration,)
+            if selected_configuration is not None
+            else relay_configurations
+        )
+        decision_by_element = {
+            str(item.element_id): item
+            for item in getattr(relay, "element_decisions", ())
+            if str(item.relay_id) == relay_id
+        }
+        legacy_decision = getattr(relay, "decision", None)
+        if (
+            not decision_by_element
+            and len(relay_configurations) == 1
+            and legacy_decision is not None
+            and str(getattr(legacy_decision, "element_id", "")) == str(relay_configurations[0].element_id)
+        ):
+            decision_by_element[str(relay_configurations[0].element_id)] = legacy_decision
+
+        physical_state = (
+            "DISABLED" if not bool(getattr(relay, "enabled", True))
+            else "BLOCKED" if bool(getattr(relay, "blocked", False))
+            else "TRIPPED" if bool(getattr(relay, "tripped", False))
+            else "PICKED UP" if bool(getattr(relay, "picked_up", False))
+            else "NO ACTIVE DEVICE STATE"
         )
         lines = [
             "Identity", f"  {relay.object_id}",
             "Relay", f"  {relay.name} ({relay.relay_type})",
             "Physical Relay Function Label", f"  {relay.function_type}",
             "Configured Protection Elements", f"  {len(relay_configurations)}",
-            "Inputs", f"  {len(relay.input_channel_bindings)}",
-            "State", f"  {ProtectionGraphicsSurface._decision_text(relay)}",
+            "Physical Relay Inputs", f"  {len(relay.input_channel_bindings)}",
+            "Physical Relay State", f"  {physical_state}",
             "In Service", f"  {relay.in_service}",
             "Enabled", f"  {relay.enabled}",
             "Blocked", f"  {relay.blocked}",
         ]
-        for index, configuration in enumerate(relay_configurations, start=1):
+        for configuration in visible_configurations:
+            element_id = str(configuration.element_id)
             lines.extend([
-                f"Protection Element {index}",
-                f"  Element ID: {configuration.element_id}",
+                f"Protection Element: {element_id}",
                 f"  ANSI Function: {configuration.function_code}",
                 f"  Input / Measurement Bindings: {dict(configuration.input_channel_ids)}",
                 f"  Settings: {dict(configuration.settings or {})}",
+                f"  Enabled: {configuration.enabled}",
+                f"  Blocked: {configuration.blocked}",
             ])
             try:
                 specification = get_protection_function(configuration.function_code)
@@ -449,23 +486,22 @@ class ProtectionInspector(QGroupBox):
                     )
             except (KeyError, TypeError, ValueError):
                 lines.append("  Implementation Status: catalogue entry unavailable")
-        decision = getattr(relay, "decision", None)
-        if decision is not None:
-            lines.extend([
-                "ProtectionDecision", f"  {type(decision).__name__}",
-                "Pickup", f"  {decision.pickup}",
-                "Operate", f"  {decision.operate}",
-                "Trip Request", f"  {decision.trip_request}",
-                "Blocked", f"  {decision.blocked}",
-                "Valid", f"  {decision.valid}",
-                "Reason", f"  {decision.reason or 'n/a'}",
-                "Operating Time", f"  {decision.operating_time if decision.operating_time is not None else 'n/a'}",
-            ])
-        else:
-            lines.extend([
-                "Protection Decision",
-                "  No evaluated ProtectionDecision is currently available.",
-            ])
+
+            decision = decision_by_element.get(element_id)
+            if decision is None:
+                lines.append("  Decision: No evaluated ProtectionDecision is available for this element.")
+            else:
+                lines.extend([
+                    f"  Decision: {self._decision_text(decision)}",
+                    f"  Pickup: {decision.pickup}",
+                    f"  Operate: {decision.operate}",
+                    f"  Trip Request: {decision.trip_request}",
+                    f"  Valid: {decision.valid}",
+                    f"  Reason: {decision.reason or 'n/a'}",
+                    f"  Operating Time: {decision.operating_time if decision.operating_time is not None else 'n/a'}",
+                    f"  Timestamp: {decision.timestamp if decision.timestamp is not None else 'n/a'}",
+                ])
+
         if not relay_configurations:
             lines.extend([
                 "Commissioning Status",
