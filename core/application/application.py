@@ -2673,9 +2673,11 @@ class Application:
                 )
             else:
                 self._revision_service.record_command_success(command, topology_revision=topology_revision)
-        # Committed history inverses execute after Transaction.commit().
-        # Transaction.COMMITTED is not an undo-validity guard.
-        transaction.record_undo(
+        # Revision snapshots are transaction-local bookkeeping. Restore the
+        # exact snapshot only when pre-commit rollback succeeds; committed user
+        # undo must retain the revision transition so Application.undo() can
+        # advance freshness dimensions monotonically.
+        transaction.record_rollback_finalizer(
             lambda state=revision_state: self._revision_service.restore_state(state)
         )
 
