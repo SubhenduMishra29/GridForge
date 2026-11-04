@@ -2150,3 +2150,172 @@ The following constraints are mandatory for subsequent design review:
 - UI is a read-side projection plus typed navigation/action intent; it is not a new orchestration authority.
 
 **Scope boundary:** research register only. No implementation files, domain contracts, persistence schemas or runtime services were changed. No V2 behavior was modified. No tests or CI were run.
+
+
+## 8I-13. Proposed V3 project and session lifecycle contract (2026-11-04)
+
+**Purpose:** Define a reviewable V3 contract for UI-GATE-02 covering project identity, canonical persistence, drafts, preferences, workspace presentation, viewport metadata, transient interaction, save/restore, recovery and multi-document behavior. This proposal preserves the established GridForge project boundary and does not authorize a new file format, schema migration, autosave guarantee or implementation.
+
+### A. Governing principle: one engineering source of truth, explicitly scoped auxiliary state
+
+The Project remains the persistence root for canonical engineering data. The .gridforge package remains a ZIP-based project artifact with:
+- manifest.json describing package/schema/version metadata;
+- canonical project.json containing the saved engineering scope, including SLD representation/layout and required Core equipment, connections and topology;
+- no external file dependencies for the canonical project to be valid and portable.
+
+The package is not a container for arbitrary machine-specific UI state. Any extension to package contents requires an explicit schema/version decision, ownership, compatibility and migration policy. This proposal does not add such an extension.
+
+The six persistence classes below have distinct owners, durability and portability. A save operation must state which class it saves; the generic word Save must not ambiguously imply that all six are persisted.
+
+### B. Six state classes and ownership
+
+| State class | Examples | Candidate owner/storage | Project portability | Dirty-state semantics |
+|---|---|---|---|---|
+| 1. Canonical engineering project | Equipment, terminals, topology, connections, committed SLD layout, engineering configuration and approved project metadata | Core/Application project model and .gridforge package | Travels with project; machine-independent | Canonical project dirty flag |
+| 2. Persisted engineering draft | Uncommitted equipment/configuration/wiring work that the product explicitly promises to recover | Application draft model with explicit project association and versioned draft persistence policy | Project-associated; portability depends on approved packaging/sidecar policy | Separate draft dirty/recovery status; never silently mark canonical project clean |
+| 3. User/machine preferences | Theme, density, font scale, default folders, recent-project list, personal tool preferences | User settings service / OS-appropriate settings store | Machine/user scoped; not copied as project engineering truth | Preferences dirty/save status separate from project |
+| 4. Workspace presentation | Panel visibility, dock placement, active workspace, window geometry, workspace profile | Workspace/layout settings service | User/machine scoped by default; optional named portable profiles only by explicit decision | Presentation state dirty/save status separate from project |
+| 5. Per-document viewport metadata | Zoom, pan, active sheet/view, per-document display framing | Document-view state service, keyed by stable project/document identity | User/machine scoped by default; not canonical engineering data | View-state save status separate from project |
+| 6. Transient interaction state | Hover, current drag, rubber-band selection, in-progress gesture, temporary snap candidate, open context menu, pointer capture | Active UI interaction session/controller | Not persisted; must be discarded safely on close/restart | Never contributes to canonical project dirty state |
+
+**Boundary rules**
+1. Canonical engineering data is mutated only through Application commands/services and owning Core/domain rules.
+2. Persisted drafts are engineering work-in-progress, not transient pointer state. Draft persistence must not bypass domain validation or become a second canonical project.
+3. Preferences and workspace presentation cannot change equipment, topology, Protection settings, Control logic or study inputs.
+4. Viewport metadata cannot change SLD geometry or project ownership. A deliberate engineering layout move is a project command; pan/zoom is view state.
+5. Transient state is cancelled or safely unwound when its owning interaction ends; it must not be serialized as a half-completed command.
+6. If a state item could fit multiple classes, classify by semantics and authority, not by the widget that currently stores it.
+
+### C. Project lifecycle state model
+
+Candidate project lifecycle:
+- Closed: no active project context.
+- Opening: package discovery, manifest/schema validation, integrity checks and staged loading are in progress.
+- Open-clean: canonical project loaded and no uncommitted canonical changes.
+- Open-dirty: canonical project has uncommitted changes.
+- Saving: a consistent snapshot is being serialized and atomically committed.
+- Save-failed: previous durable project remains authoritative; unsaved changes remain recoverable in the active session.
+- Closing: close policy resolves canonical changes, drafts and transient interactions independently.
+- Recovery-required: a recoverable draft/session record exists or an interrupted save/recovery condition needs explicit handling.
+- Read-only/degraded: package can be inspected but cannot safely be mutated or fully loaded; exact cause and permitted operations must be stated.
+
+These states are not all mutually exclusive flags. For example, canonical project may be clean while a persisted draft is dirty, or the project may be open while workspace preferences are unsaved. Model independent state dimensions rather than one boolean modified flag.
+
+### D. Save contract
+
+1. Save persists canonical engineering project state only, unless a separately approved user-visible policy explicitly states otherwise.
+2. Save As creates a new project identity/package and must define how project-associated drafts are handled; it must not silently copy machine-specific preferences or transient UI state.
+3. Before serialization, Application establishes a consistent project snapshot/revision. UI must not serialize live widget or graphics-scene state as canonical engineering truth.
+4. The package write must be failure-safe: write to a temporary target, validate the completed package, then atomically replace/rename where the platform/filesystem supports it. Preserve the last known-good package if writing fails.
+5. A successful save response is emitted only after durable commit is confirmed by the persistence owner. UI must not clear dirty state optimistically.
+6. Save failure retains the in-memory edits and reports the failure cause and recovery path; it must not silently discard changes or replace the last good project with a partial package.
+7. If the project changes while a snapshot is being written, the persistence contract must identify the saved revision and leave later edits dirty.
+8. Save status should distinguish queued, serializing, writing, validating, committed and failed where those phases are observable and useful.
+9. A project save must not imply that a draft, workspace layout, preferences or viewport state was also saved.
+10. Import/export, autosave, backup and recovery are separate operations with explicit semantics; none may be inferred from the Save command.
+
+### E. Draft persistence and recovery contract
+
+1. Define which engineering draft classes are recoverable (e.g., draft network, draft equipment configuration, draft wiring) and which are deliberately ephemeral (e.g., pointer preview, incomplete drag).
+2. Persisted draft identity must reference the project identity and relevant base project revision. A draft based on an incompatible project revision must be flagged for reconciliation, not blindly replayed.
+3. Draft storage must preserve typed operations/data and provenance; it must not serialize QGraphicsScene, Qt widgets, graphics item instances or renderer-owned object graphs.
+4. Draft restore is a staged proposal to the engineer: show draft timestamp, source project, base revision, recoverable objects/operations, conflicts and validation status before applying.
+5. Restoring a draft does not commit it into canonical Core topology/equipment. It restores the draft workflow state; canonical mutation still follows explicit commit commands and domain validation.
+6. Draft conflict resolution must be explicit: retain draft, discard draft, compare/reconcile or open a recoverable copy where supported. Never auto-overwrite canonical project state.
+7. A recovery record must distinguish clean shutdown, application crash, process termination, machine failure, failed save and interrupted draft persistence where evidence permits; do not claim a cause that cannot be established.
+8. Draft retention, location, encryption/permissions, expiry, size limits, cleanup and cross-machine portability require explicit policy.
+9. If recovery data is corrupt or incompatible, preserve the original artifact for diagnosis where safe and offer a non-destructive fallback; do not repeatedly apply a partially decoded draft.
+10. Autosave cadence, write amplification, performance, privacy and user notification are product decisions; no interval or guarantee is implied by this proposal.
+
+### F. Open, close, switch and multi-document behavior
+
+**Open**
+- Validate package structure, manifest, schema compatibility and canonical payload before replacing the current active project.
+- Load into a staged project context; failure must leave the existing project context intact.
+- Identify missing, unsupported or corrupt optional data separately from canonical project corruption.
+- Warn or offer recovery when a matching persisted draft exists; never apply it silently.
+
+**Close**
+- Resolve canonical project changes, persisted draft changes and preference/layout changes independently.
+- Cancel transient interactions through their owning controller before destroying document/view objects.
+- Present Save / Discard / Cancel only for state classes whose policy requires a user decision; do not overload one prompt with ambiguous consequences.
+- If a save fails, remain open or provide an explicitly recoverable close path; do not claim the project is saved.
+
+**Switch**
+- Preserve independent document identity, dirty state, draft association and viewport state for each open document.
+- Switching workspace or tab must not commit, clear or acknowledge engineering diagnostics or drafts.
+- Rebind inspectors, selection and context actions to the active document; stale references from the previous document must not mutate the newly active one.
+
+**Multi-document**
+- Every command, selection, inspector context, draft and viewport record must be bound to an explicit project/document identity.
+- Global preferences remain separate from per-document state.
+- Cross-project copy/import must use explicit domain transfer/validation, not share mutable object instances.
+- A background save must identify its target project and snapshot revision; completion for one document must not clear another document's dirty state.
+
+### G. Versioning, portability and failure policy
+
+1. manifest.json owns package format/schema/version metadata; project.json remains canonical engineering payload under the frozen package contract.
+2. Schema migrations must be deterministic, versioned, reviewable and non-destructive. Preserve an original backup or immutable source before migration where feasible.
+3. An older application encountering a newer unsupported schema must fail safely or enter a clearly limited read-only mode; it must not rewrite the package with dropped fields.
+4. Unknown optional extension data must follow an explicit preserve/ignore/reject policy; silently deleting it during save is prohibited.
+5. Relative paths, if ever permitted for optional attachments, need a package security and portability policy. Canonical project validity must not depend on external absolute paths.
+6. Recovery and auxiliary settings stores require corruption handling independent of canonical project package validation.
+7. Concurrent writers and external modification need conflict detection using project identity and durable revision/fingerprint; last-writer-wins must not be assumed.
+8. File-system atomicity, locking, permissions, disk-full behavior and interrupted replacement vary by platform; define supported guarantees rather than asserting universal atomicity.
+9. Backup retention and recovery points must be explicit and discoverable; a recent-project list is not a backup.
+
+### H. Candidate UI presentation
+
+- Project header shows project identity, location, canonical dirty/save state and schema compatibility.
+- Separate indicators show draft recovery/dirty status, workspace-layout persistence and preference persistence where relevant.
+- Save action label and confirmation describe what is being saved.
+- Recovery center lists recoverable drafts/session artifacts with source project, timestamp, base revision, conflict status and preview.
+- Close/switch dialogs enumerate affected state classes and consequences in plain language.
+- Workspace and viewport restoration are visually distinct from engineering model restoration.
+- Read-only/degraded mode identifies the restricted operations and reason.
+- Never use one generic green Saved indicator to imply all state classes are durable.
+
+### I. Candidate acceptance scenarios for UI-GATE-02
+
+| Scenario | Setup/action | Expected evidence |
+|---|---|---|
+| UI-ACC-SESSION-01 Canonical save | Modify equipment/topology through Application commands and save | .gridforge canonical payload reflects the committed project revision; UI reports success only after durable commit |
+| UI-ACC-SESSION-02 View-only change | Pan/zoom, change panel layout and theme; save project | Canonical project payload is unchanged; auxiliary settings follow their own policy |
+| UI-ACC-SESSION-03 Engineering draft recovery | Create a supported persisted draft, close/crash and reopen | Draft is offered with project/base revision and preview; canonical project remains unchanged until explicit commit |
+| UI-ACC-SESSION-04 Save failure | Simulate disk-full, permission or replacement failure at persistence boundary | Last known-good package remains intact; dirty state remains; actionable error is shown |
+| UI-ACC-SESSION-05 Save during edits | Mutate project while a save snapshot is in progress | Saved revision is identified; subsequent edits remain dirty and are not falsely marked saved |
+| UI-ACC-SESSION-06 Multi-document isolation | Open two projects, edit/save/switch between them | Dirty flags, commands, drafts and viewport state remain bound to correct document |
+| UI-ACC-SESSION-07 Incompatible draft | Restore draft against a changed base project revision | Conflict is detected; no blind replay or canonical overwrite occurs |
+| UI-ACC-SESSION-08 Schema compatibility | Open older, newer unsupported and malformed packages | Migration/read-only/reject behavior is explicit and non-destructive |
+| UI-ACC-SESSION-09 Interrupted save | Interrupt package write/replace | Previous valid package remains recoverable; incomplete output is not treated as committed |
+| UI-ACC-SESSION-10 Transient interaction cleanup | Close/switch document during active drag, preview or tool gesture | Interaction is safely cancelled/unwound; no half-created canonical object is persisted |
+| UI-ACC-SESSION-11 Preference failure | Preference/layout store is unavailable or corrupt | Project open/save remains independent; user receives scoped warning and safe defaults |
+| UI-ACC-SESSION-12 External modification | Project changes outside the running application before save | Conflict is detected or explicit policy is applied; silent overwrite is prohibited |
+
+### J. Open decisions before approval
+
+1. Which draft classes are persisted and what is their storage location: inside package, project-associated sidecar, or managed recovery store?
+2. Is autosave supported? If so, which state classes, cadence, retention and user controls apply?
+3. What is the canonical project identity and durable revision/fingerprint contract?
+4. What guarantees are required for atomic save, backup, file locking and concurrent access on supported operating systems/filesystems?
+5. What is the migration policy for schema versions and unknown extension/plugin data?
+6. Which workspace/viewport preferences are global, per user, per machine, per project or portable profiles?
+7. How are multiple open documents and project switching supported?
+8. What recovery behavior is promised after application crash, process termination, OS crash and power loss?
+9. What privacy, permission and cleanup policies govern drafts, recent projects and recovery artifacts?
+10. Which operations are permitted in read-only/degraded mode?
+11. What is the UX policy when project save succeeds but auxiliary settings persistence fails, or vice versa?
+12. How are project copies, Save As, imports and external file modifications reconciled?
+
+### K. Gate disposition and invariants
+
+**UI-GATE-02 remains Open.** This proposal separates the six state classes and defines candidate lifecycle, save, draft recovery, multi-document, compatibility and failure behavior. It does not approve autosave, sidecar/package changes, recovery guarantees, migration policy or multi-document release scope.
+
+Frozen project constraints remain:
+- .gridforge remains the project package; manifest.json describes package/schema/version and project.json is canonical engineering payload.
+- Project persistence stores engineering model/topology and SLD layout, not screenshots or serialized Qt graphics scenes.
+- Core owns engineering truth; Application owns controlled mutation and persistence orchestration; UI owns presentation and transient interaction only.
+- Draft state is not committed Core state; commit remains explicit and domain-validated.
+- Preferences, workspace layout and viewport state do not mutate canonical engineering data.
+
+**Scope boundary:** research register only. No package format, schema, persistence service, source implementation or V2 behavior was changed. No tests or CI were run.
