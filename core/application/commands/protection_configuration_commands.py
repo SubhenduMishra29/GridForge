@@ -98,7 +98,9 @@ class CreateDifferentialSchemeCommand(Command):
                  causation_id: UUID | None = None) -> None:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
-        super().__init__(**_command(CREATE_DIFFERENTIAL_SCHEME, {"scheme": scheme},
+        super().__init__(**_command(CREATE_DIFFERENTIAL_SCHEME, {
+            "scheme": scheme, "protection_element_id": scheme.protection_element_id,
+        },
                                    command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
@@ -108,7 +110,9 @@ class UpdateDifferentialSchemeCommand(Command):
                  causation_id: UUID | None = None) -> None:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
-        super().__init__(**_command(UPDATE_DIFFERENTIAL_SCHEME, {"scheme": scheme},
+        super().__init__(**_command(UPDATE_DIFFERENTIAL_SCHEME, {
+            "scheme": scheme, "protection_element_id": scheme.protection_element_id,
+        },
                                    command_id=command_id, correlation_id=correlation_id, causation_id=causation_id))
 
 
