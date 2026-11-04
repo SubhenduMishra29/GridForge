@@ -5253,3 +5253,294 @@ Frozen invariants:
 - No plugin or external file can bypass catalogue governance or silently assert compliance.
 
 **Scope boundary:** research register only. No standards catalogue records, BIS/IEC/IEEE edition verification, clause text, compliance rule, parser, source implementation, tests or CI were changed or run.
+
+
+## 8I-26. Proposed V3 engineering calculation and solver governance architecture (2026-11-04)
+
+### A. Research objective and architectural boundary
+
+Define a V3 calculation architecture that makes engineering results reproducible, reviewable, numerically defensible and hardware-portable without collapsing distinct engineering disciplines into one generic solver. The architecture shall provide shared lifecycle and execution contracts while preserving domain-owned mathematical models, physical assumptions, validation rules, result semantics and acceptance criteria.
+
+This section is a proposed V3 change record. It does not authorize changes to the frozen V2 architecture or imply that a solver, accelerator backend, benchmark suite or calculation workflow has been implemented.
+
+The central distinction is:
+- **Calculation orchestration** coordinates requests, immutable inputs, execution resources, progress, cancellation, provenance and result publication.
+- **Domain modelling** defines the physical system, equations, boundary conditions, constraints, operating modes and engineering meaning.
+- **Numerical solving** applies a declared numerical method to a well-defined mathematical problem.
+- **Engineering acceptance** decides whether the numerical result is sufficiently valid and applicable for its intended engineering use.
+
+These responsibilities must be separately represented. A solver reporting convergence does not prove that the model is physically correct, the inputs are applicable, or the result is fit for an engineering decision.
+
+### B. Shared calculation lifecycle; domain-owned semantics
+
+Adopt a common lifecycle contract, not a universal mathematical solver:
+
+1. User or an authorized Application workflow requests a named study/calculation.
+2. Application resolves the requested domain service and its capability declaration.
+3. The domain service constructs a typed, immutable input snapshot from an identified project revision and the relevant domain state.
+4. Domain validation checks model completeness, units, bases, topology, boundary conditions and applicability.
+5. The solver capability and execution backend are selected under declared constraints.
+6. The solver executes with explicit method, precision, tolerances, resource limits and cancellation semantics.
+7. Numerical diagnostics and convergence evidence are captured independently of engineering acceptance.
+8. The domain evaluates result completeness, physical plausibility, limits and study-specific acceptance rules.
+9. An immutable result and provenance record are published against the exact input snapshot.
+10. Application emits lifecycle events; projections display status, diagnostics and results without becoming calculation authorities.
+
+Common lifecycle states should include requested, preparing, validating, queued, running, converged, completed-with-warnings, failed, cancelled, superseded and rejected. A domain may add typed substates. Do not use a single Boolean success flag to conflate execution, convergence and engineering acceptance.
+
+The common orchestration layer may manage scheduling, execution resources, task identity and publication. It must not own electrical equations, Protection decisions, Control semantics or domain validation.
+
+### C. Domain-specific solver ownership
+
+Each engineering domain retains its own mathematical and semantic authority. Candidate solver families include:
+
+- **Load flow / power flow:** network formulation, bus types, slack/reference handling, operating limits, transformer and control models, convergence and feasibility semantics.
+- **Short circuit:** fault type/location, sequence networks or phase-domain representation, source contributions, grounding, standards-selected calculation method and time-dependent quantities where supported.
+- **Motor dynamics:** electrical and mechanical state equations, machine parameterization, load torque, starting/transient operating conditions, integration method and stability constraints.
+- **Protection evaluation:** measurement interpretation, relay function algorithms, pickup/timing logic, element state and ProtectionDecision semantics. It is not merely another numerical solver job and must retain Protection-domain execution authority.
+- **Harmonics / power quality:** harmonic source models, frequency-domain network response, distortion metrics and measurement conventions.
+- **Transient stability / electromechanical dynamics:** machine, controller, network and event models with explicit integration and event handling.
+- **Electromagnetic transient (EMT):** phase-domain switching and fast transient models, stiff-system treatment, time-step constraints and detailed component models.
+- **Grounding / earthing:** soil and electrode assumptions, frequency and seasonal applicability, touch/step potential and domain-specific safety criteria.
+- **Thermal / equipment duty:** thermal state, duty cycle, ambient conditions, material and equipment-specific limits.
+- **Control-system simulation:** Control-domain execution semantics, scan/cycle timing, signal quality, interlocks and command/feedback behavior.
+
+The list is a capability roadmap, not a commitment to implement every solver in V3. Similar numerical techniques may be shared as internal libraries only where their mathematical assumptions and lifecycle are genuinely common. A shared sparse matrix factorization routine, ODE integrator or interpolation primitive does not make the surrounding engineering models interchangeable.
+
+### D. Typed study request and immutable input snapshot
+
+Every calculation request shall identify:
+- Stable study and request IDs; project ID and exact project revision.
+- Domain and calculation type; requested scope and purpose.
+- Explicit equipment, network and model scope, including inclusion/exclusion rules.
+- Relevant topology, instrumentation, Protection, Control, asset-parameter and configuration revisions.
+- Input source and provenance for every material parameter: configured, measured, imported, derived, defaulted, estimated or assumed.
+- Engineering units, dimensions, per-unit bases, phase sequence, reference direction, sign convention and coordinate frame where applicable.
+- Operating point, boundary conditions, initial conditions, switching/fault events and time horizon as applicable.
+- Standards baseline and exact applicable clauses/rules where calculation method or acceptance criteria are standards-derived (link to 8I-25).
+- Model fidelity, approximation level and declared omissions.
+- Validation profile, solver constraints, precision, tolerance policy and execution-resource policy.
+
+Snapshot construction must be atomic with respect to the revisions it captures. The calculation must never read a mixture of project revisions while it is running. A snapshot is immutable after submission; changing a parameter creates a new snapshot/request rather than mutating an in-flight calculation.
+
+Revision identity must be domain-aware. At minimum distinguish physical topology, equipment parameters, instrumentation/measurement configuration, Protection configuration, Control configuration, study configuration and relevant library/model revisions. A single project revision number is useful as a container identity but is not a sufficient dependency description for selective invalidation.
+
+### E. Input validation, numerical convergence and engineering acceptance
+
+Represent three independent verdicts:
+
+1. **Input/model validation:** whether the requested model is complete, dimensionally consistent, correctly connected, applicable and sufficiently specified to execute.
+2. **Numerical execution/convergence:** whether the declared algorithm completed within its numerical criteria, including residuals, iteration limits, stability and error estimates.
+3. **Engineering acceptance:** whether the result satisfies domain-specific physical, operational, safety, standards and study-purpose criteria.
+
+Possible outcomes include valid/invalid/incomplete input; converged/not-converged/partially-converged/numerically-unstable execution; and accepted/accepted-with-limitations/rejected/requires-review engineering disposition. These states must not be compressed into one status.
+
+A converged result can still be unacceptable because of violated equipment limits, invalid assumptions, unrealistic parameter values, unsupported model fidelity or unmet standards criteria. A non-converged result may still carry useful diagnostic evidence, but it must not be silently presented as an accepted engineering result.
+
+### F. Solver capability and execution contract
+
+A solver provider shall declare, through a stable public contract:
+- Domain and calculation types supported.
+- Model and input schema versions.
+- Supported physical phenomena, equipment models, operating ranges and exclusions.
+- Numerical methods and algorithm variants available.
+- Precision modes and supported numeric types.
+- Required and optional backend capabilities.
+- Determinism/reproducibility class.
+- Resource estimates or bounded resource requirements.
+- Cancellation and checkpoint capabilities.
+- Result schema and diagnostics schema versions.
+- Known limitations, validation evidence and supported standards methods.
+- Provider identity, version, build identity and compatibility range.
+
+Capability discovery must occur before execution. Selection must be explainable and deterministic under a fixed capability set and policy. A backend must not be selected merely because hardware is present; it must satisfy the solver's numerical and model requirements.
+
+Keep solver interface, domain study service and execution backend distinct. The domain service defines the problem and interprets results; the solver implements a declared algorithm; the backend supplies CPU/GPU/NPU execution resources where supported.
+
+### G. CPU, GPU and NPU execution policy
+
+- **CPU:** mandatory reference and compatibility path for supported calculations. CPU execution is the baseline for portability, diagnosability and fallback. A CPU implementation need not be the fastest, but must be sufficiently complete to provide a trusted reference for the declared model.
+- **GPU:** optional acceleration for workloads with demonstrated parallel structure and supported numerical kernels, such as large sparse operations, batch simulation, matrix operations or ensembles. GPU availability must not change the engineering model or silently relax acceptance criteria.
+- **NPU:** reserved for explicitly supported inference workloads such as surrogate estimation, classification, anomaly detection or parameter-assistance. NPU inference is not automatically a solver, measurement source, Protection authority or engineering acceptance authority. A surrogate output must identify its training/model version, training domain, validity envelope, uncertainty and out-of-distribution behavior. It must not directly issue Protection trips, Control commands or device actuation.
+- **Fallback:** backend unavailability, resource exhaustion or unsupported capability must produce an explicit fallback or failure decision. Switching to CPU is permitted only when the CPU solver supports the same model and the fallback is declared in provenance. No silent reduction in fidelity, precision or physical scope.
+- **Hardware-independent physics:** domain equations, equipment models and canonical result semantics must not depend on Qt, a GPU vendor SDK, a device-specific runtime or plugin UI implementation.
+
+Numerical equivalence across backends should be specified by domain-appropriate tolerances and invariants. Bitwise identity may be unrealistic where parallel reduction order or hardware arithmetic differs; any permitted difference must be bounded, measured and disclosed. A GPU result that diverges beyond its declared tolerance must be marked failed or non-equivalent, not accepted because it completed faster.
+
+### H. Numerical quality, convergence and failure semantics
+
+A result record shall retain applicable numerical evidence, including:
+- Algorithm/method and variant; discretization or integration method where applicable.
+- Iteration count, time-step policy, adaptive-step history summary or factorization status.
+- Absolute and relative tolerances, stopping criteria and maximum iteration/step limits.
+- Residual norm, constraint violation, balance error, conservation error or other domain-appropriate quality measures.
+- Conditioning or ill-conditioning indicators, singularity and rank-deficiency diagnostics.
+- Error estimate, truncation/round-off considerations and uncertainty where the method supports them.
+- Convergence history summary, rejected steps, divergence or oscillation indicators.
+- Precision and arithmetic mode; backend-specific numerical settings.
+- Warnings, unsupported phenomena, regularization or approximation applied.
+
+Failure reasons should be typed: invalid input, missing parameter, unsupported model, inconsistent units/bases, disconnected/ill-posed model, singular system, non-convergence, unstable integration, resource limit, backend failure, cancellation, stale dependency, numerical quality threshold exceeded or internal solver defect.
+
+Do not fabricate residuals, error bars, confidence levels or convergence status when the method does not compute them. Distinguish unavailable, not applicable and not calculated. Regularization, damping, clipping, substitution of defaults and model simplification must be explicit and auditable.
+
+### I. Result model, immutability and reproducibility
+
+Calculation results should be immutable, typed and revision-bound. The result envelope should include:
+- Result identity, study identity, request identity and lifecycle disposition.
+- Exact input snapshot identity/digest and all captured dependency revisions.
+- Domain result schema and version; typed quantities, units and reference bases.
+- Solver provider, version/build, algorithm, method settings and numerical precision.
+- Backend/hardware/runtime identity and fallback history.
+- Validation, convergence and engineering-acceptance verdicts as separate fields.
+- Numerical diagnostics, warnings, limitations, assumptions and uncertainty.
+- Standards baseline, rule/clause traceability and applicability decision where relevant.
+- Creation timestamp and time quality; execution duration and resource summary.
+- Parent/derived result links and reproducibility instructions.
+
+Never mutate an old result in place when inputs or solver versions change. Create a new result and mark the old result as historical, superseded or still valid for its original snapshot. Result comparison must disclose changed inputs, models, methods, precision or backend; it must not imply a like-for-like comparison when those differ.
+
+Reproducibility classes should be declared, for example: bitwise reproducible in a fixed environment; numerically reproducible within declared tolerances; statistically reproducible for stochastic/ensemble methods; or non-reproducible with documented reason. Record random seeds and sampling policies where applicable. Preserve enough provenance to rerun, while acknowledging external data, hardware and software availability constraints.
+
+### J. Dependency graph and selective invalidation
+
+Calculation dependency tracking must be explicit and domain-specific. A change to topology may invalidate network studies; a CT ratio or measurement-channel mapping may invalidate measurement-derived Protection evaluations without necessarily invalidating the physical network topology; a relay setting may invalidate the affected Protection function result without rewriting the historical study snapshot.
+
+Use dependency fingerprints at meaningful granularity. Recompute only affected results where dependencies are known, but do not claim unaffected status where dependencies are incomplete or unknown. Unknown dependency means stale/needs-review, not silently current.
+
+Preserve the separate revision domains established by the Signal/Measurement and Protection-state research:
+- Physical topology revision.
+- Instrumentation and measurement configuration/state revision.
+- Protection configuration/state revision.
+- Control configuration/state and execution revision.
+- Equipment parameter/model revision.
+- Study configuration and input snapshot revision.
+
+Protection stale-result isolation is safety critical. A stale or incomplete measurement, CT/PT/CVT lifecycle change, relay configuration change or topology dependency change must not be consumed as a current Protection evaluation. Calculation orchestration must never weaken fail-closed Protection dispatch or substitute an old accepted result for a current decision.
+
+### K. Application orchestration, tasks and user interaction
+
+Application owns the request lifecycle and controlled publication. It may provide shared task scheduling, queueing, cancellation, progress and resource governance, but it must not duplicate the existing command/event/transaction architecture or own domain execution rules.
+
+Task behavior:
+- Stable task and correlation IDs; explicit queued/running/terminal states.
+- Progress stages with domain-specific meaning; no fabricated percentage where progress cannot be measured.
+- Cooperative cancellation and safe termination boundaries; cancellation does not imply rollback of an external physical action.
+- Bounded CPU/GPU memory, worker counts, queue depth and execution time where appropriate.
+- Concurrency policy for conflicting or resource-intensive calculations.
+- Stale completion rejection: a late result may be retained against its original snapshot but must not overwrite a newer projection or be represented as current.
+- Retry policy distinguishes transient backend failure from deterministic input/model failure; retries retain attempt history.
+- UI receives typed task/result events and remains responsive; it does not execute domain equations or mutate Core state.
+- Users can inspect input scope, assumptions, solver/method, backend, warnings, convergence and acceptance before relying on results.
+
+### L. Consolidated plugin architecture and extension governance
+
+Keep solver and calculation extensions in one consolidated V3 plugin location with a single discovery, registration, compatibility, capability and lifecycle mechanism. Avoid scattered per-domain plugin registries or duplicate solver managers.
+
+Plugins may contribute domain solver providers, model libraries, numerical kernels, result renderers, study templates or validation extensions through public contracts. They must:
+- Register capabilities and versions declaratively.
+- Use Application/domain services for authorized operations.
+- Never mutate Core directly or bypass immutable snapshots.
+- Never make Core import a plugin, Qt, a backend SDK or plugin implementation.
+- Declare dependencies, supported schema versions, resource needs and licensing.
+- Be isolated from untrusted input and bounded where execution risk requires it.
+- Preserve result provenance and expose limitations.
+- Fail closed on incompatible schemas or missing required capabilities.
+
+Core owns canonical domain models and invariants. Application owns lifecycle/orchestration. Plugin infrastructure owns discovery and provider lifecycle. Domain packages own physical equations and result semantics. Backend adapters own device execution. UI plugins own presentation only.
+
+A plugin cannot claim that an arbitrary external executable or ML model is a validated engineering solver merely by registering a provider. Provider admission requires evidence against declared model scope and verification criteria.
+
+### M. Verification evidence and engineering assurance
+
+Verification evidence must be layered and domain-specific:
+1. Analytical solutions for cases with known closed-form answers.
+2. Published reference problems and benchmark cases with traceable source and assumptions.
+3. Independent implementation or cross-tool comparison, with method and version differences disclosed.
+4. Conservation, balance, symmetry, limiting-case and physical-invariant checks.
+5. Sensitivity and parameter perturbation studies.
+6. Numerical convergence studies across tolerance, mesh/time-step or iteration settings where applicable.
+7. CPU/GPU backend comparison within declared numerical tolerances.
+8. Experimental or field validation where suitable data and conditions exist.
+9. Standards-method verification against the exact edition, clause and applicability record.
+10. Operational or commissioning evidence only where authorized and relevant; it is not interchangeable with numerical benchmark evidence.
+
+Evidence records must identify the tested model scope, inputs, assumptions, solver/backend version, expected result, observed result, tolerance, reviewer and limitations. A benchmark pass does not establish universal model validity. Cross-tool agreement is evidence, not proof, especially where tools share algorithms, data or assumptions.
+
+### N. Security, resource isolation and operational safety
+
+Treat project files, imported models, plugin packages, external solver inputs and result archives as untrusted until validated. Apply schema validation, archive/path safety, size and decompression limits, resource quotas and explicit executable/plugin trust policy. Avoid arbitrary code execution from project content.
+
+External solvers should run through controlled adapters with bounded input/output, timeouts, cancellation and captured logs. Validate returned data before publication; do not trust executable output as canonical domain state. Protect proprietary model data, credentials and licensed standards material. Record external tool identity and invocation configuration without exposing secrets.
+
+Calculation results are engineering evidence, not physical commands. A study or solver must not directly energize equipment, operate breakers, issue Control commands or bypass Protection. Any later operational workflow remains subject to separate authorization, interlocks, command and feedback contracts.
+
+### O. Standards and calculation traceability
+
+Connect this architecture to 8I-25. Every standards-derived method or acceptance rule should reference the exact standard identity, edition, amendment, clause, jurisdiction and project applicability decision. Record whether the clause specifies a method, input assumption, limit, reporting quantity or acceptance criterion.
+
+Do not assume that all numerical methods are mandated by a standard, or that matching one formula establishes compliance. Distinguish standards-prescribed calculation, engineering practice, vendor model and user-selected approximation. When standards conflict or applicability is unresolved, surface the conflict and require an authorized engineering disposition.
+
+### P. Candidate V3 acceptance scenarios
+
+The following are candidate acceptance scenarios, not executed tests or approved release criteria:
+
+- **UI-ACC-SOLVER-01:** A study captures one immutable, internally consistent input snapshot and identifies all dependency revisions.
+- **UI-ACC-SOLVER-02:** A topology or equipment-parameter change during execution cannot mutate the in-flight snapshot.
+- **UI-ACC-SOLVER-03:** Input validation, numerical convergence and engineering acceptance are independently visible.
+- **UI-ACC-SOLVER-04:** A solver declares domain, model scope, numerical method, supported precision and limitations before selection.
+- **UI-ACC-SOLVER-05:** An unsupported model or operating range is rejected with a typed diagnostic rather than silently approximated.
+- **UI-ACC-SOLVER-06:** CPU execution provides the supported reference/fallback path for a declared solver.
+- **UI-ACC-SOLVER-07:** GPU acceleration preserves the declared model and acceptance criteria and reports backend provenance.
+- **UI-ACC-SOLVER-08:** CPU/GPU results are compared using domain-approved numerical tolerances; excessive divergence is rejected.
+- **UI-ACC-SOLVER-09:** NPU surrogate output exposes model identity, validity envelope, uncertainty and out-of-distribution status and cannot directly actuate equipment.
+- **UI-ACC-SOLVER-10:** Non-convergence, singularity, ill-conditioning and resource exhaustion produce distinct failure diagnostics.
+- **UI-ACC-SOLVER-11:** A converged but physically or standards-inapplicable result is not marked engineering-accepted.
+- **UI-ACC-SOLVER-12:** A result can be traced to exact project revision, snapshot, domain revisions, solver build, algorithm, settings and backend.
+- **UI-ACC-SOLVER-13:** Re-running a reproducible case records whether equivalence is bitwise, tolerance-based, statistical or not guaranteed.
+- **UI-ACC-SOLVER-14:** A changed CT ratio or measurement mapping invalidates dependent Protection evaluation without falsely changing physical topology revision.
+- **UI-ACC-SOLVER-15:** A stale or late Protection-related result cannot be projected or consumed as a current Protection decision.
+- **UI-ACC-SOLVER-16:** Cancellation, retry and backend fallback preserve task and attempt history and do not publish partial results as accepted.
+- **UI-ACC-SOLVER-17:** A solver plugin registers through the consolidated plugin contract and cannot mutate Core directly.
+- **UI-ACC-SOLVER-18:** An imported or external solver result is schema-validated, provenance-bound and isolated from direct project mutation.
+- **UI-ACC-SOLVER-19:** Numerical verification evidence links to benchmark source, assumptions, solver version, expected/observed values and tolerance.
+- **UI-ACC-SOLVER-20:** A result comparison discloses changed inputs, model fidelity, solver method, precision and backend before presenting differences.
+
+### Q. Open research and approval decisions
+
+1. Select the initial V3 solver portfolio and explicitly defer unsupported study families.
+2. Define the canonical study request, snapshot, task, result and diagnostic schemas.
+3. Decide whether solver providers are packages within the consolidated plugin system or a narrower provider contract hosted by it; avoid a second plugin host.
+4. Define CPU reference implementation and numerical-equivalence policy per solver family.
+5. Select supported GPU compute abstraction(s) only after workload profiling and portability review.
+6. Define the restricted NPU inference boundary, model governance and prohibition on direct Protection/Control authority.
+7. Define domain-specific numerical acceptance profiles and benchmark evidence requirements.
+8. Define dependency fingerprints and selective invalidation ownership for each domain.
+9. Determine external solver integration policy, licensing, isolation and reproducibility limits.
+10. Establish representative performance targets only after representative project sizes and hardware profiles are measured.
+
+### R. Gate impact and disposition
+
+- **UI-GATE-03 — Diagnostics and engineering status:** Open. Requires visible separation of input validity, solver execution, convergence, engineering acceptance, warnings and stale-result state.
+- **UI-GATE-05 — Display performance and responsiveness:** Open. Requires evidence for asynchronous calculation orchestration, result projection and large-result rendering; no benchmark has been run for this section.
+- **UI-GATE-06 — Cross-domain traceability:** Open. Requires exact links across input revisions, measurements, Protection/Control state, solver execution, decisions and evidence.
+- **UI-GATE-07 — Scope and priority:** Open. Requires an approved initial solver portfolio, resource policy and phased delivery scope.
+- **UI-GATE-02 — Project/session lifecycle:** remains open where calculation snapshots, result persistence, recovery and revision binding intersect project lifecycle.
+
+No gate is closed by this research entry. No candidate scenario is represented as executed or passed.
+
+### S. Frozen invariants and scope boundary
+
+- Core retains domain truth, physical models and engineering invariants; Application retains controlled mutation and orchestration.
+- Domain-specific solver semantics remain owned by their engineering domains; common orchestration does not become a universal solver.
+- Immutable input snapshots and immutable result records are revision-bound and provenance-complete.
+- Input validation, numerical convergence and engineering acceptance remain separate.
+- CPU is the portability/reference path; GPU is optional acceleration; NPU is restricted to supported inference and never becomes Protection or actuation authority.
+- Hardware/backend selection cannot silently alter model fidelity, physical scope, precision or acceptance criteria.
+- Protection and Control remain separate execution authorities. Calculation infrastructure cannot bypass fail-closed Protection or Control contracts.
+- Plugins use public contracts and Application/domain services; no direct Core mutation or Core dependency on plugin/UI/backend implementations.
+- Project persistence remains governed by the frozen project/package architecture; results are not arbitrary mutable sidecars.
+- Standards applicability and normative traceability remain governed by 8I-25.
+- No solver result, benchmark, simulation or study can be represented as field validation, certification or operational authorization without the corresponding evidence and authority.
+
+**Scope boundary:** research register only. No solver, domain model, plugin, backend, numerical kernel, benchmark, project schema, source code, tests or CI were implemented or run. V2 main remains unchanged.
