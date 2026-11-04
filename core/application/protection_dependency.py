@@ -403,6 +403,14 @@ def build_protection_dependency_registry(
                     element_diagnostics.append(f"{binding_prefix}: runtime channel object is not the active registry object.")
                 if getattr(channel, "source_terminal", None) is None:
                     element_diagnostics.append(f"{binding_prefix}: physical channel has no canonical source terminal.")
+                if (
+                    relay is not None
+                    and element.function_code not in {"50N", "51N"}
+                    and relay.input_channels.get(binding.relay_input_id) is not channel
+                ):
+                    element_diagnostics.append(
+                        f"{binding_prefix}: Relay input is not bound to the active canonical MeasurementChannel object."
+                    )
                 add_dependency("measurement_channel", binding.channel_id, {
                     "configuration": _channel_configuration(channel),
                     "runtime_instance_identity": id(channel),
@@ -498,13 +506,27 @@ def build_protection_dependency_registry(
                                 f"source endpoint resolves to {len(matching_roles)} instrument primary components"
                             )
                         selected_side = matching_roles[0]
+                        component_prefix = (
+                            "ct-primary-component:v1:"
+                            if measurement_type == "current"
+                            else "instrument-primary-component:v1:"
+                        )
+                        for primary_role, primary_component in primary_components.items():
+                            add_dependency(
+                                (
+                                    "ct_primary_component"
+                                    if measurement_type == "current"
+                                    else "voltage_primary_component"
+                                ),
+                                f"{binding.instrument_id}:{primary_role}",
+                                _topology_component_fingerprint(
+                                    primary_component,
+                                    prefix=component_prefix,
+                                ),
+                            )
                         selected_component_fingerprint = _topology_component_fingerprint(
                             primary_components[selected_side],
-                            prefix=(
-                                "ct-primary-component:v1:"
-                                if measurement_type == "current"
-                                else "instrument-primary-component:v1:"
-                            ),
+                            prefix=component_prefix,
                         )
                         if measurement_type == "current":
                             if (
@@ -514,17 +536,9 @@ def build_protection_dependency_registry(
                                 element_diagnostics.append(
                                     f"{binding_prefix}: persisted CT P1/P2 side or component membership is stale; explicit rebind is required."
                                 )
-                            add_dependency(
-                                "ct_primary_component",
-                                f"{binding.instrument_id}:{selected_side}",
-                                selected_component_fingerprint,
-                            )
-                        else:
-                            add_dependency(
-                                "voltage_primary_component",
-                                f"{binding.instrument_id}:{selected_side}",
-                                selected_component_fingerprint,
-                            )
+                            # Both P1 and P2 components were captured above; the
+                            # persisted side/fingerprint check binds this input to
+                            # exactly one of those two component identities.
                     except (KeyError, LookupError, TypeError, ValueError, AttributeError) as exc:
                         element_diagnostics.append(
                             f"{binding_prefix}: instrument primary topology association is incomplete or ambiguous: {exc}."
