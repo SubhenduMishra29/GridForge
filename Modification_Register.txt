@@ -21343,3 +21343,43 @@ Verification boundary:
   execution were performed.
 
 ======================================================================
+
+======================================================================
+GF-AUD-150 — DIFFERENTIAL KERNEL IS NOT A PROTECTION EXECUTION ELEMENT
+======================================================================
+
+Audit finding:
+- core/protection/differential.py::evaluate_differential_scheme() is a pure,
+  non-actuating numerical kernel. It accepts a DifferentialProtectionScheme-
+  Configuration and explicitly keyed DifferentialCurrentSample inputs,
+  returning DifferentialProtectionResult.
+- It does not create a canonical ProtectionDecision, bind the result to a
+  ProtectionFunctionConfiguration, participate in ProtectionRuntime.compose()
+  or ProtectionSystem.evaluate(), or enter Application action dispatch.
+- DifferentialProtectionSchemeConfiguration.from_dict() restores the
+  existing persisted scheme shape without an owning Protection element.
+  Making owner identity mandatory therefore requires a persistence migration
+  or explicit fail-closed legacy-read policy.
+
+Audit conclusion:
+- Adding only protection_element_id to the scheme would not establish an
+  executable Protection element owner or decision/dispatch lifecycle.
+- A complete integration must define element identity, relay/function/action
+  mapping validation, inclusion in canonical Protection evaluation, and
+  input/configuration/topology provenance checks before action authorization.
+- Do not infer owner from binding order, relay name, scheme name or protected
+  object identity. Do not convert the standalone numerical result into an
+  actionable ProtectionDecision without a defined validated contract.
+- Existing standalone kernel remains non-actuating. No owner field or
+  speculative runtime bridge was added.
+
+Verification boundary:
+- Inspected differential evaluator inputs/outputs, ProtectionRuntime
+  composition/evaluation path, ProtectionFunctionConfiguration ownership,
+  scheme serialization and aggregate restoration.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+- Tracked under issue #1070; closure remains blocked on the full integration
+  and persistence compatibility contract.
+
+======================================================================
