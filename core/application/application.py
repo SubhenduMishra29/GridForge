@@ -648,6 +648,23 @@ class Application:
             or getattr(source_terminal, "equipment_id", None) != source_id
         ):
             return f"{prefix}: MeasurementChannel source terminal does not match its canonical instrument identity."
+
+        # Protection measurements must originate from the instrument's
+        # secondary winding. Matching only equipment_id would also accept a
+        # primary terminal descriptor for the same CT/PT/CVT.
+        terminal_role = getattr(source_terminal, "terminal_role", None)
+        normalized_role = terminal_role.strip().upper() if isinstance(terminal_role, str) else ""
+        allowed_secondary_roles = {
+            "ct": frozenset({"S1", "S2"}),
+            "current_transformer": frozenset({"S1", "S2"}),
+            "cvt": frozenset({"X1", "X2"}),
+            "capacitive_voltage_transformer": frozenset({"X1", "X2"}),
+            "pt": frozenset({"SECONDARY_A", "SECONDARY_B"}),
+            "potential_transformer": frozenset({"SECONDARY_A", "SECONDARY_B"}),
+        }[source_type]
+        if normalized_role not in allowed_secondary_roles:
+            expected = ", ".join(sorted(allowed_secondary_roles))
+            return f"{prefix}: CT/PT/CVT measurement source must use a secondary terminal ({expected}); received {terminal_role!r}."
         if getattr(source, "in_service", None) is not True:
             return f"{prefix}: configured CT/PT/CVT source is out of service or unavailable."
         return None
