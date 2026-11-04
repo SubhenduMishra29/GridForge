@@ -169,7 +169,6 @@ class ProtectionGraphicsSurface(QGraphicsView):
             for configuration in relay_configs:
                 element_id = str(configuration.element_id)
                 row_height = max(145.0, 80.0 + len(configuration.input_channel_ids) * 62.0)
-                input_nodes: list[ProtectionGraphicsNode] = []
                 for input_index, (input_name, channel_id) in enumerate(
                     sorted(configuration.input_channel_ids.items())
                 ):
@@ -185,7 +184,6 @@ class ProtectionGraphicsSurface(QGraphicsView):
                         input_name=str(input_name),
                         channel_id=str(channel_id),
                     )
-                    input_nodes.append(input_node)
                     source_node = self._nodes.get(str(channel_id))
                     if source_node is None:
                         source_node = self._add_node(
