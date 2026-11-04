@@ -6844,3 +6844,257 @@ All affected gates remain open. This entry does not approve a graph schema, junc
 - Project persistence remains within the frozen .gridforge package contract.
 
 **Scope boundary:** research register only. No graph schema, topology engine, node/terminal API, junction tool, busbar implementation, solver adapter, project migration, UI, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+## 8I-31. Proposed V3 electrical network analysis model and topology reduction architecture (2026-11-04)
+
+### A. Purpose and governing decision
+
+Define how canonical electrical topology is transformed into analysis-ready networks without making solver-specific representations authoritative project data. The canonical equipment and connectivity graph remains the source of electrical identity and configured connectivity. Each study resolves a scenario, selects a declared physical/model fidelity, and produces an immutable analysis snapshot with a complete revision vector and provenance.
+
+**Primary recommendation:** separate (1) canonical physical topology, (2) scenario-resolved energized topology, (3) study-domain network formulation, (4) solver-preprocessed matrices/state, and (5) optional reduced equivalents. These are related artifacts with explicit derivation links, not interchangeable graphs and not competing sources of truth.
+
+Analysis snapshots are derived, reproducible and disposable. Persist study definitions, scenario inputs, model assignments, solver settings, result provenance and any deliberately retained equivalent definition; do not persist an opaque solver matrix as the canonical network.
+
+### B. Evidence and research basis
+
+- IEC 60909-0:2026, Edition 3.0, published 22 July 2026, is the current IEC Part 0 reference for short-circuit current calculation in three-phase AC systems within its stated scope. IEC's publication record identifies the 2016 edition as withdrawn from 23 July 2026. The register must not treat IEC 60909-0:2016 as the current edition; national adoption and project applicability still require jurisdiction-specific verification. Source: https://webstore.iec.ch/en/publication/24100 and the IEC 2026 publication record at https://www.iteh.us/catalog/standards/iec/111c61a1-d4a4-4eb4-9655-ba4785738720/iec-60909-0-2026.
+- The 2026 edition's published scope covers low- and high-voltage three-phase AC systems at 50 Hz or 60 Hz, with stated exclusions including systems at 550 kV and above with long transmission lines. The standard describes an equivalent voltage source at the fault location and includes symmetrical components and equipment modelling in its contents. This is evidence for explicit method/scope metadata, not permission to claim clause-level conformance without the licensed normative text and implementation evidence. Source: https://www.iteh.asia/catalog/standards/sist/ad6c8f6c-a581-4dbc-8864-7396e6cd4eb2/sist-en-iec-60909-0-2026.
+- Published power-system reduction literature distinguishes Kron, Ward, Dimo and other static reductions and evaluates their performance against retained electrical behaviour, including bus-voltage response under changing operating conditions. This supports declaring the preserved property and operating envelope for each equivalent rather than labelling a model generically as reduced. Source: IIT Kanpur / NPSC paper, Performance Analysis of Static Network Reduction Methods Commonly Used in Power Systems, https://www.iitk.ac.in/npsc/Papers/NPSC2014/1569987555.pdf.
+- Research on line-limit-preserving equivalents shows that a reduction intended for one planning objective may need to preserve boundary lines and thermal constraints, not merely reduce matrix size. Source: https://certs.lbl.gov/publications/line-limit-preserving-power-system.html.
+- Dynamic-equivalent literature describes preserving boundary buses between coherent areas while reducing external network representations. This reinforces the need to retain study boundaries and declare dynamic fidelity. Source: https://ietresearch.onlinelibrary.wiley.com/doi/10.1049/tje2.12157.
+- The Schur-complement form of Kron reduction eliminates interior nodes from a partitioned admittance system. Its algebraic validity depends on the invertibility/conditioning of the eliminated block and on the model represented by that matrix; the resulting equivalent is not a universal replacement for the original physical graph. Technical teaching reference: https://people.ee.ethz.ch/~floriand/docs/Teaching/DISC%202016/DISC-2-Dorfler.pdf.
+
+### C. Layered network model
+
+1. **Canonical physical graph:** equipment, terminals, connectivity nodes, conductors/branches, busbar assemblies and sections, grounding paths, transformer connections, switchgear and explicit connectivity. IDs are stable and independent of symbol coordinates, labels, ordering or solver numbering.
+2. **Scenario-resolved energized graph:** applies an immutable operating/study scenario to configured switching devices, source availability, maintenance/out-of-service states and permitted operating assumptions. It identifies islands and connectivity without rewriting configured physical topology.
+3. **Study-domain network:** maps the scenario graph into a study's electrical equations and model family: balanced positive-sequence, phase-domain, sequence-domain, harmonic-frequency, electromechanical dynamic or EMT.
+4. **Solver-preprocessed representation:** sparse matrix assembly, node ordering, elimination, factorization, scaling, partitioning and numerical caches. It is internal to the solver run and keyed to exact input/model/method identity.
+5. **Reduced equivalent:** optional derived network with explicit retained boundary, eliminated region, reduction method, preserved properties, assumptions, validity envelope, error metrics and source snapshot identity.
+
+No layer may silently overwrite or masquerade as another. A solver bus number is not a canonical bus ID. A reduced equivalent node is not a physical equipment item. A matrix row is not a terminal. Results must map back through explicit identity maps to canonical equipment, terminal, branch and study-boundary identities.
+
+### D. Electrical model semantics required by analysis
+
+- Distinguish physical terminal, connectivity node, busbar assembly, bus section, branch, shunt, source, load, transformer winding and grounding connection. A busbar symbol or SLD route alone does not define an analysis node.
+- Branch models carry series impedance/admittance, shunt charging, mutual coupling where supported, length/basis/temperature assumptions, frequency dependence, phase mapping and parameter provenance. Missing data must be represented as missing/estimated/defaulted with an explicit policy, not silently replaced by zero.
+- Transformer models carry winding count, rated quantities, vector group/clock number, phase displacement, winding connection, neutral grounding, zero-sequence path, leakage impedance, tap changer range/position, regulating mode and frequency/model assumptions. Three-winding and autotransformer representations must not be flattened into an invalid two-winding abstraction.
+- Generator and converter source models declare operating point, control mode, sequence/fault contribution capability, current limiting or source-equivalent assumptions and model fidelity. An inverter source must not be treated as a synchronous machine solely because both are generation assets.
+- Loads distinguish constant-PQ, constant-current, constant-impedance, ZIP, motor, aggregated and dynamic models. Study configuration, not the equipment symbol, selects the applicable operating model and parameters.
+- Grounding distinguishes protective earth, neutral, grounded neutral, grounding impedance, grounding transformer and an electrically effective zero-sequence return path. A protective-earth graphic does not automatically establish a valid sequence network.
+- Phase mapping is explicit for A/B/C, neutral and DC polarity. Phase transposition, phase permutation, missing phases and unbalanced branch data remain visible to phase-domain studies.
+- Switches and breakers preserve configured identity and scenario state. Open, closed, transitional, unknown, isolated and out-of-service states must have defined study treatment. Unknown state cannot be silently interpreted as closed for safety-relevant analysis.
+
+### E. Study-specific network formulations
+
+**Load flow / power flow**
+- Support a declared balanced positive-sequence formulation and a separate unbalanced phase-domain formulation. The selected formulation and model-coverage limitations must appear in the study definition and result metadata.
+- PQ, PV and slack/reference roles are study configuration or controlled study assignments, not permanent properties inferred from a generator symbol. A physical source may have different roles in separate scenarios, subject to valid control/model capability.
+- Detect each energized island, assign a valid reference/slack strategy per island, and report islands with no feasible reference, conflicting references or unsupported operating controls. Never silently merge islands or invent a slack source.
+- Model transformer tap positions, phase shifts, line charging, shunts, voltage controls, limits and load model selection explicitly. Report whether controls are fixed, active, limited or approximated.
+- Unbalanced distribution analysis requires phase-specific connectivity and parameters; do not force it through a balanced scalar branch model.
+
+**Short-circuit analysis**
+- Support method profiles tied to an explicitly selected standard/edition and jurisdiction, including IEC 60909 where applicable and separately governed ANSI/IEEE methods where selected. Do not blend correction factors or assumptions across methods.
+- Represent fault type, faulted phase(s), fault location, fault impedance, prefault operating assumptions, source contribution, equivalent voltage/source model, transformer connection, grounding and sequence-network availability as typed inputs.
+- Positive-, negative- and zero-sequence networks must be derived from physical equipment and connection/grounding semantics. Zero-sequence paths must not be fabricated through delta windings, isolated neutrals or ungrounded systems.
+- Model converter-based generation using the selected standard's applicable source treatment and declared device data; expose unsupported device behaviours rather than silently applying synchronous-machine assumptions.
+- Results distinguish initial symmetrical current, peak/asymmetrical quantities, breaking/duty quantities and other method-defined outputs. Every result carries method, edition, assumptions, model completeness and calculation timestamp.
+- A short-circuit equivalent must preserve fault-location driving-point impedance and required source contributions for its declared fault set. A load-flow equivalent is not presumed valid for fault-current calculations.
+
+**Harmonic and frequency-domain analysis**
+- Use frequency-dependent branch, transformer, cable, capacitor, reactor, filter and source models where the study requires them. Fundamental-frequency impedances cannot be reused as broadband models without declared approximation.
+- Represent harmonic source spectra, phase angles, sequence/harmonic characteristics, background distortion assumptions, frequency sweep range/resolution and network resonance outputs explicitly.
+- Distinguish harmonic load flow, frequency scan, impedance scan and resonance assessment. A single fundamental-frequency Y-bus is not sufficient for all of these.
+- Reduction must preserve the relevant frequency response over a declared band and boundary set; a constant-frequency equivalent must not be advertised as broadband.
+
+**Dynamic stability and EMT**
+- Distinguish electromechanical/transient-stability models from electromagnetic-transient models. They have different state variables, bandwidth, initialization, event resolution and numerical requirements.
+- Dynamic models reference the same canonical equipment identity but have explicit model family, state initialization, parameter set, controller/governor/exciter/converter model and supported event set.
+- Initialization must reconcile the solved operating point with dynamic states and report inconsistent or unsupported model initial conditions before time integration.
+- Dynamic network reduction must declare retained dynamic machines/controllers, boundary buses, coherency or aggregation assumptions, event/fault envelope and validation error. Static Kron reduction alone is not a dynamic-equivalent method.
+- EMT network snapshots preserve switching detail, phase-domain topology, grounding, parasitics and switching events to the fidelity required by the selected model. Do not collapse fast switching networks into a phasor-domain equivalent without an explicitly justified interface.
+
+### F. Topology reduction and equivalent models
+
+Every reduction request must specify: original snapshot; internal and external areas; retained boundary terminals/nodes/branches; eliminated set; method and numerical options; study purpose; operating point or frequency/time envelope; properties to preserve; expected tolerances; and validation evidence.
+
+Supported method families to research and govern separately:
+- **Kron reduction:** algebraic elimination of interior nodes from a specified linear network formulation, commonly via a Schur complement of the partitioned nodal admittance matrix. Record eliminated block conditioning, singularity handling, fill-in, numerical precision and any assumptions about injections. Do not imply that the reduced matrix preserves physical branch identity or all graph properties.
+- **Ward / extended Ward equivalents:** external-network equivalents for a declared power-flow operating point and boundary. Record equivalent injections, boundary buses, operating point, control/limit treatment and validity under changed dispatch or topology.
+- **Thevenin / Norton equivalents:** boundary- and port-specific source/impedance equivalents. Record reference direction, phase/sequence, frequency, operating point, source composition and fault/use envelope.
+- **Dynamic equivalents:** coherent-area or other model-order reduction retaining relevant dynamic states, boundary behaviour and event response. Record aggregation and validation criteria.
+- **Frequency-dependent equivalents:** boundary impedance/admittance or rational approximations across a stated frequency band. Record fitting method, stability/passivity checks where applicable, fit residual and extrapolation limits.
+- **Application-specific aggregation:** e.g. planning or thermal-limit preserving reduction. Explicitly identify preserved constraints and the study decisions it is intended to support.
+
+Reduction invariants and safeguards:
+- Preserve every user-selected boundary node, fault location, monitored branch, instrument/CT boundary, relay zone boundary, protection-relevant breaker boundary and asset whose result must be reported individually.
+- Preserve phase identity, transformer vector-group effects, grounding and sequence paths when required by the study. A scalar positive-sequence reduction cannot claim to preserve unbalanced or earth-fault behaviour.
+- Preserve relevant boundary injections, driving-point/transfer impedances, voltage response, power transfer limits, fault current, frequency response or dynamic response according to the declared purpose. No method is assumed to preserve all properties.
+- Record eliminated identities and provide an auditable mapping from each reduced object to its original region and source equipment. Do not manufacture physical equipment identities for artificial equivalent branches.
+- Provide comparison metrics against the unreduced model on a declared validation set: voltage magnitude/angle, branch flow/loading, boundary current/impedance, fault level, frequency response, modal/dynamic response or other purpose-specific metric. Include absolute and relative errors and tolerance disposition.
+- Mark an equivalent stale when its source topology, equipment parameters, scenario, model assignment, boundary, standard/method profile or reduction algorithm/version changes.
+- Never use a reduction to erase Protection zones, CT measurement associations, breaker boundaries, dispatch interlocks or operational safety requirements. Protection and dispatch consume canonical identities and their own revision-bound dependencies.
+
+### G. Scenario, island and operating-state semantics
+
+- A study scenario is an immutable set of switching states, source/load availability, maintenance/outage assumptions, tap/control settings and other study inputs, linked to a base project revision.
+- Configured connectivity and scenario connectivity remain distinct. Scenario resolution creates a derived energized graph and records every state override and its provenance.
+- Island detection is explicit and deterministic. Each island receives its own feasibility and reference-source checks. Report dead islands, isolated loads, unsupplied sections and unsupported island operating modes.
+- Multiple scenarios can coexist without mutating the project graph. Scenario comparison identifies changed states and the resulting topology/model differences.
+- Transitional or unknown switching states require a study-specific policy. Where the selected method cannot represent uncertainty, block or clearly qualify the calculation rather than choosing a favourable state.
+- Switching scenarios may affect fault contribution, load-flow solvability, Protection reach/zone association and dynamic initialisation; invalidation must follow the affected dependency graph.
+
+### H. Protection, instrumentation and cross-domain boundary
+
+- CT/PT/CVT physical placement and primary/secondary connectivity are canonical topology/instrumentation facts; measurement channel configuration and calibration have separate revisions; relay settings and Protection logic have Protection revisions.
+- Resolve measurement association and Protection zone context from canonical equipment/terminal/branch/breaker topology, then bind it to the exact instrumentation and Protection revisions used by the evaluation.
+- Network reduction may be used for selected bulk-system study calculations only where the selected Protection calculation explicitly permits it. It must not silently remove a CT, relay input, breaker, fault location or zone boundary.
+- A reduced study result may be displayed against original assets only through explicit mapping and with an equivalence/approximation label. It must not become the source of truth for live Protection dispatch.
+- Stale or incomplete Protection dependencies remain fail-closed for dispatch. Study solver success does not constitute Protection decision approval or a physical command acknowledgement.
+
+### I. Snapshot identity, revisions and selective invalidation
+
+An analysis snapshot should carry at least:
+- Project identity and base project revision.
+- Canonical topology revision and scenario identity/revision.
+- Equipment configuration and model-assignment revisions for included assets.
+- Conductor/transformer/source/load parameter revisions and applicable catalogue/model provenance.
+- Grounding and phase-mapping revisions.
+- Instrumentation revision when relevant; Protection and Control revisions only for analyses that consume those domains.
+- Standards baseline, method profile, edition, jurisdiction and selected clause mapping where applicable.
+- Study definition, boundary selection, reduction configuration, solver/algorithm version, numerical settings and backend identity.
+- Snapshot creation time, source hashes, completeness assessment and derivation lineage.
+
+Invalidation must be dependency-scoped:
+- Symbol movement, sheet layout or route geometry invalidates presentation only.
+- A line length/impedance edit invalidates studies that consume that branch model and equivalents derived from it; it need not invalidate unrelated equipment catalogues or presentation.
+- A breaker scenario-state change invalidates the affected scenario graph and dependent study snapshots; it does not rewrite configured topology.
+- A CT ratio, polarity, class or channel mapping change invalidates affected measurement/Protection evaluations and instrumentation-dependent studies, not unrelated positive-sequence load flow unless that study explicitly uses the changed data.
+- Relay setting/function changes invalidate the affected Protection element and downstream decisions; they do not automatically invalidate the physical network matrix.
+- A standard edition/method profile change invalidates calculations whose method contract depends on it, not unrelated study types.
+- Reduction boundary or algorithm changes invalidate the equivalent and downstream solver artifacts, not the canonical graph.
+
+Cache keys must include exact source revision vector, scenario, study formulation, model family, method/standard profile, reduction configuration, solver version and relevant numerical settings. A cache hit based only on topology revision is unsafe where equipment models or study assumptions changed.
+
+### J. Numerical assembly and solver governance
+
+- Build sparse nodal/branch formulations from immutable snapshots using deterministic canonical-to-solver index maps. Solver ordering must never leak into persistent equipment identity.
+- Keep matrix assembly, scaling, ordering, factorization, nonlinear iteration and result mapping as separate stages with diagnostics and timing metadata.
+- Detect singular/ill-conditioned matrices, floating islands, invalid grounding, duplicate/conflicting constraints, zero/negative invalid parameters, unsupported control modes and missing model data before or during solve; report the specific affected component/island.
+- Numerical regularisation or artificial shunts must never be inserted silently. Any stabilisation is explicit, justified, parameterised and included in result provenance.
+- Use precision and tolerances appropriate to the formulation. Record residual norms, convergence criteria, iteration count, conditioning warnings, limit enforcement and termination reason.
+- Reuse symbolic/numeric factorisation only when exact dependency keys and mathematical preconditions permit it. Numeric factorisation cannot be reused merely because matrix dimensions are unchanged.
+- Parallel/GPU backends are optional solver implementations behind a stable numerical contract. CPU reference/fallback remains available; backend changes are provenance and may produce bounded numerical differences requiring comparison.
+- NPU inference must not replace deterministic electrical network equations or become a source of authoritative Protection/dispatch decisions.
+- Solver failures are typed outcomes (invalid input, unsupported model, singular network, non-convergence, numerical breakdown, cancelled, resource failure); they are not represented as a valid zero-valued result.
+
+### K. Result mapping, diagnostics and traceability
+
+- Every result point maps to canonical project/equipment/terminal/branch identity or to a clearly labelled artificial equivalent object with an origin-region mapping.
+- Results carry the exact input snapshot, scenario, study method, standards edition, model coverage, solver/version/backend, numerical quality and reduction provenance.
+- Distinguish calculated, estimated, assumed, defaulted, omitted and unavailable values. A successful solve with partial model coverage must not be presented as a fully validated study.
+- Diagnostics identify the affected equipment, terminal, branch, island, parameter, scenario override or reduction boundary and provide a correction path where possible.
+- Provide a trace from result to solver object, study network, scenario graph, canonical topology and source parameter/catalogue evidence.
+- Compare reduced and unreduced cases on representative validation scenarios before enabling a reduction method for a production study profile.
+- Reports must state the study scope and excluded phenomena; do not generalise a method-specific result beyond its declared assumptions.
+
+### L. Persistence and interoperability implications
+
+- Persist canonical project topology, equipment/model configuration, study definitions, scenario definitions, standards baseline references, and user-approved equivalent definitions where reproducibility requires them.
+- Persist result metadata and provenance. Large matrices, factorizations and transient solver workspaces are derived cache artifacts and should be regenerable unless a separately governed archival requirement applies.
+- A saved equivalent definition must include source revision, boundary, method, validity envelope and mapping. If the source project changes, it is stale until regenerated or explicitly revalidated.
+- Import/export adapters must distinguish physical network objects from study-specific equivalents and solver-generated nodes. Exporting an equivalent as if it were the original physical network is prohibited.
+- Maintain the frozen .gridforge package contract; this section proposes no package/schema migration.
+
+### M. Proposed implementation decomposition for V3 (not authorised)
+
+1. AnalysisSnapshot contract and immutable revision vector.
+2. ScenarioResolver and island/topology view.
+3. Study formulation registry with explicit fidelity requirements.
+4. Canonical-to-analysis mapping and deterministic solver index map.
+5. Study-specific network builders: balanced load flow, phase-domain load flow, sequence-domain short circuit, frequency-domain harmonic, dynamic phasor and EMT.
+6. Reduction service with method-specific contracts, boundary protection, error metrics and lineage.
+7. Sparse numerical assembly/preprocessing interfaces and CPU reference solver adapters.
+8. Result mapper and typed diagnostics/trace service.
+9. Optional accelerated backends only after CPU reference semantics and numerical acceptance are established.
+
+These are candidate responsibilities, not a direction to create one plugin per solver or scatter plugins across domain packages. The consolidated plugin architecture remains the single extension location; Core owns domain truth and mathematical contracts, Application orchestrates study workflows, and solver implementations integrate through governed interfaces.
+
+### N. Candidate acceptance scenarios
+
+These are design scenarios for later executable acceptance specifications, not tests run in this research task.
+
+- UI-ACC-ANALYSIS-01: identical canonical project revision and scenario produce deterministic canonical-to-analysis identity mapping.
+- UI-ACC-ANALYSIS-02: solver bus numbering changes without changing canonical equipment or terminal IDs.
+- UI-ACC-ANALYSIS-03: open breaker creates a separate scenario island without modifying configured connectivity.
+- UI-ACC-ANALYSIS-04: island without a valid slack/reference assignment is diagnosed and not silently solved with an invented source.
+- UI-ACC-ANALYSIS-05: balanced positive-sequence study declares and enforces its model-coverage limitations.
+- UI-ACC-ANALYSIS-06: unbalanced phase-domain study preserves phase permutation, missing phase and neutral semantics.
+- UI-ACC-ANALYSIS-07: transformer vector group and grounding determine valid sequence-network paths.
+- UI-ACC-ANALYSIS-08: short-circuit method profile identifies IEC 60909 edition and rejects unsupported scope assumptions.
+- UI-ACC-ANALYSIS-09: converter-based source uses declared fault contribution model rather than synchronous-machine defaults.
+- UI-ACC-ANALYSIS-10: earth-fault calculation reports absent/invalid zero-sequence return path.
+- UI-ACC-ANALYSIS-11: harmonic frequency scan uses frequency-dependent data and records scan range/resolution.
+- UI-ACC-ANALYSIS-12: a fundamental-frequency equivalent is rejected for an incompatible broadband study.
+- UI-ACC-ANALYSIS-13: dynamic reduction retains selected dynamic/boundary assets and declares event-response error.
+- UI-ACC-ANALYSIS-14: EMT formulation retains phase/switching detail required by its selected model family.
+- UI-ACC-ANALYSIS-15: Kron reduction preserves selected boundary response and records eliminated node mapping and numerical conditioning.
+- UI-ACC-ANALYSIS-16: Ward equivalent is marked operating-point-dependent and becomes stale after an incompatible scenario change.
+- UI-ACC-ANALYSIS-17: reduction cannot eliminate selected fault locations, CT/relay zone boundaries or monitored branches.
+- UI-ACC-ANALYSIS-18: reduced and unreduced results are compared against declared purpose-specific tolerances.
+- UI-ACC-ANALYSIS-19: a CT ratio edit invalidates dependent Protection/instrumentation results but not unrelated network matrix artifacts.
+- UI-ACC-ANALYSIS-20: result trace resolves from reported value to equivalent, analysis snapshot, scenario, canonical equipment and source parameters.
+
+### O. Open research decisions
+
+- Which formulations are mandatory in the first V3 analysis release: balanced load flow, phase-domain load flow, IEC short circuit, harmonic scan, transient stability and EMT?
+- What exact canonical graph-to-analysis snapshot schema and identity mapping are required for multi-terminal equipment and multi-winding transformers?
+- Which IEC 60909-0:2026 clauses and associated parts are applicable to the intended GridForge use cases, and what Indian BIS adoption/current status applies? Clause-level verification remains open under the standards research track.
+- Which ANSI/IEEE short-circuit method profile(s) are required, and which exact standards/editions govern each profile?
+- Which model families and data completeness thresholds are required before a study can run, warn, or be blocked?
+- How should phase-domain and sequence-domain models share parameter provenance without forcing an invalid scalar abstraction?
+- Which reduction algorithms are required initially, and what reference cases/metrics establish their accuracy envelope?
+- How will equivalent validity be represented across dispatch changes, topology switching, fault locations, frequency bands and dynamic events?
+- Which matrix assembly/factorization backends are supported initially, and what deterministic CPU reference behaviour is required?
+- What project result retention and cache eviction policy balances reproducibility, storage and performance?
+- Which CIM and study interchange profiles can represent original networks versus reduced equivalents without semantic loss?
+- How are user-created equivalent boundaries reviewed, versioned, approved and audited?
+
+### P. Risks and mitigations
+
+- **False equivalence:** a reduced model is reused outside its purpose. Mitigation: typed method contract, validity envelope, explicit preserved properties and incompatibility rejection.
+- **Protection boundary loss:** reduction hides CTs, relays, breakers or fault locations. Mitigation: protected boundary set and canonical Protection evaluation independent of reduced solver graph.
+- **Incorrect sequence paths:** transformer/grounding simplification creates false earth-fault current. Mitigation: explicit winding, vector-group and grounding contracts with negative acceptance scenarios.
+- **Stale study reuse:** cache keyed only by topology. Mitigation: complete revision vector and method/model-aware cache key.
+- **False standards claim:** standard title/edition is mistaken for implementation compliance. Mitigation: clause traceability, licensed normative source, method evidence and limitations.
+- **Opaque numerical repair:** silent shunts or regularisation mask invalid topology. Mitigation: typed diagnostics and explicit, traceable numerical interventions.
+- **Solver identity leakage:** internal matrix numbering becomes project identity. Mitigation: stable canonical identity and explicit mapping.
+- **Over-generalised plugin architecture:** each study creates isolated incompatible network representations. Mitigation: shared immutable snapshot/mapping contracts with domain-specific formulation builders and one consolidated plugin extension location.
+
+### Q. Candidate gates and disposition
+
+- **UI-GATE-02 — Project/session and reproducibility:** open. Study snapshots, scenarios, result lineage and saved definitions need project lifecycle and recovery decisions.
+- **UI-GATE-03 — Diagnostics:** open. Typed solver, topology, model-coverage and reduction diagnostics need an approved user-facing lifecycle.
+- **UI-GATE-05 — Performance:** open. Sparse assembly, incremental invalidation, reduction and acceleration need representative benchmarks and explicit performance targets.
+- **UI-GATE-06 — Cross-domain traceability:** open. Result-to-equipment, instrumentation, Protection and scenario lineage must be demonstrated.
+- **UI-GATE-07 — Scope and priority:** open. First-release study formulations, reduction methods and fidelity tiers require approval.
+- Standards gate remains separately open: IEC 60909-0:2026 edition awareness is recorded, but BIS adoption, applicable clauses, associated parts and ANSI/IEEE profiles have not been exhaustively verified.
+
+**Disposition:** research specification only; not approved for implementation. No source code, graph schema, analysis snapshot API, topology reducer, solver, UI, persistence migration, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+### R. Frozen invariants and scope boundary
+
+- Canonical Core topology and equipment identity remain the source of configured electrical truth.
+- Application owns controlled scenario resolution, study orchestration, validation, transactions and events.
+- UI/SLD remains projection and interaction; graphics geometry and solver numbering are never electrical identity.
+- Analysis snapshots and reduced equivalents are immutable derived artifacts with explicit lineage and revision vectors.
+- Balanced, phase-domain, sequence-domain, frequency-domain, dynamic and EMT formulations remain distinct where their physics and assumptions differ.
+- A reduced network is valid only for its declared purpose, boundary, operating/frequency/time envelope and preserved properties.
+- No reduction may erase canonical Protection/CT/relay/breaker boundaries or weaken fail-closed dispatch protection.
+- Standards edition, jurisdiction, method and applicability are explicit; no unverified conformance claim is permitted.
+- CPU reference semantics remain the numerical baseline; GPU acceleration is optional and NPU inference is not authoritative electrical or Protection computation.
+- Plugins remain consolidated in one extension location and cannot mutate Core directly; Core has no dependency on UI or plugin implementations.
+- The frozen .gridforge persistence contract remains unchanged.
+
+**Scope boundary:** this entry records V3 research and candidate design only. It does not authorise V2 changes, V3 implementation, solver selection, standard-conformance claims, performance claims or test/CI acceptance. Candidate scenarios are not test results.
