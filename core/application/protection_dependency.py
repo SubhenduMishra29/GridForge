@@ -629,15 +629,45 @@ def build_protection_dependency_registry(
             add_dependency("differential_scheme", scheme.scheme_id, scheme.to_dict())
 
         if element.action_target_type is not None:
-            add_dependency(
-                "action_target",
-                f"{element.action_target_type}:{element.action_target_id}",
-                {
-                    "target_type": element.action_target_type,
-                    "target_id": element.action_target_id,
-                    "action_type": element.action_type,
-                },
-            )
+            target_identity = f"{element.action_target_type}:{element.action_target_id}"
+            target_fields = {
+                "breaker": ("closed", "in_service", "tripped"),
+                "switch": ("closed", "in_service"),
+                "disconnector": ("closed", "in_service"),
+                "fuse": ("blown", "in_service"),
+                "motor": ("running", "in_service"),
+            }.get(element.action_target_type, ())
+            try:
+                target = network.get_by_id(
+                    element.action_target_type,
+                    element.action_target_id,
+                )
+            except (LookupError, ValueError):
+                target = None
+            if target is None:
+                element_diagnostics.append(
+                    f"{prefix}: configured action target {target_identity!r} is absent from the active Network."
+                )
+            else:
+                target_state = {
+                    field: getattr(target, field)
+                    for field in target_fields
+                    if hasattr(target, field)
+                }
+                if len(target_state) != len(target_fields):
+                    element_diagnostics.append(
+                        f"{prefix}: configured action target does not expose every required authoritative state field."
+                    )
+                add_dependency(
+                    "action_target",
+                    target_identity,
+                    {
+                        "target_type": element.action_target_type,
+                        "target_id": element.action_target_id,
+                        "action_type": element.action_type,
+                        "authoritative_state": target_state,
+                    },
+                )
 
         fingerprints_by_key: dict[tuple[str, str], str] = {}
         for dependency in dependencies:
