@@ -3705,7 +3705,7 @@ class Application:
             else:
                 try:
                     sld_connection_diagnostics = sld_service.audit_simple_wire_projection(
-                        context.network
+                        self.project_lifecycle.network
                     )
                 except Exception as exc:
                     sld_connection_diagnostics = ({
