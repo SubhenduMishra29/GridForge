@@ -293,8 +293,28 @@ class ControlSignalMapping:
                             f"MeasurementChannel signal '{source.signal}' is not compatible with "
                             f"channel type '{channel.signal_type}'."
                         )
+                    resolved_value = channel.value
+                    value_encoding = "ENGINEERING_VALUE"
+                    if str(channel.signal_type).upper() == "DIGITAL":
+                        if isinstance(resolved_value, bool):
+                            pass
+                        elif (
+                            isinstance(resolved_value, (int, float))
+                            and not isinstance(resolved_value, bool)
+                            and math.isfinite(resolved_value)
+                            and resolved_value in (0, 1)
+                        ):
+                            resolved_value = bool(resolved_value)
+                        else:
+                            diagnostics.append(
+                                f"Digital MeasurementChannel '{source.object_id}' must publish a Boolean "
+                                "sample or an exact finite 0/1 encoding; no truthiness conversion is permitted."
+                            )
+                            continue
+                        value_encoding = "BOOLEAN_OR_EXACT_0_1"
                     value = {
-                        "value": channel.value,
+                        "value": resolved_value,
+                        "value_encoding": value_encoding,
                         "unit": channel.unit,
                         "signal_type": channel.signal_type,
                         "phase": channel.phase,
