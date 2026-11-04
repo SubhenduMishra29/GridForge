@@ -21257,3 +21257,44 @@ Verification boundary:
   command execution were performed.
 
 ======================================================================
+
+======================================================================
+GF-AUD-148 — TOPOLOGY-DERIVED CT ASSOCIATION HAS NO LOCAL IDENTITY TOKEN
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService.create_measurement_binding() uses
+  ConnectivityResolver to prove that the selected source endpoint belongs
+  to exactly one CT primary SimpleWire component (P1 or P2).
+- The persisted ProtectionMeasurementBinding retains the CT identity,
+  source equipment ID, explicit source EndpointReference, electrical side,
+  channel and ratio. Its correlation key is a stable source/endpoint/side/
+  quantity tuple.
+- It does not retain a canonical fingerprint or revision token for the
+  resolved CT-primary connectivity component. The resolver's component
+  membership result is used only during binding validation.
+- Scenario samples carry topology_revision/ct_topology_revision and CT/
+  branch/side provenance. Application currently compares those values to
+  the captured project-wide topology revision. This is fail-closed but
+  makes every topology revision potentially stale for every such consumer.
+
+Audit conclusion:
+- A distinct per-association revision cannot be safely inferred from the
+  existing binding correlation key: the same source endpoint and side can
+  remain unchanged while its resolved CT-primary component changes.
+- A safe selective contract needs a persisted canonical association
+  identity/fingerprint derived from the resolver's actual component
+  membership, plus a defined update/rebind lifecycle when topology changes.
+  It must preserve exact CT P1/P2 orientation and selected branch/terminal
+  identity; a project-wide revision number alone is not a local token.
+- No speculative association token was added. Current project-wide topology
+  provenance and fail-closed rejection remain in force.
+
+Verification boundary:
+- Inspected ConnectivityResolver.topology_component(), the binding factory
+  and correlation_key(), ProtectionConfigurationService.create_measurement_
+  binding(), TopologySnapshot provenance, and scenario provenance checks.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  topology mutation experiments were performed.
+
+======================================================================
