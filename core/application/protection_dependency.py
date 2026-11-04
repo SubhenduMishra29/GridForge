@@ -84,6 +84,41 @@ def _topology_component_fingerprint(
     return prefix + sha256(payload.encode("ascii")).hexdigest()
 
 
+def _topology_component_equipment_state(
+    network: Network,
+    component: Any,
+) -> tuple[tuple[Any, ...], ...]:
+    """Capture conductive equipment state for every canonical component endpoint."""
+    captured: list[tuple[Any, ...]] = []
+    for reference in component:
+        if reference.is_terminal:
+            endpoint = reference.terminal_reference
+            object_id = endpoint.object_id
+            equipment_type = endpoint.equipment_type.value
+        elif reference.is_bus:
+            endpoint = reference.bus_reference
+            object_id = endpoint.object_id
+            equipment_type = "bus"
+        elif reference.is_junction:
+            captured.append(("junction", reference.junction_id))
+            continue
+        else:
+            raise ValueError(f"Unsupported topology endpoint kind: {reference.kind!r}.")
+        equipment = network.get_by_identity(object_id)
+        if equipment is None:
+            raise ValueError(
+                f"Topology endpoint owner {equipment_type}:{object_id} is absent from the active Network."
+            )
+        state_fields = ("closed", "in_service", "tripped", "blown", "status")
+        state = tuple(
+            (field, getattr(equipment, field))
+            for field in state_fields
+            if hasattr(equipment, field)
+        )
+        captured.append((equipment_type, object_id, state))
+    return tuple(sorted(captured, key=repr))
+
+
 def _instrument_configuration(instrument: Any) -> Mapping[str, Any]:
     common: dict[str, Any] = {
         "instrument_id": getattr(instrument, "id", None),
@@ -595,16 +630,25 @@ def build_protection_dependency_registry(
                             else "instrument-primary-component:v1:"
                         )
                         for primary_role, primary_component in primary_components.items():
+                            component_identity = f"{binding.instrument_id}:{primary_role}"
                             add_dependency(
                                 (
                                     "ct_primary_component"
                                     if measurement_type == "current"
                                     else "voltage_primary_component"
                                 ),
-                                f"{binding.instrument_id}:{primary_role}",
+                                component_identity,
                                 _topology_component_fingerprint(
                                     primary_component,
                                     prefix=component_prefix,
+                                ),
+                            )
+                            add_dependency(
+                                "topology_component_equipment_state",
+                                component_identity,
+                                _topology_component_equipment_state(
+                                    network,
+                                    primary_component,
                                 ),
                             )
                         selected_component_fingerprint = _topology_component_fingerprint(
@@ -754,13 +798,19 @@ def build_protection_dependency_registry(
                 for endpoint_role, endpoint in protected_endpoints:
                     try:
                         component = resolver.topology_component(endpoint)
+                        component_identity = f"{scheme.scheme_id}:{endpoint_role}"
                         add_dependency(
                             "differential_zone_component",
-                            f"{scheme.scheme_id}:{endpoint_role}",
+                            component_identity,
                             _topology_component_fingerprint(
                                 component,
                                 prefix="differential-zone-component:v1:",
                             ),
+                        )
+                        add_dependency(
+                            "topology_component_equipment_state",
+                            component_identity,
+                            _topology_component_equipment_state(network, component),
                         )
                     except (KeyError, LookupError, TypeError, ValueError, AttributeError) as exc:
                         element_diagnostics.append(
