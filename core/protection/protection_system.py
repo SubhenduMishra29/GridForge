@@ -849,9 +849,23 @@ class ProtectionSystem:
     # PER-ELEMENT DECISION INVALIDATION
     # ==================================================================
 
-    def invalidate_element_decision(self, element_id: Any) -> ProtectionDecision | None:
-        """Invalidate one element's current decision without clearing other elements."""
+    def invalidate_element_decision(
+        self,
+        element_id: Any,
+        *,
+        expected_decision: ProtectionDecision | None = None,
+    ) -> ProtectionDecision | None:
+        """Invalidate one element's decision, optionally only if it is still current."""
         element = self.get_element(element_id)
+        current_decision = element.last_decision
+        if (
+            expected_decision is not None
+            and current_decision is not expected_decision
+        ):
+            # A re-entrant evaluation may already have committed a newer
+            # decision for this element. Never clear that newer decision while
+            # rejecting an older in-flight action.
+            return None
         try:
             return element.invalidate_decision()
         finally:
