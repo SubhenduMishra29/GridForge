@@ -217,12 +217,6 @@ class ProtectionExecutionService:
                     )
                     break
 
-            if not protection_decision.actionable:
-                outcomes.append(ProtectionActionOutcome(
-                    protection_decision, None, None, None, "not_actionable"
-                ))
-                continue
-
             if self._decision_guard is not None:
                 try:
                     self._decision_guard(protection_decision, None)
@@ -249,6 +243,12 @@ class ProtectionExecutionService:
                         f"Protection batch aborted because the decision guard failed unexpectedly: {type(exc).__name__}: {exc}",
                     )
                     break
+
+            if not protection_decision.actionable:
+                outcomes.append(ProtectionActionOutcome(
+                    protection_decision, None, None, None, "not_actionable"
+                ))
+                continue
 
             try:
                 control_decision = self._action_resolver(protection_decision)
