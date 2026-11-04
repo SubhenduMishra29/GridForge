@@ -143,6 +143,7 @@ class Application:
             if measurement_channel_service is not None else None
         )
         self._dynamic_control_signal_mapping: ControlSignalMapping | None = None
+        self._dynamic_control_signal_mapping_project_id: str | None = None
         self._dynamic_control_runtime: DynamicControlRuntime | None = None
         self._dynamic_control_cycle: DynamicControlCycleService | None = None
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
@@ -354,6 +355,7 @@ class Application:
         if runtime is None:
             self._dynamic_control_runtime = None
             self._dynamic_control_signal_mapping = None
+            self._dynamic_control_signal_mapping_project_id = None
             self._dynamic_control_cycle = None
             return
         if not isinstance(runtime, DynamicControlRuntime):
@@ -428,6 +430,7 @@ class Application:
         )
         self._dynamic_control_runtime = runtime
         self._dynamic_control_signal_mapping = mapping
+        self._dynamic_control_signal_mapping_project_id = self._control_service.configuration.project_id
         self._dynamic_control_cycle = cycle
 
     def execute_dynamic_control_cycle(
@@ -448,6 +451,8 @@ class Application:
         configuration = self.control_service.configuration
         if configuration.project_id != active_context.project_id:
             raise RuntimeError("Dynamic Control associations do not belong to the active project.")
+        if self._dynamic_control_signal_mapping_project_id != active_context.project_id:
+            raise RuntimeError("Dynamic Control signal mapping belongs to a different project; reconfigure it for the active project.")
         self.configure_dynamic_control_runtime(self._dynamic_control_runtime, self._dynamic_control_signal_mapping)
         associations = configuration.dynamic_control_associations
         expected_layout = self._dynamic_control_runtime.layout(layout.machine_slices, associations)
