@@ -2743,3 +2743,140 @@ Frozen architecture invariants:
 - Discipline-specific canvas semantics remain distinct even when they share rendering infrastructure.
 
 **Scope boundary:** research register only. No renderer, scene policy, cache, threading model, benchmark harness, project schema, source implementation or V2 behavior was changed. No tests or CI were run.
+
+
+## 8I-16. Proposed V3 UI/UX scope, priority and dependency-aware delivery roadmap (2026-11-04)
+
+### A. Purpose and status
+
+This section consolidates the UI/UX research and proposed contracts recorded in 8I-1 through 8I-15 into a candidate delivery roadmap. It is a planning and decision aid, not an implementation authorization, approved release scope, resource commitment or declaration that a V3 implementation baseline exists.
+
+The roadmap is constrained by the frozen GridForge architecture: Core owns engineering truth; Application owns controlled mutation, orchestration and lifecycle services; UI is a projection and interaction layer; Control and Protection retain separate execution authorities; shared signal infrastructure supplies typed measurements and provenance without collapsing domain ownership. Qt and other UI implementation details remain outside Core.
+
+**Current baseline limitation:** the V3 implementation repository/branch/ref has not been established by the provenance audit in 8I-9. V2 `main` remains a legacy reference and is not to be relabelled as V3. Consequently, work packages below are candidate requirements and cannot yet be mapped to verified V3 source files, modules, owners or migration costs.
+
+### B. Scope classification
+
+The following classification is proposed for owner review. "Candidate release foundation" means a prerequisite for a coherent, safe and maintainable engineering UI; it does not mean approved release-blocking status.
+
+| Scope class | Candidate work | Rationale / boundary |
+|---|---|---|
+| Candidate release foundation | Establish V3 source baseline and requirements traceability; stable document/object identity and revision semantics; typed read-model/projection boundary; command/intent and validation feedback contract; project/session lifecycle and recovery semantics; shared navigation, focus and shortcut arbitration; typed diagnostics and status ownership; accessibility baseline | Without these contracts, later workspace work risks inconsistent state, unsafe ambiguity, non-recoverable edits or duplicated interaction logic |
+| Candidate core workflow delivery | Shared application shell and workspace composition; SLD authoring/inspection; Control canvas and execution visibility; Protection configuration/operation visibility; Study setup/results workflow; task-oriented Inspector and contextual tool settings | These are the principal engineering tasks and must preserve discipline-specific semantics and execution ownership |
+| Candidate operational integration | Signal/channel discovery and provenance presentation; measurement quality/freshness; cross-domain operational trace; command/acknowledgement/feedback distinction; alarm/event/SOE and diagnostic navigation | Makes live and simulated engineering behavior explainable without inventing status or merging authorities |
+| Candidate quality and scale | Performance instrumentation and representative workload corpus; culling/LOD/cache/backend evaluation; DPI/theme/font scaling; keyboard/screen-reader and high-contrast validation; multi-document and recovery validation | Provides evidence that the product remains usable across realistic engineering workloads and supported environments |
+| Candidate later enhancements | Advanced workspace customization; optional accelerated rendering; advanced trace graph layouts; richer collaboration/review workflows; optional automation conveniences and additional visualization modes | Defer until core workflows, semantic correctness, evidence and platform support are demonstrated; each requires a separate value/risk decision |
+
+The classification is provisional. A feature must not be called mandatory, release-blocking or deferred permanently until the product owner records the applicable decision, rationale, affected users, risks and acceptance evidence.
+
+### C. Dependency-aware delivery sequence
+
+The sequence below is a dependency proposal, not a requirement to execute strictly serially. Parallel work is permissible only after its interface contracts and ownership are agreed.
+
+| Stage | Work package | Required inputs / dependencies | Candidate outputs and exit evidence |
+|---|---|---|---|
+| 0 | V3 baseline and scope establishment | Repository/branch/ref decision; V2/V3 provenance separation; owner and target-user context | Identified V3 source baseline; requirements-to-source traceability method; explicit in/out-of-scope list; recorded decisions and unresolved gaps |
+| 1 | Engineering identity, revision and projection foundations | Stage 0; Core/Application ownership map | Stable document and domain-object identity; distinct topology, instrumentation, Protection, Control, study and document revisions where applicable; immutable typed read-model/projection contracts; stale-result rejection rules; evidence that UI cannot mutate Core directly |
+| 2 | Interaction and application-shell foundations | Stage 1; context-of-use findings | Workspace composition contract; navigation and panel visibility rules; consistent selection/activation semantics; focus-aware shortcut arbitration; command/undo affordances; non-modal feedback/navigation conventions; keyboard-operable core tasks |
+| 3 | Project and session lifecycle | Stage 1 identity/revision; application command and persistence ownership | Explicit lifecycle for new/open/save/save-as/close, dirty state, draft handling, recovery, migration and failure; atomicity and corruption behavior; canonical project versus preferences/layout/viewport/transient state separation; recovery evidence |
+| 4 | Inspector, diagnostics and status foundations | Stages 1–3; typed domain/application diagnostic ownership | Task-oriented Inspector sections; typed diagnostic envelope and lifecycle; status/read-model ownership; filtering, severity, timestamp, source/object context and navigation; explicit separation of validation, alarm, Protection event, Control execution, measurement quality and command/feedback |
+| 5 | Discipline-specific workflow delivery | Stages 1–4; each domain's public Application contracts and product workflow approval | SLD authoring and inspection; Control logic/canvas and cycle diagnostics; Protection configuration, channel association, operation and TCC/coordination views; Study setup and result exploration. Each retains domain-specific interaction and authority |
+| 6 | Operational signal and trace integration | Stages 1, 4 and 5; shared signal/measurement contracts; Protection/Control integration contracts | Source/channel discovery and provenance; engineering units, timestamps, freshness and quality; correlated timeline/evidence graph; distinct measurement, decision, intent, command, acknowledgement and physical feedback stages; missing-evidence and revision-drift handling |
+| 7 | Accessibility, platform and performance qualification | Stages 2–6; supported platform/hardware and workload decisions | Accessibility semantics and keyboard/screen-reader evidence; DPI/theme/font/high-contrast evidence; representative workload corpus; measured rendering/input/load/save behavior; backend/fallback decision supported by benchmark results |
+| 8 | Release-scope review and controlled implementation freeze | All prior stages; owner decisions and evidence | Approved scope and release criteria; accepted/deferred risks; traceability from requirements to source and evidence; migration and support plan; explicit implementation freeze/version baseline |
+
+**Dependency guardrails**
+- Do not build discipline workspaces on unversioned or ambiguous object/read-model identity.
+- Do not implement persistence behavior until canonical project data, persisted drafts, user preferences, workspace layout, per-document viewport metadata and transient interaction state have explicit ownership and serialization boundaries.
+- Do not create a universal canvas that erases SLD, Control and Protection interaction semantics. Share contracts and infrastructure only where behavior is genuinely common.
+- Do not derive Protection or Control execution status from a UI refresh, renderer event, generic alarm string or untrusted measurement.
+- Do not present a command as successful merely because it was issued; distinguish request, dispatch, acceptance/acknowledgement and physical feedback.
+- Do not make visual decimation or LOD modify canonical engineering values, study datasets, topology or operational evidence.
+- Do not use performance targets as acceptance gates until hardware tiers, workload corpus and measurement methods are approved.
+
+### D. Candidate priority model
+
+Each work package and requirement should be scored qualitatively against the following dimensions. Scores support discussion; they must not be summed into a false-precision ranking.
+
+1. **Engineering/safety consequence:** could ambiguity or incorrect presentation contribute to an unsafe engineering decision or conceal a material condition?
+2. **Task criticality:** is the capability required to complete a primary engineering task?
+3. **Architectural dependency:** does it unblock several other packages or prevent incompatible implementations?
+4. **Operational exposure:** does it affect live/simulated operation, data integrity, traceability or recovery?
+5. **User frequency and reach:** how often is the task performed and how many roles/workflows depend on it?
+6. **Failure recoverability:** can a user detect, understand and safely recover from failure?
+7. **Evidence and uncertainty:** is the requirement source-confirmed, runtime-unverified, inferred or still a hypothesis?
+8. **Implementation and migration cost:** what is the verified V3 change surface, compatibility burden and rollout risk?
+
+Suggested priority labels:
+- **P0 — Foundation blocker:** unresolved contract or provenance issue prevents safe, traceable implementation of dependent work.
+- **P1 — Primary workflow:** required for an approved primary engineering workflow or its trustworthy operational interpretation.
+- **P2 — Usability and scale:** materially improves efficiency, accessibility, resilience or performance after core correctness is established.
+- **P3 — Enhancement:** optional capability with lower dependency or task criticality.
+
+Priority labels remain proposals until the product owner approves them. A high-severity safety or data-integrity concern may be a blocker even if implementation frequency is low.
+
+### E. Work-package definition of done
+
+Every implementation work package should record, before implementation authorization:
+
+- unique work-package ID and linked requirement/finding IDs;
+- user role, context of use and engineering task;
+- explicit scope, exclusions and affected discipline(s);
+- verified V3 repository, branch, commit and source paths;
+- Core, Application, domain and UI ownership boundaries;
+- public contracts, typed inputs/outputs, identity and revision behavior;
+- dependencies, migration/compatibility impact and rollback strategy;
+- failure, stale-data, missing-data and recovery behavior;
+- accessibility and platform implications;
+- acceptance scenarios and required evidence, including runtime walkthrough where relevant;
+- performance/workload expectations where applicable;
+- risks, unresolved decisions, accountable owner and approval disposition.
+
+A package is not complete merely because a widget or screen exists. Completion requires demonstrated task flow, truthful state presentation, correct command/validation behavior, failure handling, domain-boundary compliance and evidence appropriate to the risk.
+
+### F. Candidate release gates and decision records
+
+The existing gate register remains authoritative for approval structure:
+
+- UI-GATE-01 Context of use
+- UI-GATE-02 Project/session
+- UI-GATE-03 Diagnostics
+- UI-GATE-04 Accessibility/platform
+- UI-GATE-05 Display/performance
+- UI-GATE-06 Cross-domain trace
+- UI-GATE-07 Scope/priority
+
+For each gate, record one disposition: **Approved**, **Approved with constraints**, **Deferred**, **Rejected** or **Blocked**. The decision record must include owner, date, scope, rationale, constraints, evidence reviewed, accepted risks, follow-up actions and affected work packages. An open gate cannot be treated as approved by implication, silence, roadmap ordering or a candidate acceptance scenario.
+
+Candidate release review should verify at minimum:
+- all approved P0/P1 requirements are traceable to implementation and evidence;
+- no Core/UI dependency inversion or cross-domain authority collapse has been introduced;
+- canonical project integrity, draft semantics and recovery behavior are demonstrated;
+- Protection and Control decisions, commands and physical feedback remain distinct;
+- measurements expose source, unit, timestamp and quality/freshness where relevant;
+- critical engineering tasks are operable with keyboard and accessible semantics;
+- performance claims are supported by reproducible workloads and agreed hardware;
+- unresolved defects and limitations are explicitly accepted, deferred or blocking.
+
+### G. Open decisions
+
+1. Which repository, branch and commit are the authoritative V3 implementation baseline, and who owns its creation/maintenance?
+2. Which user roles, plant/utility contexts and primary task journeys define the initial V3 release?
+3. Which candidate release-foundation items are genuinely release-blocking versus staged post-initial-release work?
+4. Which engineering workflows must be complete in the first V3 usable increment: SLD, Control, Protection, Study, or a defined subset?
+5. What are the approved boundaries for persisted engineering drafts, recovery snapshots, preferences, workspace layout and viewport state?
+6. Which cross-domain trace capabilities are required for the initial release, and which are advanced diagnostics?
+7. What supported operating systems, DPI configurations, GPU tiers and remote/virtual desktop scenarios are in scope?
+8. Which accessibility standard/target and conformance evidence will be claimed, and for which supported workflows?
+9. Who approves workload datasets, latency targets, memory budgets and renderer/backend choices?
+10. What staffing, sequencing and migration constraints should alter the dependency proposal?
+11. Which candidate acceptance scenarios become formal release criteria, and who signs off each discipline?
+12. What is the process for handling a safety-relevant defect discovered after a gate has been approved?
+
+### H. Gate disposition and scope boundary
+
+**UI-GATE-07 remains Open.** This section proposes a dependency-aware roadmap, candidate scope classes, priority criteria, work-package definition of done and release decision process. It does not approve the proposed priority labels, mandatory scope, delivery dates, resource allocation, implementation branch, renderer, acceptance thresholds or release criteria.
+
+All earlier UI gates remain subject to their recorded dispositions; no approval is inferred from this roadmap. The V3 source baseline remains an explicit prerequisite for source-level implementation planning.
+
+**Scope boundary:** research register only. No source implementation, UI behavior, project schema, V2 code, tests or CI were changed or run.
