@@ -21179,3 +21179,37 @@ Source inspection only. No tests, CI, syntax/import checks, or runtime
 multi-element evaluation/dispatch experiments performed.
 
 ======================================================================
+
+======================================================================
+GF-AUD-146 — RELAY SERVICE STATE MUST NOT INVALIDATE PHYSICAL TOPOLOGY
+======================================================================
+
+Audit finding:
+- Canonical main still had RelayModelService.update_relay() and the
+  dedicated put/take-out-of-service path calling Network.invalidate_topology()
+  when Relay.in_service changed.
+- Their transaction undo closures repeated the topology invalidation.
+- Network registers Relay membership as non-topological. A Relay is
+  Protection equipment and its service availability does not alter the
+  conductive graph.
+
+Correction on feat/protection-independent-revisions:
+- Removed topology invalidation from Relay update and service-state paths,
+  including rollback/undo restoration.
+- Relay state freshness is covered by the independent
+  protection_equipment_revision transition and ProtectionRuntime equipment
+  fingerprint already introduced in this branch.
+- Relay creation/deletion remain ordinary model mutations and do not acquire
+  a physical topology revision through the Network Relay registry.
+- Actual electrical switching/topology changes remain governed by their
+  existing Core Network revision paths.
+
+Verification boundary:
+- Compared the Relay service mutation/rollback paths with Network's
+  non-topological Relay registration and the branch's canonical Relay
+  revision classifier/runtime equipment fingerprint.
+- Source-level diff only. No tests, CI, syntax/import checks or runtime
+  Relay transition/undo execution were performed.
+- Keep issue #1069 open until this branch is integrated into canonical main.
+
+======================================================================
