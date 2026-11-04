@@ -21953,3 +21953,71 @@ Additional lifecycle safeguard — project-scoped Control mappings:
 - This is a fail-closed lifecycle guard, not project save/reload persistence.
   The separate persistence-owner gap above remains open.
 - Static source inspection only; no tests or CI run.
+
+
+======================================================================
+GF-AUD-158 — SLD SEMANTIC CONNECTION VALIDATION AND ORPHAN LIFECYCLE
+======================================================================
+
+Related issues:
+- #997 — persisted SLD/Core semantic connection endpoint integrity.
+- #996 — retained orphaned SLD presentation diagnostics.
+- Related but deliberately separate: #874 visual snapping vs Core
+  connectivity, #773 wire drawing/orthogonal routing, #767 ghost terminal
+  rendering, and #995 configured symbol-default rehydration.
+
+Source findings on main:
+- ValidationService.validate_sld_associations() checked only node equipment IDs.
+  It did not report retained ORPHANED nodes/connections and did not require
+  a non-orphan node to retain a Core equipment identity.
+- Application.validate_project() did not include SLDService's existing
+  read-only Core/Simple-Wire companion audit in its ValidationResult. The
+  audit was retained only as activation diagnostics, so study validation
+  could miss stale/missing/duplicate connection companions and endpoint drift.
+- SLDService._sld_endpoint_from_mapping() incorrectly used Core object_id as
+  the SLD endpoint node_id. SLD node identity is independent presentation
+  identity (for example, sld-core-<core-id> or sld-node-<uuid>), so a valid
+  endpoint could be diagnosed as mismatched after commit/reload.
+- SLDService.reconcile_element_delete() orphaned engineer-authored attached
+  connections but cleared only the endpoint on the deleted node side. It
+  retained the opposite semantic endpoint and could retain core_connection_id,
+  despite the connection no longer representing a complete live electrical
+  relationship.
+
+Correction prepared on branch fix/sld-validation-orphan-integrity-2026-11-04:
+- SLD endpoint conversion now resolves the actual unique presentation node
+  for the Core endpoint object; unsupported Core endpoint kinds and missing/
+  ambiguous SLD nodes fail with explicit diagnostics.
+- The read-only Simple-Wire audit reports unresolved endpoint-to-node mapping
+  as a diagnostic rather than aborting the entire audit.
+- Application.validate_project() now includes the active SLDService audit in
+  the canonical ValidationResult; unavailable/failed audit execution is
+  represented as an error diagnostic, not silently omitted.
+- ValidationService now reports orphaned SLD nodes and connections as
+  warnings, while treating a non-orphan node without equipment identity as
+  an error. It rejects orphan nodes/connections that still carry active Core
+  bindings; it also rejects orphan connections that retain semantic endpoint
+  descriptors.
+- Engineer-authored connections retained when their equipment node is
+  deleted now lose both semantic endpoints and the active Core connection
+  binding. The former Core connection ID is retained as orphan provenance.
+  Transactional snapshots continue to restore the original values on undo.
+
+Architecture boundary:
+- All cross-domain SLD/Core validation and lifecycle reconciliation remain in
+  Application services. SLD geometry and snapping never create Core topology.
+- Core connectivity remains authoritative. The audit is read-only and does
+  not repair or mutate Core topology.
+- No Qt/QGraphics dependency was added to Core or Application. No new public
+  exports were introduced; existing service entry points remain stable.
+
+Verification boundary:
+- Inspected current main SLDService audit/reconciliation, DraftNetwork commit
+  projection identity path, SLD endpoint schema, Core EndpointReference and
+  ConnectivityStore validation, ValidationService and Application project
+  validation flow.
+- Source changes prepared on the dedicated correction branch. No tests or CI
+  were run. Python syntax/import execution and final diff review remain to be
+  completed before the PR can be considered merge-ready.
+
+======================================================================
