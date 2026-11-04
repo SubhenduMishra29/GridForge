@@ -21942,3 +21942,14 @@ Additional persistence audit — Control signal mapping ownership:
   boundary is still required; do not make Core depend on Application classes.
 - Issue #1031 remains open pending a defined persistence owner and round-trip
   source mapping evidence. Static source inspection only; no tests/CI.
+
+Additional lifecycle safeguard — project-scoped Control mappings:
+- Application now records the project identity owning each configured Control
+  and Dynamic Control signal mapping. A mapping from a previous project is
+  hidden from the active read API and rejected before execution after project
+  activation changes; it must be explicitly configured for the new project.
+- The setter validates the project owner before replacing mapping state, so a
+  failed configuration cannot leave a partially updated mapping.
+- This is a fail-closed lifecycle guard, not project save/reload persistence.
+  The separate persistence-owner gap above remains open.
+- Static source inspection only; no tests or CI run.
