@@ -320,19 +320,19 @@ class ProtectionGraphicsSurface(QGraphicsView):
         text.setPos(20.0, 20.0)
 
     @staticmethod
-    def _decision_text(relay: Any) -> str:
-        decision = getattr(relay, "decision", None)
-        if decision is not None:
-            if decision.blocked: return "BLOCKED"
-            if not decision.valid: return "INVALID"
-            if decision.trip_request: return "TRIP REQUEST"
-            if decision.operate: return "OPERATING"
-            if decision.pickup: return "PICKUP"
-            return "NO OPERATION"
-        if bool(getattr(relay, "tripped", False)): return "TRIP REQUEST"
-        if bool(getattr(relay, "picked_up", False)): return "PICKUP"
-        if bool(getattr(relay, "blocked", False)): return "BLOCKED"
-        if not bool(getattr(relay, "enabled", True)): return "INVALID / DISABLED"
+    def _decision_text(decision: Any) -> str:
+        if decision is None:
+            return "NOT EVALUATED"
+        if decision.blocked:
+            return "BLOCKED"
+        if not decision.valid:
+            return "INVALID"
+        if decision.trip_request:
+            return "TRIP REQUEST"
+        if decision.operate:
+            return "OPERATING"
+        if decision.pickup:
+            return "PICKUP"
         return "NO OPERATION"
 
 
