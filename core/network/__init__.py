@@ -294,6 +294,8 @@ __all__ = [
     "PerUnitSystem",
     "CTMeasurementAssociation",
     "CTMeasurementAssociationResolver",
+    "ConductivePath",
+    "ConductiveReachabilityResolver",
 ]
 
 
@@ -326,3 +328,5 @@ from .phase_domain_conductor_network import (
     build_phase_domain_conductor_network,
     build_phase_domain_conductor_network_from_sld,
 )
+
+from .conductive_reachability import ConductivePath, ConductiveReachabilityResolver
