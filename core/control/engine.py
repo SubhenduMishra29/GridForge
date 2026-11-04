@@ -152,6 +152,17 @@ class ControlEngine:
             raise TypeError("binding must be a ControlActionBinding.")
         if binding in self._bindings:
             return
+        existing = next(
+            (item for item in self._bindings if item.control_id == binding.control_id),
+            None,
+        )
+        if existing is not None:
+            raise ValueError(
+                f"Control action binding ID '{binding.control_id}' is already bound "
+                "to a different action."
+            )
+        if self._logic_engine is None:
+            raise RuntimeError("Control runtime is inactive; no LogicEngine is configured.")
         component = self._logic_engine.get(binding.source_component)
         if binding.source_output not in set(component.output_names):
             raise ValueError(
@@ -198,7 +209,9 @@ class ControlEngine:
                 else:
                     interlock_values = supplied_interlocks.get(binding.interlock_id, {})
                 result = self._interlocks[binding.interlock_id].evaluate(
-                    interlock_values, context.simulation_time
+                    interlock_values,
+                    context.simulation_time,
+                    timestamp_domain=context.metadata.get("timestamp_domain"),
                 )
                 if not result.allowed:
                     blocked.append(

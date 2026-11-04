@@ -258,11 +258,26 @@ class ControlInspector(QWidget):
             network = self._application.read_network()
             for element in network.elements:
                 for signal_name in element.attributes:
-                    self._signal_sources.addItem(f"{element.element_type}:{element.object_id}.{signal_name}")
+                    self._signal_sources.addItem(f"Core {element.element_type}:{element.object_id}.{signal_name}")
                     self._signal_sources.item(self._signal_sources.count() - 1).setData(
                         Qt.ItemDataRole.UserRole,
-                        (str(element.element_type).lower(), str(element.object_id), str(signal_name)),
+                        ("core", str(element.element_type).lower(), str(element.object_id), str(signal_name), (), (), ()),
                     )
+            for channel in self._application.read_measurement_channels():
+                availability = "available" if channel.available else "unavailable"
+                self._signal_sources.addItem(
+                    f"Measurement {channel.channel_id}.{channel.signal_type} "
+                    f"[{channel.phase}, {channel.unit}, {channel.quality}/{availability}, "
+                    f"t={channel.timestamp!r} {channel.timestamp_domain or 'no-domain'}, "
+                    f"seq={channel.sample_sequence!r}, stale_after={channel.stale_after!r}]"
+                )
+                self._signal_sources.item(self._signal_sources.count() - 1).setData(
+                    Qt.ItemDataRole.UserRole,
+                    (
+                        "measurement", "measurement_channel", channel.channel_id, "value",
+                        (channel.signal_type,), (channel.phase,), (channel.unit,),
+                    ),
+                )
         except RuntimeError as exc:
             self._signal_status.setText(f"Signal mapping unavailable: {exc}")
         if component is not None:
@@ -316,18 +331,33 @@ class ControlInspector(QWidget):
             self._signal_status.setText("Select a signal source, Control input and action binding.")
             return
         try:
-            source_type, source_id, signal_name = source_item.data(Qt.ItemDataRole.UserRole)
+            (
+                source_domain, source_type, source_id, signal_name,
+                expected_signal_types, expected_phases, accepted_units,
+            ) = source_item.data(Qt.ItemDataRole.UserRole)
             component_id, input_name, input_type_name = input_item.data(Qt.ItemDataRole.UserRole)
             action_id = str(action_item.data(Qt.ItemDataRole.UserRole))
             supported_types = {"bool": bool, "float": float, "int": int, "str": str}
             expected_type = supported_types.get(input_type_name)
+            if expected_type is None:
+                raise ValueError(
+                    f"Control input '{component_id}.{input_name}' has unsupported value type "
+                    f"{input_type_name!r}; an explicit source type contract is required."
+                )
+            if source_domain == "measurement" and expected_signal_types == ("DIGITAL",) and expected_type is not bool:
+                raise ValueError(
+                    "DIGITAL MeasurementChannels can only bind to Boolean Control inputs."
+                )
             binding = ControlSignalBinding(
                 source=ControlSignalSource(
-                    domain="core", element_type=source_type, object_id=source_id,
+                    domain=source_domain, element_type=source_type, object_id=source_id,
                     signal=signal_name, expected_type=expected_type,
                 ),
                 destination=ControlSignalDestination(
                     control_id=action_id, component_id=component_id, input_name=input_name,
+                    expected_signal_types=expected_signal_types,
+                    expected_phases=expected_phases,
+                    accepted_units=accepted_units,
                 ),
             )
             current = self._application.control_signal_mapping or ControlSignalMapping()

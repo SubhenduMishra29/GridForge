@@ -21854,3 +21854,102 @@ Scope:
 - Issue #1070 / PR #1076 — live residual-current sample provenance.
 - Blocks completion of GF-AUD-154 and live 50N/51N dispatch.
 ======================================================================
+
+======================================================================
+GF-CONTROL-MEASUREMENT-1031 — RECONCILIATION ON CURRENT MAIN
+======================================================================
+
+Date:
+    2026-11-04
+
+Branch:
+    reconcile/control-measurement-1054 (based on current main after PR #1076)
+
+Reconciliation:
+    - Ported Control measurement input snapshots, semantic destination
+      constraints, mapping schema v2/v1 read compatibility, freshness and
+      clock-domain validation, mandatory sample sequence, bounded-age
+      interlock semantics, typed dynamic adapter metadata, and Inspector
+      MeasurementChannel source discovery onto a branch based on current main.
+    - Added Application MeasurementChannel read-model/read-service boundary,
+      Control cycle wiring, trusted live clock-domain anchoring, and detached
+      Dynamic Control cycle orchestration.
+    - Reapplied the Control-only source changes as focused patches; did not
+      replace shared Application or package files wholesale.
+    - Preserved current main Protection dependency registry and selective
+      decision-guard changes from PR #1076. Protection preparation/relay
+      snapshot changes from the stale PR branch were not blindly copied.
+
+Boundaries / remaining:
+    - DynamicControlCycleService rejects live MeasurementChannel sources
+      for offline/transient simulation until a study-scoped simulation-clock
+      snapshot contract exists.
+    - Dynamic Control is not yet integrated into the production transient
+      DAE combined machine/controller state vector. Issue #1055 remains open.
+    - DynamicControlAssociation input/output mappings still require a
+      canonical translation/precedence contract against ControlSignalMapping.
+    - Full producer-to-action provenance, UI lifecycle interaction review,
+      save/reload mapping verification, caller migration and source/import
+      integrity review remain pending.
+    - This is a reconciliation branch checkpoint, not a merge or production
+      acceptance claim. PR #1054 remains draft until the remaining contracts
+      are resolved and the branch is reviewed.
+
+Verification:
+    - Unified-diff hunk applicability checked against current main for the
+      independently ported Control modules before writing them.
+    - Shared read-model/read-service and Application composition changes
+      were manually reconciled around newer main content.
+    - No tests or CI were run, per repository instruction.
+======================================================================
+
+Additional reconciliation finding — DIGITAL MeasurementChannel typing:
+- The Control Inspector offered DIGITAL MeasurementChannels for Boolean inputs,
+  but MeasurementChannel stores numeric samples and ControlSignalMapping
+  previously forwarded the raw numeric value unchanged. The UI selection
+  therefore did not establish a valid Boolean input contract.
+- The reconciled resolver now accepts only a Boolean sample or an exact,
+  finite numeric 0/1 encoding for DIGITAL channels and converts it explicitly
+  to bool. Other values fail closed with a source-specific diagnostic; no
+  Python truthiness conversion is used.
+- The resolved envelope records the explicit BOOLEAN_OR_EXACT_0_1 encoding.
+- Static source inspection only; no tests or CI run.
+
+Additional fail-closed correction — direct ControlInput consumer:
+- ControlInput.is_usable_at(require_freshness=True) now requires a finite
+  non-negative stale-after ceiling, a non-negative integer sample sequence,
+  a sample timestamp, and an exact match to a non-empty caller-provided
+  cycle timestamp domain. Missing policy/provenance is rejected.
+- UndervoltageComparator.evaluate_input() now accepts an explicit
+  timestamp_domain and passes it to the freshness gate. Omitting the
+  authoritative cycle domain therefore blocks evaluation rather than
+  trusting the sample's self-declared domain.
+- This closes a direct-consumer bypass not covered by the
+  ControlSignalMapping resolver's own stricter validation.
+- Static source inspection only; no tests or CI run.
+
+Additional persistence audit — Control signal mapping ownership:
+- ControlSignalMapping.to_dict()/from_dict() provide schema-v2 serialization and
+  schema-v1 read compatibility, and SetControlSignalMappingCommand makes edits
+  undoable through the Application command boundary.
+- However, ControlConfiguration.to_dict()/from_dict() currently serialize
+  program, action bindings, interlocks and dynamic associations only; they do
+  not include ControlSignalMapping. Application also keeps the active mapping
+  in a separate in-memory field. The inspected project configuration path
+  therefore does not yet establish save/reload persistence for these bindings.
+- Do not claim that mapping schema serialization proves project persistence.
+  A canonical Application-owned project persistence envelope or equivalent
+  boundary is still required; do not make Core depend on Application classes.
+- Issue #1031 remains open pending a defined persistence owner and round-trip
+  source mapping evidence. Static source inspection only; no tests/CI.
+
+Additional lifecycle safeguard — project-scoped Control mappings:
+- Application now records the project identity owning each configured Control
+  and Dynamic Control signal mapping. A mapping from a previous project is
+  hidden from the active read API and rejected before execution after project
+  activation changes; it must be explicitly configured for the new project.
+- The setter validates the project owner before replacing mapping state, so a
+  failed configuration cannot leave a partially updated mapping.
+- This is a fail-closed lifecycle guard, not project save/reload persistence.
+  The separate persistence-owner gap above remains open.
+- Static source inspection only; no tests or CI run.

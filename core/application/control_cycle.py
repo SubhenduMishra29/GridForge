@@ -168,6 +168,7 @@ class ControlCycleService:
         *,
         signal_mapping: ControlSignalMapping | None = None,
         read_service: ReadService | None = None,
+        measurement_read_service: Any | None = None,
     ) -> None:
         if not isinstance(control_engine, ControlEngine):
             raise TypeError("control_engine must be a ControlEngine.")
@@ -181,6 +182,9 @@ class ControlCycleService:
         self._execution_service = execution_service
         self._signal_mapping = signal_mapping
         self._read_service = read_service
+        if measurement_read_service is not None and not callable(getattr(measurement_read_service, "channel", None)):
+            raise TypeError("measurement_read_service must provide channel(channel_id).")
+        self._measurement_read_service = measurement_read_service
 
     @property
     def control_engine(self) -> ControlEngine:
@@ -201,6 +205,7 @@ class ControlCycleService:
         external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
         context: ControlExecutionContext | None = None,
         interlock_inputs: Mapping[str, Mapping[str, Mapping[str, Any]]] | None = None,
+        timestamp_domain: str | None = None,
     ) -> ControlCycleResult:
         """Resolve engineering inputs when configured, then evaluate and execute Control intent."""
         if self._signal_mapping is not None:
@@ -208,13 +213,19 @@ class ControlCycleService:
                 raise ValueError("signal_mapping cannot be combined with context or external_inputs.")
             if simulation_time is None:
                 raise ValueError("simulation_time is required when signal_mapping is configured.")
-            resolved = self._signal_mapping.resolve(self._read_service)  # type: ignore[arg-type]
+            resolved = self._signal_mapping.resolve(
+                self._read_service,  # type: ignore[arg-type]
+                measurement_read_service=self._measurement_read_service,
+                current_time=simulation_time,
+                timestamp_domain=timestamp_domain,
+            )
             context = ControlExecutionContext(
                 simulation_time=simulation_time,
                 external_inputs=resolved.external_inputs,
                 metadata={
                     "control_signal_bindings": resolved.bindings,
                     "control_interlock_inputs": resolved.interlock_inputs,
+                    "timestamp_domain": timestamp_domain,
                 },
             )
             # Keep ordinary logic inputs and freshness-bearing interlock inputs

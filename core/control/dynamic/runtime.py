@@ -7,6 +7,7 @@ adapters supplied by the Application composition root.
 """
 from __future__ import annotations
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any, Mapping, Sequence
 import numpy as np
 from .base import DynamicControlComponent
@@ -32,28 +33,67 @@ class GlobalStateLayout:
 
 class DynamicControlAdapter(DynamicControlComponent):
     """Translate an external plugin into the Core Control contract."""
-    def __init__(self, plugin: Any, *, component_id: str, component_type: str, input_names: Sequence[str] = (), output_names: Sequence[str] = ()) -> None:
-        if plugin is None or not callable(getattr(plugin, "derivatives", None)) or not callable(getattr(plugin, "output", None)):
-            raise TypeError("plugin must provide derivatives() and output().")
+    def __init__(
+        self,
+        plugin: Any,
+        *,
+        component_id: str,
+        component_type: str,
+        plugin_id: str | None = None,
+        plugin_version: str | None = None,
+        input_names: Sequence[str] = (),
+        input_types: Mapping[str, type] | None = None,
+        output_names: Sequence[str] = (),
+    ) -> None:
+        if plugin is None or not callable(getattr(plugin, "derivatives", None)) or not callable(getattr(plugin, "output", None)) or not callable(getattr(plugin, "initial_state", None)):
+            raise TypeError("plugin must provide initial_state(), derivatives(), and output().")
         self._plugin = plugin
         self._component_id = str(component_id).strip()
         self._component_type = str(component_type).strip()
-        self._input_names = tuple(str(x) for x in input_names)
-        self._output_names = tuple(str(x) for x in output_names)
+        resolved_plugin_id = plugin_id or getattr(plugin, "plugin_id", None) or getattr(plugin, "plugin_type", None)
+        self._plugin_id = str(resolved_plugin_id or "").strip()
+        resolved_version = plugin_version or getattr(plugin, "plugin_version", None) or getattr(plugin, "version", None)
+        self._plugin_version = str(resolved_version).strip() if resolved_version is not None else None
+        self._input_names = tuple(str(x).strip() for x in input_names)
+        if any(not name for name in self._input_names) or len(self._input_names) != len(set(self._input_names)):
+            raise ValueError("Dynamic Control input names must be non-empty and unique.")
+        declared_input_types = input_types if input_types is not None else getattr(plugin, "input_types", None)
+        if declared_input_types is None:
+            declared_input_types = {}
+        if not isinstance(declared_input_types, Mapping):
+            raise TypeError("input_types must be a mapping of input names to Python types.")
+        normalized_input_types = {str(name).strip(): value_type for name, value_type in declared_input_types.items()}
+        if any(not name or not isinstance(value_type, type) for name, value_type in normalized_input_types.items()):
+            raise TypeError("input_types must contain non-empty names mapped to Python types.")
+        if not self._input_names:
+            self._input_names = tuple(normalized_input_types)
+        if set(self._input_names) != set(normalized_input_types):
+            raise ValueError("Every DynamicControl input must have exactly one declared input type.")
+        self._input_types = MappingProxyType(normalized_input_types)
+        self._output_names = tuple(str(x).strip() for x in output_names)
+        if any(not name for name in self._output_names) or len(self._output_names) != len(set(self._output_names)):
+            raise ValueError("Dynamic Control output names must be non-empty and unique.")
         self._state_names = tuple(str(x) for x in getattr(plugin, "state_names", ()))
         if not self._state_names:
             self._state_names = tuple(f"x{i}" for i in range(int(getattr(plugin, "state_size", 0))))
-        if not self._component_id or not self._component_type or not self._state_names:
-            raise ValueError("Dynamic adapter identity/state contract is incomplete.")
+        if not self._component_id or not self._component_type or not self._plugin_id or not self._state_names:
+            raise ValueError("Dynamic adapter plugin/component identity and state contract are incomplete.")
     @property
     def component_id(self) -> str: return self._component_id
     @property
     def component_type(self) -> str: return self._component_type
     @property
+    def plugin_id(self) -> str: return self._plugin_id
+    @property
+    def plugin_version(self) -> str | None: return self._plugin_version
+    @property
     def plugin(self) -> Any: return self._plugin
     def input_definition(self):
         from ..base import ControlSignal, SignalRole
-        return tuple(ControlSignal(name=n, role=SignalRole.INPUT, value_type=float) for n in self._input_names)
+        return tuple(
+            ControlSignal(name=n, role=SignalRole.INPUT, value_type=self._input_types[n])
+            for n in self._input_names
+        )
     def output_definition(self):
         from ..base import ControlSignal, SignalRole
         return tuple(ControlSignal(name=n, role=SignalRole.OUTPUT, value_type=float) for n in self._output_names)
@@ -66,10 +106,10 @@ class DynamicControlAdapter(DynamicControlComponent):
     def derivatives(self, state, inputs, time):
         del time
         values = tuple(float(state[n]) for n in self.dynamic_state_names)
-        try:
-            result = self._plugin.derivatives(values, **dict(inputs))
-        except TypeError:
-            result = self._plugin.derivatives({n: v for n, v in zip(self.dynamic_state_names, values)}, dict(inputs))
+        # DynamicPlugin's canonical protocol is a local state vector plus
+        # keyword engineering inputs. Do not catch TypeError here: it may be
+        # raised inside a plugin equation and must not trigger a second call.
+        result = self._plugin.derivatives(values, **dict(inputs))
         if isinstance(result, Mapping):
             result = tuple(result[n] for n in self.dynamic_state_names)
         if len(result) != self.dynamic_state_size: raise ValueError("Dynamic plugin derivative dimension mismatch.")
@@ -77,10 +117,7 @@ class DynamicControlAdapter(DynamicControlComponent):
     def output(self, state, inputs, time):
         del time
         values = tuple(float(state[n]) for n in self.dynamic_state_names)
-        try:
-            result = self._plugin.output(values, **dict(inputs))
-        except TypeError:
-            result = self._plugin.output({n: v for n, v in zip(self.dynamic_state_names, values)}, dict(inputs))
+        result = self._plugin.output(values, **dict(inputs))
         if isinstance(result, Mapping):
             return {str(k): float(v) for k, v in result.items()}
         if len(self._output_names) == 1: return {self._output_names[0]: float(result)}

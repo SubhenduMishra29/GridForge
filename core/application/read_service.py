@@ -31,6 +31,7 @@ from core.model.cvt import CVTPolarity
 
 from .read_models import (
     ElementReadModel,
+    MeasurementChannelReadModel,
     EngineeringParameterReadModel,
     NetworkReadModel,
     ProtectionReadModel,
@@ -1340,6 +1341,44 @@ class StudyReadService:
         )
 
 
+
+
+class MeasurementChannelReadService:
+    """Detached read boundary over the Application-owned channel lifecycle service."""
+
+    def __init__(self, measurement_service: Any) -> None:
+        if measurement_service is None or not callable(getattr(measurement_service, "get", None)):
+            raise TypeError("measurement_service must provide get(channel_id).")
+        self._measurement_service = measurement_service
+
+    def channel(self, channel_id: str) -> MeasurementChannelReadModel:
+        normalized = str(channel_id).strip()
+        if not normalized:
+            raise ValueError("channel_id must be non-empty.")
+        channel = self._measurement_service.get(normalized)
+        if channel is None:
+            raise KeyError(f"MeasurementChannel '{normalized}' is not available.")
+        validity = channel.validity()
+        return MeasurementChannelReadModel(
+            channel_id=str(channel.id),
+            value=channel.engineering_value,
+            unit=str(channel.unit),
+            signal_type=channel.signal_type.value,
+            phase=channel.phase.value,
+            quality=channel.quality.value,
+            available=bool(channel.available),
+            timestamp=channel.timestamp,
+            timestamp_domain=channel.timestamp_domain,
+            sample_sequence=channel.sample_sequence,
+            stale_after=channel.stale_after,
+            producer_id=getattr(channel, "producer_id", None),
+            validity=validity.value,
+        )
+
+    def channels(self) -> tuple[MeasurementChannelReadModel, ...]:
+        registry = getattr(self._measurement_service, "channels", {})
+        return tuple(self.channel(channel_id) for channel_id in sorted(registry))
+
 __all__ = [
     "ArchivedStudyResultReadModel",
     "StudyReadService",
@@ -1347,5 +1386,6 @@ __all__ = [
     "StudyResultNumericDeltaReadModel",
     "NetworkReadService",
     "ProtectionReadService",
+    "MeasurementChannelReadService",
     "ReadService",
 ]

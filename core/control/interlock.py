@@ -71,7 +71,13 @@ class ControlInterlock:
         object.__setattr__(self, "condition", condition)
         object.__setattr__(self, "quality_policy", quality_policy)
 
-    def evaluate(self, inputs: Mapping[str, Any], simulation_time: float) -> InterlockResult:
+    def evaluate(
+        self,
+        inputs: Mapping[str, Any],
+        simulation_time: float,
+        *,
+        timestamp_domain: str | None = None,
+    ) -> InterlockResult:
         try:
             current_time = float(simulation_time)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -156,7 +162,43 @@ class ControlInterlock:
                     f"Interlock '{self.interlock_id}' input '{name}' timestamp is in the future.",
                     SignalQuality.INVALID,
                 )
-            if timestamp != current_time:
+
+            # Measurement-backed inputs carry an explicit bounded freshness
+            # policy and clock identity. Accept an older sample only while it
+            # remains inside that policy and in the exact cycle clock domain.
+            if "stale_after" in signal or "timestamp_domain" in signal:
+                sample_domain = signal.get("timestamp_domain")
+                if (
+                    not isinstance(timestamp_domain, str)
+                    or not timestamp_domain.strip()
+                    or sample_domain != timestamp_domain
+                ):
+                    return InterlockResult(
+                        False,
+                        f"Interlock '{self.interlock_id}' input '{name}' has an absent or mismatched timestamp domain.",
+                        SignalQuality.STALE,
+                    )
+                stale_after = signal.get("stale_after")
+                if (
+                    isinstance(stale_after, bool)
+                    or not isinstance(stale_after, (int, float))
+                    or not isfinite(stale_after)
+                    or stale_after < 0
+                ):
+                    return InterlockResult(
+                        False,
+                        f"Interlock '{self.interlock_id}' input '{name}' has no valid freshness ceiling.",
+                        SignalQuality.STALE,
+                    )
+                if current_time - timestamp > stale_after:
+                    return InterlockResult(
+                        False,
+                        f"Interlock '{self.interlock_id}' input '{name}' is stale.",
+                        SignalQuality.STALE,
+                    )
+            elif timestamp != current_time:
+                # Preserve the legacy same-cycle contract for non-measurement
+                # envelopes that do not carry a bounded freshness policy.
                 return InterlockResult(
                     False,
                     f"Interlock '{self.interlock_id}' input '{name}' is not fresh for simulation time {current_time!r}.",
