@@ -611,6 +611,80 @@ def build_protection_dependency_registry(
             if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
                 element_diagnostics.append(f"{prefix}: invalid differential scheme value.")
                 continue
+            try:
+                protected_object = network.get_by_id(
+                    scheme.protected_object_type,
+                    scheme.protected_object_id,
+                )
+            except (LookupError, ValueError):
+                protected_object = None
+            if protected_object is None:
+                element_diagnostics.append(
+                    f"{prefix}, differential_scheme={scheme.scheme_id!r}: protected object "
+                    f"{scheme.protected_object_type}:{scheme.protected_object_id} is missing from the active Network."
+                )
+            else:
+                add_dependency(
+                    "differential_protected_object",
+                    f"{scheme.protected_object_type}:{scheme.protected_object_id}",
+                    {
+                        "object_type": scheme.protected_object_type,
+                        "object_id": scheme.protected_object_id,
+                        "in_service": getattr(protected_object, "in_service", None),
+                    },
+                )
+                resolver = ConnectivityResolver(network)
+                if scheme.protected_object_type == "bus":
+                    protected_endpoints = tuple(
+                        (
+                            f"attachment-{index}",
+                            TopologyEndpointReference.from_bus(
+                                EndpointReference.bus(
+                                    bus_id=scheme.protected_object_id,
+                                    attachment_id=f"attachment-{index}",
+                                )
+                            ),
+                        )
+                        for index in range(9)
+                    )
+                else:
+                    object_type = EquipmentType(
+                        str(getattr(protected_object, "TYPE", scheme.protected_object_type)).strip().lower()
+                    )
+                    protected_endpoints = tuple(
+                        (
+                            str(getattr(terminal, "role", "")),
+                            TopologyEndpointReference.from_terminal(
+                                EndpointReference.terminal(
+                                    equipment_type=object_type,
+                                    equipment_id=scheme.protected_object_id,
+                                    terminal_role=str(getattr(terminal, "role", "")),
+                                )
+                            ),
+                        )
+                        for terminal in getattr(protected_object, "terminals", ())
+                    )
+                if not protected_endpoints:
+                    element_diagnostics.append(
+                        f"{prefix}, differential_scheme={scheme.scheme_id!r}: protected object has no canonical terminals or Bus attachments."
+                    )
+                for endpoint_role, endpoint in protected_endpoints:
+                    try:
+                        component = resolver.topology_component(endpoint)
+                        add_dependency(
+                            "differential_zone_component",
+                            f"{scheme.scheme_id}:{endpoint_role}",
+                            _topology_component_fingerprint(
+                                component,
+                                prefix="differential-zone-component:v1:",
+                            ),
+                        )
+                    except (KeyError, LookupError, TypeError, ValueError, AttributeError) as exc:
+                        element_diagnostics.append(
+                            f"{prefix}, differential_scheme={scheme.scheme_id!r}, endpoint={endpoint_role!r}: "
+                            f"protected-zone topology is unavailable: {exc}."
+                        )
+
             member_fingerprints = []
             for binding_id in scheme.measurement_binding_ids:
                 member = bindings_by_id.get(binding_id)
