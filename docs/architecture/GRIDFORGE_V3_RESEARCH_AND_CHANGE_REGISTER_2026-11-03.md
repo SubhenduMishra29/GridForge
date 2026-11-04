@@ -1780,3 +1780,86 @@ After designation:
 7. Produce an ordered implementation work-package map only after traceability is complete and approval gates are addressed.
 
 **Scope boundary:** no source files were modified in this pass. No V2 architecture or implementation was changed. No tests or CI were run or used as acceptance gates. The branch-provenance blocker is the current result; V2 source evidence is a reference baseline only.
+
+
+## 8I-10. UI/UX specification approval and implementation hand-off controls (2026-11-04)
+
+**Purpose:** Convert the open UI-GATE-01..07 list into an approval-ready decision register and define the minimum evidence needed before implementation work packages are authorized. This is a process/control specification; it does not approve unresolved product decisions or authorize implementation.
+
+### A. Gate disposition model
+
+Each gate must have one recorded disposition:
+- **Approved:** decision is explicit, rationale is recorded, accountable approver is identified, and required evidence is attached or referenced.
+- **Approved with constraints:** accepted only within stated limits; constraints become traceable requirements and acceptance conditions.
+- **Deferred:** no implementation may rely on unresolved behavior; a named owner and revisit trigger/date are required.
+- **Rejected:** proposal is declined with rationale; affected requirements and scenarios are revised.
+- **Blocked:** required source, domain contract, platform decision or evidence is unavailable.
+
+A gate cannot be marked Approved solely because related source code exists. Source presence, runtime behavior, domain correctness and user acceptance are separate evidence classes. Silence or a “next” instruction is not approval.
+
+### B. Seven gate closure records
+
+| Gate | Decisions that must be explicit | Minimum closure evidence | Consequence while open |
+|---|---|---|---|
+| UI-GATE-01 Context of use | Target roles; novice/expert balance; critical tasks; project-size and operational context | Approved role/task matrix; representative project fixtures; prioritized critical-task list | Candidate journeys only; no final usability thresholds |
+| UI-GATE-02 Project/session | Start/recent-project behavior; canonical project vs preferences vs viewport ownership; draft/autosave/recovery guarantees; portability and migration | State ownership matrix; save/restore lifecycle; failure/recovery policy; migration/fallback decision | No new persistence/schema/autosave guarantee; canonical project scope unchanged |
+| UI-GATE-03 Diagnostics | Category taxonomy; severity/source identity; acknowledge, suppress, clear, retain and navigate semantics per category | Typed diagnostic contract; category lifecycle table; representative SLD/Control/Protection/Study records | No universal acknowledgement/clear operation |
+| UI-GATE-04 Accessibility/platform | Supported OS/Qt versions; native accessibility target; keyboard-critical tasks; canvas semantic/assistive strategy; conformance target | Approved platform matrix; focus/keyboard map; accessible-name/role strategy; assistive-technology evaluation plan and evidence | Foundational practices only; no blanket conformance claim |
+| UI-GATE-05 Display/performance | DPI/mixed-monitor envelope; scaling; representative project sizes; performance measures and targets | Display matrix; representative workloads; baseline capture; approved latency/rendering targets and method | No numeric performance or compatibility claim |
+| UI-GATE-06 Cross-domain trace | Measurement → Protection decision → Control/interlock context (where configured) → command → acknowledgement/feedback; stale/missing-data behavior | Domain sequence diagrams; typed read-model contracts; provenance/freshness/quality rules; normal, blocked and unavailable-data examples | Show configured, provenance-backed relationships only; never synthesize acknowledgement or feedback |
+| UI-GATE-07 Scope/priority | Release scope; P1/P2/P3 classification; mandatory scenarios; exclusions; implementation-start authorization | Signed requirement disposition; scenario map; dependency/owner map; explicit implementation authorization | Research/specification only; no implementation package approved |
+
+### C. Required decision record fields
+
+Every gate decision must capture:
+1. Gate ID and decision ID.
+2. Decision statement and alternatives considered.
+3. Disposition from section A.
+4. Rationale and engineering/user impact.
+5. Approver role and accountable owner (not inferred).
+6. Affected requirement IDs, capability IDs, scenarios and domain contracts.
+7. Constraints, exclusions and unresolved dependencies.
+8. Evidence references and evidence class (source, runtime, domain, platform, performance or user evaluation).
+9. Effective specification/register revision.
+10. Revisit trigger for deferred or conditional decisions.
+
+### D. Implementation work-package template
+
+This template does not authorize implementation. Once the V3 source ref is designated and applicable gates are approved, each package must contain:
+
+| Field | Required content |
+|---|---|
+| Package ID/title | Stable identifier and bounded outcome |
+| User/task outcome | Observable engineering workflow improvement |
+| Traceability | Requirement → capability → acceptance scenario → finding |
+| Ownership | UI/controller, Application command/service, Core/domain owner, projection/read model, plugin contract as applicable |
+| Current-state evidence | Exact V3 ref, file/class/symbol, source evidence and runtime status |
+| Change boundary | Expected files/modules and explicit non-goals |
+| Domain invariants | Authoritative owner, mutation path, lifecycle and failure semantics |
+| Dependencies | Prior packages, unresolved decisions, public contracts and migrations |
+| Acceptance evidence | Scenario walkthrough, state/provenance trace, accessibility/display/performance evidence as applicable |
+| Regression surface | Adjacent editor/domain/plugin workflows requiring inspection; not an automatic test/CI mandate |
+| Closure criteria | Observable pass conditions, register updates and reviewer sign-off |
+| Risk/rollback | Failure impact, safe fallback and reversibility |
+
+Packages must be vertically coherent and avoid duplicate managers, event buses, domain services or plugin registries. UI work must not move engineering truth into widgets or canvas objects. Cross-domain packages must preserve separate Protection and Control execution authority and explicit signal/command/feedback provenance.
+
+### E. Specification review sequence
+
+1. Review capability ownership and interaction contracts before visual styling proposals.
+2. Resolve state ownership and diagnostics lifecycle before designing save/recovery and notification affordances.
+3. Resolve measurement/Protection/Control provenance before designing live status indicators.
+4. Approve roles, critical tasks and representative project fixtures before setting usability/performance thresholds.
+5. Approve platform/accessibility envelope before compatibility or conformance claims.
+6. Close or explicitly defer each gate with an owner and constraint.
+7. Freeze the approved specification revision and only then derive implementation packages against the designated V3 source ref.
+
+### F. Current disposition
+
+- UI-GATE-01..07: **Open — decision/approval evidence not supplied.**
+- UI-ACC-SLD-01..03, UI-ACC-CTL-01..02, UI-ACC-PROT-01..03, UI-ACC-STUDY-01, UI-ACC-DIAG-01, UI-ACC-KEY-01 and UI-ACC-REC-01: **Candidate scenarios — not approved release acceptance criteria.**
+- V3 source-to-spec traceability: **Blocked — exact implementation repository/branch/ref remains undesignated.**
+- Implementation packages: **Not authorized.**
+- V2 main: remains legacy comparison baseline, not a substitute V3 implementation source.
+
+**Next bounded activity:** obtain the intended V3 source ref and product/domain owners' gate decisions. Until then, further source-to-spec claims or implementation prioritization would be speculative. No source implementation files were changed; only this research register is updated. No tests or CI were run.
