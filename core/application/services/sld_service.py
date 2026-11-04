@@ -167,8 +167,18 @@ class SLDService:
                 continue
 
             core = core_by_id[core_id]
-            expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
-            expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+            try:
+                expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
+                expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+            except (KeyError, TypeError, ValueError) as exc:
+                diagnostics.append({
+                    "code": "SLD_ENDPOINT_NODE_UNRESOLVED",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": core_id,
+                    "reason": str(exc),
+                })
+                continue
+
             actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
             actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
             if actual_a != expected_a or actual_b != expected_b:
@@ -440,15 +450,24 @@ class SLDService:
             )
         return str(nodes[0].node_id)
 
-    @staticmethod
-    def _sld_endpoint_from_mapping(mapping: Mapping[str, Any]) -> dict[str, Any]:
+    def _sld_endpoint_from_mapping(self, mapping: Mapping[str, Any]) -> dict[str, Any]:
+        """Translate a Core endpoint using its independent SLD presentation identity."""
+        if not isinstance(mapping, Mapping):
+            raise TypeError("Core endpoint mapping must be a mapping.")
+        kind = str(mapping.get("kind") or "")
+        object_id = str(mapping.get("object_id") or "")
+        if kind not in {"bus", "terminal"}:
+            raise ValueError(f"Unsupported Core endpoint kind for SLD projection: {kind!r}.")
+        if not object_id:
+            raise ValueError("Core endpoint mapping requires a non-empty object_id.")
+        node_id = self._sld_node_for_endpoint_mapping(mapping)
         return {
-            "kind": "bus" if mapping.get("kind") == "bus" else "equipment",
-            "node_id": str(mapping.get("object_id") or ""),
-            "equipment_id": mapping.get("object_id") if mapping.get("kind") != "bus" else None,
-            "terminal_role": mapping.get("terminal_role") if mapping.get("kind") != "bus" else None,
-            "bus_id": mapping.get("object_id") if mapping.get("kind") == "bus" else None,
-            "attachment_id": mapping.get("attachment_id") if mapping.get("kind") == "bus" else None,
+            "kind": "bus" if kind == "bus" else "equipment",
+            "node_id": node_id,
+            "equipment_id": object_id if kind != "bus" else None,
+            "terminal_role": mapping.get("terminal_role") if kind != "bus" else None,
+            "bus_id": object_id if kind == "bus" else None,
+            "attachment_id": mapping.get("attachment_id") if kind == "bus" else None,
         }
 
     def attach_application(self, application: Any) -> None:
@@ -1671,10 +1690,16 @@ class SLDService:
 
         for connection in attached:
             if self.has_engineer_presentation_overrides_for_connection(connection):
-                if connection.source_node_id == node.node_id:
-                    connection.source_endpoint = None
-                if connection.target_node_id == node.node_id:
-                    connection.target_endpoint = None
+                # An orphan is retained presentation only. Clear both semantic
+                # endpoints and the active Core binding so the surviving half
+                # cannot be mistaken for a live electrical connection.
+                former_core_connection_id = connection.properties.pop("core_connection_id", None)
+                if former_core_connection_id is not None:
+                    connection.properties["orphaned_from_core_connection_id"] = str(
+                        former_core_connection_id
+                    )
+                connection.source_endpoint = None
+                connection.target_endpoint = None
                 connection.properties.pop("projection_source", None)
                 self._set_connection_lifecycle_state(connection, "ORPHANED")
             else:
