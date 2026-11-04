@@ -497,12 +497,59 @@ class ProtectionReadModel:
     relays: tuple[RelayReadModel, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MeasurementChannelReadModel:
+    """Detached Application snapshot of one live MeasurementChannel sample."""
+
+    channel_id: str
+    value: Any
+    unit: str
+    signal_type: str
+    phase: str
+    quality: str
+    available: bool
+    timestamp: float | None
+    timestamp_domain: str | None
+    sample_sequence: int | None
+    stale_after: float | None
+    producer_id: str | None
+    validity: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.channel_id, str) or not self.channel_id.strip():
+            raise ValueError("MeasurementChannelReadModel.channel_id must be non-empty.")
+        if not isinstance(self.available, bool):
+            raise TypeError("MeasurementChannelReadModel.available must be bool.")
+        if self.timestamp is not None and (
+            isinstance(self.timestamp, bool)
+            or not isinstance(self.timestamp, (int, float))
+            or not math.isfinite(self.timestamp)
+        ):
+            raise ValueError("MeasurementChannelReadModel.timestamp must be finite or None.")
+        if self.sample_sequence is not None and (
+            isinstance(self.sample_sequence, bool)
+            or not isinstance(self.sample_sequence, int)
+            or self.sample_sequence < 0
+        ):
+            raise ValueError("MeasurementChannelReadModel.sample_sequence must be non-negative or None.")
+        if self.stale_after is not None and (
+            isinstance(self.stale_after, bool)
+            or not isinstance(self.stale_after, (int, float))
+            or not math.isfinite(self.stale_after)
+            or self.stale_after < 0
+        ):
+            raise ValueError("MeasurementChannelReadModel.stale_after must be finite and non-negative.")
+        object.__setattr__(self, "channel_id", self.channel_id.strip())
+        object.__setattr__(self, "value", _freeze(self.value))
+
+
 __all__ = [
     "ElementReadModel",
     "EngineeringParameterReadModel",
     "NetworkReadModel",
     "SimpleWireReadModel",
     "ProtectionReadModel",
+    "MeasurementChannelReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "StudyResultReadModel",
