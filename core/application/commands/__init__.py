@@ -82,6 +82,8 @@ from .protection_configuration_commands import (
     CREATE_PROTECTION_CONFIGURATION, UPDATE_PROTECTION_CONFIGURATION, DELETE_PROTECTION_CONFIGURATION,
     BIND_PROTECTION_MEASUREMENT, UNBIND_PROTECTION_MEASUREMENT, SET_SYNCHRONISM_CHECK_CONFIGURATION,
     CreateProtectionConfigurationCommand, UpdateProtectionConfigurationCommand,
+    CREATE_DIFFERENTIAL_SCHEME, UPDATE_DIFFERENTIAL_SCHEME, DELETE_DIFFERENTIAL_SCHEME,
+    CreateDifferentialSchemeCommand, UpdateDifferentialSchemeCommand, DeleteDifferentialSchemeCommand,
     DeleteProtectionConfigurationCommand, BindProtectionMeasurementCommand,
     UnbindProtectionMeasurementCommand, SetSynchronismCheckConfigurationCommand,)
 from .model_commands import *

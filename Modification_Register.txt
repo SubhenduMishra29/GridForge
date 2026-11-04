@@ -20634,3 +20634,916 @@ FETCH -> AUDIT -> RECONCILE -> CORRECT -> CHECK -> FREEZE
 
 Documentation-only update. No tests/CI, syntax/import checks, runtime
 simulation or numerical validation were performed.
+
+
+======================================================================
+PROTECTION REVISION CONTRACT — IMPLEMENTATION PHASE 1
+======================================================================
+
+Branch:
+    feat/protection-independent-revisions
+
+Issue:
+    #1070 — Separate instrumentation and Protection-equipment revisions
+    from physical topology.
+
+Files changed:
+    core/application/revision.py
+    core/application/revision_service.py
+    core/application/application.py
+
+Implemented:
+    ProjectRevision now exposes independent counters:
+        instrumentation_revision
+        protection_equipment_revision
+        protection_configuration_revision
+
+    RevisionService advances instrumentation_revision for CT/PT/CVT
+    create/update/delete command families, protection_equipment_revision
+    for Relay model command families, and
+    protection_configuration_revision for Protection configuration
+    commands. These counters do not advance topology_revision.
+
+    Persisted snapshots preserve all revision dimensions.
+
+    User undo/redo advances the affected instrumentation/Protection
+    freshness generation monotonically. Transaction rollback continues
+    to restore the exact captured RevisionService snapshot, because an
+    uncommitted mutation must not become a committed revision transition.
+
+    Application Protection evaluation-to-dispatch provenance captures
+    the three independent revision dimensions and rejects dispatch if
+    any changes during the evaluation interval.
+
+Not yet implemented / follow-up required:
+    Direct mutation paths that bypass canonical Application commands
+    must be inventoried and either prohibited or covered by a canonical
+    lifecycle fingerprint/revision publisher.
+
+    Verify all concrete CT/PT/CVT command identifiers and Relay command
+    identifiers against command registration and service call sites.
+
+    Add per-Protection-element dependency-scoped instrumentation and
+    Relay fingerprints; the current revision guard is project-wide and
+    intentionally conservative.
+
+    Review study provenance, save/load compatibility, and revision
+    snapshot serialization consumers before merge.
+
+Verification boundary:
+    Source edits only. No tests or CI were run. No runtime behavior,
+    syntax, import integrity, or complete command coverage is claimed.
+    This PR is a partial implementation of #1070 and must not close the
+    issue until the follow-up items above are resolved.
+
+======================================================================
+
+
+PROTECTION REVISION CONTRACT — TRANSACTION BOUNDARY AUDIT (PHASE 1 FOLLOW-UP)
+Date: 2026-11-03
+
+Source inspection of CommandManager, Application._coordinate_pre_commit, Transaction, and RelayModelService established the following boundary facts:
+
+1. RevisionService publication in the current implementation is reached from Application._coordinate_pre_commit for commands executed through CommandManager. The hook is invoked before Transaction.commit(); it records a revision transition and registers a transaction inverse so failed pre-commit work can restore the exact revision snapshot.
+2. Transaction is deliberately domain-agnostic. It owns inverse journals and commit/rollback lifecycle only; it has no Application revision publisher or post-commit event contract. Do not add Protection-specific revision logic to Transaction.
+3. RelayModelService is a separate Application service that directly mutates Network relay state through a caller-supplied Transaction. The inspected Application composition does not instantiate or expose RelayModelService, and its lifecycle methods do not submit canonical model commands. Therefore the command-name classifier in RevisionService cannot be treated as coverage for these service calls.
+4. The inspected model_commands.py defines Bus/Grid/Generator/Load/Shunt/Line/Transformer commands but no CT/PT/CVT or Relay lifecycle command constants/classes. Empty GitHub code-search results are not used as evidence of absence; this conclusion is limited to the fetched command module and Application composition inspected in this pass.
+5. RelayModelService on main still invalidates physical topology for in-service transitions. PR #1071 carries the independent topology correction and must be reconciled separately; PR #1072 does not include it.
+
+Decision: do not inject guessed command-name heuristics or Protection-specific behavior into the generic Transaction class. The correct follow-up is an Application-owned service mutation boundary that publishes typed revision deltas once per successful outer transaction, is composed into the actual service entry points, and leaves rollback revision-neutral. Until that boundary and CT/PT/CVT lifecycle wiring are implemented, the three new counters in PR #1072 are partial coverage only. Issue #1070 remains open; PR #1072 remains draft.
+
+Verification boundary: source inspection only. No tests, CI, syntax checks, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — INSTRUMENTATION SERVICE PASS (2026-11-03)
+
+Additional direct-service evidence:
+
+- `PTModelService` exists at `core/application/services/pt_model_service.py` and directly mutates the Network potential-transformer registry in `create_pt` / `delete_pt`; `update_pt` changes PT engineering parameters and `in_service`; `put_pt_in_service` / `take_pt_out_of_service` change service state. Each accepts a caller-owned Transaction and registers inverse operations, but none publishes a typed instrumentation revision.
+- `RelayModelService` has the same caller-owned Transaction shape and lacks revision publication.
+- The inspected Application facade exposes its command RevisionService, but does not compose these direct model services in the inspected constructor. Merely adding another counter classifier to RevisionService will not cover these service mutations.
+- Exact CT and CVT service entry points remain unverified in this source pass. Do not infer their absence from failed code-search queries.
+
+Implementation decision remains unchanged: first add a generic transaction commit-callback lifecycle facility (no domain knowledge in Transaction), then provide an Application-owned typed revision publisher to service constructors/composition. Each service must register a typed delta with the outer transaction; the publisher applies it once on commit. Rollback must discard pending deltas. This is not implemented yet. Avoid publishing revisions directly in service methods because nested/shared transactions could otherwise increment more than once or publish changes that later roll back.
+
+No tests, CI, syntax checks, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — COMMIT CALLBACK DESIGN REVIEW (2026-11-03)
+
+Reviewed the actual transaction owner path before implementing a callback API:
+
+- `CommandManager._execute_command` owns the command Transaction. It executes the handler and Application pre-commit hook, then calls `transaction.commit()`, then records history. A failure after Transaction leaves OPEN is treated as committed/degraded; it is not rolled back.
+- `Transaction.commit()` currently transitions COMMITTING -> COMMITTED and returns the undo journal. It has no callback facility. A generic commit-callback extension is architecturally possible, but callbacks must execute after the state is COMMITTED; callback failure must propagate so CommandManager marks the Application degraded rather than attempting rollback of committed Core state.
+- RelayModelService and PTModelService accept externally supplied Transaction objects and register inverses. They do not own transaction commit. Therefore a service-level revision publisher must stage a typed delta against the same transaction; it cannot independently increment the RevisionService in the service method.
+- Repository code-search returned no construction/use references for PTModelService or RelayModelService. Because this search path has known indexing gaps, this is inconclusive and is not evidence that there are no callers. The exact service composition/creation boundary is still unverified.
+
+No code change to Transaction was made in this pass. Introducing commit callbacks before identifying the real service composition path risks creating an unused API or missing a caller-owned transaction path. Next action is to inspect the complete repository tree / exact service factory and caller paths, then wire a typed revision publisher into the authoritative composition point. Only then add the generic callback API if it is the smallest correct transaction primitive.
+
+PR #1072 remains draft. No tests, CI, syntax checks, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — CT/CVT TOPOLOGY SEPARATION CORRECTION (2026-11-03)
+
+Composition-root inspection resolved the earlier service-wiring uncertainty:
+
+- `core/application/bootstrap.py:create_application` composes `ModelService`, which owns `MeasurementModelService` and `PTModelService`; command handlers route CT/CVT/PT commands through those services.
+- The same composition root constructs `RelayModelService` and registers it through `RelayCommandHandlers`.
+- Exact command identifiers are declared in `commands/measurement_commands.py` and `commands/relay_commands.py`: CT/CVT/PT/Relay mutations use canonical `model.*` command types and pass through `CommandManager` plus Application pre-commit revision publication. Thus the canonical command path is already wired; service-level direct use outside that command path remains a separate bypass risk and must not be confused with the normal composition.
+
+Correction applied in `core/application/services/measurement_model_service.py`:
+
+- Removed `Network.invalidate_topology()` from CT service-state changes in update and dedicated in-service/out-of-service methods.
+- Removed the corresponding topology invalidations from CT rollback inverses.
+- Applied the same correction to CVT update/service-state methods and rollback inverses.
+- Preserved CT/CVT state mutation, validation, and transaction inverse registration.
+
+Rationale: CT/CVT service availability changes measurement/instrumentation interpretation; it does not change the conductive network graph. RevisionService's instrumentation revision classification is driven by the canonical CT/CVT command identifiers. No topology revision should advance for these lifecycle transitions.
+
+Relay topology invalidation remains separately addressed by PR #1071 and is not changed here. PT service had no Network.invalidate_topology() calls in the inspected implementation.
+
+Verification boundary: source-level exact replacement only. No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — RELAY TOPOLOGY SEPARATION CORRECTION (2026-11-03)
+
+The same topology/revision separation defect was present in RelayModelService. Corrected on `feat/protection-independent-revisions`:
+
+- Removed `Network.invalidate_topology()` from Relay `update_relay` when only `in_service` changes.
+- Removed topology invalidation from Relay `put_relay_in_service` / `take_relay_out_of_service` and their rollback inverses.
+- Relay service-state transitions still use Relay's domain methods and preserve transaction inverse restoration.
+- Canonical Relay command identifiers are classified by RevisionService as Protection-equipment mutations; they advance `protection_equipment_revision` while leaving physical topology revision unchanged.
+
+This ports the topology separation part of PR #1071 into the broader independent-revisions branch. PR #1071 remains open and should now be reconciled against PR #1072 rather than merged independently without review. The separate live-execution freshness guard from PR #1071 must be checked against the broader revision-based provenance guard already on this branch before deciding whether PR #1071 can be closed as superseded.
+
+No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — PR #1071 RECONCILIATION (2026-11-03)
+
+Reconciled the remaining PR #1071 behavior into `feat/protection-independent-revisions`:
+
+- Ported Relay service-state topology separation into RelayModelService: Relay in-service/out-of-service transitions no longer call `Network.invalidate_topology()`, including rollback inverses.
+- Ported the direct Relay-state fingerprint guard into Application live Protection execution. It captures Relay identity/type/plugin/settings/service/enabled/blocked/pickup/trip state before evaluation and rechecks the same Network before dispatch. This protects the evaluation-to-dispatch interval against direct service mutations that bypass canonical command revision publication.
+- Kept the independent instrumentation, Protection-equipment, and Protection-configuration revision checks already present in this branch. The fingerprint is complementary, not a replacement: revision counters protect canonical command mutations; the fingerprint protects direct Relay object changes during the critical interval.
+
+PR #1071's two substantive source changes (Relay topology separation and live Relay-state fingerprint) are now represented in PR #1072's branch, with the latter combined with the independent revision guard. PR #1071 should not be merged separately; after a fresh exact diff review, close it as superseded by PR #1072 or retain only if a non-overlapping change is discovered. PR #1072 remains draft pending broader audit/implementation closure.
+
+No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+PROTECTION REVISION CONTRACT — DIRECT INSTRUMENTATION MUTATION GUARD (2026-11-03)
+
+Extended the live Protection evaluation-to-dispatch provenance guard to cover direct CT/CVT/PT service mutations, not only canonical revision counters:
+
+- Added a deterministic instrumentation-state fingerprint for Network.current_transformers, Network.capacitive_voltage_transformers, and Network.potential_transformers.
+- Fingerprint includes each instrument's stable ID, nameplate/engineering fields, accuracy/burden/polarity/frequency or phase displacement, in-service state, and authoritative terminal endpoint identity.
+- Captures the fingerprint with the other live Protection provenance before evaluation and compares it again before dispatch. A direct service mutation during this critical interval now raises StaleProtectionExecutionError even if it bypasses CommandManager and does not advance instrumentation_revision.
+- Kept Relay state fingerprint and the independent instrumentation/Protection revision comparisons. These checks are complementary: canonical commands advance revisions; direct object mutation is detected by state fingerprints.
+- The fingerprint intentionally includes terminal endpoint identity so instrumentation association changes cannot silently pass the dispatch boundary. This check does not itself advance physical topology revision.
+
+Scope limitation: this fingerprint protects the evaluation-to-dispatch interval. It is not a replacement for canonical revision publication or a general audit trail for direct service use outside that interval. The canonical Application command path remains authoritative.
+
+No tests, CI, syntax checks, imports, or runtime checks were run.
+
+
+[2026-11-03] Protection runtime pre-evaluation freshness audit
+- Inspected Application._evaluate_protection_cycle_unlocked and ProtectionRuntime composition.
+- Confirmed the evaluation entry validates active project/network/generation, active configuration identity and configuration fingerprint, channel registry project/network/generation, and exact channel-object identity. It does not compare the active runtime against captured instrumentation_revision or protection_equipment_revision before evaluation.
+- Confirmed ProtectionRuntime captures configuration composition state and channel objects only; it has no instrumentation/Protection-equipment revision provenance or CT/PT/CVT/Relay equipment fingerprint.
+- Confirmed Application._coordinate_pre_commit recomposes ProtectionRuntime for protection configuration commands only. CT/PT/CVT and Relay lifecycle/configuration commands advance independent revisions through RevisionService but do not recompose or invalidate the active ProtectionRuntime.
+- Consequence: canonical instrumentation or Relay changes can leave the runtime composed against stale equipment/measurement associations while the evaluation-entry checks still pass. The later evaluation-to-dispatch fingerprint guard is too late to prevent evaluation against stale runtime state.
+- Required correction: capture instrumentation_revision and protection_equipment_revision (and a composition-time equipment/association fingerprint where needed) in ProtectionRuntime at successful composition; at evaluation entry, fail closed before any Protection element executes unless those captured values match the current Application revisions and authoritative active equipment/association fingerprint. Recompose transactionally on the relevant canonical mutations only if the association resolver/runtime contracts support safe recomposition; otherwise explicitly invalidate and refuse evaluation until recomposed. Preserve exact transaction rollback and do not increment revisions for sample publication.
+- No tests or CI run; this entry records source-inspection findings only.
+
+
+[2026-11-03] Protection runtime composition freshness audit — PR #1072 / Issue #1070
+- Inspected Application live Protection evaluation, command post-commit revision handling, project activation composition, ProtectionRuntime.compose(), ProtectionConfigurationService, MeasurementChannelService, and CT measurement-association validation.
+- Confirmed ProtectionRuntime is composed during initial bootstrap/project activation and recomposed by the Application post-commit hook only for Protection configuration create/update/delete and measurement bind/unbind commands. CT/CVT/PT/Relay equipment lifecycle/configuration commands advance the independent revision counters but do not trigger Protection runtime recomposition.
+- Confirmed ProtectionRuntime currently captures only a canonical Protection configuration snapshot. It does not capture instrumentation_revision, protection_equipment_revision, or a composition-time CT/CVT/PT/Relay state fingerprint.
+- Confirmed live evaluation validates runtime/project/network/activation/configuration/channel object identities, then captures the *current* Relay and instrumentation fingerprints. Those fingerprints are checked only during evaluation-to-dispatch. They cannot establish that the runtime was composed against the current equipment state before evaluation begins.
+- Result: a canonical CT/CVT/PT or Relay mutation committed before a new Protection cycle can leave the previous runtime eligible for evaluation. A direct mutation before evaluation has the same gap. The current dispatch guard only detects subsequent changes during the cycle.
+- Required correction: make Protection runtime composition carry an immutable composition-time equipment-state provenance (or an equivalent Application-owned runtime composition token) and require it to match the active instrumentation/Protection equipment revisions and current authoritative equipment fingerprint before any live evaluation. Recheck the same provenance before dispatch. Keep sample publication outside these revision/fingerprint inputs. Ensure project activation, bootstrap, transactional recomposition, undo/redo, and rollback preserve/rebuild the token consistently. Apply equivalent provenance checks to scenario evaluation where it uses the active runtime.
+- No tests, CI, syntax checks, import checks, or runtime checks were run; this is a source-inspection finding only.
+
+
+[2026-11-03] Protection composition-time equipment provenance implemented — PR #1072
+- ProtectionRuntime now captures an immutable fingerprint at successful composition for CT/CVT/PT engineering/service/terminal state and Relay type/plugin/settings/service/enabled/blocked/pickup/trip state. Measurement samples and sample sequence/timestamps are intentionally excluded.
+- Added equipment_state_matches_composition; it fails closed if the runtime has not been composed or if authoritative instrument/Relay state differs from the composition snapshot.
+- Live Protection evaluation now refuses to proceed before input sampling/evaluation when the runtime equipment fingerprint is stale. The evaluation-to-dispatch provenance guard also checks that the runtime still matches its composition snapshot.
+- Detached scenario Protection evaluation now performs the same pre-evaluation composition-state check and retains the post-evaluation check.
+- Application now transactionally recomposes ProtectionRuntime after canonical CT/CVT/PT/Relay create/update/delete/service-state commands, in addition to Protection configuration and measurement-binding commands. This prevents legitimate canonical equipment mutations from leaving the runtime permanently stale; failed recomposition remains within the command transaction rollback path.
+- This closes the previously recorded pre-evaluation stale-composition gap for the listed canonical commands and detects direct equipment mutations before evaluation. Direct mutations still do not publish Application revision counters; they are detected by the runtime state fingerprint.
+- No tests, CI, syntax checks, import checks, or runtime checks were run. Source edits were reviewed by targeted fetch only.
+
+[2026-11-03] Protection runtime fingerprint scope refinement
+- Composition identity includes Relay configuration and service availability (type, plugin, settings, in_service, enabled, blocked), but deliberately excludes transient Relay outputs picked_up/tripped. Those are runtime/evaluation state, not configuration identity, and must not invalidate the composed runtime merely because a Protection cycle changes them.
+
+
+PROTECTION REVISION CONTRACT — SOURCE HYGIENE CORRECTION (2026-11-03)
+
+PR #1072 branch correction:
+- Restored the missing newline and method block boundary in RelayModelService._set_service. The prior branch revision had joined the service mutation statement and nested restore-function declaration on one physical line, making the module syntactically invalid.
+- Removed transient Relay picked_up/tripped output flags from the Application evaluation-to-dispatch configuration freshness fingerprint. These are runtime/output state, not Relay equipment configuration or availability. The composition-time equipment fingerprint already excludes them. Relay identity, type, plugin, settings, in-service, enabled and blocked state remain covered.
+- Kept the Relay service-state rollback inverse and independent Protection-equipment revision contract unchanged.
+- No Core topology invalidation was reintroduced. No Qt/UI dependencies or public package exports were changed.
+
+Verification boundary:
+- Exact source replacements were checked for one expected occurrence before writing.
+- Full syntax/import verification remains pending; no tests or CI were run.
+
+
+PROTECTION REVISION CONTRACT — EXACT COMMAND CLASSIFICATION CORRECTION (2026-11-03)
+
+Finding:
+- Application._coordinate_pre_commit uses the canonical PT command family model.*_potential_transformer.
+- The first independent-revision classifier used substring/suffix matching for "current_transformer", "capacitive_voltage_transformer", "_pt", and "pt_". The canonical "potential_transformer" identifiers do not contain those PT aliases, so PT create/update/delete/service-state commands did not advance instrumentation_revision.
+- The same generic string matching could silently misclassify future equipment command names.
+
+Correction:
+- Replaced substring inference with explicit canonical command sets for CT/CVT/PT instrumentation, Relay Protection equipment, and Protection configuration/binding commands.
+- Added "potential_transformer" to the non-electrical-topology equipment classifier and explicitly listed model.update_potential_transformer in the topology-update inventory. PT mutations remain non-topological.
+- The exact PT command set now matches the command identities used by Application._coordinate_pre_commit for transactional ProtectionRuntime recomposition.
+- No sample publication commands are included in equipment/configuration revision sets.
+
+Verification boundary:
+- The five CT, five CVT, five PT, five Relay and five Protection configuration command identities were compared against the Application transactional recomposition command set.
+- No tests or CI were run. Runtime command execution, syntax/import integrity and all call-site coverage remain pending.
+
+
+PROTECTION REVISION CONTRACT — PERSISTED DIRTY-STATE RECONCILIATION (2026-11-03)
+
+Finding:
+- Independent instrumentation/Protection counters are monotonic freshness tokens. User undo/redo intentionally advances a changed domain token instead of rewinding it.
+- RevisionService.is_dirty previously compared the complete ProjectRevision dataclasses. After undoing a CT/PT/CVT or Relay/Protection configuration edit back to the persisted model state, the monotonic token remained greater than the saved token and incorrectly kept the project dirty even when model_revision, topology_revision and presentation_revision had returned to the persisted values.
+
+Correction:
+- Dirty-state comparison now uses only model_revision, topology_revision and presentation_revision, matching the documented persisted project-state dimensions.
+- instrumentation_revision, protection_equipment_revision and protection_configuration_revision remain in the in-memory/persisted revision snapshots and remain monotonic for stale-execution fencing; they no longer independently trigger a Save/dirty indication.
+- Transaction rollback still restores the exact captured RevisionService snapshot. User undo/redo still advances affected freshness tokens.
+
+Verification boundary:
+- The comparison was traced against the undo/redo construction and mark_persisted snapshot fields.
+- No tests or CI were run. Save/undo UI behavior and full import/syntax verification remain pending.
+
+
+PROTECTION REVISION CONTRACT — INSTRUMENT SOURCE AVAILABILITY GATE (2026-11-03)
+
+Finding:
+- ProtectionRuntime composition fingerprints CT/CVT/PT state and Application re-composes after canonical equipment lifecycle commands, but a freshly composed runtime could still evaluate a channel whose physical CT/PT/CVT source was out of service.
+- The live Protection input-preparation path validated channel sample quality/freshness and object identity but did not resolve the channel's physical instrument source against the active canonical Network or check its service state.
+- Scenario Protection preparation already checked canonical CT object identity and ratio, but did not explicitly reject an out-of-service CT.
+
+Correction:
+- Added one Application-owned source validation helper for physical CT/PT/CVT-backed MeasurementChannels.
+- The helper requires the source ID to resolve to the exact same object in the active Network, requires the source terminal reference to belong to that equipment identity, and requires in_service is exactly True. Missing, removed, replaced, or out-of-service sources fail closed with an input-specific diagnostic.
+- Applied the same gate before live sample validation and before scenario sample/binding validation.
+- Non-CT/PT/CVT measurement-producing sources are not constrained by this instrument-specific check; their availability remains governed by their own signal/source contracts.
+- The gate does not mutate MeasurementChannel sample availability or advance sample/configuration revisions. It is evaluated at the Protection consumption boundary.
+
+Verification boundary:
+- Source identity and service-state checks were compared against Network.get_by_identity, MeasurementChannel.source/source_terminal, and the existing scenario CT binding path.
+- No tests or CI were run. Full syntax/import checks and live/scenario execution remain pending.
+
+
+PROTECTION REVISION CONTRACT — CANONICAL INSTRUMENT TYPE NORMALIZATION (2026-11-03)
+
+Refinement:
+- Verified the concrete Core model declarations: CurrentTransformer.TYPE is "CT", CapacitiveVoltageTransformer.TYPE is "CVT", and PT.TYPE is "PT".
+- Extended the Application source-availability gate to recognize those canonical uppercase element_type values after normalization, alongside the descriptive type aliases. This ensures CT and CVT sources are not skipped by the fail-closed availability check.
+- No changes to Core model identity, MeasurementChannel source ownership, or topology semantics.
+
+
+PROTECTION REVISION CONTRACT — SCOPE RECONCILIATION WITH #1068 (2026-11-03)
+
+The independent instrumentation/Protection-equipment batch in PR #1072 does not replace the separate topology-dependent Protection freshness contract tracked by #1068. #1068 owns the switching/topology revision capture and dispatch/scenario recheck after Control- or Protection-originated electrical switching. Keep the domains independent:
+- #1068: physical topology/switching revision and topology-derived Protection consumers.
+- #1070: CT/PT/CVT instrumentation, Relay Protection-equipment, Protection configuration and source availability freshness.
+Do not merge these revision domains or treat completion of one issue as closure of the other.
+
+
+======================================================================
+PROTECTION MEASUREMENT TERMINAL ROLE VALIDATION — GF-AUD-140
+Date: 2026-11-04
+======================================================================
+
+Finding:
+The Application-owned live/scenario CT/PT/CVT source-availability helper
+verified that MeasurementChannel.source_terminal.equipment_id matched the
+canonical instrument ID, but did not verify that the terminal was a
+measurement-side secondary terminal. A descriptor for a primary terminal
+on the same instrument could therefore pass this specific source-identity
+gate.
+
+Correction:
+- CT channels must identify S1 or S2.
+- CVT channels must identify X1 or X2.
+- PT channels must identify secondary_a or secondary_b.
+- Matching remains against the active canonical Network instrument object.
+- Instrument service availability remains fail-closed.
+- The rule is enforced in the shared Application source-diagnostic helper,
+  used by live and scenario Protection evaluation.
+- Core terminal ownership and electrical topology are unchanged.
+
+Architecture:
+Application validates measurement provenance. Core retains authoritative
+instrument and terminal models. No Qt/QGraphics dependency or UI-side
+connectivity inference is introduced.
+
+Verification boundary:
+Source-level patch only. No tests, CI, full-module syntax/import checks,
+or live/scenario runtime execution were performed. Confirm the exact
+MeasurementChannel terminal-role serialization contract before merge.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-141 — DRAFT COMMIT MUST PUBLISH EQUIPMENT REVISION DOMAINS
+======================================================================
+
+Audit finding:
+- DraftNetwork supports current_transformer, cvt, potential_transformer,
+  and relay creation contracts.
+- CommitNetworkHandler executes the prepared canonical equipment commands
+  through CommandManager.execute_in_transaction using one shared outer
+  network.commit_draft transaction.
+- Child commands intentionally do not invoke independent pre-commit hooks.
+  The outer Application hook previously recorded only the aggregate model
+  and topology revision. It did not advance instrumentation_revision or
+  protection_equipment_revision for CT/PT/CVT/Relay created by draft commit.
+- The outer hook also did not recompose ProtectionRuntime for those newly
+  committed draft instruments/relays.
+
+Correction on feat/protection-independent-revisions:
+- RevisionService.record_draft_commit classifies created_elements by
+  element_type and advances instrumentation_revision once when any
+  CT/PT/CVT is committed, and protection_equipment_revision once when
+  any Relay is committed. The aggregate command remains one revision
+  transition; it does not create per-child history transitions.
+- Application._coordinate_pre_commit routes network.commit_draft through
+  this aggregate classifier and recomposes ProtectionRuntime when the
+  committed draft contains CT/PT/CVT/Relay equipment.
+- The existing transaction revision snapshot and runtime inverse keep
+  rollback/undo restoration within the same outer transaction journal.
+- Physical topology revision continues to come from the Core Network
+  topology revision; no instrumentation/Relay mutation is added to Core
+  topology invalidation.
+
+Verification boundary:
+Source inspection and exact diff review only. No tests, CI, syntax/import
+checks, or runtime draft-commit execution were performed. Confirm aggregate
+draft equipment metadata and runtime recomposition in runtime verification
+before merge.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-142 — REVISION SNAPSHOT RESTORE MUST NOT ENTER USER UNDO JOURNAL
+======================================================================
+
+Audit finding:
+- Application._coordinate_pre_commit captured RevisionService state and
+  registered restore_state(snapshot) with Transaction.record_undo().
+- Transaction.commit() transfers record_undo operations into committed
+  CommandHistory. Therefore ordinary user undo executed restore_state()
+  before Application.undo() checked has_undo_transition_for(command).
+- The revision snapshot restored the pre-command undo journal, removing
+  the transition that Application.undo() needed to call record_undo().
+  This bypassed the intended monotonic advancement of instrumentation,
+  Protection-equipment and Protection-configuration freshness dimensions
+  on user undo.
+
+Correction on feat/protection-independent-revisions:
+- Register revision snapshot restoration with
+  Transaction.record_rollback_finalizer(), not record_undo().
+- Failed pre-commit rollback still restores the exact pre-transaction
+  revision snapshot after all content inverses succeed.
+- Successful commit clears rollback finalizers, so user undo retains the
+  revision transition. Application.undo() can then call
+  RevisionService.record_undo() and advance changed freshness dimensions
+  monotonically.
+- If a content inverse fails, the rollback finalizer is not run and the
+  Application remains fail-closed/degraded rather than claiming exact
+  restoration.
+
+Scope:
+This correction applies to all revision-bearing Application commands,
+including CT/PT/CVT, Relay, Protection configuration and aggregate
+network.commit_draft mutations. It does not add domain knowledge to
+Transaction.
+
+Verification boundary:
+Source inspection and transaction lifecycle tracing only. No tests, CI,
+syntax/import checks, or runtime undo/rollback execution were performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-143 — SCENARIO PROTECTION POST-EVALUATION PROVENANCE FENCE
+======================================================================
+
+Audit finding:
+- Application._evaluate_protection_scenario already checked the composed
+  runtime's equipment fingerprint before evaluating scenario inputs.
+- Its post-evaluation guard checked project/network/runtime/configuration
+  identity and MeasurementChannel service identity, but omitted the
+  post-evaluation CT/PT/CVT and Relay equipment fingerprint, the three
+  independent Protection revision dimensions, and exact channel-object
+  registry continuity.
+- An equipment or channel-registry mutation during runtime.system.evaluate()
+  could therefore leave a scenario result accepted after its input
+  provenance had become stale.
+
+Correction on feat/protection-independent-revisions:
+- Capture the Application ProjectRevision and authoritative channel-object
+  mapping before scenario evaluation.
+- After runtime.system.evaluate(), recheck:
+  * project/network/activation/runtime/configuration identity;
+  * ProtectionRuntime configuration and complete CT/CVT/PT/Relay equipment
+    composition fingerprints;
+  * instrumentation_revision, protection_equipment_revision and
+    protection_configuration_revision;
+  * MeasurementChannel service identity, project/generation/network
+    provenance and exact channel-object mapping;
+  * the supplied scenario topology snapshot against current Network topology.
+- Reject stale scenario decisions with StaleProtectionExecutionError.
+- No sample sequence/timestamp/quality state is included in equipment
+  revisions. No Core or UI ownership changes.
+
+Scope boundary:
+This remains a conservative project-wide equipment/configuration fence.
+Per-Protection-element dependency-scoped invalidation is not implemented.
+Unknown or unresolved dependency mappings must remain fail-closed until
+their canonical associations are established.
+
+Verification boundary:
+Source inspection and post-evaluation control-flow review only. No tests,
+CI, syntax/import checks, or scenario runtime execution were performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-144 — ANSI 25 POLICY CHANGE REVISION CLASSIFICATION
+======================================================================
+
+Audit finding:
+- protection.set_synchronism_check_configuration is a registered canonical
+  Application command and transactionally replaces/disables the project
+  ANSI 25 breaker-policy registry.
+- It was absent from RevisionService._PROTECTION_CONFIGURATION_COMMANDS,
+  so protection_configuration_revision did not advance.
+- It was also absent from Application._coordinate_pre_commit's Protection
+  runtime recomposition command set. Because the composed runtime retains a
+  canonical configuration fingerprint, a successful policy edit could leave
+  the runtime's captured configuration snapshot stale.
+- The ANSI 25 guard reads the policy through a live configuration provider,
+  but that does not replace the missing Application revision transition.
+
+Correction on feat/protection-independent-revisions:
+- Add the exact canonical command identity to the Protection configuration
+  revision classifier.
+- Include it in transactional ProtectionRuntime recomposition, keeping the
+  composed configuration fingerprint synchronized with the aggregate.
+- The guard continues to read the current typed ANSI 25 policy through its
+  existing provider; no separate guard reconstruction was introduced.
+
+Remaining configuration API gap:
+- ProtectionConfigurationService exposes create/delete differential-scheme
+  operations, but ProtectionConfigurationHandlers and the canonical command
+  module expose no corresponding differential-scheme commands. These
+  operations therefore have no canonical Application command/revision
+  identity. Do not treat direct service mutation as revision-covered.
+  A dedicated command/API correction remains required before differential
+  scheme edits can participate in the revision contract.
+
+Verification boundary:
+Command constant, handler registration, revision classifier, runtime
+recomposition path and guard configuration provider inspected. No tests,
+CI, syntax/import checks or runtime ANSI 25 command execution performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-145 — PER-ELEMENT PROTECTION DEPENDENCY GRAPH AUDIT
+======================================================================
+
+Source audit:
+- ProtectionFunctionConfiguration supplies stable element_id, relay_id,
+  direct input_channel_ids, and explicit residual-current binding IDs.
+- ProtectionMeasurementBinding supplies protection_element_id, relay_input_id,
+  channel_id, instrument_id, source_equipment_id, source endpoint/terminal
+  identity, and explicit instrument_ratio. This is sufficient to establish
+  most direct channel→instrument→relay dependencies without inferring from
+  object ordering or names.
+- THREE_PHASE_SUM residual current declares exactly three phase binding IDs;
+  NEUTRAL_CT/CBCT declares one direct binding ID. These must be included in
+  the element's dependency set.
+- DifferentialProtectionSchemeConfiguration references binding IDs and a
+  protected object, but has no explicit protection_element_id. The aggregate
+  verifies current measurement type but does not establish a single owner
+  Protection element for the scheme. Do not infer an element dependency from
+  list position or scheme naming.
+- Runtime equipment freshness currently fingerprints all CT/CVT/PT and Relay
+  equipment project-wide. ProtectionRuntime.compose() builds all configured
+  elements in one ProtectionSystem; ProtectionSystem.evaluate() executes all
+  enabled elements as one cycle. Application live pre-dispatch guard compares
+  project-wide instrumentation, Relay and configuration revisions.
+- Residual-current scenario provenance carries topology_revision/
+  ct_topology_revision and explicit CT/branch/side identity. It does not yet
+  expose an independent per-association topology revision. Any topology
+  revision mismatch therefore remains conservatively project-wide.
+
+Audit conclusion:
+- A per-element dependency graph can be built for direct channel bindings,
+  residual-current bindings and each element's Relay.
+- Differential-scheme ownership and topology-derived CT association need
+  explicit canonical association contracts before dependency scoping can
+  be considered complete.
+- Safe selective invalidation also requires a dispatch/evaluation contract
+  that can isolate a stale element without accepting its decision, while
+  preserving atomicity and ordering for the remaining elements. The current
+  all-elements ProtectionSystem evaluation plus project-wide pre-dispatch
+  fence is conservative but cannot selectively preserve unrelated decisions.
+
+No code changes made for this audit item. Preserve fail-closed project-wide
+behavior until all dependency identities and per-element dispatch boundaries
+are explicit. This is not an issue closure.
+
+Verification boundary:
+Source inspection only. No tests, CI, syntax/import checks, or runtime
+multi-element evaluation/dispatch experiments performed.
+
+======================================================================
+
+======================================================================
+GF-AUD-146 — RELAY SERVICE STATE MUST NOT INVALIDATE PHYSICAL TOPOLOGY
+======================================================================
+
+Audit finding:
+- Canonical main still had RelayModelService.update_relay() and the
+  dedicated put/take-out-of-service path calling Network.invalidate_topology()
+  when Relay.in_service changed.
+- Their transaction undo closures repeated the topology invalidation.
+- Network registers Relay membership as non-topological. A Relay is
+  Protection equipment and its service availability does not alter the
+  conductive graph.
+
+Correction on feat/protection-independent-revisions:
+- Removed topology invalidation from Relay update and service-state paths,
+  including rollback/undo restoration.
+- Relay state freshness is covered by the independent
+  protection_equipment_revision transition and ProtectionRuntime equipment
+  fingerprint already introduced in this branch.
+- Relay creation/deletion remain ordinary model mutations and do not acquire
+  a physical topology revision through the Network Relay registry.
+- Actual electrical switching/topology changes remain governed by their
+  existing Core Network revision paths.
+
+Verification boundary:
+- Compared the Relay service mutation/rollback paths with Network's
+  non-topological Relay registration and the branch's canonical Relay
+  revision classifier/runtime equipment fingerprint.
+- Source-level diff only. No tests, CI, syntax/import checks or runtime
+  Relay transition/undo execution were performed.
+- Keep issue #1069 open until this branch is integrated into canonical main.
+
+======================================================================
+
+======================================================================
+GF-AUD-147 — DIFFERENTIAL SCHEME MUTATIONS REQUIRE CANONICAL COMMANDS
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService exposed transactional create/delete
+  differential-scheme methods, but the Application command module and
+  ProtectionConfigurationHandlers did not expose canonical command
+  identities for those operations.
+- No update method existed at the service boundary.
+- Consequently these configuration mutations could bypass the canonical
+  CommandManager pre-commit revision publication and runtime recomposition
+  contract when invoked through the service directly.
+
+Correction on fix/protection-differential-scheme-commands:
+- Added immutable create/update/delete differential-scheme command
+  contracts with typed DifferentialProtectionSchemeConfiguration payloads
+  and stable scheme_id validation for deletion.
+- Added corresponding ProtectionConfigurationHandlers registrations.
+- Added transactional update_differential_scheme() with existing aggregate
+  replacement validation, active protected-object identity/type validation,
+  and rollback restoration of the previous immutable scheme.
+- Added all three command identities to the exact Protection configuration
+  revision classifier and Application ProtectionRuntime recomposition set.
+- Exported the command contracts through core.application.commands.
+
+Scope boundary:
+- This closes the missing canonical command/API coverage only.
+- DifferentialProtectionSchemeConfiguration still lacks an explicit
+  protection_element_id owner. No owner is inferred from binding order,
+  naming, or protected-object identity.
+- Topology-derived CT association still lacks a distinct per-association
+  revision identity, and selective per-element stale decision/dispatch
+  isolation is not implemented. Project-wide fail-closed behavior remains.
+- Issue #1070 therefore remains open after this correction.
+
+Verification boundary:
+- Source-level inspection of command constants/classes, handler mapping,
+  service transaction inverses, revision classification and runtime
+  recomposition call set. No tests, CI, syntax/import checks, or runtime
+  command execution were performed.
+
+======================================================================
+
+======================================================================
+GF-AUD-148 — TOPOLOGY-DERIVED CT ASSOCIATION HAS NO LOCAL IDENTITY TOKEN
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService.create_measurement_binding() uses
+  ConnectivityResolver to prove that the selected source endpoint belongs
+  to exactly one CT primary SimpleWire component (P1 or P2).
+- The persisted ProtectionMeasurementBinding retains the CT identity,
+  source equipment ID, explicit source EndpointReference, electrical side,
+  channel and ratio. Its correlation key is a stable source/endpoint/side/
+  quantity tuple.
+- It does not retain a canonical fingerprint or revision token for the
+  resolved CT-primary connectivity component. The resolver's component
+  membership result is used only during binding validation.
+- Scenario samples carry topology_revision/ct_topology_revision and CT/
+  branch/side provenance. Application currently compares those values to
+  the captured project-wide topology revision. This is fail-closed but
+  makes every topology revision potentially stale for every such consumer.
+
+Audit conclusion:
+- A distinct per-association revision cannot be safely inferred from the
+  existing binding correlation key: the same source endpoint and side can
+  remain unchanged while its resolved CT-primary component changes.
+- A safe selective contract needs a persisted canonical association
+  identity/fingerprint derived from the resolver's actual component
+  membership, plus a defined update/rebind lifecycle when topology changes.
+  It must preserve exact CT P1/P2 orientation and selected branch/terminal
+  identity; a project-wide revision number alone is not a local token.
+- No speculative association token was added. Current project-wide topology
+  provenance and fail-closed rejection remain in force.
+
+Verification boundary:
+- Inspected ConnectivityResolver.topology_component(), the binding factory
+  and correlation_key(), ProtectionConfigurationService.create_measurement_
+  binding(), TopologySnapshot provenance, and scenario provenance checks.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  topology mutation experiments were performed.
+
+======================================================================
+
+======================================================================
+GF-AUD-149 — LIVE PROTECTION DISPATCH MUST FENCE TOPOLOGY REVISION
+======================================================================
+
+Audit finding:
+- The live Protection evaluation path captured project/runtime identity,
+  instrumentation and Relay state fingerprints, and independent revision
+  counters, but did not capture Network.state.topology_revision.
+- Its pre-dispatch and action-resolver guards could therefore accept a
+  pending decision after a re-entrant Control or other Application command
+  changed electrical switching/connectivity on the same Network object.
+- The post-command Core-state observer shares the general provenance guard;
+  it must not compare the pre-dispatch topology revision after the Protection
+  command itself, because that command may legitimately change topology.
+
+Correction on fix/protection-live-topology-dispatch-fence:
+- Capture the active Network topology_revision at the start of the live
+  Protection evaluation-to-dispatch interval.
+- Add a separate topology freshness guard that rejects a pending action if
+  the same Network object's topology revision changes.
+- Apply both general provenance and topology guards before and after the
+  Application-owned action resolver and immediately before each command
+  dispatch.
+- Keep the post-command observer on the general identity/equipment guard;
+  it can verify the resulting Core postcondition without falsely treating
+  the Protection command's own topology mutation as stale pre-dispatch state.
+- A changed topology during a multi-action batch causes subsequent actions
+  to fail closed rather than continuing against the earlier evaluation.
+
+Scope boundary:
+- This is an evaluation-to-dispatch freshness fence, not blanket runtime
+  recomposition. Non-topological motor running state and ordinary sample
+  publication do not increment the physical topology revision and do not
+  trigger this guard.
+- Scenario provenance and topology-derived CT association local identity
+  remain separately tracked under GF-AUD-148.
+
+Verification boundary:
+- Source-level inspection of live Protection capture, action resolver,
+  pre-dispatch guard and post-command observer; source diff only.
+- No tests, CI, syntax/import checks or runtime switching/Protection dispatch
+  execution were performed.
+
+======================================================================
+
+======================================================================
+GF-AUD-150 — DIFFERENTIAL KERNEL IS NOT A PROTECTION EXECUTION ELEMENT
+======================================================================
+
+Audit finding:
+- core/protection/differential.py::evaluate_differential_scheme() is a pure,
+  non-actuating numerical kernel. It accepts a DifferentialProtectionScheme-
+  Configuration and explicitly keyed DifferentialCurrentSample inputs,
+  returning DifferentialProtectionResult.
+- It does not create a canonical ProtectionDecision, bind the result to a
+  ProtectionFunctionConfiguration, participate in ProtectionRuntime.compose()
+  or ProtectionSystem.evaluate(), or enter Application action dispatch.
+- DifferentialProtectionSchemeConfiguration.from_dict() restores the
+  existing persisted scheme shape without an owning Protection element.
+  Making owner identity mandatory therefore requires a persistence migration
+  or explicit fail-closed legacy-read policy.
+
+Audit conclusion:
+- Adding only protection_element_id to the scheme would not establish an
+  executable Protection element owner or decision/dispatch lifecycle.
+- A complete integration must define element identity, relay/function/action
+  mapping validation, inclusion in canonical Protection evaluation, and
+  input/configuration/topology provenance checks before action authorization.
+- Do not infer owner from binding order, relay name, scheme name or protected
+  object identity. Do not convert the standalone numerical result into an
+  actionable ProtectionDecision without a defined validated contract.
+- Existing standalone kernel remains non-actuating. No owner field or
+  speculative runtime bridge was added.
+
+Verification boundary:
+- Inspected differential evaluator inputs/outputs, ProtectionRuntime
+  composition/evaluation path, ProtectionFunctionConfiguration ownership,
+  scheme serialization and aggregate restoration.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+- Tracked under issue #1070; closure remains blocked on the full integration
+  and persistence compatibility contract.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-151 — DIFFERENTIAL SCHEME OWNER AND LEGACY MIGRATION CONTRACT
+======================================================================
+
+Audit finding:
+- DifferentialProtectionSchemeConfiguration persists scheme identity,
+  protected-object identity, measurement binding IDs, current directions,
+  phase compensation, settings and metadata, but no owning
+  protection_element_id.
+- ProtectionMeasurementBinding already persists an explicit
+  protection_element_id for each member binding.
+- ProtectionProjectConfiguration.add_differential_scheme() and
+  replace_differential_scheme() verify binding existence and current
+  measurement type, but do not require all member bindings to belong to
+  one Protection element. A scheme can therefore span multiple elements.
+- ProtectionConfigurationService.create_differential_scheme() validates
+  protected-object identity/type but does not establish a unique Protection
+  element owner. Update has the same gap.
+- Schemes are persisted in project.json under protection.differential_schemes.
+  Project package schema is 4. ProjectPersistenceMigration currently has
+  schema steps 1->2, 2->3 and 3->4 only; no 4->5 migration or separate
+  Protection configuration schema exists.
+- ProjectPersistenceService migrates the raw project before restoring
+  ProtectionProjectConfiguration.from_dict(), making the persistence
+  migration pipeline the correct compatibility boundary.
+
+Required migration contract:
+- A legacy scheme owner may be populated only when every referenced
+  ProtectionMeasurementBinding exists and every explicit
+  protection_element_id is identical.
+- Missing bindings, mixed owners, malformed membership or absent owner
+  evidence must fail closed with a migration error. Never choose an owner
+  from binding order, relay name, scheme name or protected-object identity.
+- New and updated schemes must enforce the same single-owner invariant in
+  the aggregate and Application service boundary.
+- Runtime composition must bind the scheme to that exact Protection element;
+  owner persistence alone does not make the numerical kernel executable.
+
+Scope boundary:
+- The standalone differential kernel remains pure and non-actuating.
+- No owner field, project schema bump, migration or runtime bridge is added
+  by this audit-only entry. Implementation requires coordinated changes to
+  project schema migration, ProtectionProjectConfiguration, Application
+  command validation, runtime composition, canonical decision provenance
+  and action authorization.
+- CT topology association identity/rebind and per-element stale-decision
+  isolation remain separate open items under #1070/GF-AUD-148/GF-AUD-145.
+
+Verification boundary:
+- Inspected project configuration serialization/restoration, differential
+  scheme aggregate CRUD, Application differential scheme create/update,
+  ProtectionMeasurementBinding persistence, ProjectPersistenceService
+  load/save and ProjectPersistenceMigration schema registry.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-152 — ANSI 87 HAS NO CANONICAL PROTECTION RUNTIME OR SAMPLE CONTRACT
+======================================================================
+
+Audit finding:
+- The canonical Protection function catalog lists ANSI 87 as
+  NOT_IMPLEMENTED with no implementation or input contract.
+- ProtectionRuntime.compose() constructs configured elements exclusively
+  through ProtectionFactory.create_element(). The factory rejects catalog
+  entries that are not IMPLEMENTED and constructs RelayBase implementations
+  wrapped by ProtectionElement.
+- The standalone differential numerical kernel is neither a RelayBase nor
+  a ProtectionElement implementation and does not produce ProtectionDecision.
+  It therefore cannot enter ProtectionSystem.evaluate() or the canonical
+  ProtectionExecutionService decision/action path.
+- DifferentialCurrentSample currently carries binding_id,
+  reference_basis_id and three phase phasors only. It does not carry sample
+  timestamp, quality, producer sequence, channel/source/instrument identity,
+  instrument/configuration revision, or topology/CT-association provenance.
+  The kernel verifies exact binding membership and a common reference basis,
+  but cannot independently establish sample freshness, quality or physical
+  source provenance.
+
+Required integration contract:
+- Application-owned input preparation must resolve configured binding IDs to
+  trusted MeasurementChannel/sample snapshots and validate source instrument
+  identity, service state, ratio/configuration, channel quality/freshness and
+  topology-derived CT association.
+- CT currents must be normalized to an explicit common relay reference basis,
+  including equipment-specific ratio and phase compensation. Unsupported
+  transformer/vector-group compensation must fail closed, not be ignored.
+- A canonical ANSI 87 ProtectionElement must bind to the explicit persisted
+  Protection element owner, consume the prepared coherent input snapshot and
+  emit the standard ProtectionDecision.
+- The decision must retain evaluation provenance and use the existing
+  Application revision guards, explicit action mapping and Protection
+  dispatch path. A raw kernel result or result.operates boolean is not an
+  actionable ProtectionDecision.
+
+Scope boundary:
+- No direct differential-kernel-to-dispatch bridge is permitted.
+- The numerical kernel remains pure and non-actuating. No runtime adapter,
+  ANSI 87 catalog implementation, owner field or persistence migration was
+  added by this audit entry.
+- GF-AUD-151 defines the scheme-owner migration contract. CT association
+  local identity/rebind and per-element stale-decision isolation remain
+  separate dependencies under #1070/GF-AUD-148/GF-AUD-145.
+
+Verification boundary:
+- Inspected Protection function catalog, ProtectionRuntime.compose(),
+  ProtectionFactory.create_element(), DifferentialCurrentSample and
+  evaluate_differential_scheme(), and canonical ProtectionExecutionService.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-153 — CT PRIMARY-SIDE ASSOCIATION IDENTITY IS NOT PERSISTED
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService.create_measurement_binding() resolves the
+  CT P1 and P2 SimpleWire topology components and verifies that the selected
+  source endpoint belongs to exactly one component.
+- The resulting matching_ct_roles value (P1 or P2) is used for validation
+  and discarded. ProtectionMeasurementBinding persists instrument ID,
+  source endpoint, electrical side, ratio and channel, but not the resolved
+  CT-primary side or a canonical fingerprint of either primary component.
+- The binding correlation key omits CT identity and resolved P1/P2 component
+  membership. Persisted binding state therefore cannot prove that its
+  original CT-primary association remains valid after a topology edit.
+- Differential scheme current_directions is explicit configuration, but
+  does not replace persisted/validated physical CT orientation and local
+  association provenance.
+
+Required correction contract:
+- Persist canonical CT association identity: CT identity, selected primary
+  side (P1/P2), explicit source endpoint and deterministic fingerprint of
+  resolved component membership.
+- Re-resolve against the active Network during configuration validation and
+  Protection input preparation. Compare local component identity rather
+  than relying only on project-wide topology revision.
+- Require explicit rebind/update when selected component membership or CT
+  orientation changes. Preserve configured INTO_ZONE/OUT_OF_ZONE semantics;
+  never silently reverse them from changed topology.
+- Keep sample timestamp, quality and producer sequence separate from
+  association/configuration identity.
+
+Scope boundary:
+- Refines GF-AUD-148 and remains within issue #1070.
+- No persistent association token, migration, rebind command or runtime
+  invalidation behavior was implemented by this audit entry.
+
+Verification boundary:
+- Inspected ProtectionConfigurationService CT P1/P2 component resolution,
+  ProtectionMeasurementBinding fields/to_dict/from_dict/correlation_key and
+  the differential scheme direction contract.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  topology-rebind scenarios were performed.
+
+======================================================================

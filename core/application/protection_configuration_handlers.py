@@ -12,6 +12,9 @@ from .commands.protection_configuration_commands import (
     BIND_PROTECTION_MEASUREMENT,
     UNBIND_PROTECTION_MEASUREMENT,
     SET_SYNCHRONISM_CHECK_CONFIGURATION,
+    CREATE_DIFFERENTIAL_SCHEME,
+    UPDATE_DIFFERENTIAL_SCHEME,
+    DELETE_DIFFERENTIAL_SCHEME,
 )
 
 
@@ -31,6 +34,9 @@ class ProtectionConfigurationHandlers:
             BIND_PROTECTION_MEASUREMENT: self.bind_measurement,
             UNBIND_PROTECTION_MEASUREMENT: self.unbind_measurement,
             SET_SYNCHRONISM_CHECK_CONFIGURATION: self.set_synchronism_check_configuration,
+            CREATE_DIFFERENTIAL_SCHEME: self.create_differential_scheme,
+            UPDATE_DIFFERENTIAL_SCHEME: self.update_differential_scheme,
+            DELETE_DIFFERENTIAL_SCHEME: self.delete_differential_scheme,
         }
 
     def create_configuration(self, command, context, transaction):
@@ -50,5 +56,14 @@ class ProtectionConfigurationHandlers:
 
     def set_synchronism_check_configuration(self, command, context, transaction):
         return self._service.set_synchronism_check_configuration(transaction=transaction, **command.payload)
+
+    def create_differential_scheme(self, command, context, transaction):
+        return self._service.create_differential_scheme(transaction=transaction, **command.payload)
+
+    def update_differential_scheme(self, command, context, transaction):
+        return self._service.update_differential_scheme(transaction=transaction, **command.payload)
+
+    def delete_differential_scheme(self, command, context, transaction):
+        return self._service.delete_differential_scheme(transaction=transaction, **command.payload)
 
 __all__ = ["ProtectionConfigurationHandlers"]
