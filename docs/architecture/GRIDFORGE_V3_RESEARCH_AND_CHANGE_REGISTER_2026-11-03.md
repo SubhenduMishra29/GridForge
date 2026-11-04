@@ -8259,3 +8259,210 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - Frozen V2 architecture and .gridforge persistence invariants remain unchanged; V3 proposals require approval before implementation.
 
 **Scope boundary:** research register only. No command service, arbiter, authorization engine, protocol adapter, feedback reconciler, historian, SOE/alarm subsystem, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. V2 main remains unchanged.
+
+
+## 8I-36. Proposed V3 unified engineering event, alarm, SOE, historian and disturbance-record architecture (2026-11-04)
+
+### A. Objective and architectural decision
+
+Sections 8I-21 and 8I-33 through 8I-35 define typed diagnostics/events, signal acquisition, domain consumers and the operational command lifecycle. This section defines a coherent evidence architecture across engineering events, alarms, sequence-of-events (SOE), historian time series, disturbance/waveform records and audit history.
+
+**Primary decision:** share identity, correlation, provenance, time-quality, access-control, ingestion and retention infrastructure, but preserve distinct typed record models, owners and lifecycles. A common event envelope is not a universal record schema. It must not collapse an occurrence, abnormal condition, sampled value, waveform, operator acknowledgement or configuration audit fact into one generic event.
+
+### B. Record taxonomy and semantic boundaries
+
+| Record class | Meaning | Lifecycle/owner |
+|---|---|---|
+| Domain event | Typed occurrence or state transition | Originating domain creates; event service retains |
+| Diagnostic | Detected invalid state, warning, failure or engineering inconsistency | Originating service raises, updates and resolves |
+| Alarm | Abnormal condition requiring operator awareness/response | Alarm service manages lifecycle; domain owns trigger condition |
+| SOE | Time-stamped discrete occurrence with source/order evidence | SOE acquisition and event service |
+| Historian sample | Time-series value with quality and provenance | Historian service |
+| Disturbance record | Triggered high-resolution waveform/sample block and context | Disturbance acquisition/analysis service |
+| Audit record | Security, authorization or engineering/configuration change fact | Audit/security service |
+| Trace link | Typed correlation or causal edge between records | Trace service/read model |
+
+Related records remain separate. A Protection trip may create a domain event, ProtectionDecision, alarm condition, SOE point, historian state sample and command trace. These are linked evidence, not interchangeable copies.
+
+Required distinctions:
+- Event occurrence is not an alarm condition.
+- Alarm acknowledgement is not event acknowledgement, Protection reset, command acknowledgement or equipment operation.
+- Alarm return-to-normal does not imply acknowledgement.
+- SOE is not a continuous historian and does not replace source samples.
+- Historian deadband/compression does not preserve every discrete transition unless a separate event stream does so.
+- Disturbance waveform is not a trend sample or ordinary SOE point.
+- Audit history records who/what changed configuration or authority; it is not an operational alarm.
+- Diagnostic resolution does not necessarily mean the physical condition returned to normal.
+- A trace link is not proof of causation unless domain semantics and evidence establish it.
+
+### C. Common event envelope and typed payloads
+
+A common envelope may contain:
+- stable record identity, record type and schema version;
+- project/security scope and source domain/service/device/channel;
+- origin mode: live physical, simulated, replayed, test-injected or imported;
+- source event time, clock domain, time-quality and uncertainty;
+- receive/ingest and processing/persistence times;
+- source sequence/counter and producer identity;
+- correlation, causation and parent/child references;
+- topology, instrumentation, calibration, processing, settings and software revisions where relevant;
+- integrity/checksum metadata, retention class and access classification.
+
+Payloads remain type-specific and versioned. Breaker transition, relay pickup, Control interlock block, calibration change, alarm transition, analog sample and waveform require different fields and validation. Avoid free-form message text or untyped dictionaries as canonical records. Human-readable text is presentation, not stable machine meaning.
+
+Record identity must survive display, aggregation, export and migration. Correlation IDs and timestamps alone do not uniquely identify records. Preserve source sequence even when ingestion assigns its own storage sequence.
+
+### D. Production, ingestion and delivery
+
+Domain/application services produce typed domain facts. UI widgets must not manufacture operational evidence. Device/protocol adapters report transport/device observations but do not create engineering decisions.
+
+Separate the pipeline into source creation, buffering/durable handoff, source authentication, schema validation, timestamp/sequence/quality assessment, deduplication and ordering classification, durable persistence, read-model projection, subscription delivery and retention/export.
+
+Do not display a record as durably stored until the configured persistence boundary succeeds. If a live provisional notification is displayed before persistence, label it provisional and reconcile it with the durable record identity.
+
+Delivery semantics must be declared per record class:
+- best-effort live notifications for transient presentation;
+- durable at-least-once ingestion with idempotent deduplication where appropriate;
+- ordered per-source processing where source sequence permits;
+- bounded latest-value updates for selected dashboards;
+- loss-detecting sample blocks for waveform capture;
+- durable append for audit and command lifecycle evidence.
+
+Do not claim exactly-once processing without a defined producer, durable handoff, acknowledgement, deduplication and recovery protocol. Duplicate delivery must be detectable and handled idempotently without erasing source metadata.
+
+#### D1. Backpressure and buffering
+
+Declare expected rate, burst profile, priority, buffer bound, overflow behavior and loss reporting per producer class. High-rate waveform capture must not starve Protection events, alarms or audit records. Use bounded, workload-isolated queues. Report sample coalescing/loss, sequence gaps, waveform truncation, trigger loss, queue depth, queue age, processing lag and persistence lag. Do not silently overwrite unacknowledged command or audit evidence. Lower-priority loss must still be explicitly recorded.
+
+### E. Time, ordering and SOE integrity
+
+Keep source/device event time, acquisition/sample time, receive/ingest time, processing time, persistence time, display/query time and simulation logical time distinct. Carry clock domain, synchronization status, time-quality class, estimated offset/uncertainty and source sequence. Do not normalize to one UTC field and discard original clock context.
+
+SOE ordering uses source sequence and source time with explicit quality. Equal timestamps require a documented deterministic tie-breaker; unsynchronized sources cannot imply a global total order. Preserve event-time ordering and receive-order evidence. Classify late, duplicate, out-of-order and missing-sequence records rather than silently reordering them into apparent certainty.
+
+IEEE 1588/PTP, GNSS, NTP and IRIG-B are candidate synchronization mechanisms. Protocol configuration alone does not prove achieved SOE precision. Precision claims require measured device timestamp behavior, clock health, acquisition uncertainty, network behavior and end-to-end evidence. Replay preserves original event time while recording replay execution time; it must not appear as new live data.
+
+### F. Alarm management lifecycle
+
+Alarm management is a service framework; it must not reinterpret every diagnostic or event as an alarm. A typed alarm definition should include stable alarm/source-condition identity, equipment/process/function, class and priority rationale, trigger expression revision, setpoint/deadband/delay/debounce policy, input quality/freshness behavior, grouping/shelving/suppression policy, acknowledgement requirements, return-to-normal condition, latch/reset semantics and audit references.
+
+Proposed state distinctions include active/unacknowledged, active/acknowledged, returned-to-normal/unacknowledged, returned-to-normal/acknowledged, shelved, suppressed, disabled/out-of-service and source-unknown/stale. Exact taxonomy and transitions require an approved alarm philosophy.
+
+Acknowledgement records operator recognition and may include identity, time, console/session, comment and alarm revision. It does not clear the abnormal condition. Shelving/suppression is authorized, time-bounded, visible and auditable. Flood handling may group or prioritize presentation but must not erase source alarms/events. A diagnostic is promoted to an alarm only by an explicit rule and ownership decision.
+
+### G. Historian time-series architecture
+
+Historian samples retain signal/tag identity, typed quantity/unit, source/sensor/channel and derived lineage, sample/event time, receive time, sequence, clock quality, value precision, multidimensional quality, calibration provenance, acquisition mode, aggregation/compression/deadband metadata and raw-data availability.
+
+Raw acquisition, calibrated measurements, derived signals and display aggregates are separate layers. Trend rendering may decimate but cannot mutate stored values or Protection/Control inputs. A display cache is not the historian source of truth.
+
+Deadband, compression, interpolation and resampling are explicit policies. Distinguish acquired samples from interpolated/aggregated values. Interpolated values cannot serve as live Protection inputs. Quality must distinguish good, uncertain, bad, substituted, calculated, interpolated and missing states according to a typed model; exact enumeration remains an open decision.
+
+Support time-range queries, equipment/signal navigation, event overlays, units, quality filtering, aggregation and export. Retention, roll-up, archive and deletion are governed by data class and applicable requirements. Do not store unbounded waveform payloads in the canonical project package.
+
+### H. Disturbance and waveform records
+
+A disturbance record captures high-resolution waveform/sample data around a trigger, with pre/post-trigger context where supported. Metadata includes disturbance identity, trigger source/condition/revision, participating channels/signals and devices, sample rate, clock, channel count, units, phase mapping/scaling, pre/post sample counts and actual capture bounds, timestamps/sequence/time quality, raw payload or immutable reference and checksum, missing/overrun/saturation/clipping indicators, related Protection/Control/command/fault/operator references and export format/profile.
+
+COMTRADE (IEC 60255-24) is a candidate interchange format where applicable, not automatically the canonical internal representation. Preserve source data and disclose lossy conversion, resampling, channel remapping or scaling. Analysis outputs are derived records with algorithm/version and input provenance.
+
+Triggering/capture must be decoupled from UI rendering and general historian queues. Define capture buffers, trigger arbitration, channel synchronization, memory limits, overflow and evidence priority. A trigger that cannot be captured produces a visible capture-failure record; it must not appear complete.
+
+### I. Audit and configuration-change evidence
+
+Audit records retain authenticated principal/service identity, action/target, before/after values or immutable revision references, reason/approval/change request, effective time, policy/role context, authorization result, project/equipment/settings/calibration/mapping/software revision, source client/device and integrity metadata.
+
+Audit records are append-only from the application perspective. Corrections use linked amendment records with reason and actor; silent edits/deletes are prohibited except through a separately governed legal-retention process. Audit and configuration revision history are cross-linked but not conflated. Audit facts are not alarms and do not use alarm acknowledgement semantics.
+
+### J. Cross-domain correlation and evidence graph
+
+The trace model links records using typed edges such as produced-by, observed-from, sampled-from, derived-from, calibrated-by, triggered-by, evaluates-snapshot, depends-on-revision, caused-intent, authorized-by, blocked-by, dispatched-as, acknowledged-by, actuated-as, confirmed-by, contradicted-by, reconciled-as, raised-alarm, acknowledged-by, returned-to-normal-by, captured-disturbance, contains-channel, changed-by, approved-by and supersedes-revision.
+
+Each edge carries semantics, source, time and qualification/confidence. Causal edges require evidence; temporal proximity alone is correlation. Missing/ambiguous links remain visible. A unified UI timeline may render all record types but must expose type, quality, time basis and lifecycle.
+
+Representative trace:
+- CT sample → calibrated measurement → relay snapshot → ProtectionDecision → trip intent → authorization → DeviceCommand → acknowledgement → auxiliary-contact feedback → reconciliation → SOE/alarm/historian.
+- Process sensor → Control snapshot → interlock evaluation → Control ActionIntent → command → feedback → alarm/sequence event.
+- Settings edit → authorization/audit → new settings revision → dependency invalidation → next evaluation.
+- Fault trigger → waveform capture → disturbance record → Protection/SOE correlation → analysis result.
+
+### K. Persistence, partitioning, recovery and export
+
+The canonical .gridforge package remains the portable engineering project root for approved project configuration, model/topology, SLD and layout. It is not an unbounded historian, waveform archive or operational event database.
+
+Separate operational evidence stores may be used, but define stable project/equipment identity, schema migration, retention classes, partitioning, durable handoff, backup/restore, archive, legal hold, authorized deletion/amendment, offline behavior, export manifest/checksums and import staging. Evidence import must not silently mutate live engineering state.
+
+Recovery preserves pending ingest, source sequence gaps, alarm lifecycle, command outcome-unknown states and waveform integrity. Rebuilding a read model must not regenerate source events or duplicate audit facts. Export discloses omitted, aggregated or transformed content and preserves provenance.
+
+### L. Security, access and presentation
+
+Apply project/record-class access controls. Alarm acknowledgement/shelving, Protection settings, Control logic, calibration, mapping, bypass and command records require explicit capabilities. Audit records have restricted read/export permissions. Plugins and reports receive only declared data capabilities. Use authenticated source identity, protected transport, integrity verification, least privilege, retention controls and export auditing; avoid credentials and unnecessary personal data in payloads.
+
+UI projections must separate active alarms, historical events, diagnostics, SOE, trends, disturbance waveforms, audit history and cross-domain trace. Show time quality, source, unit, quality, aggregation, completeness, causal/correlation status and stale/offline/unavailable state. Paging, virtualization, asynchronous query and display decimation are presentation-only; they must not modify source evidence or domain values.
+
+Capacity planning is workload-driven. Isolate high-rate waveform, historian, discrete SOE, alarm and audit paths. Provide bounded memory, backpressure, queue age and persistence-lag metrics. No single global queue or UI thread should perform acquisition, decoding, persistence and rendering. No throughput claim is made here.
+
+### M. Candidate standards and evidence discipline
+
+Candidate reference families for later edition-specific and BIS catalogue verification:
+- IEC 62682 / ISA-18.2: alarm management lifecycle and performance.
+- IEC 60255-24: COMTRADE disturbance data exchange.
+- IEC 61850: utility automation data models, reporting, quality and events.
+- IEC 60870-5-104 and IEEE 1815 (DNP3): telecontrol/event reporting context.
+- IEC 62351: security of power-system information exchange.
+- IEEE 1588 / IEC 61588: time synchronization.
+- IEC 61869: instrument-transformer measurement provenance.
+- IEC 60255: protection equipment context.
+- IEC 61000: power-quality measurement/event context where applicable.
+- ISO 15489: records-management reference subject to scope.
+
+Candidate map only; no current edition, Indian adoption, BIS catalogue status, clause applicability, certification or conformance is asserted. Requirements must be verified against authoritative editions, device profiles and applicable project obligations.
+
+### N. Candidate acceptance scenarios
+
+These 20 scenarios are proposed for later specification and verification; they are not executed tests.
+
+1. **UI-ACC-EVID-01** — Protection trip creates distinct domain event, decision, command lifecycle, SOE, alarm and feedback records with stable correlations.
+2. **UI-ACC-EVID-02** — Alarm acknowledgement changes only acknowledgement state; it does not clear the condition or reset Protection.
+3. **UI-ACC-EVID-03** — Return-to-normal without acknowledgement remains distinguishable from acknowledged state.
+4. **UI-ACC-EVID-04** — Diagnostic promotion to alarm requires an explicit rule and owner.
+5. **UI-ACC-EVID-05** — SOE retains source time, clock domain, sequence, quality and receive time; unsynchronized sources do not imply global order.
+6. **UI-ACC-EVID-06** — Duplicate/out-of-order events are classified without erasing source sequence evidence.
+7. **UI-ACC-EVID-07** — Historian aggregation is labelled and cannot alter raw samples or Protection/Control inputs.
+8. **UI-ACC-EVID-08** — Interpolated values are distinguishable from acquired samples and rejected as live Protection inputs.
+9. **UI-ACC-EVID-09** — Historian deadband does not suppress a required discrete SOE transition.
+10. **UI-ACC-EVID-10** — Disturbance capture records trigger, channel mapping, sample rate, pre/post bounds and payload integrity.
+11. **UI-ACC-EVID-11** — Truncated waveform capture is marked incomplete and cannot be exported as complete evidence.
+12. **UI-ACC-EVID-12** — COMTRADE conversion records scaling, channel mapping, time metadata and lossy transformations.
+13. **UI-ACC-EVID-13** — Settings/calibration change creates append-only audit evidence with actor and before/after revisions.
+14. **UI-ACC-EVID-14** — Audit correction is a linked amendment, not silent historical mutation.
+15. **UI-ACC-EVID-15** — Waveform queue overload does not silently starve Protection events, alarms or audit; loss is reported.
+16. **UI-ACC-EVID-16** — Persistence failure is distinct from live notification; provisional records reconcile to durable identities.
+17. **UI-ACC-EVID-17** — Read-model rebuild does not create duplicate source events, alarm transitions or audit facts.
+18. **UI-ACC-EVID-18** — Trace distinguishes causal edges from temporal correlation and exposes missing/ambiguous links.
+19. **UI-ACC-EVID-19** — Export includes schema manifest, checksums, time/quality and transformation/omission disclosures.
+20. **UI-ACC-EVID-20** — Offline recovery identifies unavailable external evidence without corrupting canonical .gridforge project.
+
+### O. Open decisions, dependencies and gates
+
+Open decisions: event envelope/schema versioning; record ownership; alarm philosophy and state machine; SOE ordering/clock accuracy; historian raw/derived quality and compression policy; waveform capture rates, trigger arbitration and completeness; audit immutability/retention/privacy; per-class delivery and deduplication; queue priorities/capacity; evidence-store boundary and offline behavior; trace edge semantics; export/import fidelity; standards editions and BIS applicability.
+
+Dependencies: 8I-11 diagnostics, 8I-12 traceability, 8I-21 events, 8I-22 change control, 8I-23 persistence/recovery, 8I-24 exchange, 8I-25 standards, 8I-33 signals, 8I-34 consumers and 8I-35 operational lifecycle.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. This entry closes no gate.
+
+### P. Frozen invariants and scope boundary
+
+- Domain events, diagnostics, alarms, SOE, historian samples, disturbance records, audit records and trace links remain distinct typed records.
+- Common envelope metadata does not collapse record semantics or lifecycle.
+- Source event, receive, processing and persistence times, clock domain, quality and sequence remain explicit.
+- Historian compression and UI decimation cannot alter raw/domain-consumed measurements.
+- Alarm acknowledgement, return-to-normal, Protection reset, command acknowledgement and physical feedback remain distinct.
+- Disturbance evidence preserves trigger, channel, sample, timing and integrity metadata; incomplete capture is never represented as complete.
+- Audit history is append-only from the application perspective; amendments remain linked and attributable.
+- Durable persistence, duplicate handling, queue loss and recovery are explicit per record class.
+- Causal links require evidence; temporal proximity alone is correlation.
+- Canonical .gridforge remains the engineering project package, not an unbounded operational historian or waveform archive.
+- Frozen V2 architecture remains unchanged; V3 proposals require review and approval before implementation.
+
+**Scope boundary:** research register only. No event bus, alarm engine, historian, SOE service, waveform recorder, audit subsystem, trace graph service, UI, storage backend, source code, runtime behavior, benchmark, test or CI was implemented or executed. V2 main remains unchanged.
