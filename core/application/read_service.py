@@ -25,6 +25,7 @@ from core.solver.short_circuit.result import ShortCircuitConductorCurrent, Short
 
 from core.network.network import Network
 from core.protection.protection_system import ProtectionSystem
+from core.protection.decision import ProtectionDecision
 from core.model.ct import CTPolarity
 from core.model.cvt import CVTPolarity
 
@@ -537,9 +538,43 @@ class ProtectionReadService:
         return self._source.relays()
     @staticmethod
     def _to_read_model(relay: Any, decision_provider: Any | None = None) -> RelayReadModel:
-        bindings = tuple(RelayInputBindingReadModel(input_name=str(name), channel_id=None if getattr(channel, "id", None) is None else str(getattr(channel, "id"))) for name, channel in sorted(relay.input_channels.items()))
-        decision = decision_provider(str(relay.id)) if decision_provider is not None else None
-        return RelayReadModel(object_id=str(relay.id), name=str(relay.name), relay_type=str(relay.type), function_type=str(relay.function_type), plugin_id=None if relay.plugin_id is None else str(relay.plugin_id), settings=relay.settings, in_service=bool(relay.in_service), enabled=bool(relay.enabled), blocked=bool(relay.blocked), picked_up=bool(relay.picked_up), tripped=bool(relay.tripped), input_channel_bindings=bindings, decision=decision)
+        bindings = tuple(
+            RelayInputBindingReadModel(
+                input_name=str(name),
+                channel_id=None if getattr(channel, "id", None) is None else str(getattr(channel, "id")),
+            )
+            for name, channel in sorted(relay.input_channels.items())
+        )
+        provided = decision_provider(str(relay.id)) if decision_provider is not None else None
+        if provided is None:
+            element_decisions: tuple[ProtectionDecision, ...] = ()
+        elif isinstance(provided, ProtectionDecision):
+            element_decisions = (provided,)
+        elif isinstance(provided, (tuple, list)):
+            element_decisions = tuple(provided)
+        else:
+            raise TypeError(
+                "Protection decision provider must return a ProtectionDecision, "
+                "a sequence of decisions, or None."
+            )
+        # Preserve the legacy singular projection only when it is unambiguous.
+        decision = element_decisions[0] if len(element_decisions) == 1 else None
+        return RelayReadModel(
+            object_id=str(relay.id),
+            name=str(relay.name),
+            relay_type=str(relay.type),
+            function_type=str(relay.function_type),
+            plugin_id=None if relay.plugin_id is None else str(relay.plugin_id),
+            settings=relay.settings,
+            in_service=bool(relay.in_service),
+            enabled=bool(relay.enabled),
+            blocked=bool(relay.blocked),
+            picked_up=bool(relay.picked_up),
+            tripped=bool(relay.tripped),
+            input_channel_bindings=bindings,
+            decision=decision,
+            element_decisions=element_decisions,
+        )
 
 @dataclass(frozen=True, slots=True)
 class ArchivedStudyResultReadModel:

@@ -285,25 +285,25 @@ class SwitchingModelService(ModelServiceSupport):
         transaction.record_undo(restore)
         return self._success(breaker, "breaker", breaker_id, f"Breaker {'put in service' if in_service else 'taken out of service'}: {breaker_id}")
 
-    def create_disconnector(self, *, disconnector_id: str, voltage_kv: float, rated_current_a: float, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, operating_time: float = 1.0, closed: bool = True, in_service: bool = True, name: str = "", transaction: Transaction) -> ApplicationResult[Disconnector]:
+    def create_disconnector(self, *, disconnector_id: str, voltage_kv: float, rated_current_a: float, endpoint_from: Bus | Terminal | None = None, endpoint_to: Bus | Terminal | None = None, operating_time: float | None = None, closed: bool = True, in_service: bool = True, normally_closed: bool | None = None, name: str = "", transaction: Transaction) -> ApplicationResult[Disconnector]:
         self._require_transaction(transaction); self._require_id(disconnector_id, "disconnector_id")
         if endpoint_from is not None: self._validate_endpoint(endpoint_from, "endpoint_from")
         if endpoint_to is not None: self._validate_endpoint(endpoint_to, "endpoint_to")
         if endpoint_from is not None and endpoint_to is not None: self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_DISCONNECTOR_ENDPOINTS", "Disconnector", disconnector_id)
         self._ensure_not_exists("disconnector", disconnector_id, "Disconnector")
-        disconnector = Disconnector(id=disconnector_id, voltage_kv=voltage_kv, rated_current_a=rated_current_a, endpoint_from=endpoint_from, endpoint_to=endpoint_to, operating_time=operating_time, closed=closed, in_service=in_service, name=name)
+        disconnector = Disconnector(id=disconnector_id, voltage_kv=voltage_kv, rated_current_a=rated_current_a, endpoint_from=endpoint_from, endpoint_to=endpoint_to, operating_time=operating_time, closed=closed, in_service=in_service, normally_closed=normally_closed, name=name)
         self._network.add_disconnector(disconnector); transaction.record_undo(lambda disconnector=disconnector: self._network.remove_disconnector(disconnector)); return self._success(disconnector, "disconnector", disconnector_id, f"Disconnector created: {disconnector_id}")
 
-    def update_disconnector(self, *, disconnector_id: str, voltage_kv: float | None = None, rated_current_a: float | None = None, operating_time: float | None = None, closed: bool | None = None, in_service: bool | None = None, name: str | None = None, transaction: Transaction) -> ApplicationResult[Disconnector]:
+    def update_disconnector(self, *, disconnector_id: str, voltage_kv: float | None = None, rated_current_a: float | None = None, operating_time: float | None = None, closed: bool | None = None, in_service: bool | None = None, normally_closed: bool | None = None, name: str | None = None, transaction: Transaction) -> ApplicationResult[Disconnector]:
         self._require_transaction(transaction)
         self._require_id(disconnector_id, "disconnector_id")
         disconnector = self._get_required("disconnector", disconnector_id, "Disconnector")
         self._require_type(disconnector, Disconnector, disconnector_id, "Disconnector")
-        values = (voltage_kv, rated_current_a, operating_time, closed, in_service, name)
+        values = (voltage_kv, rated_current_a, operating_time, closed, in_service, normally_closed, name)
         if all(value is None for value in values):
             raise DomainError(code="NO_DISCONNECTOR_UPDATE", message="At least one mutable Disconnector property must be specified.", details={"disconnector_id": disconnector_id})
 
-        old = {"voltage_kv": disconnector.voltage_kv, "rated_current_a": disconnector.rated_current_a, "operating_time": disconnector.operating_time, "closed": disconnector.closed, "in_service": disconnector.in_service, "name": disconnector.name}
+        old = {"voltage_kv": disconnector.voltage_kv, "rated_current_a": disconnector.rated_current_a, "operating_time": disconnector.operating_time, "closed": disconnector.closed, "in_service": disconnector.in_service, "normally_closed": disconnector.normally_closed, "name": disconnector.name}
 
         def restore_snapshot() -> None:
             disconnector.voltage_kv = old["voltage_kv"]
@@ -311,10 +311,11 @@ class SwitchingModelService(ModelServiceSupport):
             disconnector.operating_time = old["operating_time"]
             disconnector.closed = old["closed"]
             disconnector.in_service = old["in_service"]
+            disconnector.normally_closed = old["normally_closed"]
             disconnector.name = old["name"]
 
         try:
-            for key, value in (("voltage_kv", voltage_kv), ("rated_current_a", rated_current_a), ("operating_time", operating_time), ("name", name)):
+            for key, value in (("voltage_kv", voltage_kv), ("rated_current_a", rated_current_a), ("operating_time", operating_time), ("name", name), ("normally_closed", normally_closed)):
                 if value is not None:
                     setattr(disconnector, key, value)
             if closed is not None:

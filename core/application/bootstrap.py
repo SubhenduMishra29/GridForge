@@ -304,7 +304,16 @@ def create_application(
     initial_protection_runtime.compose(measurement_channel_service.channels)
     application.protection_runtime = initial_protection_runtime
     application.protection_presentation = None
-    application._protection_read_service = ProtectionReadService(network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
+    def protection_decisions_for_relay(relay_id: str):
+        runtime = application.protection_runtime
+        if runtime is None:
+            return ()
+        return runtime.system.decisions_for_relay(str(relay_id))
+
+    application._protection_read_service = ProtectionReadService(
+        network,
+        decision_provider=protection_decisions_for_relay,
+    )
 
     def activate_network(active_network: Any):
         """Replace project-bound Application runtime and return its rollback."""
@@ -323,7 +332,10 @@ def create_application(
         try:
             next_command_manager, next_read_service, next_validation_service = build_runtime(active_network)
             application._replace_runtime(next_command_manager, next_read_service, next_validation_service)
-            application._protection_read_service = ProtectionReadService(active_network, decision_provider=lambda relay_id: next((item.last_decision for item in application.protection_runtime.system.elements() if str(item.relay_id) == str(relay_id)), None) if application.protection_runtime is not None else None)
+            application._protection_read_service = ProtectionReadService(
+                active_network,
+                decision_provider=protection_decisions_for_relay,
+            )
         except Exception:
             application._command_manager = previous_command_manager
             application._read_service = previous_read_service
