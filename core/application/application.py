@@ -2739,6 +2739,7 @@ class Application:
             "protection.delete_configuration",
             "protection.bind_measurement",
             "protection.unbind_measurement",
+            "protection.rebind_measurement_binding",
             "protection.set_synchronism_check_configuration",
             "protection.create_differential_scheme",
             "protection.update_differential_scheme",
