@@ -73,3 +73,27 @@ The dated sections above are retained as historical audit evidence. Their reposi
 - **Verification statement:** PR #908 records remote source inspection/integration review only; no tests/CI, syntax/import checks, persistence round-trip, numerical fixtures or end-to-end runtime execution were run.
 
 This section is a documentation authority correction, not a new implementation audit. For the consolidated frozen architecture and exact evidence boundaries, see [GRIDFORGE_V2_ARCHITECTURE_2026-11-02.md](../docs/architecture/GRIDFORGE_V2_ARCHITECTURE_2026-11-02.md) and [PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md](../docs/architecture/PROTECTION_PHASE_DOMAIN_ARCHITECTURE_AMENDMENT_2026-11-02.md).
+
+
+## 2026-11-03 — Signal infrastructure and heterogeneous simulation architecture amendment
+
+This is an approved additive architecture direction, not an implementation or runtime-verification claim. See [SIGNAL_INFRASTRUCTURE_AND_HETEROGENEOUS_SIMULATION_AMENDMENT_2026-11-03.md](../docs/architecture/SIGNAL_INFRASTRUCTURE_AND_HETEROGENEOUS_SIMULATION_AMENDMENT_2026-11-03.md).
+
+| Area | Frozen / amended requirement | Status | Evidence / next audit |
+|---|---|---|---|
+| Signal identity and measurement | Shared canonical signal/measurement contracts for physical and virtual instruments; engineering units, source identity, timestamp, quality and provenance | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Audit existing CT/PT/CVT, MeasurementChannel, RTD/thermocouple and sensor contracts before adding types |
+| Acquisition and I/O | Explicit CT/PT, RTD/thermocouple, AI/AO/DI/DO and communication acquisition interfaces; channel availability and diagnostics | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Reconcile channel registry, adapters, calibration and failure semantics |
+| Signal processing/routing | Scaling, filtering, quality/freshness and explicit consumer subscriptions; no duplicate Control/Protection measurement authorities | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Audit signal routes and consumer binding |
+| Protection/Control consumers | Shared signals; separate Protection and Control execution and decision ownership; explicit cross-domain interfaces | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Trace Control canvas inputs, relay inputs, interlocks, blocking and permissives |
+| Device lifecycle | Decision ≠ command ≠ output activation ≠ physical response ≠ feedback | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Reconcile trip/close, contactor, output-channel and feedback paths |
+| Historian | Shared time-series/event/SOE/disturbance recording with real-vs-simulated source provenance | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Audit existing historian, event and archive services before adding storage |
+| Simulation model contract | One hardware-independent equipment physics model; no separate CPU/GPU physics definitions | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Audit existing solver/dynamics and Motor Dynamics plugin contracts |
+| CPU backend | Universal reference implementation and fallback | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Establish reference results and model lifecycle |
+| GPU backend | Suitable parallel numerical physics and batch/scenario execution; capability- and workload-aware selection | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Verify supported hardware/runtime and numerical tolerance |
+| NPU backend | Supported AI inference/predictive analytics; never substitute for safety-critical protection calculations | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Verify model/operator/provider/device support and advisory provenance |
+| Simulation orchestration | Explicit simulation clock, scheduling, state/result buffers, backend provenance, deadline diagnostics and safe failure handling | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Define CPU/GPU/NPU execution and timing contracts |
+| Virtual instrumentation | Virtual instruments use the same measurement/routing contracts as physical sources | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Motor reference scenario |
+| Closed-loop simulation | Equipment physics → virtual measurements → Protection/Control → command → simulated actuation → feedback → Historian | ARCHITECTURE APPROVED — IMPLEMENTATION NOT AUDITED | Motor Dynamics plugin is first reference integration |
+| Safety boundary | Desktop simulation is not a hard-real-time or sole safety-critical protection controller; HIL requires separate architecture | FROZEN CONSTRAINT | Preserve explicit timing, isolation, watchdog and commissioning requirements for future HIL |
+
+No tests/CI or runtime checks were performed as part of this documentation-only architecture update.
