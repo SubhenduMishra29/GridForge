@@ -297,6 +297,14 @@ def build_protection_dependency_registry(
             element_diagnostics.append(f"{prefix}: configured Relay {element.relay_id!r} is absent from the active Network.")
         else:
             add_dependency("relay", element.relay_id, _relay_configuration(relay))
+            add_dependency(
+                "relay_input_registry",
+                element.relay_id,
+                {
+                    name: getattr(channel, "id", None)
+                    for name, channel in sorted(relay.input_channels.items())
+                },
+            )
 
         owned_bindings = bindings_by_element.get(element_id, [])
         expected: dict[str, tuple[str, str | None]] = {}
@@ -344,6 +352,30 @@ def build_protection_dependency_registry(
                 )
                 continue
             selected_bindings.append(binding)
+
+        # Differential schemes own their member CT bindings explicitly. These
+        # bindings are dependencies even when the protection function does not
+        # expose them as ordinary scalar RelayInput channel mappings.
+        for scheme in configuration.differential_schemes:
+            if scheme.protection_element_id != element_id:
+                continue
+            if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
+                element_diagnostics.append(f"{prefix}: invalid differential scheme value.")
+                continue
+            for binding_id in scheme.measurement_binding_ids:
+                member = bindings_by_id.get(binding_id)
+                if member is None:
+                    element_diagnostics.append(
+                        f"{prefix}, differential_scheme={scheme.scheme_id!r}: member {binding_id!r} is missing."
+                    )
+                    continue
+                if member.protection_element_id != element_id:
+                    element_diagnostics.append(
+                        f"{prefix}, differential_scheme={scheme.scheme_id!r}: member {binding_id!r} is owned by another element."
+                    )
+                    continue
+                if all(existing.binding_id != binding_id for existing in selected_bindings):
+                    selected_bindings.append(member)
 
         selected_ids = {item.binding_id for item in selected_bindings}
         unexpected = [item.binding_id for item in owned_bindings if item.binding_id not in selected_ids]
@@ -400,7 +432,7 @@ def build_protection_dependency_registry(
 
             try:
                 source_equipment = network.get_by_identity(binding.source_equipment_id)
-            except (KeyError, ValueError):
+            except (LookupError, ValueError):
                 source_equipment = None
             if source_equipment is None:
                 element_diagnostics.append(f"{binding_prefix}: source equipment {binding.source_equipment_id!r} is missing.")
@@ -565,12 +597,21 @@ def build_protection_dependency_registry(
             if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
                 element_diagnostics.append(f"{prefix}: invalid differential scheme value.")
                 continue
+            member_fingerprints = []
             for binding_id in scheme.measurement_binding_ids:
                 member = bindings_by_id.get(binding_id)
                 if member is None or member.protection_element_id != element_id:
                     element_diagnostics.append(
                         f"{prefix}, differential_scheme={scheme.scheme_id!r}: member {binding_id!r} is missing or owned by another element."
                     )
+                else:
+                    member_fingerprints.append((binding_id, member.to_dict()))
+            if len(member_fingerprints) == len(scheme.measurement_binding_ids):
+                add_dependency(
+                    "differential_scheme_members",
+                    scheme.scheme_id,
+                    tuple(sorted(member_fingerprints)),
+                )
             add_dependency("differential_scheme", scheme.scheme_id, scheme.to_dict())
 
         if element.action_target_type is not None:
