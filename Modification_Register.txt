@@ -22016,8 +22016,9 @@ Verification boundary:
   projection identity path, SLD endpoint schema, Core EndpointReference and
   ConnectivityStore validation, ValidationService and Application project
   validation flow.
-- Source changes prepared on the dedicated correction branch. No tests or CI
-  were run. Python syntax/import execution and final diff review remain to be
-  completed before the PR can be considered merge-ready.
+- Static Python AST parsing completed for the edited ValidationService,
+  Application.validate_project(), SLD endpoint conversion, audit and orphan
+  mutation blocks. No runtime module imports, tests or CI were run.
+- Final GitHub PR diff/repository-state review remains required before merge.
 
 ======================================================================
