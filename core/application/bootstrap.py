@@ -913,6 +913,10 @@ def recover_application(
     before = degraded_application.recovery_status
     if not before.recovery_required:
         raise ValueError("The supplied Application does not require recovery.")
+    if before.project_id is None:
+        raise RuntimeError(
+            "Recovery requires an identified active project; refusing to activate an unrelated package."
+        )
     target = normalize_package_path(project_path)
     if not target.is_dir():
         raise FileNotFoundError(f"Canonical GridForge project package does not exist: {target}")
@@ -938,6 +942,10 @@ def recover_application(
             )
         if context.project_id != status.project_id:
             raise RuntimeError("Replacement project identity does not match its recovery status.")
+        if context.project_id != before.project_id:
+            raise RuntimeError(
+                "Canonical package project identity does not match the degraded Application's project."
+            )
         if context.path is None or Path(context.path).resolve() != target.resolve():
             raise RuntimeError("Replacement Application activated a different project package.")
         after = degraded_application.recovery_status
