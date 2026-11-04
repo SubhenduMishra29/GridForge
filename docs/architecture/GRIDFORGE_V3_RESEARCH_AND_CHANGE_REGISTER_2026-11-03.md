@@ -1682,3 +1682,101 @@ Reviewers should mark each item **Approve**, **Revise** or **Defer**, with ratio
 8. Is the proposed priority/scope appropriate for the first V3 delivery?
 
 **Disposition:** The normalized catalogue, interaction contract, Inspector/diagnostics/status contracts, persistence classification, candidate scenarios and evidence model are proposed and ready for review. Personas, numeric thresholds, autosave/recovery guarantees, viewport portability, diagnostic acknowledgement, platform/DPI envelope, accessibility conformance and final release scope remain unapproved. No source change, migration, redesign, schema change, persistence mechanism or test/CI gate is authorized. Next step is focused review and closure/assignment of the approval gates, followed by a specification freeze before implementation work packages are created.
+
+
+## 8I-9. V3 source-branch provenance and specification traceability baseline (2026-11-04)
+
+**Purpose:** Verify whether a designated V3 implementation branch exists before asserting source-to-specification traceability. Inspect the current V2 `main` snapshot only as a legacy baseline, and distinguish source-confirmed capability, partial evidence, unverified integration and V3 implementation status.
+
+### A. Branch provenance result
+
+The repository branch search for `v3` returned:
+- `research/gridforge-v3-architecture-register` — the V3 research/specification branch.
+- `fix/palette-symbol-painter-geometry-overloads-main-sync-v3` — an older implementation/fix branch.
+
+The latter was inspected at head `b9e95259419c204d598360cbad34db8b456388b7`. Comparing it with `main` showed:
+- `main` head at inspection: `b420b768c29629adf690dfff6f71d935b5f5640a`.
+- The fix branch is **529 commits behind** `main` and **one commit ahead**.
+- Its one ahead commit changes only `ui/equipment/symbol/palette_symbol_adapter.py`.
+- The branch therefore does not represent a current V3 implementation baseline.
+
+The current `main` head was also inspected and contains later engineering/UI work. However, `main` is the V2 integration baseline and must not be relabelled as V3. No dedicated, current, named V3 implementation branch was identified in this branch search.
+
+**Provenance decision:** V3 source-to-specification conformance is **blocked pending designation of the intended V3 source branch/ref**. Do not use the stale `main-sync-v3` branch as a proxy. Do not treat current V2 source observations as proof that a V3 requirement is implemented or absent.
+
+### B. Legacy V2 source baseline inspected
+
+The following current-`main` files were fetched at commit `b420b768c29629adf690dfff6f71d935b5f5640a` and inspected selectively:
+- `main.py`, `ui/main_window.py`
+- `ui/editors/common/editor_host.py`, `ui/editors/common/tool_shelf.py`
+- `ui/editors/sld/sld_editor.py`, `ui/editors/control/control_editor.py`, `ui/editors/protection/protection_editor.py`, `ui/editors/study/study_editor.py`
+- `ui/interaction/interaction_session.py`, `ui/tools/tool_shortcuts.py`
+- `ui/plugins/status_plugin.py`, `ui/panels/messages_panel.py`, `ui/panels/engineering_parameter_editor.py`
+- `ui/control/control_workspace.py`, `ui/control/control_inspector.py`, `ui/control/control_status_bar.py`
+- `ui/protection/protection_workspace.py`, `ui/protection/protection_presentation.py`
+- `ui/workspace/workspace_manager.py`, `ui/workspace/workspace_state.py`, `ui/workspace/workspace_layout.py`, `ui/workspace/viewport_state.py`
+
+Source-confirmed observations from that baseline:
+1. `main.py` composes distinct SLD, Control, Protection and Study surfaces; the default workspace manager is configured with SLD as its default. This supports the existing SLD-first product direction but does not prove a first-launch/recent-project UX journey.
+2. `MainWindow` is a host surface and delegates workspace realization/orchestration. The shared `EngineeringEditorHost` supplies editor hosting/context, but does not make all discipline editors use the same interaction implementation.
+3. `ToolShelf` exposes active tool state, labels, shortcut hints and fallback glyph behavior. `ToolShortcutRegistry` exists as a semantic registry, but its presence alone does not prove one focus-aware runtime dispatcher or complete integration with QAction/menu shortcuts.
+4. `InteractionSession` explicitly owns transient UI selection/tool/connection/drag/preview/intent state and clears it on close. This is consistent with the persistence separation principle; it is not proof that persisted engineering drafts are recoverable across process restart.
+5. SLD editor source explicitly initializes Explorer, Inspector, Diagnostics/Messages and Tool Settings as hidden/contextual regions. Its Messages region is separate from the status strip.
+6. `MessagesPanelWidget` stores validation and event messages as strings and renders them into one `QListWidget`. This does not satisfy the proposed typed, object-linked diagnostic record contract.
+7. `StatusPlugin` projects tool, selection, coordinates, project dirty state, validation summary and workspace into status fields. It is not itself the source of detailed measurement quality, Protection execution or device feedback state.
+8. Control has a dedicated Ladder view and Control-specific interaction/status. Its current status projection reports basic project/rung/component context; the inspected excerpt does not establish the complete cycle-decision-blocked-action-command-feedback trace.
+9. Protection builds a distinct graphics surface and reads Protection and configuration projections. Configured input channel IDs are rendered into channel/input nodes; the inspected path does not establish discovery of all eligible unbound Measurement channels or display of sample freshness/quality/provenance in the channel node.
+10. `EngineeringParameterEditor` creates typed configuration intent and submits through its Application reference. This is a useful existing pattern, not evidence that every Inspector or Protection configuration path conforms.
+11. `ViewportState` has toolkit-independent fields and `to_dict/from_dict` serialization. This alone does not establish persistence ownership, per-document identity, user preference separation or restart restoration.
+12. The inspected `WorkspaceManager`, `WorkspaceState` and `WorkspaceLayout` provide logical workspace state/models. Their existence alone does not prove durable user layout persistence or migration.
+13. Discipline editors expose Diagnostics/Status regions with differing composition and visibility. A shared region name is not proof of a common diagnostic data model or lifecycle.
+14. No runtime walkthrough was performed for this traceability pass. These are source observations only; visual behavior, focus arbitration, accessibility, restart behavior and live domain traces remain runtime-unverified.
+
+### C. Requirement-to-source traceability disposition
+
+The following disposition is **against the inspected V2 baseline only**, not against V3 implementation. “Partial” means a related source mechanism exists but the complete requirement is not evidenced. “Unverified” means the selected source inspection did not establish the required behavior; it is not a claim of nonexistence.
+
+| Requirement family | V2 baseline evidence | Traceability disposition | V3 conclusion |
+|---|---|---|---|
+| REQ-001–002 shared editor/tool interaction | Editor host, tool shelf, separate editor surfaces and interaction runtimes | Partial | Retain shared capability contract; inspect actual V3 editor adapters and focus behavior |
+| REQ-003 shell/first use | SLD default and contextual SLD panels | Partial | First-use and recent-project journey still needs V3 evidence |
+| REQ-004 Inspector | Typed EngineeringParameterEditor pattern and domain-specific inspectors | Partial | Audit all editable/read-only/provenance states and command routes |
+| REQ-005–006 SLD lifecycle/connections | Separate transient InteractionSession, SLD document/editor and draft/projection mechanisms | Partial | Verify complete preview→draft→configure→connect→validate→commit/recovery path on V3 |
+| REQ-007–008, 019–020 diagnostics | Messages panel combines validation/event strings; status and modal feedback are separate presentation paths | Gap against proposed typed contract | V3 must demonstrate typed categories, source identity, lifecycle and safe navigation |
+| REQ-009–010 Control | Ladder workspace, Inspector, status projection | Partial | Cycle decision/blocked intent/command/feedback trace not established |
+| REQ-011–012 Protection channels | Configured channel IDs projected from relay configuration | Partial | Eligible unbound-channel discovery, measurement provenance and runtime quality remain unverified |
+| REQ-013–015 Protection workflow/trace | Protection workspace, relay/configuration projection and distinct canvas | Partial | Configuration completeness, commissioning journey and independently sourced output/feedback trace require V3 evidence |
+| REQ-016 Study | Study editor and Study workspace composition | Partial | Study-specific progressive disclosure and immutable result/source provenance require V3 evidence |
+| REQ-017–018 keyboard/accessibility | Shortcut registry, tool shortcut hints, some accessible names in SLD panel controls | Partial/unverified | Focus-aware dispatcher, complete critical-task keyboard path and assistive-technology semantics require direct V3 evidence |
+| REQ-021 workspace/user preference persistence | Logical workspace state and QMainWindow host | Unverified | Identify actual V3 preference owner, serialization, migration and restart path |
+| REQ-022 viewport persistence | Serializable `ViewportState` model | Partial | Prove document identity, save owner and restore integration |
+| REQ-023 draft/session recovery | Transient InteractionSession clears on close; separate draft persistence mechanisms exist in baseline | Partial | Verify project draft recovery independently from transient gestures and process restart |
+| REQ-024–027 visual accessibility/display | Theme/style and Qt widget composition exist | Unverified for contrast, high-contrast profile, font scaling and DPI matrix | Require measured evidence on approved V3 platform matrix |
+| REQ-028–030 start/help/customization | No complete user journey established by selected files | Unverified | Inspect designated V3 start/recent/help/customization surfaces |
+| REQ-031–032 performance/status | StatusPlugin has basic authoritative projection; no approved performance baseline in this pass | Partial/unverified | Define source/freshness and baseline-derived performance evidence |
+| REQ-033 expert personalization | Tool and workspace models exist | Unverified for persisted user-defined profiles | Keep optional until V3 preference model and safe shortcut policy are evidenced |
+
+### D. Confirmed specification clarifications arising from source trace
+
+1. **Do not equate shared hosting with shared interaction.** The common editor host and distinct Control/Protection surfaces confirm that V3 should standardize the contract and capability declarations, not force a single canvas class.
+2. **Do not equate a serializable model with persistence.** `ViewportState.to_dict/from_dict` and workspace dataclasses require a real owner, storage path, identity, migration and restore evidence before REQ-021/022 can be marked implemented.
+3. **Do not equate status text with diagnostics.** The existing string-based Messages panel and compact status fields motivate a typed read-side diagnostic model with separate category lifecycles.
+4. **Do not equate configured channels with live measurements.** Protection's configured input channel projection is not proof of channel discovery, trusted sample ingress, freshness or quality.
+5. **Do not equate a Control cycle with actuation.** Basic Control status must remain distinct from blocked intent, command dispatch/acknowledgement and DeviceFeedback.
+6. **Do not equate shortcut metadata with keyboard routing.** Registry, menu QAction shortcuts and editor key handling must be traced into one effective focus/context policy before acceptance.
+7. **Do not infer runtime UX from source composition.** Hidden panels, visible panels, splitter behavior, focus, accessibility and error navigation require a runtime walkthrough.
+
+### E. Required next audit inputs and bounded work plan
+
+**Required input:** identify the exact V3 implementation repository/branch/ref (and commit SHA if a pinned snapshot is intended). If V3 is not yet branched, explicitly designate the intended development baseline and confirm whether the audit should treat it as a new branch from current `main` or a different implementation repository. Do not create or move branches on the user's behalf.
+
+After designation:
+1. Pin the V3 source commit and capture its branch ancestry/relationship to V2 `main`.
+2. Map each V3-UI-REQ and UI-CAP to exact source modules, classes, command/read-model contracts and plugin contribution points.
+3. Mark each requirement **Implemented / Partial / Missing / Not applicable / Runtime-unverified**, with source references and evidence type.
+4. Trace each UI-ACC scenario through the complete path: input → UI/controller → Application command/read model → Core/domain result/event → projection → user-visible outcome.
+5. Inspect affected `__init__.py` exports and Qt boundary only where relevant to a finding; do not widen into unrelated architecture refactoring.
+6. Record defects as findings with severity, reproducible evidence or explicit static-only status, owner/dependency and closure evidence.
+7. Produce an ordered implementation work-package map only after traceability is complete and approval gates are addressed.
+
+**Scope boundary:** no source files were modified in this pass. No V2 architecture or implementation was changed. No tests or CI were run or used as acceptance gates. The branch-provenance blocker is the current result; V2 source evidence is a reference baseline only.
