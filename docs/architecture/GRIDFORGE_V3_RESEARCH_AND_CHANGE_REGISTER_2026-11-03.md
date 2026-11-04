@@ -5544,3 +5544,389 @@ No gate is closed by this research entry. No candidate scenario is represented a
 - No solver result, benchmark, simulation or study can be represented as field validation, certification or operational authorization without the corresponding evidence and authority.
 
 **Scope boundary:** research register only. No solver, domain model, plugin, backend, numerical kernel, benchmark, project schema, source code, tests or CI were implemented or run. V2 main remains unchanged.
+
+
+## 8I-27. Proposed V3 engineering simulation runtime and multi-physics co-simulation architecture (2026-11-04)
+
+### A. Research objective and scope
+
+Define a V3 simulation runtime capable of coordinating electrical network models, physical equipment dynamics, instrumentation, Protection and Control without merging their domain authorities or imposing one global numerical solver. The objective is a coherent simulation lifecycle with explicit time semantics, model coupling, data exchange, event ordering, numerical coordination, reproducibility and safety boundaries.
+
+This section extends 8I-26 (calculation and solver governance), the shared Signal and Measurement Infrastructure research, Protection-state revision contracts, Control execution architecture and the consolidated plugin architecture. It is a proposed V3 research record, not an implementation plan approval.
+
+A simulation runtime is not the same as a study solver:
+- A **study solver** solves a domain-specific mathematical problem, often for a fixed operating point or defined study interval.
+- A **simulation model** represents state evolution, inputs, outputs and events over simulated time.
+- A **simulation runtime** schedules model execution, advances simulation time, exchanges typed signals, coordinates events and records results.
+- A **co-simulation coordinator** coordinates multiple independently owned simulation participants and their time progression.
+- A **domain execution authority** retains responsibility for its own semantics: Protection decisions, Control cycle behavior, electrical network state and equipment dynamics must not be delegated to a generic scheduler.
+
+### B. Architectural principles
+
+1. **Domain ownership remains explicit.** Core domain packages own physical and engineering truth; Application owns controlled lifecycle and orchestration; domain simulation services own model-specific execution; runtime infrastructure coordinates time and message exchange.
+2. **One runtime contract, multiple domain models.** Shared lifecycle and participant contracts must not force all models into one solver, time step, state representation or execution algorithm.
+3. **Explicit coupling.** Every participant declares inputs, outputs, units, causality, sampling/holding behavior, latency and coupling assumptions.
+4. **Time is typed.** Simulation time, wall-clock time, event time, measurement timestamp and data-arrival time are not interchangeable.
+5. **Deterministic ordering is defined.** Same-time events, discrete transitions, sampling and command/feedback processing require documented ordering and tie-breaking rules.
+6. **Numerical and event semantics are preserved.** Continuous integration, discrete event execution and sampled Control scans remain distinguishable.
+7. **No hidden authority escalation.** A simulation signal or model output is not a physical measurement, an authorized command, a Protection trip or an actuation acknowledgement.
+8. **Results are revision-bound and reproducible.** Model versions, parameters, initial conditions, event schedule, coupling configuration, solver settings and backend are captured.
+9. **Fail visibly.** Algebraic loops, unstable coupling, missed deadlines, invalid signals and participant failures produce typed diagnostics; no silent substitution.
+10. **Hardware is an execution choice, not a physics dependency.** CPU is the portability/reference path; GPU accelerates suitable numerical work; NPU is restricted to explicitly governed inference.
+
+### C. Simulation domains and participant types
+
+Candidate simulation participants include:
+
+- **Electrical network participant:** network topology, electrical state, bus/branch models, power flow or dynamic network equations, switching and fault boundary conditions.
+- **Equipment physics participant:** synchronous/asynchronous machines, motors, transformers, cables, lines, drives, generators, loads, thermal models and mechanical systems.
+- **Instrumentation participant:** CT/PT/CVT, sensors, transducers, RTD/thermocouples, BTD/OTD/WTD and signal conditioning; may represent ideal, non-ideal, sampled, noisy, delayed or faulty measurement behavior.
+- **Signal acquisition participant:** analog/digital input channels, filtering, scaling, sampling, timestamping, quality and communication latency.
+- **Protection participant:** relay measurement consumption, protection function execution, decision logic, trip request and breaker-related Protection semantics.
+- **Control participant:** discrete/continuous control logic, PLC-like scan behavior, interlocks, timers, sequencing and controller outputs.
+- **Actuator/device participant:** simulated breaker, contactor, drive, valve or other equipment response, including command acceptance, operating delay, failure mode and feedback.
+- **Communication participant:** network delay, jitter, loss, reordering, protocol behavior and quality changes where such detail is in scope.
+- **Environment participant:** ambient temperature, process load, mechanical load, source variation and external disturbances.
+- **Scenario/event participant:** scheduled switching, fault insertion, load steps, sensor failure, communication interruption and operator-originated simulation events.
+
+A participant declares whether it is continuous-time, discrete-event, fixed-step sampled, variable-step, algebraic, stochastic or hybrid. A participant may internally use a different numerical method or time step from other participants, provided its exchange contract is satisfied.
+
+### D. Canonical participant contract
+
+A participant contract should declare:
+- Stable participant ID, domain, model identity, model version/build and schema version.
+- Model class and fidelity level, supported operating envelope and exclusions.
+- Typed input/output ports with semantic signal identity, dimensions, units, reference frame, sign/direction and valid range.
+- Port causality and direction; input ownership and output ownership.
+- Sampling, update, interpolation, extrapolation, zero-order hold or event-triggered behavior.
+- Internal state definition/version, initialization requirements and reset semantics.
+- Time model, supported step sizes, event handling and synchronization capability.
+- Solver method, tolerances, numerical precision and determinism class.
+- Required participant dependencies and coupling assumptions.
+- Execution backend capability, resource profile and cancellation behavior.
+- Error, warning, quality and validity reporting.
+- Save/restore or checkpoint capability where supported.
+- Provenance, licensing, validation evidence and declared limitations.
+
+Ports must be typed beyond a display label. For example, a voltage magnitude, phasor voltage, sampled analog channel, binary trip request and breaker auxiliary contact are different semantic types even if all are represented internally by numbers or Booleans.
+
+A port mapping must be explicit and reviewable. Implicit unit conversion, phase mapping, sign inversion, scaling, sample-rate conversion or quality promotion is prohibited unless declared in a typed transformation with provenance.
+
+### E. Time domains and synchronization
+
+Define and preserve distinct time concepts:
+- **Simulation time:** logical time advanced by the simulation runtime.
+- **Participant local time:** participant's internal integration or execution coordinate.
+- **Wall-clock time:** elapsed real time consumed by execution.
+- **Event time:** intended logical occurrence time of an event.
+- **Measurement timestamp:** time associated with the sampled or derived measurement.
+- **Arrival/processing time:** time the runtime receives or processes the data.
+
+A simulation clock should identify its epoch, unit, resolution, monotonicity and conversion rules. Do not use host wall-clock time as simulation time except in a declared real-time/HIL mode.
+
+Synchronization policies may include:
+- Global fixed time step for compatible tightly coupled models.
+- Master algorithm with adaptive communication steps.
+- Conservative event-driven progression that does not advance beyond the earliest known causally relevant event.
+- Iterative synchronization for strongly coupled participants.
+- Loose synchronization with declared sample-and-hold or interpolation error.
+- Real-time pacing for HIL or operator-in-the-loop scenarios, with explicit deadline semantics.
+
+No single policy is appropriate for all models. The coordinator must select a policy compatible with participant capabilities and coupling strength, and disclose the resulting approximation. Participants must not silently advance beyond a point at which they may need input from another participant.
+
+### F. Continuous, discrete and hybrid execution
+
+Support distinct execution modes:
+- Continuous integration of differential/algebraic state equations.
+- Discrete-event execution at a logical timestamp.
+- Fixed-period sampled execution, such as a Control scan.
+- Variable-period or event-triggered execution.
+- Hybrid execution combining continuous state evolution with discrete mode changes, switching and event conditions.
+
+A Control scan period is not automatically the electrical solver time step. A relay sampling interval is not automatically the same as the instrumentation channel sample interval. A motor integrator's internal adaptive step is not automatically a communication step.
+
+The runtime must represent the relation between these clocks explicitly. Where a participant samples or holds another participant's output, the method and resulting temporal approximation are recorded.
+
+### G. Event ordering and causality contract
+
+Define a deterministic event ordering policy for events sharing the same simulation timestamp. Candidate event classes include:
+1. Scheduled exogenous scenario events.
+2. Continuous-state threshold crossings and solver-discovered events.
+3. Measurement acquisition and signal-quality updates.
+4. Signal routing and delivery to subscribers.
+5. Protection evaluation using eligible measurement samples.
+6. Protection decision publication and trip-request creation.
+7. Control cycle or event-triggered logic execution.
+8. Command validation/acceptance within the simulated device boundary.
+9. Simulated actuator state transition.
+10. Device feedback and auxiliary-contact update.
+11. Diagnostics, event journal and result projection.
+
+This is a candidate causal sequence, not a universal hard-coded ordering. Domain-specific execution rules and configured scan/sampling schedules determine the actual order. The runtime must define precedence, same-time event batching, re-entrancy behavior and tie-breaking for each coupled scenario.
+
+Represent causality explicitly: event scheduled by scenario, measurement produced by sensor, signal transformed by acquisition, decision evaluated by Protection, command requested by Control/Protection, simulated device transition, feedback observed. Correlation alone must not be represented as causation.
+
+Zero-delay loops and algebraic loops require explicit detection and a declared resolution strategy, such as algebraic solution, iteration, delay insertion when physically justified, or rejection. Do not insert arbitrary delay to make an unstable coupling graph execute.
+
+### H. Coupling strength and numerical coordination
+
+Classify coupling between participants:
+- **Uncoupled:** no runtime data dependency during the run.
+- **One-way feed-forward:** source output drives a consumer without feedback.
+- **Weak/tightly scheduled coupling:** participants exchange values at defined communication points with explicit hold/interpolation assumptions.
+- **Strong coupling:** participants require iterative exchange or a jointly solved system to meet accuracy/stability requirements.
+- **Event coupling:** discrete events alter another participant's mode or state.
+- **Hybrid coupling:** continuous and discrete interactions coexist.
+
+The coordinator should build and validate a typed coupling graph before execution. It must identify missing ports, multiple writers, incompatible units, unsupported sampling ratios, causal cycles, unbounded feedback and unsupported coupling strength.
+
+Strongly coupled electrical network and machine dynamics may require a domain-specific joint solver or iterative co-simulation algorithm. The runtime must not pretend that loose sequential execution is equivalent. Numerical stability and accuracy must be assessed for the complete coupled system, not only each participant in isolation.
+
+Record communication step, interpolation/extrapolation method, iteration limit, convergence tolerance, relaxation strategy and coupling residual where applicable. Distinguish participant convergence from co-simulation convergence.
+
+### I. Shared Signal and Measurement Infrastructure integration
+
+Simulation participants should publish and consume the same canonical typed Signal/Measurement contracts used by physical and simulated instrumentation. A simulated measurement record must identify:
+- Simulated source and participant/model identity.
+- Signal/channel identity and semantic quantity.
+- Value, unit, timestamp and time quality.
+- Quality state, validity and source status.
+- Sampling/acquisition time and processing/arrival time where relevant.
+- Calibration/scaling/filtering and transformation provenance.
+- Simulation run, scenario and input snapshot identity.
+- Whether value is ideal, modeled, estimated, injected, replayed or derived.
+
+Physical and simulated signals may share schemas and processing contracts but must remain distinguishable by source provenance. A simulation must not silently overwrite a live physical signal namespace or appear as a real measurement. Live, replay, simulated and imported data sources require explicit source selection and visible mode boundaries.
+
+Signal quality must propagate through transformations and consumers. Invalid, stale, substituted, out-of-range or unavailable measurements must retain their quality state; a downstream consumer cannot promote them to good merely because a numeric value exists.
+
+### J. Protection and Control simulation boundaries
+
+Protection and Control remain separate domain authorities even when they participate in one simulation.
+
+**Protection simulation:**
+- Consumes typed measurements with sample timestamps, quality and provenance.
+- Evaluates configured relay functions and operating state under Protection-domain rules.
+- Produces a ProtectionDecision and associated diagnostics with exact input/configuration revisions.
+- Emits a simulated trip request only through the declared Protection-to-device interface.
+- Does not equate a trip request with breaker operation, successful interruption or physical feedback.
+- Uses simulated breaker/device response to obtain later feedback, preserving command/actuation/feedback distinction.
+- Enforces stale measurement and invalid input handling; fail-closed behavior remains mandatory where required by Protection policy.
+
+**Control simulation:**
+- Executes Control logic according to its declared scan/event model.
+- Preserves interlock, permissive, timer, sequence, command and feedback semantics.
+- Records blocked actions and reasons, not just output state.
+- Uses the simulated device interface for command acceptance and feedback.
+- Does not directly mutate equipment Core state or Protection decisions.
+
+The runtime schedules participants; it does not reinterpret Protection or Control domain logic. Simulation mode must be explicit and cannot be confused with live operational mode. No simulation participant may dispatch a real device command.
+
+### K. Device and actuator response modelling
+
+A device model should distinguish:
+- Command intent/request.
+- Command validation and simulated acceptance/rejection.
+- Mechanical/electrical transition initiation.
+- Travel/operating time and intermediate states where modeled.
+- Successful, failed, delayed or incomplete operation.
+- Auxiliary contact or status feedback.
+- Failure modes such as stuck, slow, pole discrepancy, loss of supply, mechanism fault or sensor failure.
+
+A simulated breaker opening is not identical to a Protection trip decision. A command accepted by a simulated device is not proof of successful operation. Feedback is generated by the device model and timestamped independently.
+
+Failure injection must be scenario-controlled, typed and auditable. Fault injection must not be implemented as arbitrary mutation of Core equipment or as a hidden test hook in production domain logic.
+
+### L. Simulation scenario, initialization and lifecycle
+
+A scenario is a versioned, typed definition of initial conditions, participant set, model versions, parameter overrides, coupling graph, clock policy, scheduled events, random seeds and stop conditions.
+
+Lifecycle should include:
+- Draft scenario creation and configuration.
+- Participant/model compatibility discovery.
+- Static coupling and input validation.
+- Initialization dependency ordering.
+- Initial-state solve or initialization procedure where required.
+- Explicit pre-run validation and user review.
+- Run, pause, resume, step, stop and cancel semantics subject to participant capabilities.
+- Checkpoint and restore only when participant state and runtime state support a consistent snapshot.
+- Terminal status and result finalization.
+- Replay, comparison and provenance inspection.
+
+Initialization must be deterministic where the model permits it. Circular initialization dependencies must be detected and resolved through a declared domain method or rejected. A partially initialized run must not be presented as a valid baseline.
+
+Pause/resume and checkpoint semantics must account for solver internal state, event queues, random generator state, participant clocks, communication buffers and external co-simulation processes. If exact restoration cannot be guaranteed, the capability must be declared unsupported rather than approximated silently.
+
+### M. Co-simulation federation and external standards
+
+Research candidate interoperability standards and frameworks as possible adapters, not as reasons to replace domain ownership:
+- FMI (Functional Mock-up Interface) for exchange/co-simulation of packaged models, with explicit version/profile and capability handling.
+- SSP (System Structure and Parameterization) for describing system structure, connections and parameterization where appropriate.
+- Modelica-based model exchange and co-simulation ecosystems.
+- HLA/DIS-style federation concepts where distributed simulation and federation time management are relevant.
+- IEC 61850 or other automation communication models only where protocol/IED behavior is explicitly being simulated; protocol data models are not a substitute for Protection/Control domain semantics.
+- Domain-specific power-system and real-time simulation interfaces where justified by a verified interoperability requirement.
+
+Do not claim standards conformance from partial file parsing or a minimal adapter. Verify official specifications, versions, licensing and supported profiles before committing to a format. An external model package is untrusted input and must be validated, sandboxed and provenance-bound.
+
+An external simulator can participate as a controlled adapter, but cannot directly mutate GridForge Core or bypass the Application lifecycle. External execution must expose time synchronization, causality, input/output typing, error reporting, cancellation and provenance to the coordinator.
+
+### N. Execution backends and heterogeneous compute
+
+- CPU remains the baseline for portability, reference execution and unsupported accelerator fallback.
+- GPU may accelerate parallelizable participant kernels or batch workloads. The co-simulation coordinator remains responsible for event ordering and time synchronization unless a specific GPU-resident algorithm is declared and verified.
+- NPU may execute supported inference components, including governed surrogate models, but cannot replace deterministic domain execution or issue Protection/Control actions.
+- Heterogeneous participants may execute on different backends, but their exchange contract and time coordination remain backend-independent.
+- Backend changes must not silently change participant model fidelity, sample rates, solver tolerances or scenario semantics.
+- Resource scheduling must account for CPU threads, GPU memory, device contention, model memory and participant concurrency.
+- Record backend identity, runtime versions, precision and fallback transitions for each participant and run.
+
+A GPU-accelerated motor model and CPU electrical network solver may be co-simulated only if the communication and numerical coupling policy is valid for the combined system. Device availability alone is not evidence that heterogeneous execution is stable or faster.
+
+### O. Runtime architecture and consolidated plugin placement
+
+Place simulation participant providers, model packages, solver integrations and co-simulation adapters within the single consolidated V3 plugin architecture. Do not create separate registries for motor, electrical, Protection, Control, instrumentation or external simulation plugins.
+
+Separate these contracts:
+- **Domain model contract:** canonical physical/engineering model and invariants.
+- **Participant adapter:** exposes a domain model to the simulation runtime.
+- **Solver provider:** performs declared numerical integration or algebraic solving.
+- **Signal adapter:** maps participant ports to typed signal/measurement contracts.
+- **Coupling coordinator:** manages participant time and data exchange.
+- **Backend adapter:** provides CPU/GPU/NPU execution capability.
+- **Scenario service:** validates and owns scenario configuration.
+- **Application orchestration:** lifecycle, permissions, task/resource control and result publication.
+- **Projection/UI:** scenario editor, participant graph, timeline, diagnostics and result visualization.
+
+Plugins must register through one public contract and must not duplicate event buses, transaction managers, task schedulers or domain authorities. Core must not import plugin implementations, Qt, graphics objects, external simulator SDKs or accelerator runtimes. Plugin removal or version change must not corrupt persisted project models or historical run results.
+
+### P. Result, trace and reproducibility model
+
+A simulation run result should capture:
+- Run/scenario identity and exact scenario revision.
+- Project revision and immutable input snapshot identity.
+- Participant identities, model versions/builds and parameter provenance.
+- Coupling graph and port mappings.
+- Time policy, clock resolution, communication step and event ordering policy.
+- Solver methods, tolerances, numerical precision and backend per participant.
+- Initialization state, random seeds and event schedule.
+- Participant and co-simulation convergence/quality diagnostics.
+- Signal and measurement histories or declared retention references.
+- Protection decisions, Control execution records, device command/response/feedback and event trace.
+- Warnings, model limitations, assumptions and unsupported phenomena.
+- Runtime identity, software versions, hardware and resource summary.
+- Result completeness, determinism class and reproducibility instructions.
+
+Results are immutable and bound to the scenario/input snapshot. A rerun with changed participant version, model parameter, event ordering, backend, precision or coupling policy is a distinct run. Comparison must disclose differences and avoid claiming equivalence without a declared metric.
+
+Record enough data to reconstruct event ordering and participant input histories. For large runs, use bounded and configurable retention with integrity metadata and explicit gaps; never imply a complete trace where data was dropped or sampled.
+
+### Q. Diagnostics and failure handling
+
+Provide typed diagnostics for:
+- Invalid participant contract or incompatible schema.
+- Missing/unconnected port, multiple writer or type/unit mismatch.
+- Invalid initialization or unresolved initialization cycle.
+- Unsupported time policy, sampling ratio or synchronization capability.
+- Causality violation, zero-delay loop or algebraic loop.
+- Participant non-convergence or numerical instability.
+- Co-simulation iteration failure or coupling instability.
+- Missed real-time deadline or wall-clock pacing overrun.
+- Signal quality degradation, stale data or timestamp inconsistency.
+- Participant crash, timeout, cancellation or resource exhaustion.
+- External adapter/protocol failure.
+- Incomplete trace, data loss or checkpoint incompatibility.
+- Stale project/scenario dependency or incompatible model version.
+
+A participant failure must have a declared propagation policy: stop the run, isolate the participant only when mathematically and physically valid, or continue in a clearly degraded mode. Never silently freeze an output, substitute a default, drop an event or continue a Protection/Control evaluation using stale data without explicit model semantics and diagnostic evidence.
+
+### R. Performance, scalability and real-time boundaries
+
+Distinguish offline simulation, accelerated offline simulation, interactive simulation and real-time/HIL execution. They have different timing guarantees:
+- Offline simulation prioritizes numerical correctness and reproducibility over wall-clock deadlines.
+- Accelerated offline simulation may run faster than real time but must preserve model/coupling validity.
+- Interactive simulation prioritizes responsive controls and visible progress without claiming hard real-time behavior.
+- Real-time/HIL requires explicit deadline, jitter, synchronization, I/O and fail-safe requirements and must not be inferred from a fast desktop run.
+
+Candidate performance measurements include participant initialization time, simulated-time throughput, wall-clock/simulated-time ratio, event queue latency, coupling iteration count, signal throughput, memory peak, CPU/GPU utilization, trace volume and UI projection latency. Targets must be based on representative project sizes and hardware; no numerical performance target is asserted in this research entry.
+
+The runtime should support bounded concurrency, backpressure, trace sampling policy, memory quotas and cancellation. UI responsiveness must not depend on executing participant models in the UI thread. Performance optimization cannot discard causal events or reduce numerical fidelity without an explicit mode change.
+
+### S. Security, trust and operational safety
+
+Treat model packages, scenario files, external simulator executables, plugins, imported signals and checkpoint archives as untrusted. Validate schemas, archive paths, resource declarations, executable identity and input sizes. Apply process isolation and resource/time limits to external execution where practical.
+
+Simulation execution must be explicitly separated from live operation:
+- Simulation sources and results have distinct identities and visible mode labels.
+- No simulated command may reach a physical device transport.
+- No simulation result may be silently promoted to a live measurement or operational state.
+- No plugin or external simulator may bypass authorization, Protection interlocks or Control command boundaries.
+- HIL interfaces, if introduced, require a separate approved architecture and hazard/safety review; ordinary desktop simulation does not authorize them.
+- Simulation output is engineering evidence only within its declared model and validation envelope, not certification or field proof.
+
+### T. Candidate V3 acceptance scenarios
+
+The following are candidate scenarios, not executed tests or approved release criteria:
+
+- **UI-ACC-COSIM-01:** A scenario declares participants, model versions, typed ports, coupling graph, initial conditions and stop conditions.
+- **UI-ACC-COSIM-02:** Incompatible units, signal types, port directions or multiple writers are rejected before execution.
+- **UI-ACC-COSIM-03:** Simulation time, wall-clock time, event time and measurement timestamps remain distinct and inspectable.
+- **UI-ACC-COSIM-04:** Same-time event ordering is deterministic and recorded for a fixed scenario and execution policy.
+- **UI-ACC-COSIM-05:** Continuous, discrete-event, sampled and hybrid participants declare and obey their own time semantics.
+- **UI-ACC-COSIM-06:** A Control scan period and Protection sampling interval are not silently equated to the electrical solver step.
+- **UI-ACC-COSIM-07:** A strongly coupled model is not run as loose sequential coupling without explicit approximation and acceptance.
+- **UI-ACC-COSIM-08:** Algebraic or zero-delay loops are detected and resolved by a declared method or rejected.
+- **UI-ACC-COSIM-09:** A simulated measurement retains source, quality, timestamp, unit and transformation provenance.
+- **UI-ACC-COSIM-10:** Simulated and physical signals cannot silently overwrite or impersonate one another.
+- **UI-ACC-COSIM-11:** Protection consumes eligible measurements and publishes a revision-bound ProtectionDecision through its own domain service.
+- **UI-ACC-COSIM-12:** A Protection trip request, simulated device acceptance, device transition and feedback remain separate trace events.
+- **UI-ACC-COSIM-13:** Control scan, interlock, blocked action, command and feedback semantics remain owned by Control.
+- **UI-ACC-COSIM-14:** A stale or invalid measurement cannot be silently promoted to valid input for Protection or Control.
+- **UI-ACC-COSIM-15:** A participant failure follows a declared stop/degraded-mode policy and never silently freezes an output.
+- **UI-ACC-COSIM-16:** Checkpoint/restore is offered only when all participant and coordinator state required for consistency is captured.
+- **UI-ACC-COSIM-17:** CPU/GPU execution differences are measured against declared numerical and event-order equivalence criteria.
+- **UI-ACC-COSIM-18:** NPU inference cannot issue Protection decisions, Control commands or physical actuation.
+- **UI-ACC-COSIM-19:** An external FMI/SSP or other adapter is version/profile validated, isolated and provenance-bound.
+- **UI-ACC-COSIM-20:** A run can be reconstructed or compared using scenario, participant, coupling, solver, backend, event and input snapshot provenance.
+
+### U. Open research and approval decisions
+
+1. Select the first supported simulation scope and explicitly defer unsupported domains and coupling modes.
+2. Define participant, port, signal mapping, scenario, run, event and result schemas.
+3. Select initial time synchronization and master-algorithm policies for the first coupled electrical/motor/measurement/Protection/Control workflow.
+4. Define event ordering and same-time tie-breaking rules with domain owners.
+5. Define coupling-strength classification, algebraic-loop handling and numerical acceptance for coupled runs.
+6. Decide whether FMI/SSP support is required in the initial V3 release; verify official specification versions, profiles and licensing before implementation.
+7. Define simulated vs physical source namespace, source selection and UI mode-boundary policy.
+8. Define checkpoint, pause/resume and deterministic replay guarantees per participant type.
+9. Define real-time/HIL exclusion or a separately governed future workstream.
+10. Establish performance profiles and hardware targets from representative workloads.
+11. Define participant/plugin admission evidence and isolation policy.
+12. Define the retained trace level and storage policy for long-duration/high-rate runs.
+
+### V. Gate impact and disposition
+
+- **UI-GATE-03 — Diagnostics and engineering status:** Open. Requires participant health, coupling status, simulation-vs-physical source identity, time-quality, numerical convergence and degraded-run visibility.
+- **UI-GATE-05 — Display performance and responsiveness:** Open. Requires evidence for high-rate trace projection, participant graph/timeline rendering and asynchronous task handling.
+- **UI-GATE-06 — Cross-domain traceability:** Open. Requires causal trace from scenario and input snapshot through signal acquisition, Protection/Control execution, device response and result.
+- **UI-GATE-07 — Scope and priority:** Open. Requires selection of initial participants, coupling modes, solver/backend scope and explicit deferrals.
+- **UI-GATE-02 — Project/session lifecycle:** Open where scenario persistence, checkpoint, recovery, run history and revision binding intersect project lifecycle.
+
+No gate is closed by this entry. No candidate scenario is represented as executed or passed.
+
+### W. Frozen invariants and scope boundary
+
+- Core remains the owner of canonical domain truth and physical/engineering invariants.
+- Application owns controlled mutation, lifecycle and cross-domain orchestration.
+- Domain services retain their own simulation semantics; the runtime coordinates but does not become a universal domain authority.
+- Protection and Control remain separate execution authorities with independent revision, validation, diagnostics and command/feedback contracts.
+- Shared Signal/Measurement infrastructure serves physical and simulated sources while preserving source identity, quality, time and provenance.
+- Simulation time, wall-clock time, event time, measurement timestamp and arrival time remain distinct.
+- Participant ports, coupling transformations, time policies and event ordering are explicit and auditable.
+- CPU is the portability/reference path; GPU is optional acceleration; NPU is restricted to governed inference.
+- Plugins use the consolidated public extension architecture; no direct Core mutation or plugin dependency from Core.
+- Simulation cannot issue physical device commands, impersonate live measurements or weaken Protection/Control safety boundaries.
+- Simulation results are immutable, revision-bound engineering evidence with declared model fidelity and limitations.
+- HIL and real-time operation require separate explicit approval and safety architecture.
+
+**Scope boundary:** research register only. No simulation runtime, participant, model, co-simulation coordinator, FMI/SSP adapter, solver, plugin, backend, project schema, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
