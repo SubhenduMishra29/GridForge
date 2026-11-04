@@ -21126,3 +21126,56 @@ recomposition path and guard configuration provider inspected. No tests,
 CI, syntax/import checks or runtime ANSI 25 command execution performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-145 — PER-ELEMENT PROTECTION DEPENDENCY GRAPH AUDIT
+======================================================================
+
+Source audit:
+- ProtectionFunctionConfiguration supplies stable element_id, relay_id,
+  direct input_channel_ids, and explicit residual-current binding IDs.
+- ProtectionMeasurementBinding supplies protection_element_id, relay_input_id,
+  channel_id, instrument_id, source_equipment_id, source endpoint/terminal
+  identity, and explicit instrument_ratio. This is sufficient to establish
+  most direct channel→instrument→relay dependencies without inferring from
+  object ordering or names.
+- THREE_PHASE_SUM residual current declares exactly three phase binding IDs;
+  NEUTRAL_CT/CBCT declares one direct binding ID. These must be included in
+  the element's dependency set.
+- DifferentialProtectionSchemeConfiguration references binding IDs and a
+  protected object, but has no explicit protection_element_id. The aggregate
+  verifies current measurement type but does not establish a single owner
+  Protection element for the scheme. Do not infer an element dependency from
+  list position or scheme naming.
+- Runtime equipment freshness currently fingerprints all CT/CVT/PT and Relay
+  equipment project-wide. ProtectionRuntime.compose() builds all configured
+  elements in one ProtectionSystem; ProtectionSystem.evaluate() executes all
+  enabled elements as one cycle. Application live pre-dispatch guard compares
+  project-wide instrumentation, Relay and configuration revisions.
+- Residual-current scenario provenance carries topology_revision/
+  ct_topology_revision and explicit CT/branch/side identity. It does not yet
+  expose an independent per-association topology revision. Any topology
+  revision mismatch therefore remains conservatively project-wide.
+
+Audit conclusion:
+- A per-element dependency graph can be built for direct channel bindings,
+  residual-current bindings and each element's Relay.
+- Differential-scheme ownership and topology-derived CT association need
+  explicit canonical association contracts before dependency scoping can
+  be considered complete.
+- Safe selective invalidation also requires a dispatch/evaluation contract
+  that can isolate a stale element without accepting its decision, while
+  preserving atomicity and ordering for the remaining elements. The current
+  all-elements ProtectionSystem evaluation plus project-wide pre-dispatch
+  fence is conservative but cannot selectively preserve unrelated decisions.
+
+No code changes made for this audit item. Preserve fail-closed project-wide
+behavior until all dependency identities and per-element dispatch boundaries
+are explicit. This is not an issue closure.
+
+Verification boundary:
+Source inspection only. No tests, CI, syntax/import checks, or runtime
+multi-element evaluation/dispatch experiments performed.
+
+======================================================================
