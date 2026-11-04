@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+import json
 from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -55,7 +56,11 @@ def _source_endpoint_identity(binding: Any) -> str:
     return f"unsupported:{endpoint.kind}"
 
 
-def _topology_component_fingerprint(component: Any) -> str:
+def _topology_component_fingerprint(
+    component: Any,
+    *,
+    prefix: str = "ct-primary-component:v1:",
+) -> str:
     """Match the canonical CT association fingerprint used by the configuration service."""
     identities = []
     for reference in component:
@@ -74,10 +79,8 @@ def _topology_component_fingerprint(component: Any) -> str:
             identities.append(("junction", reference.junction_id))
         else:
             raise ValueError(f"Unsupported topology endpoint kind: {reference.kind!r}.")
-    payload = __import__("json").dumps(
-        sorted(identities), ensure_ascii=True, separators=(",", ":")
-    )
-    return "ct-primary-component:v1:" + sha256(payload.encode("ascii")).hexdigest()
+    payload = json.dumps(sorted(identities), ensure_ascii=True, separators=(",", ":"))
+    return prefix + sha256(payload.encode("ascii")).hexdigest()
 
 
 def _instrument_configuration(instrument: Any) -> Mapping[str, Any]:
@@ -464,7 +467,12 @@ def build_protection_dependency_registry(
                             )
                         selected_side = matching_roles[0]
                         selected_component_fingerprint = _topology_component_fingerprint(
-                            primary_components[selected_side]
+                            primary_components[selected_side],
+                            prefix=(
+                                "ct-primary-component:v1:"
+                                if measurement_type == "current"
+                                else "instrument-primary-component:v1:"
+                            ),
                         )
                         if measurement_type == "current":
                             if (
