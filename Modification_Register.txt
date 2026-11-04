@@ -21547,3 +21547,71 @@ Verification boundary:
   topology-rebind scenarios were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-154 — LIVE ANSI 50N/51N RESIDUAL-SOURCE SAMPLE PROVENANCE
+======================================================================
+
+Audit finding:
+- The canonical Protection function catalog marks ANSI 50N and 51N as
+  IMPLEMENTED and declares a derived residual_current RelayInput.
+- The live Application evaluator validates ordinary input_channel_ids and
+  captures their coherent sample snapshots. ANSI 50N/51N intentionally
+  forbid ordinary physical input_channel_ids and instead depend on
+  persisted residual-current CT measurement bindings.
+- The live evaluator does not yet capture those residual-source channels
+  into an Application-authorized per-element sample snapshot or derive the
+  live residual-current phasor. The scenario evaluator has a separate
+  residual-current derivation path; that path does not establish live
+  telemetry provenance.
+- ProtectionElement requires an Application-authorized snapshot for every
+  RelayInput, including the derived residual_current input. Consequently,
+  live 50N/51N evaluation must fail closed rather than dispatch from an
+  absent or caller-supplied residual value.
+- The dependency registry previously classified the persisted CT bindings
+  but could still mark the live 50N/51N descriptor complete. That could
+  incorrectly authorize selective invalidation for a live path whose
+  sample dependencies were not actually captured.
+
+Required correction contract:
+- Capture every configured residual-source MeasurementChannel under its
+  owning Protection element, using coherent sample value, timestamp,
+  quality, availability, usability, validity and producer sequence.
+- Revalidate the complete sample set before resolution, after resolution,
+  immediately before dispatch and after post-dispatch observation.
+- Verify binding ownership, CT/channel identity, CT service state and ratio,
+  source terminal, persisted P1/P2 primary association, component fingerprint,
+  polarity, measurement point, source mode and topology provenance.
+- Derive the residual-current phasor only from the exact configured source
+  set: A/B/C three-phase sum, explicit Neutral CT, or explicit CBCT window.
+  Do not infer a residual source or combine unrelated channels.
+- Keep live sample progression separate from equipment/configuration
+  fingerprints and revisions. A changed sample invalidates only its
+  consuming Protection element.
+- Until the live derived-input snapshot path is implemented, mark live
+  50N/51N dependency descriptors incomplete so they cannot authorize
+  selective dispatch. Preserve fail-closed execution.
+- Keep scenario evaluation under its existing detached-snapshot and
+  conservative provenance fences; scenario-specific selective invalidation
+  is not claimed by this entry.
+
+Implementation status:
+- PR #1076 now adds an explicit incomplete-descriptor diagnostic for live
+  50N/51N because residual-source sample snapshots are not yet produced by
+  the live evaluator.
+- The ANSI catalog status is unchanged. This is a dispatch-authorization
+  safeguard, not a claim that live residual-current evaluation is complete.
+- Full live residual-current sample capture and derivation remain OPEN.
+
+Verification boundary:
+- Inspected the canonical function catalog and input contracts, live
+  Application sample-capture and decision-guard paths, ProtectionElement
+  snapshot installation contract, runtime DerivedRelayMeasurement
+  composition, residual-current resolver, and separate scenario derivation.
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
+- ANSI 87 remains NOT_IMPLEMENTED and outside live differential execution.
+======================================================================
