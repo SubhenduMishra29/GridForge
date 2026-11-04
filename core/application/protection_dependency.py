@@ -735,6 +735,10 @@ def build_protection_dependency_registry(
                     element_diagnostics.append(f"{binding_prefix}: persisted instrument ratio does not match the active physical instrument.")
 
             if channel is not None and instrument is not None:
+                if getattr(channel, "source", None) is not instrument:
+                    element_diagnostics.append(
+                        f"{binding_prefix}: MeasurementChannel source object is not the active canonical instrument object."
+                    )
                 channel_signal = str(getattr(getattr(channel, "signal_type", None), "value", "")).strip().upper()
                 expected_signal = "CURRENT" if measurement_type == "current" else "VOLTAGE"
                 if channel_signal != expected_signal:
