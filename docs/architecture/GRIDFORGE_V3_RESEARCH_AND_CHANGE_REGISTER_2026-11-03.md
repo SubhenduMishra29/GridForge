@@ -2319,3 +2319,185 @@ Frozen project constraints remain:
 - Preferences, workspace layout and viewport state do not mutate canonical engineering data.
 
 **Scope boundary:** research register only. No package format, schema, persistence service, source implementation or V2 behavior was changed. No tests or CI were run.
+
+
+## 8I-14. Proposed V3 accessibility and platform usability contract (2026-11-04)
+
+**Purpose:** Establish a discipline-aware accessibility contract for UI-GATE-04 across the main shell, SLD, Control, Protection, Study, diagnostics and engineering data entry. This is a design proposal, not a conformance claim or implementation authorization.
+
+### A. Research basis and applicability
+
+Primary technical references reviewed 2026-11-04:
+1. W3C, Web Content Accessibility Guidelines (WCAG) 2.2: https://www.w3.org/TR/WCAG22/
+2. W3C WAI, What's New in WCAG 2.2: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/
+3. Qt 6.12, Accessibility for QWidget Applications: https://doc.qt.io/qt-6/accessible-qwidget.html
+4. Qt 6.12, QAccessibleInterface: https://doc.qt.io/qt-6/qaccessibleinterface.html
+5. Qt 6.12, High DPI: https://doc.qt.io/qt-6.12/highdpi.html
+6. Microsoft, High DPI Desktop Application Development on Windows: https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows
+
+**Applicability qualification:** WCAG is a web-content standard, not by itself a native Qt desktop certification. Its principles and measurable criteria are useful design references for GridForge, but V3 must define a native desktop accessibility profile, platform support matrix and verification method. Do not claim WCAG conformance merely because selected criteria were adapted.
+
+Qt provides accessibility interfaces for built-in widgets and supports custom accessible interfaces for custom widgets/objects. Its accessibility model exposes roles, names, descriptions, states, actions, relationships and navigation to assistive technologies. Custom canvas items and custom controls therefore require deliberate semantic exposure and accessibility event handling; visual rendering alone is insufficient. Qt 6 documentation describes per-monitor DPI support on Windows, but this does not prove application-owned icons, custom painting, cached pixmaps, geometry assumptions or mixed-monitor transitions are correct.
+
+### B. Accessibility principles for engineering software
+
+1. **Equivalent task completion:** Every essential engineering task must have a supported non-pointer route where technically meaningful.
+2. **Semantic equivalence:** Visual symbols, wires, alarms, status indicators and graph edges expose structured accessible names, roles, states and relationships.
+3. **Predictable focus:** Focus order follows task and document context; it is not silently lost when panels, tabs, editors or documents change.
+4. **Visible focus:** Keyboard focus is unambiguous, not colour-only, and not obscured by docks, overlays or tool palettes.
+5. **No colour-only meaning:** Severity, connectivity, selection, alarm and signal quality use text, shape, pattern or accessible metadata in addition to colour.
+6. **User control:** Text/display density and nonessential motion are adjustable without hiding task-critical information.
+7. **Error prevention and recovery:** Validation identifies the affected object/field, explains the issue, provides navigation to the source and preserves user input.
+8. **Consistent semantics, specialized interaction:** Shared accessibility behavior is common infrastructure; SLD, Control and Protection retain their domain-specific object models and workflows.
+9. **Assistive technology parity:** Meaningful selection, diagnostic, execution and project-lifecycle changes are exposed to assistive technology without excessive announcements.
+10. **No unsafe inference:** Descriptions must not imply energized/de-energized, tripped/healthy, command accepted or device operated without authoritative evidence.
+
+### C. Keyboard and focus architecture
+
+- A single focus-aware dispatcher coordinates application commands, active workspace, active document, canvas tool and text-entry controls.
+- Text editors, numeric fields, tables, combo boxes and property editors retain native editing keys. Global shortcuts must not steal text-editing input.
+- Shortcut scopes are explicit: global, workspace, document, canvas/tool and focused control. Conflicts are detectable and discoverable.
+- Every pointer-only menu, dock, tab, palette, property action and diagnostic navigation action has a keyboard equivalent.
+- Tool activation, cancellation, selection mode and active tool are visibly indicated and announced.
+- Escape behavior is deterministic for nested states (dialog, tool, gesture, selection, popup); it must not unexpectedly close or discard a project.
+- Tab/Shift+Tab traverse logical shell regions; arrows operate controls that conventionally use arrow navigation.
+- Canvas keyboard operation supports focus entry/exit, object traversal, selection, property inspection, command invocation, zoom and pan without requiring a mouse.
+- Focus restoration uses stable semantic context (document, panel, object/field), not stale widget pointers.
+- On panel close, focus returns to the invoking control or a documented fallback.
+- Shortcuts are discoverable in menus/tooltips and a searchable reference; remapping requires conflict resolution and reset-to-default.
+
+### D. Canvas accessibility: preserve discipline semantics
+
+**SLD**
+- Expose equipment, terminals, connections, buses, labels and selection groups with stable identity and engineering type.
+- Provide a navigable object/connection outline synchronized with canvas selection.
+- Describe equipment name/tag, type and relevant terminal/connectivity summary without dumping every property into one spoken label.
+- Expose terminal and wire endpoint relationships without pixel-precise targeting.
+- Provide keyboard alternatives for select, move, rotate, connect, delete, inspect and fit/zoom, subject to safe confirmation and domain validation.
+- Distinguish visual/layout movement from topology or ownership change.
+- Announce draft preview and committed project object as different lifecycle states.
+
+**Control**
+- Ladder/rung/logic elements expose semantic roles and relationships (rung, contact, coil, timer, gate, signal reference, interlock), not generic graphics-item labels.
+- Provide structured rung/logic navigation and textual summaries for branches and connections.
+- Execution indications include actual cycle and quality context; colour alone cannot establish execution state.
+- Clearly distinguish editing logic configuration from starting/stopping execution.
+
+**Protection**
+- Relay, protection function, measurement channel, input mapping, decision, trip intent and device feedback are distinct accessible entities.
+- Expose freshness, quality and provenance alongside measurements where material.
+- Diagnostic/trip-history navigation preserves timestamp, source and relay/function identity.
+- Never flatten Protection decision, command acknowledgement and physical breaker feedback into one generic status.
+
+**Study**
+- Study setup exposes labelled fields, units, valid ranges and explicit defaults.
+- Errors identify exact parameters and units.
+- Results expose structured tables and textual plot/curve summaries; chart meaning cannot depend on colour or visual position alone.
+- Progress, cancellation and completion are announced without repeated noise; numerical results retain units and meaningful precision.
+
+A shared accessible canvas abstraction must not force one generic geometry or interaction model across disciplines.
+
+### E. Accessible data entry, diagnostics and tables
+
+1. Every input has a programmatic label, role, unit, current value, constraints where available, and error/help relationship.
+2. Required, optional, read-only, disabled, calculated and inherited values are distinguishable in text and state metadata.
+3. Validation summaries provide severity, category, source object, field/parameter, timestamp and actionable navigation.
+4. Validation failure preserves entered values; focus moves according to a predictable policy.
+5. Live announcements are prioritized and throttled; high-rate telemetry and canvas repaint events are not announced continuously.
+6. Alarm, event, warning, diagnostic and informational message roles remain distinct; acknowledgement, shelving and clearance are described accurately.
+7. Tables/trees expose row and column headers, current cell, sort/filter state, selection and hierarchy.
+8. Search/filter/pagination preserve keyboard position and announce result counts and empty states.
+9. Tooltips supplement but do not replace persistent labels, help text or accessible names.
+10. Engineering units remain part of accessible value descriptions; display formatting must not obscure the underlying engineering value.
+
+### F. Visual presentation, contrast and non-colour cues
+
+- Text and essential control boundaries maintain defined contrast thresholds in every supported theme, measured on rendered states rather than inferred from palette tokens.
+- Focus indicators are persistent, high-contrast and distinct from selection, hover and active-tool styling.
+- Selection, focus, hover, alarm severity, validation, signal quality, energized state and connectivity are not represented by the same colour-only convention.
+- Use redundant cues: text, icons with accessible names, line styles, patterns, shape changes or explicit state columns.
+- Support light and dark themes; evaluate high-contrast/forced-colour behavior on supported platforms.
+- Text scaling must not clip engineering units, tags, property values, diagnostics, menus or dialog actions. Dense views adapt layout rather than silently shrinking text.
+- Density is user-controlled independently of font scale; compact mode cannot remove labels or focus visibility.
+- Avoid flashing/high-frequency animation and provide reduced-motion behavior for nonessential transitions.
+- Critical information remains available in grayscale, under colour-vision differences and when themes change.
+
+WCAG 2.2 provides useful reference criteria for keyboard operation, focus visibility/not-obscured, contrast, non-text contrast, target sizing and programmatic name/role/value. Any adopted thresholds must be mapped to native controls and verified with native tooling; CSS pixels must not be blindly equated with physical Qt geometry.
+
+### G. High-DPI, mixed-monitor and platform behavior
+
+1. Define supported operating systems, Qt versions, windowing systems, display-scale ranges and assistive-technology combinations.
+2. Use device-independent logical geometry for UI layout; convert to device pixels only at rendering/resource boundaries with explicit device-pixel-ratio handling.
+3. Re-evaluate geometry, fonts, icon assets, cached pixmaps, canvas overlays and hit-testing when a window moves between monitors with different scale factors.
+4. Avoid fixed-pixel assumptions for hit targets, panel widths, font sizes, symbol handles and tool icons.
+5. Cover fractional scales, mixed-DPI laptop/external-monitor setups, monitor hot-plug, remote desktop and runtime scale changes.
+6. Prefer vector assets or resolution-appropriate variants; cache keys account for device-pixel ratio and theme.
+7. Canvas geometry and engineering symbol dimensions remain internally consistent when device-pixel ratio changes; monitor scaling cannot mutate saved engineering layout or topology.
+8. Verify floating docks, dialogs, tooltips and menus after scale transitions.
+9. Qt platform DPI behavior is a foundation, not proof that custom painting or third-party widgets are correct.
+10. Document platform-specific accessibility backend support and limitations; do not claim identical assistive-technology behavior across Windows, macOS and Linux without evidence.
+
+### H. Architecture and ownership
+
+- **Core:** owns engineering semantics and typed domain descriptions where required; no Qt or assistive-technology dependencies.
+- **Application:** exposes typed read models, commands, validation and diagnostic navigation targets; remains authoritative for mutations.
+- **UI accessibility layer:** maps UI/domain projections to Qt accessibility roles, names, states, relationships, actions and event notifications.
+- **Custom canvas adapters:** expose semantic object trees/actions for SLD, Control and Protection without placing renderer objects in Core.
+- **Interaction/focus service:** coordinates focus scopes, shortcut precedence, keyboard navigation and restoration.
+- **Theme/display service:** owns theme, density, font scaling, contrast tokens and DPI-aware asset selection.
+- **Verification harness:** records platform, Qt build, screen reader, display scale, theme, input modality, scenario and observed result.
+
+Do not place QAccessible types, QWidget classes, screen-reader APIs or platform accessibility APIs in Core or domain plugin contracts. Domain plugins may contribute typed semantic descriptors through public UI-facing extension contracts; the shared UI accessibility layer translates them into platform interfaces.
+
+### I. Candidate evidence and acceptance scenarios
+
+Evidence categories:
+- UI-VER-A11Y-01 Keyboard-only completion records for each critical workflow.
+- UI-VER-A11Y-02 Focus order, focus restoration and shortcut-conflict matrix.
+- UI-VER-A11Y-03 Screen-reader inspection of shell, dialogs, inspectors, tables and diagnostics.
+- UI-VER-A11Y-04 Custom canvas semantic-tree/action/event coverage.
+- UI-VER-A11Y-05 Contrast, focus visibility, non-colour cue and text-scaling measurements.
+- UI-VER-A11Y-06 High-DPI/mixed-monitor matrix with geometry observations.
+- UI-VER-A11Y-07 Reduced-motion and announcement-frequency checks.
+- UI-VER-A11Y-08 Platform/Qt/assistive-technology compatibility matrix.
+
+| Scenario | Setup/action | Expected evidence |
+|---|---|---|
+| UI-ACC-A11Y-01 Keyboard shell navigation | Navigate menus, docks, tabs, palette, Inspector and diagnostics without pointer | Essential controls reachable; focus visible and ordered; no keyboard trap |
+| UI-ACC-A11Y-02 Shortcut focus precedence | Edit numeric/text fields while global/workspace shortcuts exist | Text editing is not intercepted; scoped shortcuts resolve predictably |
+| UI-ACC-A11Y-03 SLD semantic navigation | Navigate equipment, terminals and wires via keyboard/outline | Stable identity, type and connectivity exposed; select/inspect actions available |
+| UI-ACC-A11Y-04 Control logic navigation | Traverse ladder rungs, contacts, coils and branches | Logical relationships and execution/configuration distinction exposed |
+| UI-ACC-A11Y-05 Protection evidence navigation | Inspect relay inputs, quality, decisions, trip intents and feedback | Distinct identities, timestamps, source and quality announced |
+| UI-ACC-A11Y-06 Study data and results | Configure a study and inspect tables/plots with assistive technology | Units, labels, errors, progress and numerical summaries accessible |
+| UI-ACC-A11Y-07 Non-colour state interpretation | Change theme/grayscale and inspect alarm, quality, selection and connectivity | No critical state depends on colour alone |
+| UI-ACC-A11Y-08 Focus under overlay | Open panels/popovers/overlays while focus is on an underlying control | Focus remains visible or can be revealed without advancing it |
+| UI-ACC-A11Y-09 Text scaling and density | Increase text scale and change density | No clipped/inaccessible essential values or actions |
+| UI-ACC-A11Y-10 Mixed-DPI transition | Move window between monitors with different fractional scales | Text/assets/hit targets remain crisp and aligned; model geometry unchanged |
+| UI-ACC-A11Y-11 Screen-reader live updates | Change selection, validation, project save and operational status | Relevant changes announced at appropriate priority without excessive repetition |
+| UI-ACC-A11Y-12 Reduced motion | Enable reduced-motion preference and navigate workspaces | Nonessential animations reduced without loss of state feedback |
+
+### J. Open decisions before approval
+
+1. Which operating systems and assistive technologies are in the supported V3 release matrix?
+2. Which WCAG 2.2 criteria and thresholds are adopted as native-desktop design references, and what native verification maps them?
+3. What is the minimum keyboard-only task set for SLD, Control, Protection, Study and project lifecycle?
+4. Which semantic navigation model is selected for dense canvases: synchronized object tree, semantic canvas focus traversal, textual relationship view, or a combination?
+5. Which screen-reader announcement classes are immediate, queued, summarized or suppressed for high-rate updates?
+6. What high-contrast/forced-colour support is required on each platform?
+7. What minimum/maximum text scale, density and DPI combinations are required?
+8. Which custom canvas widgets require dedicated QAccessibleInterface implementations and who owns their lifecycle?
+9. How are user-defined shortcuts stored, migrated and conflict-checked?
+10. What accessibility evidence is mandatory before feature release?
+
+### K. Gate disposition and invariants
+
+**UI-GATE-04 remains Open.** This proposal establishes discipline-aware accessibility requirements, Qt semantic exposure, keyboard/focus behavior, non-colour cues, DPI behavior, ownership and candidate evidence. It does not claim WCAG conformance, platform certification or complete assistive-technology parity.
+
+Frozen architecture invariants:
+- Core remains independent of Qt and platform accessibility APIs.
+- UI accessibility is a presentation adapter over typed domain/application semantics.
+- SLD, Control and Protection retain separate discipline-specific interaction models.
+- Accessibility alternatives must not weaken domain validation, command authorization or engineering state truth.
+- Device feedback, Protection decisions, Control execution and measurement quality retain distinct semantics when announced.
+
+**Scope boundary:** research register only. No implementation files, accessibility adapters, theme behavior, platform configuration or V2 behavior were changed. No tests or CI were run.
