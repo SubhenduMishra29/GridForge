@@ -20997,3 +20997,45 @@ draft equipment metadata and runtime recomposition in runtime verification
 before merge.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-142 — REVISION SNAPSHOT RESTORE MUST NOT ENTER USER UNDO JOURNAL
+======================================================================
+
+Audit finding:
+- Application._coordinate_pre_commit captured RevisionService state and
+  registered restore_state(snapshot) with Transaction.record_undo().
+- Transaction.commit() transfers record_undo operations into committed
+  CommandHistory. Therefore ordinary user undo executed restore_state()
+  before Application.undo() checked has_undo_transition_for(command).
+- The revision snapshot restored the pre-command undo journal, removing
+  the transition that Application.undo() needed to call record_undo().
+  This bypassed the intended monotonic advancement of instrumentation,
+  Protection-equipment and Protection-configuration freshness dimensions
+  on user undo.
+
+Correction on feat/protection-independent-revisions:
+- Register revision snapshot restoration with
+  Transaction.record_rollback_finalizer(), not record_undo().
+- Failed pre-commit rollback still restores the exact pre-transaction
+  revision snapshot after all content inverses succeed.
+- Successful commit clears rollback finalizers, so user undo retains the
+  revision transition. Application.undo() can then call
+  RevisionService.record_undo() and advance changed freshness dimensions
+  monotonically.
+- If a content inverse fails, the rollback finalizer is not run and the
+  Application remains fail-closed/degraded rather than claiming exact
+  restoration.
+
+Scope:
+This correction applies to all revision-bearing Application commands,
+including CT/PT/CVT, Relay, Protection configuration and aggregate
+network.commit_draft mutations. It does not add domain knowledge to
+Transaction.
+
+Verification boundary:
+Source inspection and transaction lifecycle tracing only. No tests, CI,
+syntax/import checks, or runtime undo/rollback execution were performed.
+
+======================================================================
