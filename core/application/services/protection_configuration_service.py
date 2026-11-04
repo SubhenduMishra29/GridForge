@@ -9,6 +9,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
+from hashlib import sha256
+import json
 from math import isfinite
 
 from core.application.errors import DomainError, ResourceError
@@ -50,6 +53,38 @@ class ProtectionConfigurationService:
     def _require_configuration(self) -> ProtectionProjectConfiguration:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")
         return self._configuration
+
+    @staticmethod
+    def _ct_primary_component_fingerprint(component) -> str:
+        """Hash canonical topology endpoint identities, independent of graph iteration order."""
+        identities = []
+        for reference in component:
+            if reference.is_terminal:
+                endpoint = reference.terminal_reference
+                identities.append((
+                    "terminal",
+                    endpoint.equipment_type.value,
+                    endpoint.object_id,
+                    endpoint.terminal_role,
+                ))
+            elif reference.is_bus:
+                endpoint = reference.bus_reference
+                identities.append((
+                    "bus",
+                    endpoint.object_id,
+                    endpoint.attachment_id,
+                ))
+            elif reference.is_junction:
+                identities.append(("junction", reference.junction_id))
+            else:
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_INVALID",
+                    message="CT primary component contains an unsupported topology endpoint kind.",
+                    details={"endpoint_kind": str(reference.kind)},
+                )
+        canonical = sorted(identities)
+        payload = json.dumps(canonical, ensure_ascii=True, separators=(",", ":"))
+        return "ct-primary-component:v1:" + sha256(payload.encode("ascii")).hexdigest()
 
     @staticmethod
     def _validate_differential_scheme_ownership(
@@ -515,13 +550,15 @@ class ProtectionConfigurationService:
                     )
                     for role in ("P1", "P2")
                 }
-                primary_components = {
-                    role: set(
-                        resolver.topology_component(
-                            TopologyEndpointReference.from_terminal(reference)
-                        )
+                primary_component_values = {
+                    role: resolver.topology_component(
+                        TopologyEndpointReference.from_terminal(reference)
                     )
                     for role, reference in primary_references.items()
+                }
+                primary_components = {
+                    role: set(component)
+                    for role, component in primary_component_values.items()
                 }
             except (TypeError, ValueError, KeyError) as exc:
                 raise DomainError(
@@ -554,6 +591,42 @@ class ProtectionConfigurationService:
                         "matching_ct_primary_roles": matching_ct_roles,
                     },
                 )
+            resolved_primary_side = matching_ct_roles[0]
+            resolved_component_fingerprint = self._ct_primary_component_fingerprint(
+                primary_component_values[resolved_primary_side]
+            )
+            if (
+                binding.instrument_primary_side is not None
+                and binding.instrument_primary_side != resolved_primary_side
+            ):
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_SIDE_STALE",
+                    message="Persisted CT primary-side association no longer matches the selected source endpoint; explicit rebind is required.",
+                    details={
+                        "instrument_id": binding.instrument_id,
+                        "persisted_primary_side": binding.instrument_primary_side,
+                        "resolved_primary_side": resolved_primary_side,
+                    },
+                )
+            if (
+                binding.instrument_primary_component_fingerprint is not None
+                and binding.instrument_primary_component_fingerprint != resolved_component_fingerprint
+            ):
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_COMPONENT_STALE",
+                    message="CT primary component membership changed; explicit transactional rebind is required.",
+                    details={
+                        "instrument_id": binding.instrument_id,
+                        "instrument_primary_side": resolved_primary_side,
+                        "persisted_fingerprint": binding.instrument_primary_component_fingerprint,
+                        "resolved_fingerprint": resolved_component_fingerprint,
+                    },
+                )
+            binding = replace(
+                binding,
+                instrument_primary_side=resolved_primary_side,
+                instrument_primary_component_fingerprint=resolved_component_fingerprint,
+            )
             expected_types = {"CT"}
             ratio_attribute = "ratio"
         elif measurement_type == "voltage":
