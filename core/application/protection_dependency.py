@@ -13,8 +13,10 @@ from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
-from core.model import CurrentTransformer, CVT, PT
+from core.model import CurrentTransformer, CVT, PT, EndpointReference, EquipmentType
+from core.network.connectivity import ConnectivityResolver
 from core.network.network import Network
+from core.network.topology_endpoint_reference import TopologyEndpointReference
 from core.protection.configuration_fingerprint import canonical_configuration_value
 from core.protection.project_configuration import (
     DifferentialProtectionSchemeConfiguration,
@@ -51,6 +53,31 @@ def _source_endpoint_identity(binding: Any) -> str:
     if endpoint.is_bus:
         return f"bus:{endpoint.object_id}:{endpoint.attachment_id}"
     return f"unsupported:{endpoint.kind}"
+
+
+def _topology_component_fingerprint(component: Any) -> str:
+    """Match the canonical CT association fingerprint used by the configuration service."""
+    identities = []
+    for reference in component:
+        if reference.is_terminal:
+            endpoint = reference.terminal_reference
+            identities.append((
+                "terminal",
+                endpoint.equipment_type.value,
+                endpoint.object_id,
+                endpoint.terminal_role,
+            ))
+        elif reference.is_bus:
+            endpoint = reference.bus_reference
+            identities.append(("bus", endpoint.object_id, endpoint.attachment_id))
+        elif reference.is_junction:
+            identities.append(("junction", reference.junction_id))
+        else:
+            raise ValueError(f"Unsupported topology endpoint kind: {reference.kind!r}.")
+    payload = __import__("json").dumps(
+        sorted(identities), ensure_ascii=True, separators=(",", ":")
+    )
+    return "ct-primary-component:v1:" + sha256(payload.encode("ascii")).hexdigest()
 
 
 def _instrument_configuration(instrument: Any) -> Mapping[str, Any]:
@@ -381,23 +408,87 @@ def build_protection_dependency_registry(
                 })
 
             measurement_type = binding.measurement_type.strip().lower()
-            if measurement_type == "current":
-                if not isinstance(instrument, CurrentTransformer):
-                    element_diagnostics.append(f"{binding_prefix}: current measurement does not resolve to a CurrentTransformer.")
-                elif (
-                    binding.instrument_primary_side not in {"P1", "P2"}
-                    or not binding.instrument_primary_component_fingerprint
-                ):
-                    element_diagnostics.append(f"{binding_prefix}: CT P1/P2 component identity is missing; explicit rebind is required.")
-                else:
-                    add_dependency(
-                        "ct_primary_component",
-                        f"{binding.instrument_id}:{binding.instrument_primary_side}",
-                        binding.instrument_primary_component_fingerprint,
+            if measurement_type in {"current", "voltage"}:
+                expected_instrument = (
+                    isinstance(instrument, CurrentTransformer)
+                    if measurement_type == "current"
+                    else isinstance(instrument, (PT, CVT))
+                )
+                if not expected_instrument:
+                    element_diagnostics.append(
+                        f"{binding_prefix}: {measurement_type} measurement does not resolve to its canonical physical instrument type."
                     )
-            elif measurement_type == "voltage":
-                if not isinstance(instrument, (PT, CVT)):
-                    element_diagnostics.append(f"{binding_prefix}: voltage measurement does not resolve to a PT or CVT.")
+                elif source_equipment is not None:
+                    try:
+                        resolver = ConnectivityResolver(network)
+                        selected_endpoint = (
+                            TopologyEndpointReference.from_bus(binding.source_endpoint_reference)
+                            if binding.source_endpoint_reference.is_bus
+                            else TopologyEndpointReference.from_terminal(binding.source_endpoint_reference)
+                        )
+                        if measurement_type == "current":
+                            primary_roles = ("P1", "P2")
+                            equipment_type = EquipmentType("ct")
+                        elif isinstance(instrument, PT):
+                            primary_roles = ("primary_a", "primary_b")
+                            equipment_type = EquipmentType("pt")
+                        else:
+                            primary_roles = ("H1", "H2")
+                            equipment_type = EquipmentType("cvt")
+                        primary_components = {
+                            role: resolver.topology_component(
+                                TopologyEndpointReference.from_terminal(
+                                    EndpointReference.terminal(
+                                        equipment_type=equipment_type,
+                                        equipment_id=binding.instrument_id,
+                                        terminal_role=role,
+                                    )
+                                )
+                            )
+                            for role in primary_roles
+                        }
+                        component_sets = {
+                            role: set(component)
+                            for role, component in primary_components.items()
+                        }
+                        matching_roles = tuple(
+                            role for role, component in component_sets.items()
+                            if selected_endpoint in component
+                        )
+                        if (
+                            len(matching_roles) != 1
+                            or len({frozenset(value) for value in component_sets.values()}) != len(primary_roles)
+                        ):
+                            raise ValueError(
+                                f"source endpoint resolves to {len(matching_roles)} instrument primary components"
+                            )
+                        selected_side = matching_roles[0]
+                        selected_component_fingerprint = _topology_component_fingerprint(
+                            primary_components[selected_side]
+                        )
+                        if measurement_type == "current":
+                            if (
+                                binding.instrument_primary_side != selected_side
+                                or binding.instrument_primary_component_fingerprint != selected_component_fingerprint
+                            ):
+                                element_diagnostics.append(
+                                    f"{binding_prefix}: persisted CT P1/P2 side or component membership is stale; explicit rebind is required."
+                                )
+                            add_dependency(
+                                "ct_primary_component",
+                                f"{binding.instrument_id}:{selected_side}",
+                                selected_component_fingerprint,
+                            )
+                        else:
+                            add_dependency(
+                                "voltage_primary_component",
+                                f"{binding.instrument_id}:{selected_side}",
+                                selected_component_fingerprint,
+                            )
+                    except (KeyError, LookupError, TypeError, ValueError, AttributeError) as exc:
+                        element_diagnostics.append(
+                            f"{binding_prefix}: instrument primary topology association is incomplete or ambiguous: {exc}."
+                        )
             else:
                 element_diagnostics.append(f"{binding_prefix}: unsupported measurement type {measurement_type!r}.")
 
