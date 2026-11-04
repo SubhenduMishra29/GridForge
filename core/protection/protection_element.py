@@ -902,6 +902,34 @@ class ProtectionElement:
         return decision
 
     # =================================================================
+    # INVALIDATE CURRENT DECISION
+    # =================================================================
+
+    def invalidate_decision(self) -> ProtectionDecision | None:
+        """Clear this element's dispatch-eligible decision and reset its function state.
+
+        Unlike reset(), invalidation is fail-closed: even if the underlying
+        function reset raises, the stale decision is removed and the element
+        enters FAILED state.
+        """
+        previous_decision = self._last_decision
+        resetter = getattr(self.function, "reset", None)
+        if callable(resetter):
+            try:
+                resetter()
+            except Exception:
+                self._last_decision = None
+                self._state = ProtectionElementState.FAILED
+                raise
+        self._last_decision = None
+        self._state = (
+            ProtectionElementState.IDLE
+            if self.enabled
+            else ProtectionElementState.DISABLED
+        )
+        return previous_decision
+
+    # =================================================================
     # RESET
     # =================================================================
 
