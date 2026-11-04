@@ -188,6 +188,8 @@ def _relay_configuration(relay: Any) -> Mapping[str, Any]:
         "in_service": getattr(relay, "in_service", None),
         "enabled": getattr(relay, "enabled", None),
         "blocked": getattr(relay, "blocked", None),
+        "picked_up": getattr(relay, "picked_up", None),
+        "tripped": getattr(relay, "tripped", None),
     }
 
 
@@ -417,6 +419,7 @@ def build_protection_dependency_registry(
                 function = getattr(runtime_element, "function", None)
                 if (
                     function is None
+                    or getattr(function, "relay", None) is not relay
                     or str(getattr(function, "function_code", "")).strip().upper()
                     != element.function_code
                 ):
