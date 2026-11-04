@@ -91,6 +91,7 @@ class RevisionService:
         "protection.delete_configuration",
         "protection.bind_measurement",
         "protection.unbind_measurement",
+        "protection.set_synchronism_check_configuration",
     })
     _TOPOLOGY_UPDATE_COMMANDS = frozenset({
         "model.update_bus", "model.update_grid", "model.update_generator", "model.update_synchronous_machine", "model.update_load", "model.update_motor", "model.update_shunt", "model.update_capacitor", "model.update_reactor", "model.update_solar", "model.update_battery", "model.update_current_transformer", "model.update_capacitive_voltage_transformer", "model.update_pt", "model.update_relay", "model.update_breaker",
