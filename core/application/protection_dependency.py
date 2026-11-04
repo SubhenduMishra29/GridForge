@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+from math import isfinite
 from types import MappingProxyType
 from typing import Any, Mapping
 
@@ -399,6 +400,65 @@ def build_protection_dependency_registry(
                     element_diagnostics.append(f"{binding_prefix}: voltage measurement does not resolve to a PT or CVT.")
             else:
                 element_diagnostics.append(f"{binding_prefix}: unsupported measurement type {measurement_type!r}.")
+
+            if instrument is not None:
+                if getattr(instrument, "in_service", True) is not True:
+                    element_diagnostics.append(f"{binding_prefix}: physical measurement instrument is not in service.")
+                ratio_attribute = "ratio" if measurement_type == "current" else "voltage_ratio"
+                try:
+                    physical_ratio = float(getattr(instrument, ratio_attribute))
+                    configured_ratio = float(binding.instrument_ratio)
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    physical_ratio = configured_ratio = float("nan")
+                if (
+                    not isfinite(physical_ratio)
+                    or not isfinite(configured_ratio)
+                    or physical_ratio <= 0.0
+                    or abs(physical_ratio - configured_ratio) > max(1e-9, physical_ratio * 1e-9)
+                ):
+                    element_diagnostics.append(f"{binding_prefix}: persisted instrument ratio does not match the active physical instrument.")
+
+            if channel is not None and instrument is not None:
+                channel_signal = str(getattr(getattr(channel, "signal_type", None), "value", "")).strip().upper()
+                expected_signal = "CURRENT" if measurement_type == "current" else "VOLTAGE"
+                if channel_signal != expected_signal:
+                    element_diagnostics.append(f"{binding_prefix}: channel signal type does not match the binding measurement type.")
+                if getattr(channel, "source_id", None) != binding.instrument_id:
+                    element_diagnostics.append(f"{binding_prefix}: channel source identity does not match the bound physical instrument.")
+                source_terminal = getattr(channel, "source_terminal", None)
+                secondary_roles = (
+                    {"S1", "S2"} if isinstance(instrument, CurrentTransformer)
+                    else {"secondary_a", "secondary_b"} if isinstance(instrument, PT)
+                    else {"X1", "X2"} if isinstance(instrument, CVT)
+                    else set()
+                )
+                if (
+                    source_terminal is None
+                    or not getattr(source_terminal, "is_terminal", False)
+                    or getattr(source_terminal, "object_id", None) != binding.instrument_id
+                    or getattr(source_terminal, "terminal_role", None) not in secondary_roles
+                ):
+                    element_diagnostics.append(f"{binding_prefix}: channel source terminal does not match the physical instrument secondary.")
+            if source_equipment is not None:
+                source_reference = binding.source_endpoint_reference
+                if source_reference.is_terminal:
+                    source_type = str(getattr(source_equipment, "TYPE", "")).strip().lower()
+                    source_roles = {
+                        getattr(item, "role", None)
+                        for item in getattr(source_equipment, "terminals", ())
+                    }
+                    if (
+                        source_reference.object_id != binding.source_equipment_id
+                        or source_reference.equipment_type.value != source_type
+                        or source_reference.terminal_role not in source_roles
+                    ):
+                        element_diagnostics.append(f"{binding_prefix}: source terminal identity does not match active source equipment.")
+                elif source_reference.is_bus:
+                    if (
+                        str(getattr(source_equipment, "TYPE", "")).strip().lower() != "bus"
+                        or source_reference.object_id != binding.source_equipment_id
+                    ):
+                        element_diagnostics.append(f"{binding_prefix}: Bus attachment source does not match active Core Bus.")
 
         for scheme in configuration.differential_schemes:
             if scheme.protection_element_id != element_id:
