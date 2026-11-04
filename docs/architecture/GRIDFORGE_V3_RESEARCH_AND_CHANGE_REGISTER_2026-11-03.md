@@ -10180,3 +10180,330 @@ V3 integration must not introduce geometry or Qt dependencies into electrical Co
 ### 8I-42.24. Research disposition
 
 Research-only proposal. No implementation, tests, CI, benchmarks, runtime validation, standards conformity assessment or certification was performed. V2 main remains unchanged. UI-GATE-02 through UI-GATE-07 remain open. BIS catalogue verification for Protection, Automation and Control remains a separate outstanding task.
+
+
+## 8I-43. Proposed V3 engineering project execution, work breakdown, deliverable planning, multidisciplinary coordination and engineering progress governance (2026-11-04)
+
+### 8I-43.1. Purpose and product boundary
+
+GridForge V3 should provide engineering-project execution capabilities that connect technical scope, engineering work, deliverables, interfaces, reviews, revisions and readiness evidence. This is not a proposal to recreate a general enterprise project-management suite. The product boundary is engineering information and technical workflow governance: the project execution layer coordinates work whose outputs are engineering objects, calculations, drawings, specifications, models, lists, reports, reviews and controlled technical decisions.
+
+Generic enterprise resource planning (ERP), accounting, contract administration, payroll, procurement transaction processing, contractor timesheets and full construction-management execution remain external system responsibilities unless a separately approved product scope establishes a specific integration. GridForge may exchange controlled references and status with those systems; it must not silently become their system of record.
+
+The execution layer must not own electrical topology, Protection or Control decisions, solver truth, asset condition or commissioning acceptance. Those remain with their respective domain authorities and assurance workflows. Execution records link to those objects and evidence through stable identities and revision-aware references.
+
+### 8I-43.2. Project and execution object model
+
+Candidate hierarchy of concepts:
+- EngineeringProject: project identity, scope, contractual context, lifecycle, configuration and governance policy.
+- ContractPackage: a contractual or appointment boundary, not a technical system boundary.
+- PlantSystem / FunctionalSystem: the plant or technical system being engineered; link to the relevant domain model.
+- ScopeItem: an authorized technical or information outcome with inclusion, exclusion, assumptions and acceptance criteria.
+- WorkPackage: bounded body of coordinated work with defined inputs, outputs, dependencies, owner, schedule window, effort/resource plan, risks and completion evidence.
+- Activity: schedulable work step contributing to a work package; activity completion is not technical acceptance.
+- Deliverable: controlled engineering information product with identity, revision, purpose, status, ownership and evidence.
+- Milestone: event or decision point with explicit achievement criteria, not an arbitrary date label.
+- Interface: managed boundary and exchange obligation between disciplines, packages, suppliers or external systems.
+- Review / Comment / Response / Approval / Transmittal: separate workflow and evidence records.
+- ChangeRequest / TechnicalQuery / FieldChange / VendorDeviation: typed change-intake records with distinct authority and disposition.
+- Decision / Risk / Assumption / Constraint / Issue / Action: linked governance records with ownership and history.
+
+Project identity, technical-system identity, work identity and deliverable identity must not be conflated. One deliverable can support several systems; one system can require many deliverables; one work package can produce multiple deliverables; and one deliverable can depend on multiple upstream interfaces.
+
+### 8I-43.3. Multiple breakdown structures, not one overloaded WBS
+
+Support separate, typed breakdown structures:
+1. Project/contract breakdown: project, contract, package, phase and authorized scope.
+2. Plant/system breakdown: plant, area, unit, process/electrical system, subsystem and equipment/functional location.
+3. Engineering work breakdown: discipline, engineering package, work package and activity.
+4. Deliverable breakdown: deliverable class, discipline, system, document/model group and individual information container.
+5. Organisational breakdown: organisation, company, team, role and accountable party.
+6. Spatial/location breakdown: site, building, level, area, room and physical location where applicable.
+
+These structures may be mapped but must not be collapsed into a single universal tree. A deliverable can be cross-referenced to multiple plant systems and work packages while retaining one canonical identity. Mappings require typed relationship, effective revision, source authority and provenance. WBS changes must not silently renumber or orphan technical assets and deliverables.
+
+A WBS dictionary or equivalent definition should capture scope meaning, inclusion/exclusion, accountable owner, boundary, completion criteria and links to deliverables. Stable machine identifiers must be separate from editable display codes and names. Renumbering must preserve identity and historical references.
+
+### 8I-43.4. Responsibility and authority model
+
+Provide explicit accountable owner, responsible producer, checker, interdisciplinary reviewer, approver, accepting authority and recipient roles. Support RACI-style assignment as a project-configurable governance convention, not as a universal hard-coded workflow. Responsibility assignment is not equivalent to permission: authorization and access control remain governed by the security model in 8I-39.
+
+Segregation-of-duties rules should prevent a person from performing incompatible preparation, independent check and approval roles where the project or safety/quality regime requires separation. Delegation, substitution, temporary assignment and external-party access require scope, validity period and audit history. A role assignment does not confer domain authority to mutate Core or dispatch Protection/Control actions.
+
+### 8I-43.5. Engineering deliverable register and metadata
+
+The deliverable register is a first-class project view. Candidate deliverable classes include:
+- Drawings: SLDs, schematics, wiring, layouts, arrangement and interface drawings.
+- Engineering calculations and study reports.
+- Equipment specifications, datasheets and technical requisitions.
+- Equipment, cable, I/O, instrument, terminal, signal and load lists.
+- Control narratives, logic diagrams, cause-and-effect matrices and interlock schedules.
+- Protection settings, coordination studies and protection philosophies.
+- Models, models extracts, federated model packages and exchange datasets.
+- Procedures, inspection/test plans, method statements and commissioning documents.
+- Technical reports, compliance matrices, design-basis documents and decision records.
+
+Candidate metadata: immutable deliverable ID; project-defined number; title; class; discipline; system/subsystem; scope links; originator; responsible organisation; checker; approver; planned/forecast/actual dates; current revision; lifecycle state; issue purpose; security classification; source references; dependencies; review cycle; acceptance criteria; and evidence links.
+
+A deliverable is a controlled information product, not merely a file. It may have one or more representations/attachments. The canonical record must identify exact content versions and their hashes or equivalent integrity evidence. A file name is not a reliable identity.
+
+### 8I-43.6. Separate workflow, maturity, review and baseline state
+
+Do not compress different meanings into one status field. Maintain distinct axes:
+- Production workflow: planned, in preparation, internal check, interdisciplinary review, client/owner review, comment resolution, approved for issue, issued, superseded, withdrawn.
+- Technical maturity: concept, preliminary, basic/FEED, detailed, construction-ready, as-built/as-installed, operational handover; configure stages per contract and discipline.
+- Review disposition: not reviewed, accepted, accepted with comments, revise/resubmit, rejected, information only, not applicable.
+- Issue purpose: for review, information, approval, procurement, construction, commissioning, tender or record; project-configurable.
+- Baseline relationship: draft, proposed, accepted into a named baseline, superseded baseline member, withdrawn.
+- Progress: not started, in progress, blocked, complete against defined work criteria; progress is separate from technical acceptance.
+- Verification/validation/acceptance: retain assurance evidence and authority defined in 8I-41.
+
+A deliverable being issued does not mean it is approved for construction. A client review response does not automatically establish technical verification. A document can be mature but not accepted; it can be issued for information without being a baseline member. Preserve exact revision and status semantics in all exports and dashboards.
+
+### 8I-43.7. Deliverable lifecycle and revision history
+
+Model each revision as an immutable, traceable version with author, timestamp, change summary, source inputs, review cycle and supersession relation. Draft editing may occur in a working area, but issue packages must point to frozen revision identities. Revisions are not just sequential filenames: support project-specific revision schemes while preserving an internal monotonic identity.
+
+A typical lifecycle is planned → preparation → internal check → interdisciplinary coordination → external/client review → comment resolution → approval/authorization for issue → transmittal. Later issue purposes and as-built states are separate transitions. Withdrawal and supersession must retain the historical record and explain why a revision is no longer current.
+
+Reissue of unchanged content for a different purpose must be represented as a new issue event referencing the same content revision where policy permits, not falsely represented as new technical content. Content change requires a new revision. Define controlled correction/reissue rules and preserve the complete issue history.
+
+### 8I-43.8. Work package and activity contracts
+
+A work package should declare:
+- Scope, boundary, inclusion/exclusion and completion criteria.
+- Required inputs, prerequisite deliverables and minimum maturity/approval states.
+- Expected outputs and associated deliverables.
+- Responsible discipline/team, accountable owner and authorized contributors.
+- Dependencies, interface obligations and constraints.
+- Planned, forecast and actual start/finish dates, duration and calendar.
+- Planned/actual effort and resource requirements where supported.
+- Risk, assumptions, issues, decisions and action links.
+- Evidence required to declare the package complete.
+- Change history and baseline membership.
+
+Activity records support scheduling and coordination, but activity completion alone cannot establish work-package acceptance, deliverable approval, design verification or operational release. Completion rules must be explicit and versioned. A package can be administratively complete while a technical deliverable remains under review; the UI must show the distinction.
+
+### 8I-43.9. Schedule and dependency graph
+
+Represent dependencies as typed, directed relations with explicit source and target identities, relation semantics, optional lead/lag, validity, owner and provenance. Candidate schedule relationships include finish-to-start, start-to-start, finish-to-finish and start-to-finish. Support milestones, calendars, working-time rules, constraints and baseline/forecast/actual dates.
+
+Separate:
+- Logical technical dependency: one design or calculation requires another output/input.
+- Information dependency: a deliverable requires a specific upstream information container or revision.
+- Interface dependency: one discipline or supplier owes a defined interface input.
+- Organisational assignment: who is responsible for work.
+- Physical sequence: actual installation, energisation, testing or commissioning order.
+- Contractual dependency: appointment, client decision, purchase order or supplier obligation.
+
+Do not infer one relation from another. A schedule graph may calculate float or critical path only when the schedule engine, calendars, constraints and calculation method are defined and validated. Never fabricate criticality, progress or dates from missing data.
+
+When an upstream revision changes, evaluate only dependent deliverables, work packages, interface records and decisions using declared dependency edges. Preserve the old dependency snapshot and explain why each downstream item is current, potentially affected, stale, under review or explicitly accepted with deviation. A stale engineering output must not be silently treated as approved/current. This is selective impact analysis, not blanket invalidation.
+
+### 8I-43.10. Multidisciplinary interface management
+
+Create an Interface Register with stable interface ID, source/receiving parties, discipline owners, boundary definition, scope, interface control document, required data, assumptions, constraints, due dates, maturity, status, acceptance criteria, evidence and change history.
+
+Initial interface families include:
+- Electrical ↔ mechanical: motor ratings, starting duty, torque/speed, driven equipment, loads, earthing and space/access.
+- Electrical ↔ instrumentation: instrument power, signal type, isolation, cable, grounding, hazardous-area constraints and marshalling.
+- Protection ↔ Control: signal ownership, trip/interlock boundaries, permissives, reset authority, command/feedback semantics and fail-safe behavior; preserve separate execution authorities.
+- Electrical ↔ civil/structural: equipment loads, foundation, clearances, cable trenches, earthing grid and building interfaces.
+- Piping/process ↔ instrumentation: process connection, tapping, range, impulse line, process conditions, cause/effect and loop requirements.
+- Vendor package ↔ project: battery limits, terminal points, data sheets, drawings, signals, utilities, performance guarantees and certified documentation.
+- Plant ↔ utility/grid: point of connection, fault levels, protection coordination, metering, telemetry, grid-code and operating constraints.
+
+Interface freeze is a controlled state tied to named revisions and agreed assumptions, not a claim that no later change is possible. Changes after freeze trigger impact assessment and re-coordination. Interface agreement must not override the technical domain's own validation rules.
+
+### 8I-43.11. Reviews, comments and approval workflow
+
+Support internal check, independent discipline check, interdisciplinary review, vendor review, owner/client review and formal approval as distinct review types. Each review cycle records exact deliverable revision, review scope, reviewers, due date, disposition, comments, response owner, response, closure evidence and final decision.
+
+Comments need stable IDs, location/context references, severity/category, originator, responsible responder, due date, response code, status, disposition rationale and links to affected engineering objects. A comment marked closed must have an auditable response and closure authority. Reopened comments retain history. Comment resolution is not itself approval of the deliverable.
+
+Approval authority, quorum, signature requirements, escalation and delegation are project-configurable and must comply with 8I-39 access controls and 8I-41 assurance. Record approval meaning and scope precisely: technical check, owner acceptance, authorization to issue, or baseline approval are not interchangeable.
+
+### 8I-43.12. Transmittal and controlled information exchange
+
+A transmittal is an immutable distribution event/package. It records sender, recipient organisation/person, purpose, issue date/time, exact deliverable IDs and revisions, included attachments, security classification, message, signature/authorization, delivery channel and receipt evidence. Revisions cannot be substituted after issue without creating a new transmittal or controlled amendment.
+
+The transmittal record must preserve what was actually sent, to whom, for what purpose and under which authorization. A receipt confirms delivery/receipt, not technical acceptance. A transmittal does not automatically approve a design or alter a project baseline. External CDE/document-management systems may remain authoritative for distribution; GridForge should integrate through explicit exchange contracts rather than assume it is the universal CDE.
+
+### 8I-43.13. Vendor and supplier data management
+
+Provide a Vendor Document Requirement List (VDRL) or equivalent register, linked to procurement package and technical scope. Capture required vendor documents, responsible supplier, required submission stage, planned/actual dates, review cycle, status, comments, deviations, certified revision and affected equipment/interface references.
+
+Vendor data classes include general arrangement, certified drawings, datasheets, performance curves, terminal plans, wiring diagrams, I/O lists, protection/control documentation, test procedures, FAT records, manuals, spare parts and as-built documents. Vendor submissions enter a staging/review process: validate identity, units, completeness, schema, revision, applicability and interface consistency before acceptance into project engineering data.
+
+Vendor-provided models or settings must not automatically overwrite canonical equipment models, topology, Control logic or Protection settings. Store vendor source, received revision, review disposition, adopted values and deviations distinctly. Supplier approval is not equivalent to GridForge engineering validation or final client acceptance.
+
+### 8I-43.14. Procurement, construction and commissioning interfaces
+
+GridForge may produce or exchange technical requisitions, datasheets, specifications, bills of material, material take-offs, approved vendor lists and technical bid evaluation evidence. ERP remains the authority for purchase orders, commercial terms, invoices, inventory and financial commitments unless a separately approved integration contract says otherwise.
+
+Construction interface records may include issued-for-construction deliverables, work-pack references, material status, RFIs, technical queries, field observations, redlines, nonconformances, site instructions and punch-list links. Field information is evidence/proposal until reviewed and reconciled. A redline must not silently mutate an approved design baseline.
+
+Commissioning packages must link to exact approved design baselines, equipment identities, test procedures, inspection records, calibration evidence, protection/control configuration and acceptance criteria from 8I-41. Construction completion, mechanical completion, pre-commissioning, commissioning, energisation authorization and operational handover remain distinct states and authorities. Work-package closure must not bypass safety interlocks or domain release rules.
+
+### 8I-43.15. Engineering maturity and progress measurement
+
+Maturity stages must be configurable by contract, discipline and deliverable class. A generic stage sequence may be used as a starting point, but not imposed on all disciplines. For example, an electrical SLD, protection study, civil foundation drawing, control narrative and vendor certified drawing do not mature through identical technical gates.
+
+Progress should be derived from declared evidence and versioned rules: weighted deliverable milestones, objectively completed work steps, accepted review gates, or other approved measurement method. The rule definition, weights, denominator, exclusions, scope baseline and calculation timestamp must be visible. Do not allow arbitrary subjective percentages to masquerade as measured engineering progress.
+
+Keep separate metrics for physical work completion, engineering production progress, deliverable review/approval progress, scope maturity, interface closure, vendor data readiness, construction readiness and commissioning readiness. Planned, forecast and actual dates are separate values. A deliverable marked 100% complete administratively may still be rejected or technically unverified; dashboards must make this explicit.
+
+### 8I-43.16. Resource and workload governance
+
+Support assignment of work to discipline teams, roles, named authorised users and external organisations. Resource planning may include competency/qualification requirements, availability, planned effort, forecast effort, workload and capacity. Competency evidence and authorisation are separate: assignment does not prove qualification or confer approval authority.
+
+Workload views should show assumptions and source data. Avoid deriving employee performance, productivity or disciplinary conclusions from crude task counts, time entries or progress percentages. Sensitive personnel information requires access control and data minimisation. Detailed payroll, HR records and contractor commercial terms remain outside the engineering execution model.
+
+### 8I-43.17. Engineering change, scope change and commercial variation
+
+Support distinct intake types: engineering change request, design change, technical query, field change, vendor deviation, standards deviation, scope change and contractual/commercial variation. Each has its own origin, authority, evaluation and approval path. A technical change may cause a commercial variation, but the two are not the same record and one must not automatically approve the other.
+
+Impact assessment should consider technical correctness, safety, Protection/Control behavior, topology, studies, equipment, signals, drawings, deliverables, interfaces, procurement, construction, commissioning, cost, schedule, risk and affected baselines. Record affected objects and revisions, alternatives, assumptions, approvals, implementation evidence and verification/revalidation.
+
+Accepted changes create new controlled revisions/baseline relationships. Rejected or deferred changes remain in history with rationale. Emergency field changes require explicit emergency authority, containment and subsequent review/reconciliation; urgency is not permission for untracked mutation.
+
+### 8I-43.18. Risk, assumption, issue, decision and action governance
+
+Provide linked registers with stable IDs and typed semantics:
+- Risk: uncertain event and probability/impact, cause, consequence, owner, mitigation, residual exposure and review date.
+- Assumption: proposition relied upon, source, owner, validation method and expiry/trigger.
+- Constraint: imposed limit or obligation, authority, scope and evidence.
+- Issue: present condition requiring resolution, owner, severity, due date and impact.
+- Decision: question, alternatives, rationale, decision authority, participants, evidence, effective date and supersession links.
+- Action: specific accountable task, due date, completion evidence and closure authority.
+
+Technical decisions should be immutable once approved; corrections and replacements create superseding records. Link decisions to affected domain objects, deliverables, interfaces, risks and baselines. A risk status is not a technical validation result. Risk acceptance must identify the authorized risk owner and residual-risk rationale.
+
+### 8I-43.19. Engineering quantities, estimates and cost boundary
+
+Material take-offs and engineering quantities should be reproducible from an identified source revision and calculation method. Record quantity type, unit, rounding, exclusions, allowances, maturity, uncertainty, source model/drawing revision and manual adjustments. Distinguish calculated, measured, vendor-quoted and manually estimated quantities.
+
+Cost estimates may consume engineering quantities and external pricing, but cost precision must not exceed the maturity and uncertainty of the input data. Estimate classification, contingency and accuracy bands are project-, sector- and jurisdiction-specific; they require explicit methodology and cannot be inferred from a generic label. Budget, actual cost, cash flow, commitment, invoice and commercial forecast remain ERP/project-controls authority unless explicitly integrated.
+
+### 8I-43.20. External systems and data integration
+
+Potential integrations include scheduling tools, document/CDE platforms, ERP/procurement, vendor portals, BIM/CAD platforms, issue trackers, field systems and commissioning systems. For every data class, define the authoritative system, GridForge's role (owner, consumer, producer, cache or reference), stable external ID, mapping, schema/version, synchronization direction, update frequency, conflict policy, idempotency, provenance and error/reconciliation process.
+
+Do not mirror an entire external platform merely to create a dashboard. Imported data must be staged, validated and attributed to its source revision/time. Synchronization failure must be visible and must not silently substitute stale data. Human review is required where imported values could alter engineering truth, approval status or baseline membership.
+
+### 8I-43.21. Dashboards and engineering execution workspaces
+
+Candidate workspaces:
+- Project overview: scope, milestones, baseline, key risks, decisions and readiness.
+- WBS explorer: typed breakdown views and cross-mappings.
+- Deliverable register: filtering by discipline, system, status, maturity, revision, owner and due date.
+- Work package board: scope, dependencies, owners, dates, evidence and blockers.
+- Schedule/dependency view: typed dependency graph, critical path only when supported by a validated schedule calculation.
+- Interface register/board: boundary, parties, due dates, freeze state and unresolved issues.
+- Review inbox: assignments, aging, comment responses, overdue reviews and approval queues.
+- Transmittal builder/history: exact issue package and receipt evidence.
+- Vendor data workspace: VDRL, submissions, deviations and certified-data status.
+- Change/risk/decision registers: impact and ownership.
+- Construction/commissioning readiness: exact baseline and evidence prerequisites.
+
+Every aggregate must expose its definition, source, timestamp, scope denominator and stale-data state. Avoid unexplained red/amber/green badges or a single overall progress score that hides discipline-specific blockers. Users must be able to navigate from dashboard metric to underlying work item, deliverable revision, engineering object and evidence.
+
+### 8I-43.22. Security, audit and records retention
+
+Apply role- and project-scoped access, external-party isolation, least privilege, segregation of duties, confidentiality labels, approval authority, secure transmittals and immutable audit events consistent with 8I-39. Audit status transitions, assignments, review decisions, comment responses, baseline membership, imports/exports, signature events and administrative overrides.
+
+Retention, legal hold, export and deletion policies are project/contract/jurisdiction-specific. Preserve provenance and integrity for issued deliverables and transmittals. Do not equate an application audit log with a legally valid electronic signature; signature assurance and legal effect require explicit policy, identity proofing and applicable jurisdictional review.
+
+### 8I-43.23. UX and accessibility requirements
+
+The execution UI should support multiple useful views of the same linked data without creating duplicate sources of truth. Provide:
+- Project landing page with actionable engineering status, not generic executive decoration.
+- Hierarchical WBS navigation with clear hierarchy type and mapping.
+- Dense but accessible deliverable tables with saved filters, bulk actions subject to authorization, visible revision/status axes and keyboard navigation.
+- Work-package detail with inputs, outputs, dependencies, evidence and completion criteria.
+- Interface board with owner/recipient, boundary, data obligations and freeze/change state.
+- Review inbox with comment context and response history.
+- Transmittal composition that freezes exact content revisions before issue.
+- Schedule and dependency views that remain navigable at large project scale.
+- Clear distinction between draft, submitted, reviewed, accepted, approved, issued, superseded and baseline states.
+
+Use accessible names, keyboard operability, visible focus, non-colour status cues, scalable layouts and predictable navigation. Avoid status icons without textual meaning. Large registers require virtualisation/pagination, server-side filtering where applicable and bounded query behavior. Preserve user workspace preferences separately from canonical project state.
+
+### 8I-43.24. Candidate standards and reference framework
+
+Candidate references for further applicability and edition verification:
+- ISO 21502:2020, Project, programme and portfolio management — Guidance on project management. ISO currently marks the 2020 edition for revision; ISO/CD 21502 was registered as a committee draft on 2026-09-25. Treat the draft as under development, not a published replacement.
+- ISO 10006:2017, Quality management — Guidelines for quality management in projects. ISO records it as confirmed current in 2023.
+- ISO 10007:2017, Quality management — Guidelines for configuration management; coordinate with the baseline/change governance in 8I-41.
+- ISO 19650 series, information management using BIM; use relevant parts for information requirements, information production, review, delivery and handover where the project scope is BIM-related. Do not assume every GridForge deliverable is a BIM model or that ISO 19650 alone defines the complete engineering project workflow.
+- ISO 9001 quality-management principles and project-specific quality plans; distinguish QMS compliance from deliverable approval.
+- PMI WBS and project-controls guidance, AACE recommended practices and scheduling/cost-estimating references as informative methods, not automatically normative requirements.
+- Discipline-specific IEC/ISO/IEEE/ISA and BIS-adopted standards must be verified against project jurisdiction, contract, edition, amendments and applicability using the standards governance in 8I-25.
+
+No statement of BIS adoption, legal applicability, certification, contractual compliance or conformance is made by this research section. Primary reference pages reviewed: ISO 21502:2020 and ISO/CD 21502 status (https://www.iso.org/standard/74947.html and https://www.iso.org/standard/95368.html); ISO 10006:2017 status (https://www.iso.org/standard/70376.html); ISO 19650 information-management concepts (https://www.iso.org/obp/ui?_escaped_fragment_=iso%3Astd%3Aiso%3A19650%3A-1%3Adis%3Aed-2%3Av1%3Aen). PMI WBS material was used as informative practice only (https://www.pmi.org/learning/library/developing-elaborating-work-breakdown-structures-7241).
+
+### 8I-43.25. Candidate acceptance scenarios
+
+- UI-ACC-PROJ-01: Create an engineering project with explicit scope, contract/package references and governance policy.
+- UI-ACC-PROJ-02: Maintain project, plant/system, work, deliverable and organisational breakdowns independently.
+- UI-ACC-PROJ-03: Map one deliverable to multiple systems and work packages without duplicating its identity.
+- UI-ACC-PROJ-04: Change a display code while preserving stable project, WBS and deliverable identities.
+- UI-ACC-PROJ-05: Create a work package with scope, inputs, outputs, owner, dependencies and evidence-based completion criteria.
+- UI-ACC-PROJ-06: Maintain deliverable metadata, revisions, purpose and separate lifecycle/maturity/review/baseline states.
+- UI-ACC-PROJ-07: Prevent an issued-for-information document from being represented as approved for construction.
+- UI-ACC-PROJ-08: Record a review cycle against an exact immutable deliverable revision.
+- UI-ACC-PROJ-09: Track comments, responses, reopenings and closure authority without losing history.
+- UI-ACC-PROJ-10: Generate a transmittal containing exact revisions and preserve recipient, purpose, authorization and receipt evidence.
+- UI-ACC-PROJ-11: Represent typed schedule dependencies and distinguish technical, information, organisational and physical-sequence relationships.
+- UI-ACC-PROJ-12: Recalculate schedule indicators only when calendar, constraints and schedule method are defined; otherwise show unavailable.
+- UI-ACC-PROJ-13: Change an upstream engineering revision and identify only declared downstream dependencies as potentially affected.
+- UI-ACC-PROJ-14: Create an interface record with boundary, parties, required data, owner, due date and acceptance criteria.
+- UI-ACC-PROJ-15: Freeze an interface against exact revisions and route post-freeze changes through impact review.
+- UI-ACC-PROJ-16: Stage vendor submissions, validate them and record review/deviation without overwriting canonical engineering data.
+- UI-ACC-PROJ-17: Link procurement technical outputs to external procurement records without claiming ERP authority.
+- UI-ACC-PROJ-18: Reconcile field redlines as proposals and preserve the approved baseline until authorized change acceptance.
+- UI-ACC-PROJ-19: Link commissioning readiness to exact approved design revisions and assurance evidence.
+- UI-ACC-PROJ-20: Calculate progress from a versioned evidence/weighting rule and expose the denominator and source evidence.
+- UI-ACC-PROJ-21: Display production progress, technical maturity, review status and acceptance independently.
+- UI-ACC-PROJ-22: Record engineering change, vendor deviation and commercial variation as distinct linked records.
+- UI-ACC-PROJ-23: Show a dashboard metric's definition, timestamp, source and drill-down path to the underlying evidence.
+- UI-ACC-PROJ-24: Enforce project-scoped permissions, segregation of duties and audit history for external-party review and approval.
+
+### 8I-43.26. Open architectural decisions
+
+1. Define the intended V3 engineering-project scope: engineering execution only, or selected project-controls capabilities beyond engineering deliverables.
+2. Decide whether GridForge owns a native deliverable register and transmittal service or integrates with an external document/CDE platform as primary authority.
+3. Define canonical identity and numbering rules for projects, packages, WBS nodes, work packages, activities, deliverables, revisions and interfaces.
+4. Define supported breakdown structures and mapping cardinalities; decide which structures are mandatory for initial release.
+5. Define project-configurable lifecycle, maturity, review, issue-purpose and baseline state machines by discipline and deliverable class.
+6. Define the first scheduling capability boundary: dependency register only, deterministic schedule engine, or integration with external scheduling systems.
+7. Define dependency semantics, calendars, lead/lag, constraints, critical-path and float calculation requirements.
+8. Define evidence-based progress measurement methods and approval authority for weighting rules.
+9. Define review/approval authority matrices, electronic-signature requirements and segregation-of-duties policies by project.
+10. Define transmittal authority and integration with CDE/document-management systems.
+11. Define interface freeze semantics and the required discipline-specific interface data schemas.
+12. Define vendor document workflows and which supplier data can be adopted into canonical engineering models.
+13. Define construction/commissioning interface depth and explicit exclusions from contractor execution management.
+14. Define resource planning scope while avoiding unnecessary employee surveillance or HR data duplication.
+15. Define risk/decision/action taxonomy and relationship to existing diagnostics, assurance and change-control systems.
+16. Define cost-estimate and quantity take-off scope versus external ERP/project-controls authority.
+17. Define data ownership, conflict resolution, synchronization and offline collaboration for all external integrations.
+18. Define retention, legal hold, confidentiality and electronic signature requirements by jurisdiction and contract.
+19. Verify current BIS adoptions, national annexes and contractual applicability for all standards used in project templates.
+20. Define acceptance evidence and performance targets for very large deliverable registers, WBS trees, dependency graphs and review queues.
+
+### 8I-43.27. UI/UX gate impact
+
+This section impacts UI-GATE-02 (project/session and persistent project context), UI-GATE-03 (diagnostics for stale inputs, blocked work, failed imports and review exceptions), UI-GATE-04 (accessibility and dense engineering workflows), UI-GATE-05 (large-register and dependency-view performance), UI-GATE-06 (cross-domain identity, revision and evidence traceability) and UI-GATE-07 (scope, sequencing and product boundaries). All gates remain open pending approved decisions, representative workflows and acceptance evidence.
+
+### 8I-43.28. Frozen V2 invariants and migration boundary
+
+Preserve the frozen V2 architecture: Core owns electrical/domain truth; Application owns commands, services and controlled mutation; UI is projection and interaction; plugins use public contracts and Application services; Protection and Control remain separate execution authorities; the established V2 project package contract remains unchanged.
+
+V3 execution records may reference domain objects, revisions, deliverables and assurance evidence but must not become alternate authorities for topology, measurements, Protection decisions, Control execution, solver results, asset condition or commissioning acceptance. Project-management plugins must not mutate Core directly. External ERP, CDE, scheduling and vendor systems must integrate through explicit contracts with source authority and provenance.
+
+No change to V2 main, existing project archive schema or frozen architecture is authorized by this research entry.
+
+### 8I-43.29. Research disposition
+
+Research-only proposal. No implementation, tests, CI, benchmarks, runtime validation, standards conformity assessment, BIS adoption verification or certification was performed. V2 main remains unchanged. UI-GATE-02 through UI-GATE-07 remain open. The status of ISO 21502:2020 and ISO/CD 21502 is recorded as observed on 2026-11-04 and must be rechecked before normative use.
