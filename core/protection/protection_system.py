@@ -844,6 +844,22 @@ class ProtectionSystem:
         )
 
     # ==================================================================
+    # PER-ELEMENT DECISION INVALIDATION
+    # ==================================================================
+
+    def invalidate_element_decision(self, element_id: Any) -> ProtectionDecision | None:
+        """Invalidate one element's current decision without clearing other elements."""
+        element = self.get_element(element_id)
+        try:
+            return element.invalidate_decision()
+        finally:
+            self._last_decisions = tuple(
+                decision
+                for decision in self._last_decisions
+                if decision.element_id != element_id
+            )
+
+    # ==================================================================
     # RESET
     # ==================================================================
 
