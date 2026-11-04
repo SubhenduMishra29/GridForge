@@ -911,12 +911,9 @@ class Application:
                 if getattr(channel, "id", None) != channel_id:
                     diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
                     continue
-                source_diagnostic = self._protection_measurement_source_diagnostic(
-                    captured_network, channel, prefix
-                )
-                if source_diagnostic is not None:
-                    diagnostics.append(source_diagnostic)
-                    continue
+                # Physical instrument/source identity and service-state are
+                # checked per element by the dependency registry. Keep sample
+                # quality/freshness validation separate from equipment state.
                 # Read the sample sequence around the complete validation
                 # window. When a producer supplies a sequence, any change means
                 # the fields cannot be treated as one coherent measurement.
