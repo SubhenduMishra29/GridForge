@@ -21902,3 +21902,15 @@ Verification:
       were manually reconciled around newer main content.
     - No tests or CI were run, per repository instruction.
 ======================================================================
+
+Additional reconciliation finding — DIGITAL MeasurementChannel typing:
+- The Control Inspector offered DIGITAL MeasurementChannels for Boolean inputs,
+  but MeasurementChannel stores numeric samples and ControlSignalMapping
+  previously forwarded the raw numeric value unchanged. The UI selection
+  therefore did not establish a valid Boolean input contract.
+- The reconciled resolver now accepts only a Boolean sample or an exact,
+  finite numeric 0/1 encoding for DIGITAL channels and converts it explicitly
+  to bool. Other values fail closed with a source-specific diagnostic; no
+  Python truthiness conversion is used.
+- The resolved envelope records the explicit BOOLEAN_OR_EXACT_0_1 encoding.
+- Static source inspection only; no tests or CI run.
