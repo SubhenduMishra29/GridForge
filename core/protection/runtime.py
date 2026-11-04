@@ -106,6 +106,7 @@ class ProtectionRuntime:
             values = tuple((field, repr(getattr(relay, field, default))) for field, default in (
                 ("relay_type", ""), ("plugin_id", None), ("settings", {}),
                 ("in_service", False), ("enabled", False), ("blocked", False),
+                ("picked_up", False), ("tripped", False),
             ))
             captured.append(("relay", str(getattr(relay, "id", "")), values, ()))
         return tuple(sorted(captured, key=lambda item: (item[0], item[1])))
