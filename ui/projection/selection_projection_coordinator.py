@@ -18,6 +18,7 @@ from core.application.events import (
     NetworkCommitted,
     ProjectClosed,
     ProjectLoaded,
+    ProtectionChanged,
     SimpleWireConnectionCreated,
     SimpleWireConnectionRemoved,
 )
@@ -45,6 +46,7 @@ class SelectionProjectionCoordinator:
         DraftChanged,
         ProjectLoaded,
         ProjectClosed,
+        ProtectionChanged,
     )
 
     def __init__(
@@ -100,6 +102,13 @@ class SelectionProjectionCoordinator:
         if isinstance(event, (ProjectLoaded, ProjectClosed)):
             self.selection_manager.clear()
             self.clear_projection()
+            return
+
+        # Protection configuration events are project-scoped. Refresh only when
+        # the current selection is a relay represented by the active project's
+        # Application read model; unrelated selections and runtime telemetry
+        # events must not cause Properties-panel churn.
+        if isinstance(event, ProtectionChanged) and not self._is_selected_protection_target(event):
             return
 
         transition_operation = None
@@ -273,6 +282,43 @@ class SelectionProjectionCoordinator:
             ) + unavailable_parameters,
         )
         self._set_panel_target(state)
+
+    def _is_selected_protection_target(self, event: ProtectionChanged) -> bool:
+        """Return whether a configuration lifecycle event targets the selected relay.
+
+        ProtectionChanged also carries runtime cycle telemetry. Only execute,
+        undo and redo configuration facts participate in this inspector refresh.
+        Project and activation provenance prevent delayed events from an old
+        project activation refreshing a same-ID selection in the new project.
+        """
+        if self.application is None:
+            return False
+        if event.payload.get("operation") not in {"execute", "undo", "redo"}:
+            return False
+
+        selected_ids = {str(value) for value in self.selection_manager.get_selected_ids()}
+        if not selected_ids:
+            return False
+
+        lifecycle = getattr(self.application, "project_lifecycle", None)
+        context = getattr(lifecycle, "context", None)
+        if context is None:
+            return False
+        event_project_id = event.payload.get("project_id")
+        if event_project_id is None or str(event_project_id) != str(context.project_id):
+            return False
+        event_generation = event.payload.get("activation_generation")
+        if event_generation is None:
+            return False
+        try:
+            if int(event_generation) != int(lifecycle.activation_generation):
+                return False
+            protection = self.application.read_protection()
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+            return False
+
+        relay_ids = {str(relay.object_id) for relay in protection.relays}
+        return not selected_ids.isdisjoint(relay_ids)
 
     def clear_projection(self) -> None:
         panel = self.properties_panel
