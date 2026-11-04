@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from .application import Application
-from .bootstrap import create_application
+from .bootstrap import create_application, recover_application
 from .dynamic_control_cycle import DynamicControlCycleResult, DynamicControlCycleService
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_dispatch import (
@@ -44,6 +44,7 @@ from .protection_dependency import (
     build_protection_dependency_registry,
 )
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
+from .recovery import ApplicationRecoveryStatus
 from .project_presentation import ProjectPresentationCollection
 from .read_models import (
     ElementReadModel,
@@ -87,6 +88,7 @@ from .services.validation_service import ValidationService
 __all__ = [
     "Application",
     "create_application",
+    "recover_application",
     "ControlDiagnostic",
     "ControlCycleResult",
     "ControlCycleService",
@@ -116,6 +118,7 @@ __all__ = [
     "ProtectionElementDependencyDescriptor",
     "ProtectionDependencyRegistry",
     "build_protection_dependency_registry",
+    "ApplicationRecoveryStatus",
     "ProjectTransitionDecision",
     "ProjectTransitionRequired",
     "ProjectPresentationCollection",
