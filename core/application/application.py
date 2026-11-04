@@ -850,7 +850,7 @@ class Application:
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
                 or (
-                    not (captured_dependency_registry.complete and network_state is None)
+                    not (not captured_dependency_registry.diagnostics and network_state is None)
                     and (
                         not current_runtime.equipment_state_matches_composition
                         or relay_state_fingerprint(captured_network) != captured_relay_state
@@ -869,11 +869,13 @@ class Application:
 
         def ensure_current_protection_topology() -> None:
             """Reject an action based on a topology snapshot changed during evaluation."""
-            if captured_dependency_registry.complete and network_state is None:
-                # Every enabled, dispatchable function has a complete
-                # element-local topology dependency set. Component and
-                # conductive equipment fingerprints now replace the global
-                # topology revision as the invalidation authority.
+            if not captured_dependency_registry.diagnostics and network_state is None:
+                # Registry-level diagnostics indicate an unclassifiable or
+                # incoherent capture and remain batch-wide fail-closed. An
+                # incomplete individual descriptor is rejected by that
+                # decision's guard; it must not downgrade complete siblings.
+                # Component and conductive-equipment fingerprints provide
+                # per-decision topology invalidation for live evaluations.
                 return
             current_state = getattr(captured_network, "state", None)
             current_revision = getattr(current_state, "topology_revision", None)
