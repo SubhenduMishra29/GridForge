@@ -4943,3 +4943,313 @@ Frozen invariants:
 - External input is untrusted; parsing never executes embedded code or installs dependencies.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, adapter, parser/writer, mapping registry, standards catalogue, sample dataset, tests or CI were changed or run.
+
+
+## 8I-25. Proposed V3 engineering standards, compliance and normative-traceability architecture (2026-11-04)
+
+**Disposition:** Research proposal; not a compliance certification, legal interpretation or approved standards catalogue. This section defines how V3 should identify applicable engineering standards, verify their editions and status, map requirements to engineering functions, preserve project-level applicability decisions and present evidence without claiming conformance that has not been demonstrated.
+
+### A. Purpose and compliance boundary
+
+GridForge needs a governed standards capability across electrical equipment and networks, instrumentation, Protection, automation/Control, power-system Studies, commissioning, safety and engineering data exchange. The capability must make standards applicability and evidence traceable through the engineering lifecycle; it must not turn a standards title or a checklist completion into an automatic claim of compliance.
+
+Distinguish:
+- **Standard source:** a published document, edition, amendment, corrigendum, adoption or profile issued by an identified standards body.
+- **Normative requirement:** a mandatory provision within the applicable scope of a source document.
+- **Informative guidance:** explanatory material, examples, annexes or recommended practice that is not itself mandatory unless incorporated by a binding requirement.
+- **Regulatory/legal obligation:** a law, regulation, licence condition, statutory code or authority direction applicable in a jurisdiction.
+- **Contractual requirement:** a requirement incorporated by contract, specification or project basis.
+- **Engineering rule:** a GridForge validation or calculation rule derived from an identified source or approved engineering policy.
+- **Vendor-specific practice:** manufacturer implementation, application note, relay manual, equipment data or proprietary configuration behavior.
+- **Project decision:** an approved selection, interpretation, deviation, equivalence or applicability decision for a specific project.
+
+These categories must remain distinguishable in the data model and UI. A vendor manual cannot silently supersede a normative standard; an informative recommendation cannot be presented as a mandatory clause; and a GridForge engineering rule cannot be represented as a verbatim standard requirement unless the source and interpretation support that claim.
+
+GridForge may provide engineering assistance, traceability and evidence management. It must not claim that using the software alone certifies a plant, design, installation, protection scheme, equipment product or statutory submission.
+
+### B. Standards governance and source authority
+
+Each catalogue entry must identify the issuing body and the authoritative source used to establish identity, edition, publication status and amendment history. Candidate source authorities include:
+- BIS for Indian Standards (IS), Indian adoptions and related catalogue status;
+- IEC for international electrotechnical standards and official publication metadata;
+- IEEE for IEEE standards and approved revision/status information;
+- ISO for cross-disciplinary management, quality, safety and lifecycle standards;
+- CENELEC/EN and other regional bodies where the project jurisdiction or contract adopts them;
+- national regulators, statutory authorities and grid/utility authorities for binding codes and regulations;
+- recognized industry bodies and technical committees for explicitly non-normative guidance.
+
+Secondary catalogues, search snippets, vendor literature and informal copies may help discover a document but must not be the sole evidence for authoritative edition/status claims. Record the source URL or catalogue reference, access date, retrieval method and verification evidence. Where the authoritative catalogue is inaccessible, status must be marked unverified rather than inferred.
+
+Catalogue governance should include an accountable standards curator/reviewer, a technical domain owner and a project-level approver for applicability decisions. Exact role names and approval separation remain open. Standards catalogue edits must be versioned and auditable; a plugin must not independently declare a standard authoritative.
+
+### C. Standards identity and lifecycle model
+
+A standards record should carry, where applicable:
+- stable internal standards-record ID;
+- issuing organization and committee;
+- official designation/number, title and language;
+- edition, publication date and effective date if defined;
+- amendments, corrigenda, interpretations, addenda and consolidated edition identity;
+- adoption/translation relationship, such as an IS adoption of an IEC source;
+- publication status: draft, published/current, superseded, withdrawn, reaffirmed, under revision or status unknown;
+- replacement/supersession relationship;
+- scope, exclusions and applicable equipment/system classes;
+- normative/informative classification and document type;
+- official catalogue identifier and authoritative reference;
+- verification date, verifier and evidence record;
+- access/licensing restrictions and permitted metadata/text storage;
+- related standards, referenced documents and dependency relationships.
+
+Do not collapse edition, amendment and reaffirmation into one free-text version field. A national adoption may differ technically, editorially or by national deviations from the international source. It must have its own identity and explicit relationship to the parent publication.
+
+Lifecycle states must distinguish publication status from project applicability. A withdrawn standard may remain contractually applicable to an existing project; a newly published edition is not automatically applicable to an existing design. Conversely, a regulatory change may impose new obligations regardless of a project's previous baseline. Applicability is a governed project decision, not an automatic consequence of “latest version”.
+
+### D. Applicability and precedence resolution
+
+Applicability is evaluated for a defined project scope and date, not simply by searching for keywords. Candidate dimensions:
+- jurisdiction and authority having jurisdiction;
+- project type, facility and industry;
+- voltage level, frequency, network configuration and system grounding;
+- equipment class, rating, technology and intended duty;
+- installation environment and operating conditions;
+- lifecycle stage: concept, design, procurement, manufacture, testing, commissioning, operation or maintenance;
+- contractual specification and employer/utility requirements;
+- project baseline date and relevant regulatory transition dates.
+
+The standards engine should produce an applicability decision with rationale and supporting evidence: applicable, not applicable, conditionally applicable, superseded-but-retained, applicability pending or unresolved conflict.
+
+There is no universal precedence list that safely resolves every conflict. Applicable law and binding regulatory directions must be identified for the jurisdiction; contract, authority requirements, adopted standards and project specifications must be interpreted in their actual legal/contractual context. Where two requirements conflict, GridForge should expose the conflict and require an authorized engineering/legal/project decision rather than silently selecting the newest, strictest or most convenient text.
+
+A more stringent numerical limit is not automatically the correct requirement if the standards define different test conditions, equipment classes, bases or methods. Applicability and equivalence must be reasoned, not inferred from numeric magnitude.
+
+### E. Requirement and clause-level traceability
+
+A standard document can contain thousands of provisions and may be copyrighted. GridForge should store metadata and controlled requirement records, not indiscriminately reproduce full standards text.
+
+A traceable requirement record should include:
+- stable requirement ID and source standard record ID;
+- edition/amendment and exact clause/table/figure/annex locator;
+- normative classification and requirement type;
+- concise licensed paraphrase or permitted excerpt, with source rights metadata;
+- applicability conditions and exclusions;
+- affected engineering domains, object types, parameters, calculations or lifecycle stages;
+- verification method: calculation, design review, inspection, test, document evidence or external certification;
+- expected input data, units, limits, formula/method reference and assumptions where permitted;
+- severity and safety significance;
+- interpretation notes, ambiguity and unresolved questions;
+- evidence acceptance criteria and responsible reviewer.
+
+Requirement-to-system traceability should be many-to-many:
+- one clause may affect several GridForge domain objects and workflows;
+- one validation rule may implement multiple clauses;
+- one clause may require human review or external evidence rather than a software check;
+- one project design decision may satisfy or deviate from several requirements.
+
+Trace links must identify whether a relationship is direct implementation, partial support, advisory coverage, verification-only, external evidence required, not implemented, not applicable or unresolved. A linked code symbol is not proof that a clause is fully implemented; a passing calculation is not proof of installation compliance.
+
+### F. Engineering domain coverage
+
+The standards catalogue should be organized by engineering capability and lifecycle, not merely by issuing organization.
+
+**Electrical equipment and network design**
+- equipment ratings, insulation coordination, clearances, earthing/grounding, short-circuit withstand, transformers, rotating machines, switchgear, cables, overhead lines, busbars, power quality and installation practices;
+- equipment-specific design and test requirements must be distinguished from system-level network requirements;
+- GridForge calculations must record source method, applicability, assumptions, input revisions and limitations.
+
+**Protection**
+- relay performance, protection application, instrument transformer requirements, protection coordination, settings, testing, trip circuit supervision and functional safety interfaces;
+- distinguish product standards, application guides, protection philosophy and project setting criteria;
+- map function behavior and curves only to verified clauses and exact editions; ANSI/IEC function labels alone are not clause-level conformance.
+
+**Instrumentation and measurement**
+- CT/PT/CVT accuracy and burden, measurement performance, transducer/sensor standards, signal quality, calibration, measurement uncertainty, timestamps and test requirements;
+- distinguish instrument product performance, installation/wiring requirements and measurement-system behavior.
+
+**Automation and Control**
+- PLC/programming language and function-block semantics, industrial communications, functional safety, control system lifecycle, cybersecurity and process instrumentation;
+- distinguish general automation standards from safety lifecycle requirements and vendor runtime constraints;
+- do not infer functional-safety certification from a logic diagram or simulation.
+
+**Studies and simulation**
+- load flow, short circuit, motor starting, stability, harmonics, arc-flash and other study methods where relevant;
+- record method edition, assumptions, system bases, model fidelity, solver limitations and acceptance criteria;
+- a standards reference attached to a solver does not establish that every result is compliant.
+
+**Project delivery and lifecycle**
+- design review, verification, inspection, factory/site acceptance testing, commissioning, operation and maintenance evidence;
+- document control, configuration management, quality management and risk management standards where adopted by project or organization.
+
+Exact standard numbers and editions must be verified in a separate catalogue audit. This architecture section intentionally does not assert a complete or current BIS/IEC/IEEE catalogue.
+
+### G. Mapping standards to GridForge rules and calculations
+
+A standards-derived engineering rule must carry a governed derivation record:
+- source standard and edition;
+- clause/table/figure;
+- requirement interpretation and applicability;
+- formula, algorithm or decision table identity where permitted;
+- unit and base conventions;
+- assumptions and boundary conditions;
+- implementation owner/domain;
+- implementation version and source reference;
+- verification evidence and known limitations;
+- review/approval status and effective date.
+
+Separate four levels of support:
+1. **Reference only:** standard is catalogued and discoverable; no software rule is claimed.
+2. **Guided review:** UI provides checklist or evidence capture; human judgment remains required.
+3. **Calculated/validated support:** a defined GridForge rule or calculation implements a specified requirement subset and has reviewed verification evidence.
+4. **Externally evidenced conformity:** evidence from an authorized laboratory, certification body, authority or qualified reviewer is attached; GridForge records it but does not manufacture the external certification.
+
+Do not use a single percentage “compliance score” that hides critical non-applicability, missing evidence or unimplemented clauses. If a summary metric is offered, its denominator, applicability basis, excluded items, support level and unresolved issues must be explicit. Safety-critical unresolved requirements must remain prominent and cannot be offset by many low-risk completed checklist items.
+
+### H. Project standards baseline and change impact
+
+Each project should carry an explicit standards baseline:
+- selected standards and editions;
+- jurisdiction and authority assumptions;
+- contract/project specification references;
+- applicability decisions and rationale;
+- approved interpretations, deviations and equivalences;
+- baseline effective date and approving role;
+- source verification dates and known status uncertainty.
+
+A project baseline must be immutable by revision. Updating the global catalogue must not silently rewrite the baseline of existing projects.
+
+When a standard is revised, withdrawn, corrected or newly adopted, perform impact analysis against project baselines and requirement links. Classify impact as informational, potential design review, recalculation, revalidation, documentation update, procurement/commissioning impact or mandatory regulatory action pending authority interpretation.
+
+The system must not automatically migrate engineering settings or alter equipment parameters because a standard edition changed. It must create a review item with affected objects, calculations, decisions and evidence. A project may legitimately retain a previous edition if its contract/regulatory basis allows it; the rationale must be recorded.
+
+### I. Deviations, interpretations and equivalence
+
+Provide explicit records for:
+- approved deviation/derogation;
+- alternative design or equivalent method;
+- interpretation request and response;
+- waiver/exemption;
+- authority or utility approval;
+- project-specific requirement that is more restrictive or otherwise different.
+
+Each record should identify scope, affected clauses/objects, technical rationale, risk assessment, compensating measures, evidence, author, reviewer, approver, date, expiry/review trigger and attached authority correspondence. A deviation is not a change to the source standard and must never be represented as general compliance.
+
+Unresolved interpretation is a first-class state. GridForge should not resolve ambiguity by silently choosing an interpretation embedded in code. Any software rule depending on an interpretation must identify the interpretation record and be invalidated/reviewed if that interpretation changes.
+
+### J. Verification evidence and assurance
+
+Evidence should be typed and linked to exact project revision, requirement, equipment/object, calculation or test:
+- design calculation and reviewed result;
+- engineering drawing or schedule;
+- manufacturer data sheet and certificate;
+- type/routine test report;
+- FAT/SAT/commissioning/inspection record;
+- calibration certificate and measurement evidence;
+- relay secondary/primary injection or functional test;
+- PLC/control validation and safety assessment;
+- external audit, inspection or authority approval;
+- reviewer decision and rationale.
+
+Evidence metadata includes source, issuer, date, revision, validity/expiry, equipment identity, test conditions, method, result, units, limitations and integrity digest. A file attachment alone is not verified evidence. Record who reviewed it, what was checked and whether the evidence applies to the exact equipment and configuration revision.
+
+Evidence freshness and applicability must be explicit. A test certificate for a different model, rating, firmware or configuration must not be treated as automatically applicable. Expired, superseded, incomplete or unverified evidence remains visible as such.
+
+### K. Standards catalogue, licensing and controlled content
+
+Standards documents may be copyrighted and licensed. GridForge should store only metadata, identifiers, permitted excerpts/paraphrases and user-provided licensed references under the applicable rights. Do not scrape, redistribute or embed full standards text without authorization.
+
+The catalogue should support:
+- official metadata and catalogue links;
+- edition/amendment relationships;
+- access and licence restrictions;
+- internal controlled copies only where permitted;
+- local document references with digest and access controls;
+- source verification history;
+- corrections and review workflow.
+
+A link to an official publication does not imply that the user has access rights. If a user supplies a document, preserve provenance and respect its licensing constraints; do not assume it may be shared with other users or included in exports.
+
+### L. UI, diagnostics and workflow
+
+Provide a standards workspace with:
+- catalogue search and filters by issuer, domain, jurisdiction, edition and lifecycle status;
+- project standards baseline and applicability matrix;
+- clause/requirement traceability view;
+- domain object/calculation links;
+- evidence register and review status;
+- revision-impact dashboard;
+- deviation/interpretation workflow;
+- unresolved conflict and missing-source warnings.
+
+The Inspector should show the source edition, clause, applicability and verification status beside any standards-derived parameter or rule. A result should identify the rule version and input project revision. Distinguish catalogue metadata verification from technical interpretation approval and implementation verification.
+
+Typed diagnostic states should include source unverified, edition ambiguous, superseded, applicability unresolved, conflicting requirements, missing clause mapping, rule not implemented, partial implementation, evidence missing/stale, external approval required, deviation pending/expired and unsupported jurisdiction.
+
+### M. Security, trust and audit
+
+Standards metadata, user interpretations, imported compliance evidence and plugin contributions are data, not executable instructions. External document links must not trigger automatic network access or execution. Evidence files require the same untrusted-input controls as project exchange and persistence.
+
+Audit changes to standards records, applicability, clause mappings, rules, interpretations, deviations and evidence decisions. Capture actor, role, timestamp, before/after revision, source, rationale and approval. Preserve historical project baselines so later catalogue edits cannot retroactively change what standard edition was applied at an earlier design decision.
+
+### N. Candidate acceptance scenarios
+
+Proposed V3 scenarios, not tests executed or approved:
+- **UI-ACC-STD-01:** Every catalogue record has issuing body, official designation, edition/status and authoritative verification evidence or an explicit unverified state.
+- **UI-ACC-STD-02:** Amendment, corrigendum, adoption and supersession relationships are represented independently.
+- **UI-ACC-STD-03:** BIS adoption and parent IEC publication remain distinct identities with documented national deviations.
+- **UI-ACC-STD-04:** Draft, current, superseded, withdrawn, reaffirmed and unknown statuses are not conflated.
+- **UI-ACC-STD-05:** Project applicability is evaluated against jurisdiction, scope, equipment and lifecycle, not simply latest edition.
+- **UI-ACC-STD-06:** Conflicting standards/contract/regulatory requirements are surfaced for authorized decision, not silently ranked.
+- **UI-ACC-STD-07:** Normative clauses are distinguished from informative guidance and vendor recommendations.
+- **UI-ACC-STD-08:** Every standards-derived rule links to exact edition and clause locator, interpretation and implementation version.
+- **UI-ACC-STD-09:** One clause can map to multiple domains and one rule can link to multiple requirements without losing traceability.
+- **UI-ACC-STD-10:** A catalogue entry alone never produces a compliance claim or score.
+- **UI-ACC-STD-11:** Partial implementation and external-review requirements remain explicit and visible.
+- **UI-ACC-STD-12:** Project baseline remains stable when the global standards catalogue is updated.
+- **UI-ACC-STD-13:** A new edition produces impact review items and does not silently change settings or calculations.
+- **UI-ACC-STD-14:** Deviations and interpretations are scope-bound, approved, time-aware and auditable.
+- **UI-ACC-STD-15:** Evidence links to exact equipment/configuration/project revision and records test conditions.
+- **UI-ACC-STD-16:** Stale, expired, mismatched or unverified evidence is not presented as valid.
+- **UI-ACC-STD-17:** Copyright/licence metadata prevents unauthorized full-text storage or redistribution.
+- **UI-ACC-STD-18:** Imported or plugin-supplied standards metadata cannot override authoritative catalogue governance.
+- **UI-ACC-STD-19:** Historical project compliance views reproduce the standards baseline and rule versions used at that time.
+- **UI-ACC-STD-20:** Standards-derived results identify assumptions, limits and the boundary between software support and external certification.
+
+### O. Open decisions and evidence required
+
+1. Assign standards catalogue governance, technical domain owners and approval roles.
+2. Define the authoritative catalogue source hierarchy and verification cadence for BIS, IEC, IEEE, ISO and relevant regulators.
+3. Determine the metadata model for editions, amendments, corrigenda, adoptions, interpretations and status transitions.
+4. Define jurisdiction, contract and project applicability rules without hard-coding a universal precedence hierarchy.
+5. Prioritize exact standards families and editions for electrical, Protection, Signals, Control, Studies and commissioning.
+6. Verify the BIS catalogue for the required Protection, automation and Control standards as a separate evidence-driven work package.
+7. Define licensed clause metadata/paraphrase policy and document access controls.
+8. Approve requirement IDs, clause traceability and rule-to-code evidence contracts.
+9. Define support levels and prohibit unsupported compliance claims.
+10. Define project baseline pinning and standards-change impact review.
+11. Define deviation, interpretation, equivalence and external authority approval workflow.
+12. Define evidence retention, authenticity, validity/expiry and reviewer requirements.
+13. Decide whether standards metadata is core platform capability or a centrally governed plugin contribution; avoid multiple catalogues.
+14. Establish a representative clause-to-rule evidence set before implementing a standards rule engine.
+
+### P. Gate impact and frozen invariants
+
+Relevant gates remain open:
+- **UI-GATE-02:** project standards baseline and revision lifecycle.
+- **UI-GATE-03:** standards applicability, conflict, evidence and implementation diagnostics.
+- **UI-GATE-06:** traceability from source clause through domain rule/calculation to evidence and project revision.
+- **UI-GATE-07:** catalogue governance, standards-family prioritization and implementation scope.
+- **UI-GATE-04:** accessible clause review, evidence and deviation workflows.
+
+Frozen invariants:
+- Standards catalogue metadata is not itself engineering truth or proof of compliance.
+- Source body, edition, amendments, adoption and status are explicit and independently traceable.
+- Project applicability is scoped and approved; “latest” does not automatically mean applicable.
+- Normative requirements, informative guidance, law/regulation, contract, engineering rules and vendor practice remain distinct.
+- Standards-derived rules identify exact source edition, clause, interpretation, owner and verification evidence.
+- Software support never implies statutory certification, product certification or installation compliance.
+- Project standards baselines are revision-bound; global catalogue updates do not silently rewrite historical projects.
+- Conflicts, deviations and unresolved interpretations require explicit review and audit.
+- Evidence is revision- and equipment-specific, with provenance, validity and reviewer status.
+- Copyright and licensing restrict storage and redistribution of standards content.
+- No plugin or external file can bypass catalogue governance or silently assert compliance.
+
+**Scope boundary:** research register only. No standards catalogue records, BIS/IEC/IEEE edition verification, clause text, compliance rule, parser, source implementation, tests or CI were changed or run.
