@@ -10507,3 +10507,323 @@ No change to V2 main, existing project archive schema or frozen architecture is 
 ### 8I-43.29. Research disposition
 
 Research-only proposal. No implementation, tests, CI, benchmarks, runtime validation, standards conformity assessment, BIS adoption verification or certification was performed. V2 main remains unchanged. UI-GATE-02 through UI-GATE-07 remain open. The status of ISO 21502:2020 and ISO/CD 21502 is recorded as observed on 2026-11-04 and must be rechecked before normative use.
+
+
+## 8I-44. Proposed V3 Blender-inspired engineering workbench, context-first interaction and at-a-glance data architecture (2026-11-04)
+
+### 8I-44.1. Objective and design thesis
+
+Make GridForge a professional engineering workstation in which the engineer keeps the primary engineering document visible while reaching relevant tools, properties, object hierarchy, linked data, diagnostics, results and commands with minimal navigation. The target is not visual imitation of Blender and not unrestricted panel proliferation. The target is a coherent, discoverable and customizable workbench that reduces repetitive navigation and keeps engineering context visible.
+
+Adapt Blender's strongest principles: workspaces/screens contain editor areas; editor areas contain regions; each editor has a recognizable identity, header and local tools; workspaces are task-oriented arrangements rather than separate databases; active-tool settings are close to the tool; search, context menus and quick favorites accelerate discovery; status guidance explains the current interaction; layouts are customizable. Blender's published interface guidance describes screen/area/region hierarchy and non-overlapping, non-blocking interaction. These principles should be adapted, not copied literally: https://developer.blender.org/docs/features/interface/human_interface_guidelines/paradigms/ ; https://developer.blender.org/docs/features/interface/human_interface_guidelines/editors/ ; https://docs.blender.org/manual/en/dev/interface/index.html .
+
+### 8I-44.2. Three-level workbench hierarchy
+
+Adopt three conceptual levels:
+1. Workspace/Screen: named task arrangement, active engineering context, editor layout, visible panels and workspace-specific shortcuts.
+2. Editor Area: replaceable editor instance such as SLD, Control Ladder, Protection function/coordination, Study configuration/results, equipment/data browser, report, timeline or diagnostics.
+3. Editor Regions: header, toolbar/tool shelf, main view, contextual sidebar, Inspector/Properties, lists/channels, timeline, status/help strip and editor-local menus.
+
+A workspace is not a document, project, discipline domain or plugin. One workspace can contain multiple editor areas. A document can be shown in multiple views where supported. Workspace layout is presentation state, not a second engineering database.
+
+### 8I-44.3. Global application frame
+
+Candidate shell anatomy:
+- Top application bar: project/document identity, save/sync state, global command/data search, workspace tabs, user/workspace controls and high-priority project warnings.
+- Main menu: stable application commands organized by project, edit, view, document, engineering, tools, window/workspace and help.
+- Workspace strip: task workspaces with visible active state and keyboard navigation.
+- Editor header: editor identity, active document, local mode/tool, view controls, editor-type selector and context selectors.
+- Left region: collapsible Project Explorer/Outliner and contextual Tool Shelf; tabbed or split where useful.
+- Central editor grid: one or more split editor areas, with tabs and optional secondary windows.
+- Right region: contextual Inspector/Properties with sections for object data, active tool, relations, configuration, validation and provenance.
+- Bottom region: collapsible Diagnostics, messages, results, activity/timeline, command history or task progress.
+- Status/help strip: active tool's next action, modifier hints, selection summary, coordinate/grid/snap state, operation progress and actionable warnings.
+
+The central engineering document should receive the largest default screen allocation. Panels should not crowd it. Frequently needed controls remain one action or shortcut away; advanced data is progressively disclosed.
+
+### 8I-44.4. Task-oriented workspace presets
+
+Initial preset candidates:
+- Project: overview, project explorer, deliverables, recent documents, validation summary, work packages and readiness.
+- Electrical / SLD: large SLD editor, electrical equipment/tool shelf, system Outliner, selected-equipment Inspector, connection/snap controls and topology diagnostics.
+- Protection: relay/function tree, settings Inspector, measurement/input provenance, zone context, decision trace and TCC/coordination editor when supported.
+- Control: Ladder/function-block editor, canonical component palette, I/O and signal browser, component/port Inspector, cycle status, interlocks and execution trace.
+- Instrumentation & Signals: instrument/loop/channel tree, signal routing editor, measurement quality/freshness Inspector, calibration and acquisition status.
+- Studies: study case/configuration, assumptions and input snapshot, solver options, progress, results, plot/table editors, comparison and report.
+- Commissioning / Operations Trace: equipment/functional location browser, approved baseline, test records, alarms/SOE/historian references, command-feedback trace and handover evidence.
+- Reports & Exchange: report/document browser, source revision/provenance, templates, import staging, export profiles and transmittals.
+
+Presets are starting layouts, not role restrictions. Users may customize, duplicate and save layouts. Unsupported capabilities must be visibly unavailable with an explanation; a workspace must not imply that every listed feature is implemented.
+
+### 8I-44.5. Editor type system and lifecycle
+
+Every editor area has a visible editor-type selector and stable editor identity. Switching an area from SLD to table/plot changes the view, not the canonical project or domain object. Support split, join, close, duplicate view, move to new window and tab operations with clear previews and safe lifecycle behavior.
+
+Editor declarations include editor ID/version, owning domain, accepted document/object types, selection/context capabilities, supported tools/actions, header/region contributions, property and diagnostic read models, keyboard context, persistence policy, activation/deactivation/disposal and plugin contract version. Do not use generic fallback editors that visually imply unsupported semantics; provide a clear read-only details view where no dedicated editor exists.
+
+### 8I-44.6. Shared context model
+
+Use a typed context model for active project/revision, workspace, editor, document/revision, domain/mode, active tool/lifecycle, selection, pinned Inspector target, local browse context, study/run/result/time context and current operation/diagnostics.
+
+Distinguish active context from local browse context. Inspecting a different Outliner/search result must not silently change canvas selection. A pinned Inspector target remains pinned until unpinned or unavailable. Clearly label pinned, historical, remote or non-active context. Selection changes update contextual panels through typed read models; they must not cause document replacement, unexpected tool cancellation or domain mutation. Multi-selection shows common values and per-object differences, and does not flatten incompatible types into a generic edit form.
+
+### 8I-44.7. Contextual Inspector / Properties editor
+
+Treat the Inspector as a primary engineering editor, not a narrow property grid. Keep it discoverable in a stable right region and optionally openable/pinnable in another editor area.
+
+Candidate context-dependent sections:
+- Item: designation, type, identity, hierarchy and engineering summary.
+- Configuration: editable domain-owned settings and typed forms.
+- Tool: active tool options and next-operation settings.
+- Electrical: terminals, topology references, ratings, phase and characteristics.
+- Signals: measurement bindings, units, quality, timestamps, calibration and provenance.
+- Protection: functions, inputs, settings, dependencies, blocked/stale state and decision history.
+- Control: component properties, ports, signal semantics, bindings and execution state.
+- Studies: case inputs, assumptions and result references.
+- Relations: connected objects, dependencies, drawings, packages and cross-domain links.
+- Validation: findings, severity, source, resolution and navigation.
+- History: revision, change provenance, draft/accepted/historical values and audit references.
+
+Show only applicable sections. Use domain metadata for type, unit, constraints, description, default provenance, edit policy and commit semantics. Provide search within properties, collapsible groups, favorites, visible draft/modified state and a compact identity header. Advanced fields remain searchable without crowding common tasks. Do not create a universal untyped property bag.
+
+### 8I-44.8. Tool Shelf and canonical tool registry
+
+Provide a consistent editor-local Tool Shelf adjacent to the canvas. Each tool descriptor declares stable ID, domain/editor compatibility, category, icon, label, tooltip, shortcut, cursor/gizmo, supported object types, lifecycle, repeat/sticky policy, configuration schema, cancellation behavior, accessibility metadata and availability reason.
+
+Use hierarchical groups and searchable categories. Tool buttons need recognizable icons and accessible labels; icon-only mode is optional, not the only discovery method. Tool groups expose alternatives without repeated navigation to a distant palette. Active tool state is obvious; settings appear in header and Active Tool properties.
+
+A tool is available only if its complete path is supported: activation, preview, apply/commit, validation, undo/recovery, deactivation and persistence where relevant. Capability declarations must agree across Core semantics, Application commands, persistence and editor projection. This addresses the capability drift class in open issue #1032.
+
+### 8I-44.9. One-shot, repeat, sticky and chained tools
+
+Support explicit tool policies:
+- One-shot: operation ends after one successful placement.
+- Repeat: remains active after each successful placement.
+- Sticky: remains active until explicitly cancelled or switched.
+- Chained: continues a sequence such as multi-point wire/route construction.
+- Modal: temporary constrained interaction with explicit start/commit/cancel.
+
+Choose defaults by engineering risk and editor semantics. Repeated placements create distinct domain identities and never reuse preview IDs. After placement, users can continue, change parameters, switch tools or return to selection. Escape behavior is documented at every operation stage. Show a visible repeat/sticky state; never leave an invisible active tool. This directly addresses repetitive one-shot workflow concerns in #815.
+
+### 8I-44.10. Global command and data search
+
+Provide an application-wide command/search palette inspired by Blender's F3 search, but with GridForge-specific typed and permission-aware results. Search commands, operations, editors/workspaces, tools, properties, project objects by tag/ID/type/property, documents/sheets/studies/results/reports, diagnostics/alarms, help and shortcuts.
+
+Results show action/object/context, destination editor, shortcut, availability and disabled reason. Filters separate Commands, Tools, Objects, Documents, Diagnostics and Help. Ranking may favor current context and recency but must not hide valid results.
+
+Search is discovery and dispatch, never a bypass. Commands still follow Controller → Command → Application → Core, authorization, validation, transaction, confirmation and audit. Destructive, safety-significant and external-dispatch actions retain safeguards. Do not expose hidden debug operations to ordinary users. Candidate shortcut F3 is subject to centralized cross-platform keymap/conflict review. Blender search reference: https://docs.blender.org/manual/en/4.4/interface/operators.html .
+
+### 8I-44.11. Outliner and engineering data browser
+
+Provide searchable project hierarchy views for plant/system/equipment; electrical network and SLD documents/sheets; Protection relay/functions; Control programs/components/rungs; instruments/loops/channels/signals; study cases/runs/results; reports/deliverables/assurance records.
+
+These are projections over authoritative objects, not independent editable trees. Search/filter by tag, stable ID, type, system, status, owner, revision, domain and supported metadata. Support expand/collapse, multi-select, selection synchronization, reveal-in-editor, focus, pin, copy identity/reference, show relations and open properties.
+
+A tree selection reveals the object in its owning editor when a valid projection exists. Cross-domain objects open in their owning editor or a read-only contextual view. Do not infer visual connectivity from names or proximity.
+
+### 8I-44.12. Context menus and Quick Favorites
+
+Right-click menus are object-, editor-, selection- and state-aware. Candidate actions: inspect properties, reveal in Outliner, open owning document, navigate to terminal/channel/function, show connected/related objects, copy tag/ID, create supported association, isolate/highlight, fit selection, add annotation, view history and view diagnostics.
+
+Only show valid operations. Disabled actions may show a reason; unsupported actions must not appear functional. Context menus are not the only keyboard/assistive route.
+
+Users may pin frequent commands, tools and panel actions in Quick Favorites. Favorites are scoped global/workspace/editor, searchable and editable. They are shortcuts to canonical commands, not duplicate implementations or a permission layer.
+
+### 8I-44.13. Tool settings and last-operation feedback
+
+Tool settings appear in the editor header/tool settings region and Inspector Active Tool section, synchronized to one tool configuration. Parameters affecting the next operation are distinct from settings for an already completed operation.
+
+An optional last-operation panel must state whether changing a parameter re-runs a new operation, edits an uncommitted draft or issues a new command. Do not imply that an accepted engineering command can be retroactively edited.
+
+Placement/connection previews show snap target identity, compatibility status, coordinate/grid state and commit/cancel instructions. A visual snap is only a candidate until the owning domain/Application command confirms the semantic relationship. Protection/Control previews cannot dispatch live actions merely because the user is configuring a workspace.
+
+### 8I-44.14. Contextual status/help strip
+
+A persistent status/help strip reports active tool/editor, pointer action and modifiers, operation shortcuts, selected-object summary, grid/snap/coordinate/zoom state, preview compatibility, operation progress/cancellation, result message and project/document revision/save state as appropriate.
+
+Show concise contextual hints, not permanent text clutter. Modifier hints update as keys are held. Critical warnings and unresolved diagnostics must not live only in transient status messages. Long-running tasks show progress and cancellation when supported. Blender status-bar reference: https://docs.blender.org/manual/en/dev/interface/window_system/status_bar.html .
+
+### 8I-44.15. Centralized keymap architecture
+
+Create one inspectable, user-customizable keymap service with scopes: global, workspace, editor type, tool, modal operation and text/property focus. Define precedence and conflict handling. A canvas shortcut must not fire while a text field is editing; global shortcuts must not unexpectedly override safety-critical editor operations.
+
+Provide shortcut search, conflict warnings, reset-to-default, trusted import/export and workspace presets. Bind keys to stable command/tool IDs, not widget object names. Show shortcuts in menus, tooltips, search and status hints. An industry-compatible preset is a candidate, but GridForge should not force Blender's keymap on electrical engineers. Publish a shortcut reference and discoverability help.
+
+### 8I-44.16. Docking, splitting and layout customization
+
+Support show/hide/collapse, resize, tabify related panels, split editor areas, join, float an editor/panel, move between supported regions, reset workspace, save/duplicate/rename/restore layout.
+
+Qt QMainWindow/QDockWidget provide dock areas, floating windows, tabified docks, nested docks, toolbar placement and versioned save/restore. Qt documentation warns that nested docking increases layout freedom but can make drag/drop behavior less intuitive. Prefer constrained named docking zones and sensible defaults over unrestricted nesting. Give each dock/editor a stable objectName and versioned layout identity. References: https://doc.qt.io/qt-6/qmainwindow.html and https://doc.qt.io/qt-6.12/qdockwidget.html .
+
+Allow split editor areas where comparison benefits users; keep global shell docks in a few predictable zones; prevent accidental closure of the last essential navigation/document area; provide one-command reset.
+
+### 8I-44.17. Data on fingertips: contextual information contract
+
+For each selected engineering object, provide a predictable path to identity/tag/type/hierarchy; essential ratings/configuration; terminals/ports/channels/loops; current and historical state with quality/time provenance; calculated values with run/input revision; validation findings; upstream/downstream dependencies; related drawings/reports/deliverables; revision/change history; approval/baseline state; and available authorized commands.
+
+"All data on fingertips" means rapid discovery and contextual visibility, not every field displayed simultaneously. Use progressive disclosure, property search, pinned Inspector, recent objects, favorites, relation navigation and compact summary. Keep common values visible; advanced engineering fields remain searchable and grouped. Domain-specific data remains typed and authoritative.
+
+### 8I-44.18. Cross-domain relations and navigation
+
+Provide Related/Trace views for typed relationships: equipment → terminals → topology; CT/PT/CVT → channels → relay inputs; Protection function → decision → command/dispatch → feedback; Control component → typed signals → action binding; study case → input snapshot → result → report; asset → baseline → commissioning evidence.
+
+Each relation declares type, source/target identity, authority, revision/time scope and provenance. Present as graph, breadcrumbs or linked-object list, but never infer missing links from tag similarity, geometry proximity or timestamp coincidence. Cross-domain navigation preserves origin and a return path. Historical links open the correct revision/time context.
+
+### 8I-44.19. Shared interaction, distinct domain editors
+
+Share shell, navigation, search, selection presentation, Inspector, status, diagnostics, shortcut, panel and lifecycle conventions, but preserve domain-specific interactions:
+- SLD: equipment/terminal semantics, topology, wire authoring, snap candidates, electrical validation and layout.
+- Control: typed components, directional ports, unit/semantic compatibility, rung/function-block semantics, scan cycles and action bindings.
+- Protection: relay/function settings, typed measurements, dependency freshness, fail-closed state, zones and decisions.
+- Studies: case/configuration/input snapshot, solver options, progress/cancellation, immutable results, plots/tables and comparison.
+- Signals: source/channel/sample/quality/time/calibration/routing.
+- Spatial/multidisciplinary: coordinate frames, federated provenance, placement/clash and discipline authority.
+
+No universal tool lifecycle, selection model, undo mechanism or gesture may violate domain semantics. Reuse UX primitives, not a generic engineering canvas.
+
+### 8I-44.20. Undo, redo and operation history
+
+Present consistent undo/redo affordances while preserving domain transaction boundaries. Show what will be undone, affected objects, scope and reversibility. Draft geometry, layout-only changes, accepted engineering commands, configuration changes, imports, study runs and external dispatch have different history owners.
+
+Do not offer a universal Ctrl+Z that silently reverses an irreversible external action or Protection/Control dispatch. Use compensating workflows or history/trace views where undo is impossible. Multi-selection edits report per-object outcomes and preserve atomicity. Rejected commands leave accepted state unchanged.
+
+### 8I-44.21. Workspace persistence and recovery
+
+Keep persistence classes separate:
+- project-owned engineering content/domain configuration;
+- project-owned documents and canonical layout data;
+- user-owned workspace/editor arrangement and panel preferences;
+- machine/display-specific geometry, monitor placement and DPI;
+- transient session state such as active tool and pointer preview;
+- operational/diagnostic/runtime data under their existing domain owners.
+
+Dock layout, window positions and active tool are not canonical electrical topology. Store personal layouts in user settings or approved workspace profiles; shared templates require explicit versioning/migration. The project may reference a named workspace template but must not absorb personal panel layout. Preserve frozen V2 .gridforge semantics unless a separately approved V3 migration exists.
+
+Restore only trusted, compatible and versioned layouts. If a dock/editor/plugin is missing, recover with a safe default and explain the missing panel. Layout corruption must not corrupt project content.
+
+### 8I-44.22. Multi-monitor and multi-window workflow
+
+Support detachable editors for SLD plus Inspector, Control plus signal browser, Protection plus TCC plot, or study configuration plus results. Each window declares project/document/revision context and lifecycle owner. Moving a panel must not duplicate command authority or create conflicting editors.
+
+Handle monitor removal, DPI/resolution changes and stale window coordinates safely. Clamp windows into visible displays after reconnect/startup. Multi-window selection synchronization is explicit; a pinned Inspector must not unexpectedly follow unrelated selection unless configured.
+
+### 8I-44.23. Responsive layout, density and visual system
+
+Define layouts for laptop, desktop, ultrawide and multi-monitor. Support compact/comfortable/high-density modes, scalable fonts/icons, adjustable splitters, horizontal overflow rules and panel collapse. Do not shrink engineering text below usable readability merely to expose more controls.
+
+At constrained sizes prioritize active document, current tool, selection identity and essential diagnostics. Secondary panels collapse into tabs or temporary sidebars without losing state. Hidden panels remain reachable by keyboard/search.
+
+Define design tokens for spacing, typography, icon size, focus, borders, panel headers, selection, hover, active tool, warning/error, read-only, draft, stale, live and historical states. Avoid low-contrast icon states and black-on-blue palettes. Icon-only controls require accessible names/tooltips. Pair color with text, shape, pattern or explicit state. Provide tested light/dark themes and semantic contrast.
+
+### 8I-44.24. Diagnostics embedded in workflow
+
+Diagnostics are available globally and locally: compact shell summary; editor-local findings; selected-object Inspector validation; dedicated diagnostics editor; inline validation at the originating field/port/terminal. Selecting a finding navigates to the correct object/editor/revision and highlights the source without mutating it.
+
+Separate errors, warnings, information, data-quality states, operational alarms, stale results and user-action feedback. Toasts are for transient confirmation, not unresolved engineering findings. Acknowledge/clear/shelve semantics remain category-specific under 8I-11 and 8I-21.
+
+### 8I-44.25. Accessibility and expert efficiency
+
+Every pointer operation has a keyboard route where meaningful. Support semantic navigation of Outliner, editor tabs, tool groups, Inspector fields, diagnostics and command results. Maintain predictable focus after selection, panel open/close, document switch and modal completion.
+
+Expose accessible roles/names/descriptions for tools, canvas objects, ports, terminals and diagnostics. Provide non-colour cues, focus indicators, text scaling, tooltip controls and reduced-motion behavior. Canvas semantic accessibility requires separate evaluation; a selectable QGraphicsItem is not automatically an accessible engineering object.
+
+Expert efficiency includes repeat placement, multi-selection, typed entry, keyboard navigation, search, favorites, property pinning, duplicate view and explicit-scope batch operations. Novice guidance includes labels, tooltips, search, context hints and safe defaults.
+
+### 8I-44.26. Plugin contribution contract
+
+Plugins may contribute editor types, tools, panels, Inspector sections, object-browser views, commands, icons, keymap declarations and help through versioned public contracts. Each contribution declares stable ID, owning domain, compatibility, permissions, localization/accessibility metadata, dependencies, lifecycle, persistence and teardown.
+
+The host owns registration, discovery, conflict resolution, activation/deactivation and UI composition. Plugins must not create shadow ToolManagers, selection systems, command routers, event buses, property schemas or project persistence. Panels use Application services/commands and domain-owned read models. Disabling/uninstalling a plugin leaves project data recoverable and marks missing extension views clearly.
+
+### 8I-44.27. Performance and responsiveness
+
+Apply 8I-15 rendering contracts and 8I-36 event/telemetry boundaries: immutable/versioned editor snapshots; coalesced high-frequency updates; separate acquisition/calculation/display rates; avoid global repaint for unrelated changes; culling/LOD; asynchronous search/indexing with cancellation and stale-result rejection; bounded caches; explicit lifecycle disposal; pure-data background preparation with UI-object mutation on the UI thread.
+
+Measure complete user tasks: workspace activation, editor switch, search, selection, Inspector update, placement/connection preview, pan/zoom, diagnostics navigation, study-result view, save/reopen and multi-window recovery. Do not invent numeric performance targets until representative workloads/hardware are approved under UI-GATE-05.
+
+### 8I-44.28. Existing issue reconciliation
+
+Existing issue records provide the following evidence; issue descriptions are not proof that this research reproduced runtime behavior:
+- #989: static source audit reports an inert SLD mode selector and zoom readout not synchronized to NavigationController.
+- #991: static source audit reports missing aggregate CanvasComposition teardown and incomplete editor deactivation lifecycle.
+- #1032: static source audit reports drift between Core component exports, persistence factory, Control palette, canvas projection and Inspector capability.
+- #1037: static source audit reports Control connection checks omit unit/signal semantics and lose metadata in canvas presentation.
+- #815: user-facing report identifies repetitive one-shot placement and absence of deliberate sticky/repeat workflow.
+- #817: user-facing report identifies route overlap and visually ambiguous near-miss connections; visual snapping must never be treated as authoritative connectivity.
+- #763 and #886: issue reports describe rendering-refresh saturation and asynchronous viewport interaction stalls; root cause and performance claims require separate evidence.
+
+Previously recorded concerns also include incomplete Inspector coverage, tool icon resolution failures, draft/placement lifecycle, incomplete menu/panel hierarchy, status/diagnostic discoverability, workspace persistence and accessibility/DPI verification. These remain audit targets until reconciled against a designated V3 source ref. V2 main remains frozen reference evidence, not the V3 implementation branch.
+
+### 8I-44.29. Candidate acceptance scenarios
+
+- UI-ACC-WORKBENCH-01: Switch task workspaces without changing project data or losing active document revision.
+- UI-ACC-WORKBENCH-02: Split a workspace into multiple editor areas and select a supported editor type in each.
+- UI-ACC-WORKBENCH-03: Resize, tabify, float, hide and restore panels with stable editor identities.
+- UI-ACC-WORKBENCH-04: Restore a compatible layout and recover safely when a panel/plugin is unavailable.
+- UI-ACC-WORKBENCH-05: Search commands, tools, objects and documents and show context, destination and availability.
+- UI-ACC-WORKBENCH-06: Dispatch a searched command through canonical Application authorization/validation.
+- UI-ACC-WORKBENCH-07: Search project objects by tag, stable ID, type and supported engineering properties.
+- UI-ACC-WORKBENCH-08: Reveal an Outliner object in its owning editor and preserve a return path.
+- UI-ACC-WORKBENCH-09: Pin an Inspector target and browse another object without changing pinned context.
+- UI-ACC-WORKBENCH-10: Distinguish configured, calculated, live, stale and historical values with provenance/edit policy.
+- UI-ACC-WORKBENCH-11: Search Inspector properties while preserving units, constraints and validation.
+- UI-ACC-WORKBENCH-12: Synchronize active-tool settings between editor header and Inspector.
+- UI-ACC-WORKBENCH-13: Expose available tools with icon, label, tooltip, shortcut and supported capability.
+- UI-ACC-WORKBENCH-14: Repeat-place equipment without reusing identity or leaving an invisible active tool.
+- UI-ACC-WORKBENCH-15: Use one-shot/repeat/sticky/chained policies with explicit Escape behavior.
+- UI-ACC-WORKBENCH-16: Show valid object context-menu actions and explain disabled actions.
+- UI-ACC-WORKBENCH-17: Add tools/commands/panels to Quick Favorites and invoke canonical actions.
+- UI-ACC-WORKBENCH-18: Display contextual instructions, modifier hints, progress and operation results.
+- UI-ACC-WORKBENCH-19: Resolve shortcut conflicts and prevent global shortcuts firing during text entry.
+- UI-ACC-WORKBENCH-20: Navigate SLD, Protection, Control, signals and studies through typed cross-domain relations.
+- UI-ACC-WORKBENCH-21: Preserve SLD terminal/connectivity semantics while sharing shell conventions.
+- UI-ACC-WORKBENCH-22: Show Control port units/semantics and reject incompatible connections before commit.
+- UI-ACC-WORKBENCH-23: Show Protection measurement freshness/dependency state without weakening fail-closed execution.
+- UI-ACC-WORKBENCH-24: Navigate a Study result to exact input snapshot, source revision and report.
+- UI-ACC-WORKBENCH-25: Navigate diagnostics to the correct object/editor/revision without mutating findings.
+- UI-ACC-WORKBENCH-26: Keep canvas interaction responsive while background updates are coalesced and stale results rejected.
+- UI-ACC-WORKBENCH-27: Use supported DPI/display configurations with keyboard and accessible focus paths.
+- UI-ACC-WORKBENCH-28: Move editor windows between monitors and recover after monitor disconnection.
+- UI-ACC-WORKBENCH-29: Disable/remove a UI plugin while preserving project data and marking missing views.
+- UI-ACC-WORKBENCH-30: Reset a workspace without changing canonical project state or another user's layout.
+
+### 8I-44.30. Open architectural decisions
+
+1. Define supported workspace/editor taxonomy and initial presets.
+2. Decide constrained Blender-like area grid, Qt dock framework or hybrid editor-area manager.
+3. Define split/join, drag targets, tabs and multi-window ownership.
+4. Define active selection, local browse context and pinned Inspector semantics.
+5. Define command search scope/ranking/metadata and candidate F3 shortcut after conflict review.
+6. Define Outliner/data-browser views and searchable object classes.
+7. Define Tool Shelf descriptors and repeat/sticky/chained policy per domain.
+8. Define Inspector sections and metadata contracts without a universal property bag.
+9. Define context-menu contribution/permission policy and Quick Favorites persistence.
+10. Define undo/history behavior by domain transaction type.
+11. Define workspace layout storage, migration, sharing and missing-plugin recovery.
+12. Define laptop/desktop/ultrawide/multi-monitor defaults.
+13. Define accessible semantic navigation for canvas objects, ports and terminals.
+14. Define visual tokens, iconography, density, contrast and focus behavior.
+15. Define diagnostics surfacing and notification policy.
+16. Define plugin editor/panel/tool registration, teardown and compatibility.
+17. Define representative workloads and UI-GATE-05 performance evidence.
+18. Reconcile open UI issues and assign correct/corrected/closed/retained disposition.
+19. Evaluate representative novice/expert engineer task journeys.
+20. Ensure every exposed control is functional, state-synchronized, accessible and capability-backed.
+
+### 8I-44.31. UI/UX gate impact and approval sequence
+
+Impacts all seven gates: UI-GATE-01 roles/context and novice/expert balance; UI-GATE-02 project/session/workspace persistence; UI-GATE-03 diagnostics and navigation; UI-GATE-04 keyboard, assistive technology, DPI, focus and contrast; UI-GATE-05 editor layout, rendering, search and responsiveness; UI-GATE-06 cross-domain identity/provenance/revision navigation; UI-GATE-07 scope, sequencing and ownership.
+
+Recommended approval order: approve role/task matrix; approve context/workspace taxonomy; approve editor/tool/Inspector/diagnostics contracts; approve persistence/security boundaries; approve accessibility/display envelope; approve representative scenarios/performance methods; then authorize bounded implementation packages. All gates remain open.
+
+### 8I-44.32. Frozen V2 invariants and migration boundary
+
+Preserve frozen V2 invariants: Core owns electrical/domain truth; Application owns commands/services/controlled mutation; UI is projection and interaction; plugins use public contracts and Application services; Protection and Control remain separate authorities; SLD remains first-class electrical workflow; project persistence is independent of Qt graphics objects.
+
+V3 may unify navigation, search, selection presentation, property inspection, status, panel layout, tool discoverability and editor composition. It must not unify SLD, Control, Protection and Study semantics into one generic canvas/runtime. UI controls never mutate Core directly; visual snapping never claims connectivity; command search never bypasses authorization; dock layout never becomes canonical engineering data.
+
+No V2 source, project archive schema, runtime behavior or implementation branch is changed or authorized by this research entry.
+
+### 8I-44.33. Research disposition
+
+Research-only proposal based on Blender's published interface guidance, Qt 6.12 main-window/docking documentation and existing GridForge issue records/prior V3 UI/UX contracts. Issue descriptions with static source findings are recorded as such; runtime symptoms were not reproduced in this work. No implementation, tests, CI, benchmarks, user study, accessibility conformance evaluation or runtime validation was performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A fresh file-by-file audit requires a designated V3 implementation ref; V2 main may be inspected only as frozen reference evidence.
