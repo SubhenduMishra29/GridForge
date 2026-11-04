@@ -17,7 +17,6 @@ from core.network.network import Network
 from core.protection.configuration_fingerprint import canonical_configuration_value
 from core.protection.project_configuration import (
     DifferentialProtectionSchemeConfiguration,
-    ProtectionFunctionConfiguration,
     ProtectionProjectConfiguration,
 )
 
@@ -39,6 +38,18 @@ def _connected_endpoint_identity(endpoint: Any) -> tuple[Any, ...] | None:
     if isinstance(endpoint_id, str) and endpoint_id:
         return ("object", endpoint.__class__.__module__, endpoint.__class__.__qualname__, endpoint_id)
     return ("unsupported", endpoint.__class__.__module__, endpoint.__class__.__qualname__)
+
+
+def _source_endpoint_identity(binding: Any) -> str:
+    endpoint = binding.source_endpoint_reference
+    if endpoint.is_terminal:
+        return (
+            f"terminal:{endpoint.equipment_type.value}:"
+            f"{endpoint.object_id}:{endpoint.terminal_role}"
+        )
+    if endpoint.is_bus:
+        return f"bus:{endpoint.object_id}:{endpoint.attachment_id}"
+    return f"unsupported:{endpoint.kind}"
 
 
 def _instrument_configuration(instrument: Any) -> Mapping[str, Any]:
@@ -257,7 +268,7 @@ def build_protection_dependency_registry(
             add_dependency("relay", element.relay_id, _relay_configuration(relay))
 
         owned_bindings = bindings_by_element.get(element_id, [])
-        expected: dict[str, tuple[str, str]] = {}
+        expected: dict[str, tuple[str, str | None]] = {}
         if element.function_code in {"50N", "51N"}:
             residual = element.residual_current_input
             if residual is None:
@@ -316,7 +327,7 @@ def build_protection_dependency_registry(
                 element_diagnostics.append(f"{binding_prefix}: binding owner does not match its element.")
                 continue
             add_dependency("measurement_binding", binding.binding_id, binding.to_dict())
-            add_dependency("source_endpoint_association", binding.source_equipment_id, {
+            add_dependency("source_endpoint_association", _source_endpoint_identity(binding), {
                 "source_equipment_id": binding.source_equipment_id,
                 "source_endpoint": binding.source_endpoint_reference.to_mapping(),
             })
@@ -334,7 +345,7 @@ def build_protection_dependency_registry(
 
             try:
                 instrument = network.get_by_identity(binding.instrument_id)
-            except (KeyError, ValueError):
+            except (LookupError, ValueError):
                 instrument = None
             if instrument is None:
                 element_diagnostics.append(f"{binding_prefix}: instrument {binding.instrument_id!r} is missing.")
