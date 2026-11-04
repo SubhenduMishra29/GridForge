@@ -130,6 +130,11 @@ class Application:
         self._sld_service = sld_service
         self._control_service = control_service
         self._control_signal_mapping = control_signal_mapping
+        self._control_signal_mapping_project_id = (
+            control_service.configuration.project_id
+            if control_signal_mapping is not None and control_service is not None
+            else None
+        )
         if control_signal_mapping is not None and control_service is not None:
             self._validate_control_signal_mapping(control_signal_mapping, control_service.configuration)
         self._measurement_channel_service = measurement_channel_service
@@ -256,7 +261,11 @@ class Application:
 
     @property
     def control_signal_mapping(self) -> ControlSignalMapping | None:
-        """Return the Application-owned immutable engineering signal mapping."""
+        """Return only the mapping scoped to the currently active project."""
+        lifecycle = self._project_lifecycle
+        context = lifecycle.context if lifecycle is not None else None
+        if context is None or self._control_signal_mapping_project_id != context.project_id:
+            return None
         return self._control_signal_mapping
 
     def _validate_control_signal_mapping(self, mapping: ControlSignalMapping, configuration: Any) -> None:
@@ -322,6 +331,19 @@ class Application:
                 measurement_read_service=self._measurement_channel_read_service,
             )
         self._control_signal_mapping = mapping
+        if mapping is None:
+            self._control_signal_mapping_project_id = None
+        else:
+            lifecycle = self._project_lifecycle
+            active_context = lifecycle.context if lifecycle is not None else None
+            project_id = (
+                active_context.project_id if active_context is not None
+                else self._control_service.configuration.project_id if self._control_service is not None
+                else None
+            )
+            if not isinstance(project_id, str) or not project_id.strip():
+                raise RuntimeError("Control signal mapping requires an identifiable project owner.")
+            self._control_signal_mapping_project_id = project_id
         if next_cycle is not None:
             self._control_cycle = next_cycle
     def configure_dynamic_control_runtime(
@@ -3682,6 +3704,11 @@ class Application:
         configuration = self.control_service.configuration
         if configuration.project_id != active_context.project_id:
             raise RuntimeError("Control configuration project_id does not match the active project.")
+        if (
+            self._control_signal_mapping is not None
+            and self._control_signal_mapping_project_id != active_context.project_id
+        ):
+            raise RuntimeError("Control signal mapping belongs to a different project; reconfigure it for the active project.")
         engine = self.control_engine
         if engine.configuration is not configuration:
             raise RuntimeError("ControlEngine configuration is not the active Application Control configuration.")
