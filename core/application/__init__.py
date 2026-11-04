@@ -34,6 +34,7 @@ from .protection_execution import (
     ProtectionPostconditionVerification,
     ProtectionTargetUnavailableError,
     StaleProtectionExecutionError,
+    StaleProtectionDecisionError,
 )
 from .protection_dependency import (
     ProtectionDependency,
@@ -99,6 +100,7 @@ __all__ = [
     "ControlSignalResolution",
     "ControlSignalResolutionError",
     "StaleProtectionExecutionError",
+    "StaleProtectionDecisionError",
     "ProtectionTargetUnavailableError",
     "PostconditionStatus",
     "ProtectionPostconditionVerification",
