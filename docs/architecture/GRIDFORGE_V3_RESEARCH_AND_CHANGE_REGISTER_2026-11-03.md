@@ -3234,3 +3234,209 @@ Frozen invariants:
 - Every mutation follows the UI → Controller → Command → Application → Core → Event → Projection → UI path, with the owning domain contract enforced.
 
 **Scope boundary:** research register only. No source implementation, UI behavior, permission model, project schema, V2 code, tests or CI were changed or run.
+
+
+## 8I-18. Proposed V3 information architecture and navigation model (2026-11-04)
+
+**Purpose:** define a coherent application information architecture that lets engineers understand where they are, find the right engineering object or task, move between related workspaces and inspect authoritative evidence without collapsing distinct engineering disciplines into one generic editor.
+
+**Status:** research proposal. This section does not approve a final navigation design, role/permission model, workspace implementation or V3 release scope.
+
+### A. Information architecture principles
+
+1. **Project is the navigation root.** A project groups canonical engineering content and its related study/configuration artefacts under the approved project lifecycle contract. A workspace is a task-oriented view over project-owned or explicitly associated data; it is not a second project database.
+2. **Domain ownership remains explicit.** Electrical/SLD, Protection, Control, Instrumentation & Signals, Studies and Diagnostics/Operations are distinct task areas. Shared navigation does not imply shared domain execution or a generic canvas.
+3. **Stable identity over labels.** Navigation targets use stable semantic object/document IDs and typed relationships. Display names, tree paths and search text are not identity.
+4. **Context-preserving navigation.** A cross-workspace transition carries origin workspace, document identity, selected object/evidence identity, relevant revision and time context. The destination must report when an object or revision is stale, unavailable or historical.
+5. **Progressive disclosure.** Expose the common engineering task and its current context first; reveal advanced configuration, specialist tools and secondary metadata when relevant. Do not hide essential state or validation behind deep menus.
+6. **One visible authority per action.** Each mutating action is presented by the workspace/controller that owns it and routes through Application commands/services. Shared shell controls must not create alternate mutation paths.
+7. **Search complements, not replaces, hierarchy.** Project hierarchy supports known structural context; global/project search supports discovery by identity, designation, type, property and supported relationships.
+8. **Navigation is not evidence.** A link between Protection, Control, measurement, topology or Study objects is only as strong as its typed source relationship. The UI must not infer causation or ownership from proximity, names or timestamps alone.
+9. **Workspace state is not engineering truth.** Open tabs, panel visibility, selection, active tool, viewport and navigation history follow the approved session/presentation persistence policy and never mutate canonical engineering state.
+10. **Accessibility is structural.** Every navigation destination and action must have a keyboard-accessible route, meaningful accessible name, predictable focus behavior and screen-reader-readable hierarchy/state.
+
+### B. Proposed top-level application hierarchy
+
+The following is a candidate navigation taxonomy, not a mandatory left-menu implementation:
+
+| Level | Candidate area | Primary responsibility | Typical contents |
+|---|---|---|---|
+| Project root | Project Overview | Project identity, health and entry points | Project summary, model revision, validation summary, recent work, recovery notices |
+| Engineering | Electrical / SLD | Electrical network authoring and inspection | SLD documents/sheets, equipment, terminals, connections, layout |
+| Engineering | Instrumentation & Signals | Instrument and signal/channel lifecycle | CT/PT/CVT, sensors, acquisition channels, typed signals, quality, calibration, routing |
+| Engineering | Protection | Protection configuration and evaluation | Relays, functions, settings groups, inputs, zones, decisions, TCC/coordination |
+| Engineering | Control | Control logic authoring and evaluation | Control documents, logic elements, I/O mapping, interlocks, cycles, blocked actions |
+| Engineering | Studies | Reproducible engineering analyses | Study cases, configurations, runs, result sets, comparisons and reports |
+| Engineering | Equipment & Assets | Cross-document equipment identity and properties | Equipment register, designation, nameplate, lifecycle and references |
+| Assurance | Validation & Diagnostics | Typed validation and engineering diagnostics | Findings, severity, owner, source, object links, resolution lifecycle |
+| Assurance | Operational Trace | Evidence-based cross-domain investigation | Timeline, typed evidence graph, measurement-to-feedback trace |
+| Project services | Reports & Exchange | Controlled outputs and interoperability | Reports, exports, imports, schema/migration summaries |
+| Application | Preferences / Workspace | User and machine presentation settings | Theme, density, keyboard map, workspace layout, panel state |
+
+The final taxonomy must be validated against actual engineer terminology and task frequency. Do not create duplicate navigation entries merely because an object participates in multiple domains; use typed cross-references and contextual links.
+
+### C. Shared application shell and workspace frame
+
+Candidate shell regions:
+
+- **Application menu / command access:** project lifecycle, edit/history, view/workspace, tools, window/document and help commands. Commands should have one discoverable canonical action with consistent shortcut, enablement and explanatory state.
+- **Workspace switcher:** clearly identifies canonical workspaces (SLD, Instrumentation & Signals, Protection, Control, Studies, Diagnostics/Operations) separately from compatibility or auxiliary views.
+- **Project Explorer:** hierarchical, searchable project/document/object navigation. Supports filtering, expand/collapse, object-type grouping and contextual actions owned by the selected object/domain.
+- **Central workspace/document area:** hosts the active discipline-specific editor or read-only view. Multiple documents may be open where approved; active document and revision must remain visible.
+- **Inspector:** contextual properties and configuration for the current selection/document. Separates read-only engineering facts, editable configuration intent, calculated values and live/observed values.
+- **Tool Palette / task tools:** context-sensitive tools for the active workspace; tool names, icons, shortcuts, availability and disabled reasons are explicit. A tool from one domain must not silently carry into another domain.
+- **Diagnostics / Messages:** typed findings and event streams with category, source, time, severity, lifecycle, object navigation and filtering. Not a single untyped message list.
+- **Status / activity region:** project/document dirty state, active tool, selection, coordinates where meaningful, validation state, background task status and domain-specific quality/freshness/operation summaries only where authoritative evidence exists.
+
+Panel docking, floating, hiding, resizing and workspace presets are presentation capabilities. Essential actions and critical state must remain discoverable when panels are collapsed or layouts are reset.
+
+### D. Workspace-specific information architecture
+
+**D1. Electrical / SLD**
+- Primary hierarchy: project → electrical network/document → sheet/area → equipment and connections.
+- The canvas is the main electrical-network projection; Explorer and Inspector provide complementary structural/property views.
+- Equipment, terminal, topology and connection identity remain Core-owned; symbol and layout are separate projection data.
+- Context actions distinguish equipment operations, terminal/connectivity operations and drawing/layout operations.
+- Selecting a symbol resolves the semantic equipment identity; selection of a conductor/terminal resolves the actual connection/terminal identity.
+- Cross-links to Protection, Instrumentation, Control or Study appear only where typed relationships exist.
+
+**D2. Instrumentation & Signals**
+- Primary hierarchy: instrument/source → measurement or signal → acquisition/communication channel → consumer/subscription.
+- Provide separate views for physical instrument configuration, channel allocation/availability, signal processing/routing and consumer bindings.
+- Show source identity, terminal/connection where relevant, channel direction/type, units, scaling, timestamp, quality, freshness, calibration and provenance as separate attributes.
+- A configured channel is not automatically allocated, connected, healthy, fresh or valid; lifecycle dimensions must remain visible.
+- Navigation to a Protection or Control consumer is a reference/handoff, not a change in domain ownership.
+
+**D3. Protection**
+- Primary hierarchy: Protection scheme/relay → function elements/settings → input bindings and measurement provenance → evaluation/decision evidence → output/actuation trace.
+- Separate configuration, read-only runtime/evaluation, diagnostics and coordination/analysis tasks.
+- Display configuration revision independently of physical topology revision and instrumentation/channel revision.
+- Show unsupported or restricted model coverage explicitly; do not imply a complete catalogue from a partial function list.
+- Protection remains the authority for Protection evaluation and ProtectionDecision.
+
+**D4. Control**
+- Primary hierarchy: Control document/scheme → logic network → elements/connections → I/O bindings → interlocks/actions → execution-cycle evidence.
+- Keep Control-specific graph/ladder/function-block semantics; do not inherit SLD electrical connection semantics solely for visual consistency.
+- Separate logic editing, channel mapping, equipment action binding, cycle monitoring and diagnostics.
+- Control execution, blocked-action decisions and output intent remain distinct from command transport and physical feedback.
+- UI refresh, navigation and rendering must not throttle or alter Control execution.
+
+**D5. Studies**
+- Primary hierarchy: study type → study case → immutable/identified input snapshot → execution/run → result set → report/export.
+- Distinguish configuration from run history and canonical numerical results.
+- Show model revision, input snapshot, solver/options, standard basis, assumptions, convergence and limitations at the point of result interpretation.
+- Tables/plots may use filtering or visual decimation, but canonical numerical datasets remain unchanged.
+- A Study result is historical evidence against its identified input basis, not an implicit live view of the current model.
+
+**D6. Diagnostics and Operational Trace**
+- Diagnostics are grouped/filterable by typed category and lifecycle; each item retains source, timestamp, severity, object/evidence identity and authorized action.
+- Operational Trace is a cross-domain evidence view, not a new execution authority or substitute for historian/domain records.
+- Timeline and graph views distinguish input, evaluation, decision, interlock, output intent, command, acknowledgement, physical feedback and correlation-only relationships.
+- Missing evidence, clock uncertainty, historian gaps and revision drift are visible as gaps/limitations rather than filled with inferred links.
+
+### E. Project Explorer, Inspector and search contracts
+
+**Project Explorer**
+- Tree nodes have stable IDs, type, parent/relationship semantics and explicit lazy-loading/error states.
+- Support text search, designation/ID search, type filters and domain-aware facets; results navigate to the canonical object/document.
+- Avoid presenting duplicate copies of one object as independent entities when it appears in multiple views.
+- Context menus are type- and permission-aware; disabled actions explain the missing precondition or unsupported capability.
+- Large projects require incremental expansion/search and bounded rendering; the tree must not force full-project materialization on every navigation action.
+
+**Inspector**
+- Use task-oriented sections such as Identity, Electrical/Physical, Connections, Instrumentation, Protection, Control, Studies, Calculated/Observed values and Presentation.
+- Only show sections supported by the selected object and available contracts; no speculative generic property bags.
+- Distinguish authoritative configuration, derived/calculated values, live measurements, historical values and user presentation metadata.
+- Each editable field exposes type, unit, range/constraint, validation state, source and commit behavior.
+- Multi-selection shows common properties and explicitly reports mixed values; it must not silently overwrite heterogeneous values.
+- Editing a draft/preview is visually distinct from accepted configuration; failed commits preserve the prior accepted revision and expose typed diagnostics.
+
+**Search**
+- Search scope is explicit (current document, project, supported connected evidence or catalogue).
+- Results show type, designation, parent/context, status/revision and why the result matched.
+- Search must respect applicable access controls and must not expose inaccessible project or operational information.
+- Search result activation uses semantic identity and revision-aware navigation, not display-label matching.
+- Search history and suggestions are presentation/session data subject to user settings and privacy policy.
+
+### F. Navigation and interaction rules
+
+1. Workspace switch changes the task context but does not silently change project, active document or engineering revision.
+2. Opening a related object may reuse an existing document view or open a new one according to an explicit document policy; never create hidden duplicate editing sessions.
+3. Back/forward navigation restores a safe view context (document, selection, relevant revision and time basis), but does not roll back engineering mutations.
+4. Breadcrumbs describe actual semantic containment or navigation context; they must not invent ownership for cross-referenced objects.
+5. Cross-domain navigation shows the relationship type and source; if only a weak correlation exists, label it as such.
+6. Selection synchronization between Explorer, canvas, Inspector and diagnostics uses stable object identity and guards against stale projection revisions.
+7. If an object is deleted, replaced or migrated, navigation reports the unresolved reference and offers safe alternatives; it must not silently select a similarly named object.
+8. Tool availability and keyboard shortcuts are focus-aware. Text editing, canvas tools, panel commands and global commands have deterministic precedence and visible conflict handling.
+9. Modal workflows are reserved for operations requiring an explicit blocking decision; routine inspection and non-destructive diagnostics should avoid unnecessary modal interruption.
+10. All navigation actions have keyboard equivalents and preserve a visible focus location; focus is not lost when panels or documents change.
+
+### G. Information architecture data and ownership boundaries
+
+| Concern | Authoritative owner | UI responsibility |
+|---|---|---|
+| Project/package identity and canonical content | Project/Application services and Core-owned domain data | Present identity, integrity, revisions and lifecycle outcomes |
+| Equipment, terminals, topology and connections | Core electrical/domain model | Navigate and project stable semantic identities |
+| Measurement and channel lifecycle | Shared Signal/Measurement domain services | Present distinct lifecycle, quality, freshness and provenance |
+| Protection settings/evaluation/decision | Protection domain | Present configuration and evidence; no UI decision authority |
+| Control logic/configuration/execution | Control domain | Present logic and cycle evidence; no UI execution authority |
+| Study inputs, solver execution and results | Study/Application and solver contracts | Present provenance, progress and canonical result data |
+| Diagnostics/events and operational evidence | Owning domain/Application services and historian | Aggregate typed read models without changing source lifecycle |
+| Workspace layout, panels, navigation history | UI/session layer | Persist only under approved session/preferences policy |
+| Selection, hover, active tool and transient preview | UI interaction layer | Keep transient; never serialize as engineering truth |
+| Search index/cache | Application/query service or bounded read-model infrastructure, to be decided | Treat as rebuildable derived data; preserve access and revision correctness |
+
+No UI tree node, tab, breadcrumb, search result, canvas item or inspector widget becomes a new domain entity or mutation authority.
+
+### H. Candidate information-architecture acceptance scenarios
+
+| ID | Scenario | Candidate pass evidence |
+|---|---|---|
+| UI-ACC-IA-01 | Identify current project/workspace/document | User can distinguish project, canonical workspace, active document and revision without opening a dialog |
+| UI-ACC-IA-02 | Navigate from Explorer to an SLD object | Stable semantic identity selects the correct projection and Inspector target |
+| UI-ACC-IA-03 | Navigate from SLD equipment to Protection | Only a typed relationship is offered; destination shows its own configuration/revision |
+| UI-ACC-IA-04 | Trace an instrument to a channel and consumer | Source, channel lifecycle and consumer binding remain separate and traceable |
+| UI-ACC-IA-05 | Switch between Control and SLD | Each workspace retains its own interaction semantics, tool state and document context |
+| UI-ACC-IA-06 | Inspect mixed multi-selection | Common values and heterogeneous values are explicit; no accidental bulk mutation |
+| UI-ACC-IA-07 | Search by designation/type/property | Results show object type and context; activation resolves stable identity |
+| UI-ACC-IA-08 | Navigate from diagnostic to source object | Diagnostic identity, lifecycle and evidence survive navigation |
+| UI-ACC-IA-09 | Return using navigation history | Prior safe view context is restored without reverting engineering changes |
+| UI-ACC-IA-10 | Collapse/reset workspace panels | Essential task access, keyboard navigation and critical state remain available |
+| UI-ACC-IA-11 | Open historical Study result | Input snapshot/revision and historical basis remain explicit |
+| UI-ACC-IA-12 | Navigate with stale/deleted target | UI explains the unresolved reference; it does not substitute a same-name object |
+| UI-ACC-IA-13 | Complete workspace navigation by keyboard | Focus order, shortcut precedence and accessible names are predictable |
+| UI-ACC-IA-14 | Open large project hierarchy | Expansion/search remains responsive and does not require eager rendering of all nodes |
+| UI-ACC-IA-15 | Inspect operational trace | Typed relationships, evidence gaps, time basis and domain authority are visible |
+
+These are candidate scenarios for later moderated usability and technical validation. They are not approved release criteria and do not assert current implementation conformance.
+
+### I. Open decisions and evidence required
+
+1. Validate the proposed top-level taxonomy with electrical, Protection, Control, instrumentation, Study and commissioning/operations engineers; determine whether Instrumentation & Signals is a primary workspace or a cross-domain service workspace with dedicated views.
+2. Decide whether Equipment & Assets is a standalone workspace, a project-wide Explorer facet or a register view; avoid duplicating the equipment authority.
+3. Define canonical document/tab behavior, multi-document policy, navigation history and safe restoration when revisions change.
+4. Define search scopes, indexing ownership, update consistency, access-control integration and offline behavior.
+5. Define workspace preset ownership and persistence across user, machine and project boundaries in alignment with 8I-13.
+6. Reconcile Inspector sections with typed domain property contracts and command ownership; identify which values are editable, derived, live or historical.
+7. Validate menu, toolbar, palette and shortcut organization against the role-based journeys in 8I-17.
+8. Determine supported display density, multi-monitor, panel docking and accessibility requirements with the platform matrix.
+9. Establish a named V3 source repository/branch/commit before claiming that any information-architecture contract is implemented.
+10. Record explicit owner disposition for UI-GATE-01 through UI-GATE-07; this proposal does not close or approve any gate.
+
+### J. Gate disposition and frozen invariants
+
+**UI-GATE-01 and UI-GATE-07 remain Open.** Other UI gates retain their previously recorded status and evidence requirements. This section is a candidate information-architecture specification and must be reconciled with contextual research, role journeys, project/session lifecycle, diagnostics, accessibility, performance and operational traceability before implementation authorization.
+
+Frozen invariants:
+- Project remains the persistence root; workspace hierarchy does not create duplicate project or domain authorities.
+- Core owns engineering truth; Application owns controlled mutation/orchestration; UI owns presentation and interaction.
+- Core has no Qt, graphics, widget, canvas or UI-plugin dependency.
+- SLD, Control and other discipline-specific workspaces retain distinct semantic interaction models.
+- Protection and Control remain separate execution authorities.
+- Shared Signal/Measurement infrastructure supplies typed data and provenance; it does not own Protection or Control decisions.
+- Navigation and search resolve stable semantic identities and typed relationships; labels and visual proximity are not identity or causality.
+- UI-derived status cannot invent validation, command acceptance, acknowledgement, alarm clearance or physical feedback.
+- Workspace layout, selection, navigation history and transient tools remain outside canonical engineering truth unless a separately approved persistence contract states otherwise.
+- All mutation follows UI → Controller → Command → Application → Core → Event → Projection → UI.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, UI behavior, project schema, permissions, tests or CI were changed or run.
