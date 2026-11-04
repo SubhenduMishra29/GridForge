@@ -1101,8 +1101,11 @@ class Application:
                 ) from exc
             raise StaleProtectionDecisionError(message)
 
-        def ensure_current_protection_decision_dependency(decision: Any) -> None:
-            """Require one decision's complete dependency token to remain unchanged."""
+        def ensure_current_protection_decision_dependency(
+            decision: Any,
+            control_decision: Any | None = None,
+        ) -> None:
+            """Require one decision's dependencies and resolved target to remain unchanged."""
             if captured_dependency_registry.diagnostics:
                 raise StaleProtectionExecutionError(
                     "Protection dependency registry contains duplicate or unclassifiable binding identities."
@@ -1172,6 +1175,46 @@ class Application:
                     or f"Protection dependencies changed for element {decision.element_id!r}.",
                     decision,
                 )
+            if control_decision is not None:
+                resolved_target_type = str(
+                    getattr(control_decision, "target_equipment_type", "")
+                ).strip().lower()
+                resolved_target_id = str(
+                    getattr(control_decision, "target_equipment_id", "")
+                ).strip()
+                resolved_action_type = str(
+                    getattr(
+                        getattr(control_decision, "action_type", None),
+                        "value",
+                        getattr(control_decision, "action_type", ""),
+                    )
+                ).strip().lower()
+                target_dependency_key = f"{resolved_target_type}:{resolved_target_id}"
+                if not any(
+                    dependency.kind == "action_target"
+                    and dependency.identity == target_dependency_key
+                    for dependency in captured_descriptor.dependencies
+                ):
+                    invalidate_rejected_element(
+                        "Resolved action target is not part of the persisted Protection element dependency contract.",
+                        decision,
+                    )
+                try:
+                    configured_element = captured_configuration.get(str(decision.element_id))
+                except KeyError:
+                    invalidate_rejected_element(
+                        "Resolved action has no active persisted Protection element configuration.",
+                        decision,
+                    )
+                if (
+                    configured_element.action_target_type != resolved_target_type
+                    or configured_element.action_target_id != resolved_target_id
+                    or configured_element.action_type != resolved_action_type
+                ):
+                    invalidate_rejected_element(
+                        "Resolved action target/type differs from the persisted Protection function-to-target mapping.",
+                        decision,
+                    )
 
         context_metadata = dict(evaluation_metadata or {})
         context_metadata.update({
