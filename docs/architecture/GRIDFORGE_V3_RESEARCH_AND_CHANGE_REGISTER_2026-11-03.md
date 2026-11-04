@@ -11101,3 +11101,273 @@ Still required:
 - reconcile all open UI issues against the designated implementation ref once V3 source exists.
 
 **Disposition:** Research/reference audit only. No production source changed. No implementation, tests, CI, benchmarks, runtime validation or user study performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A designated V3 implementation ref is still required before any finding can be promoted to a V3 implementation defect.
+
+
+## 8I-46. V2 UI source-reference audit: Tool Shelf, action routing, settings, shortcuts and command discovery
+
+**Audit class:** Frozen V2 reference audit; not a V3 implementation audit.  
+**Scope:** ToolDefinition, ToolManager, ToolShelf, ToolSettingsPanel, ActionDefinition, UIActionRouter, menu and toolbar presentation, issue records for tool ergonomics.  
+**Repository/ref:** SubhenduMishra29/GridForge, main.  
+**Method:** Static source inspection, issue-record reconciliation and official Blender/Qt interface documentation. No runtime reproduction, shortcut-conflict scan or user study was performed.
+
+### 8I-46.1. Evidence boundary
+
+V2 main is frozen reference evidence. The V3 research branch is not an implementation branch. Findings below must not be promoted to V3 defects without inspecting the designated V3 source ref.
+
+Evidence labels:
+- **Source-confirmed:** visible in inspected source implementation.
+- **Issue-reported:** described by an existing issue; not independently reproduced in this audit.
+- **Recommendation:** proposed V3 behavior.
+- **Unverified:** requires runtime, workload, accessibility or user-task evidence.
+
+Inspected source files and blob identities:
+- ui/core/tool_manager.py — bd91fbb2d422550644b3f5f8d19abf9d9e5f2a57
+- ui/tools/tool_definition.py — a2e47079bbb19c8551bb36de04c162989986a398
+- ui/editors/common/tool_shelf.py — d0ea520222333ffb3fef300fad2623037a62e476
+- ui/core/action_definition.py — 9ebd2aa4be1e91fd67dd535c3a913c3a183b661a
+- ui/core/action_router.py — bb035b2cb5ed7a9456f331ff0e7d67e7f9cb3353
+- ui/plugins/menu_plugin.py — cc3fa50126c959fc5177b712c830504c91d58d88
+- ui/plugins/toolbar_plugin.py — cd6c39c52a6e47449050af64d2d0d45a138e1ab1
+- ui/tools/tool_registry.py — 84bef90036bd8134cdc6aec1d10cce0246ef5309
+
+### 8I-46.2. Finding UI-TOOL-01 — ToolDefinition is a useful metadata contract but omits interaction policy
+
+**Source-confirmed.** ToolDefinition is an immutable Qt-independent descriptor with stable tool ID, display name, description, icon ID, editor applicability, capabilities, supported/default modes, shortcuts, settings, applicability, category and metadata. It correctly does not own concrete tool instances, commands, widgets or domain state.
+
+The descriptor has no typed contract for:
+- activation policy: one-shot, repeat, sticky, chained or modal;
+- completion/cancel/commit transitions and Escape behavior;
+- pointer/keyboard gesture declarations and modifier semantics;
+- required selection cardinality and object/domain preconditions;
+- supported editor-area/region scopes;
+- availability explanation and disabled reason;
+- settings schema, editor widget type, units, constraints and commit semantics;
+- shortcut scope, precedence, conflict policy and rebinding;
+- accessible name, description, localization and icon fallback class.
+
+**Recommendation:** Extend the V3 public tool descriptor with versioned, typed presentation/interaction metadata. Do not put runtime state or Qt objects in the descriptor. Keep the concrete tool lifecycle in the authoritative per-editor ToolManager contract.
+
+### 8I-46.3. Finding UI-TOOL-02 — ToolShelf is a basic button list, not a discoverable tool catalogue
+
+**Source-confirmed.** ToolShelf builds a vertical sequence of QToolButtons in definition order, inserting horizontal separators when categories change. Compact mode defaults to true and displays icon-only buttons, with a 44-pixel minimum width. Expanded mode displays text beside icons. It supports tooltip/status-tip text, active-tool checked state, editor filtering and routed activation.
+
+It has no built-in search/filter field, favorites, collapsible category groups, recently used tools, keyboard navigation model, capability facets, contextual recommendation, explicit tool mode selector or accessible list/tree view. Category separators are based on adjacent definition order rather than a browsable categorized hierarchy.
+
+**Recommendation:** Replace the single fixed shelf with a searchable Tool Catalogue and configurable Tool Shelf:
+- searchable by name, alias, description, domain, capability, object type and shortcut;
+- categories and subcategories with collapse/expand;
+- favorites, recent tools and workspace-recommended tools;
+- compact icon mode and labelled mode, user configurable;
+- icon + readable name + short description + shortcut + availability state;
+- consistent domain iconography and explicit missing-icon diagnostic;
+- keyboard-accessible list/tree, deterministic focus and accessible names;
+- context filtering that explains why a tool is unavailable instead of silently hiding all evidence.
+
+Keep the catalogue and favorites as presentation projections of registered capabilities; do not create a second runtime tool registry.
+
+### 8I-46.4. Finding UI-TOOL-03 — ToolSettingsPanel is currently read-only value presentation
+
+**Source-confirmed.** ToolSettingsPanel reads active tool identity and tool_settings.values from the supplied context and displays each key/value pair as QLabel rows. It does not construct typed editors, edit drafts, validation indicators, unit formatting, range constraints, reset controls, Apply/Commit operations or stale/conflict handling.
+
+**Recommendation:** V3 Tool Settings must use the same typed property-editor infrastructure as the Inspector, but remain scoped to the active tool instance. Provide:
+- typed controls based on parameter schema (boolean, enum, integer, real, engineering quantity, vector, reference and structured parameter);
+- engineering units, precision, min/max, step and dimensional constraints;
+- default/reset and per-setting help;
+- immediate preview versus accepted setting distinction;
+- validation and unavailable/disabled reasons;
+- Apply/Cancel where a multi-parameter transaction is required;
+- explicit persistence policy: transient gesture settings, user tool defaults, workspace profile or project-owned configuration.
+
+A tool setting must not silently mutate canonical equipment or network data outside the Application command/transaction boundary.
+
+### 8I-46.5. Finding UI-TOOL-04 — Runtime lifecycle is centralized but placement/repeat semantics are implicit
+
+**Source-confirmed.** ToolManager owns registered factories, lazy concrete tool instances, one active tool and a temporary interaction tool. Activation/deactivation, input dispatch, cancellation, creation draft placement, reset and disposal are explicit methods. Switching away from active creation/interaction is guarded unless cancellation is explicitly authorized. Re-selecting the active equipment tool can begin a new CreationContext when no creation session is active.
+
+ToolDefinition does not declare whether a tool should remain active after a successful placement. ToolManager does not expose a typed one-shot/repeat/sticky/chained policy; individual tool behavior and callers determine whether the active tool is retained or reactivated.
+
+**Issue-reported:** #815 describes the repeated palette reselection burden for consecutive equipment placement. #757 describes a placement-state leak/ghost projection scenario after deselection. #769 describes a workspace-tab interaction hook race. These issue descriptions are not runtime reproduction evidence.
+
+**Recommendation:** Make placement policy explicit and configurable per tool and per user preference:
+- **One-shot:** completes one operation, then returns to the editor's default selection/navigation state.
+- **Repeat:** completes one operation and stays armed for the next distinct object/operation.
+- **Sticky:** remains armed until explicit tool switch or Escape.
+- **Chained:** performs a defined sequence of related operations with clear stage feedback.
+- **Modal transform:** captures a temporary gesture (move/rotate/scale/axis constraint) and commits or cancels atomically.
+
+Each policy must define success, failed placement, invalid target, focus loss, editor switch, document switch, project close and Escape behavior. Escape should cancel the current uncommitted gesture/draft first; a second Escape may exit the persistent tool. Never discard a draft silently. Tool switching across editor instances must deactivate input hooks in the old editor before activating the new context.
+
+### 8I-46.6. Finding UI-TOOL-05 — Action routing is a strong foundation for a single command surface
+
+**Source-confirmed.** UIActionRouter stores canonical action handlers, optional ActionDefinition metadata and aliases. It evaluates enabled state, rejects disabled actions, reports provider failures and routes dispatch through one presentation boundary. ToolShelf uses the router when installed and does not fall back to an independent callback if a canonical router is present but the route is missing.
+
+**Assessment:** Preserve this single action-routing boundary. It should become the execution backend for command search, menus, toolbars, context menus, shortcuts and Quick Favorites. Search must not invoke arbitrary Python methods or bypass authorization/validation; it resolves a registered command/action identity and dispatches through the canonical Application route.
+
+### 8I-46.7. Finding UI-TOOL-06 — Shortcut declarations are duplicated across presentation descriptors
+
+**Source-confirmed.** Shortcut metadata can appear in ToolDefinition.shortcuts and ActionDefinition.shortcut. MenuActionSpec also has a shortcut field and menu construction prefers that local value over the canonical ActionDefinition shortcut. ToolbarActionSpec independently contains shortcut metadata. The inspected source does not establish a single keymap service that validates all bindings across menus, toolbars, tools and editor contexts.
+
+This proves duplicated declaration surfaces, not that a particular pair of shortcuts currently collides.
+
+**Recommendation:** Introduce one KeymapRegistry/KeymapService:
+- stable command/action ID is the binding target;
+- key sequence and scope are separate fields;
+- contexts include application, workspace, editor type, editor instance, region, active tool/modal operation and text-entry focus;
+- deterministic precedence resolves the most local valid binding before workspace/application bindings;
+- conflict detection runs at registration, plugin activation, user rebinding and workspace restoration;
+- ambiguous bindings are surfaced with actionable conflict details, not silently chosen;
+- text fields, numeric editors and accessibility input modes have explicit shortcut suppression/override rules;
+- platform standard keys are resolved through Qt key-sequence abstractions;
+- menu, toolbar, Tool Shelf, context menu and command search display the same effective binding;
+- users can inspect, search, rebind, reset and export/import keymaps;
+- plugin bindings are namespaced, permission-checked and removable without orphaned shortcuts.
+
+ActionDefinition may retain descriptive metadata, but it must not become a competing shortcut registry. MenuActionSpec and ToolbarActionSpec should reference action IDs and presentation placement only; they must not override the effective binding.
+
+### 8I-46.8. Finding UI-TOOL-07 — Shortcut context and focus precedence are essential in a multi-editor engineering workbench
+
+Qt QAction exposes shortcutContext and Qt QShortcut supports window/widget/application context. Qt's default WindowShortcut applies while the parent widget is within the active top-level window. These primitives do not by themselves implement GridForge's editor/region/modal precedence.
+
+**Recommendation:** Use a deliberate precedence chain:
+1. active text editor or numeric field consumes ordinary text and editing shortcuts;
+2. active modal gesture/tool owns only declared modal keys and modifiers;
+3. focused editor region handles editor-local commands;
+4. active editor instance handles editor-level commands;
+5. active workspace handles workspace commands;
+6. application shell handles global commands.
+
+A shortcut must never fire against an inactive/background document. When a command is ambiguous, show the competing contexts and require disambiguation. Do not globally reserve Blender's G/R/X/Y gestures without domain-specific review: in electrical, protection and control editors, key meanings must be coherent, documented and context-scoped.
+
+### 8I-46.9. Finding UI-TOOL-08 — Menus and toolbars have duplicated presentation contracts
+
+**Source-confirmed.** MenuPlugin builds menu entries from MenuSpec/MenuActionSpec and routes them through UIActionRouter. ToolbarPlugin has its own ToolbarActionSpec with text, icon, tooltip, shortcut, checkable, checked, enabled and tool metadata. The action router's ActionDefinition already contains title, description, icon, shortcut, category, enabled/checkable/checked and scope fields.
+
+**Recommendation:** Use one ActionPresentationDescriptor as the canonical source of title, description, icon, category, command scope, enabled-state policy and action ID. Menus, toolbars, shelves, context menus and search results become view-specific placements referencing that descriptor. Effective enabled/checked/shortcut state is supplied by live providers; it must not be copied as stale static values into every widget.
+
+### 8I-46.10. Finding UI-TOOL-09 — Command search should be broader than menu search
+
+Blender's published interface guidance provides a useful model: F3 Menu Search can search operators, display the menu in which a match is exposed, and allow keyboard selection/execution. This is useful discoverability, but GridForge requires a broader engineering search.
+
+**Recommendation:** Implement a global searchable Command and Data Palette with distinct result classes:
+- commands/actions (execute through UIActionRouter/Application);
+- tools (activate in the focused compatible editor);
+- project objects (select/reveal in owning editor);
+- documents and editor/workspace destinations (navigate/open);
+- properties and settings (navigate to Inspector/Tool Settings; do not mutate merely by selecting a result);
+- diagnostics/findings (navigate to source object and revision);
+- help/standards/reference entries (open documentation, never imply compliance automatically).
+
+Every result displays result type, domain, destination, availability, disabled reason, shortcut and a concise description. Support aliases, abbreviations, fuzzy matching, recent/favorite ranking and keyboard-only operation. Search results must be revision/context-aware and avoid showing commands that are impossible in the current domain state without explaining why.
+
+F3 may be evaluated as a candidate shortcut, but should not be frozen until the full keymap conflict and user-task review is complete.
+
+### 8I-46.11. Finding UI-TOOL-10 — Context menus and quick contextual controls need bounded action sets
+
+**Issue-reported:** #823 describes excessive travel to side panels for quick layout attributes. #822 describes drag/drop placement target ambiguity. These are UX reports and are not independently reproduced here.
+
+**Recommendation:** Provide selection-aware context menus and optional contextual mini-toolbar/popover:
+- actions are derived from selected object types, count, editor and permissions;
+- common reversible presentation actions are close to the selection;
+- engineering property edits open the correct typed Inspector editor or explicit inline editor;
+- topology-changing operations remain explicit Application commands with validation and preview;
+- context menu shows shortcuts from the central KeymapService;
+- disabled operations explain missing preconditions;
+- popovers do not obscure terminals, ports, labels or critical geometry and can be keyboard invoked;
+- no context-menu or HUD shortcut may bypass domain validation.
+
+Do not use a radial menu as the only access path. Provide a conventional menu, keyboard navigation and accessible alternatives.
+
+### 8I-46.12. Issue reconciliation
+
+| Issue | Evidence/disposition | V3 correction package |
+|---|---|---|
+| #815 | Issue-reported repeated one-shot placement friction | Explicit placement policy and repeat/sticky lifecycle |
+| #816 | Issue-reported lack of keyboard transform gestures | Context-scoped modal transform/keymap contract |
+| #823 | Issue-reported contextual quick-action travel friction | Selection-aware context menu and mini-toolbar |
+| #757 | Issue-reported draft placement state/ghost projection leak | Draft/tool lifecycle cleanup and projection ownership |
+| #769 | Issue-reported tool-hook race across document tabs | Editor-instance input ownership and transition protocol |
+| #822 | Issue-reported ambiguous drag/drop placement target | Explicit preview/drop-zone semantics; no inferred topology |
+| #772 | Issue-reported clipboard identity and transient projection gaps | Clipboard identity regeneration and draft lifecycle |
+| #1032 | Issue-reported Control palette/projection/persistence capability drift | Canonical Control component capability contract |
+
+Do not close any issue because this research entry exists. Each issue requires source/implementation reconciliation and evidence-based corrected, retained, duplicate, obsolete or out-of-scope disposition.
+
+### 8I-46.13. Proposed V3 interaction architecture
+
+1. **Capability Registry:** versioned descriptors for editor tools, commands, actions and contextual operations; no concrete runtime tool ownership.
+2. **Tool Runtime:** per-editor-instance ToolManager with explicit activate, modal, complete, cancel, suspend, resume and dispose lifecycle.
+3. **Keymap Service:** one conflict-aware registry with context precedence and user rebinding.
+4. **Action Router:** canonical presentation dispatch into authorized Application commands/services.
+5. **Command/Data Palette:** one searchable discovery surface over tools, commands, objects, destinations, properties and diagnostics.
+6. **Tool Shelf:** customizable categorized/favorite/recent presentation of compatible registered tools.
+7. **Tool Settings:** typed, validated editor for the active tool instance.
+8. **Context Menu/HUD:** capability- and selection-derived local action presentation.
+9. **Status/Help:** current tool, mode, gesture, modifiers, next expected action, completion/cancel hint and operation feedback.
+10. **Inspector:** shared typed property infrastructure, with distinct object properties versus active-tool settings.
+
+The architecture must preserve Core/Application/UI boundaries. Tool descriptors do not own domain data; tool runtime does not mutate Core directly; action routing does not bypass Application authorization, validation or transactions; visual placement never asserts electrical connectivity.
+
+### 8I-46.14. Implementation package sequence
+
+- **UI-V3-TOOL-01 — Tool descriptor contract:** versioned metadata, capabilities, applicability, mode and activation policy.
+- **UI-V3-TOOL-02 — Tool runtime lifecycle:** per-editor-instance ownership, modal transitions, completion/cancel and document-switch cleanup.
+- **UI-V3-TOOL-03 — Central keymap:** binding identity, scope, precedence, conflict detection, text-entry behavior and customization.
+- **UI-V3-TOOL-04 — Canonical action presentation:** one descriptor for menus, toolbars, shelves, context menus and search.
+- **UI-V3-TOOL-05 — Tool Catalogue/Shelf:** search, groups, favorites, recent tools, labels, icons and availability explanations.
+- **UI-V3-TOOL-06 — Typed Tool Settings:** schema-driven editor, engineering units, validation and apply/cancel semantics.
+- **UI-V3-TOOL-07 — Command/Data Palette:** commands, tools, objects, destinations, properties, diagnostics and help.
+- **UI-V3-TOOL-08 — Contextual actions:** object/selection-derived menus and accessible mini-toolbar.
+- **UI-V3-TOOL-09 — Status/help guidance:** mode, gesture, modifiers, progress, completion and Escape behavior.
+- **UI-V3-TOOL-10 — Domain keymap and tool profiles:** SLD, Control, Protection, Signals and Studies each define valid commands/gestures without a generic canvas semantics layer.
+- **UI-V3-TOOL-11 — Issue reconciliation:** inspect and disposition #757, #769, #772, #815, #816, #822, #823 and #1032 against designated V3 source.
+- **UI-V3-TOOL-12 — User-task validation:** representative novice and expert workflows, keyboard-only path, high-density layout and repeated placement task.
+
+### 8I-46.15. Candidate acceptance scenarios
+
+- UI-ACC-TOOL-01: Search for a tool by display name, alias, capability and shortcut.
+- UI-ACC-TOOL-02: Filter tools by active editor/domain and show reasons for unavailable tools.
+- UI-ACC-TOOL-03: Switch between compact and labelled shelves without losing keyboard access or active state.
+- UI-ACC-TOOL-04: Favorite and recently use tools; restore the user's shelf profile.
+- UI-ACC-TOOL-05: Resolve a missing icon with a legible, accessible fallback and diagnostic.
+- UI-ACC-TOOL-06: Activate a tool through Tool Shelf, menu, toolbar, command search and shortcut while using one canonical runtime.
+- UI-ACC-TOOL-07: Complete repeated equipment placement under one-shot, repeat and sticky policies.
+- UI-ACC-TOOL-08: Cancel a placement preview with Escape without leaving ghost graphics or silently discarding accepted data.
+- UI-ACC-TOOL-09: Switch editor/document while a tool is active and verify old input hooks are detached before new activation.
+- UI-ACC-TOOL-10: Close an editor instance and release only its owned transient tool state.
+- UI-ACC-TOOL-11: Display typed active-tool settings with units, constraints, defaults and validation.
+- UI-ACC-TOOL-12: Apply or cancel a multi-setting edit as one defined transaction.
+- UI-ACC-TOOL-13: Detect duplicate/conflicting shortcut bindings at registration and user rebinding.
+- UI-ACC-TOOL-14: Resolve shortcut dispatch according to text-field, modal, region, editor, workspace and application focus precedence.
+- UI-ACC-TOOL-15: Display the same effective shortcut in menus, toolbars, shelf, context menu and search results.
+- UI-ACC-TOOL-16: Search a command and display its domain, destination, availability and disabled reason.
+- UI-ACC-TOOL-17: Execute a searched command only through canonical action/Application authorization and validation.
+- UI-ACC-TOOL-18: Search a project object and reveal it in the owning editor without changing engineering data.
+- UI-ACC-TOOL-19: Open a selection-aware context menu and show only valid actions plus explained disabled actions.
+- UI-ACC-TOOL-20: Invoke contextual actions using pointer and keyboard without obscuring terminals/ports.
+- UI-ACC-TOOL-21: Display contextual tool mode, next action, modifiers and Escape behavior in status/help.
+- UI-ACC-TOOL-22: Load/unload a plugin tool contribution without duplicate runtime, shortcut or action registrations.
+- UI-ACC-TOOL-23: Verify Control/Protection/SLD/Study shortcuts never cross-dispatch into an inactive editor or document.
+- UI-ACC-TOOL-24: Verify keymap and tool-shelf customization persists separately from canonical .gridforge engineering content.
+
+### 8I-46.16. Official interface research references
+
+- Blender Menu Search: https://docs.blender.org/manual/en/3.6/interface/controls/templates/operator_search.html — F3 search, keyboard selection and showing the menu where an operator is exposed.
+- Blender interface paradigms: https://developer.blender.org/docs/features/interface/human_interface_guidelines/paradigms/
+- Blender tool system: https://docs.blender.org/manual/en/4.5/interface/tool_system.html
+- Qt 6.12 QAction: https://doc.qt.io/qt-6/qaction.html — shortcut, shortcutContext, statusTip, toolTip and action metadata.
+- Qt 6.12 QShortcut: https://doc.qt.io/qt-6.12/qshortcut.html — widget/window/application context and ambiguous shortcut signal.
+
+Qt documents that QAction shortcuts have an explicit shortcut context, and QShortcut's default WindowShortcut is active when its parent widget belongs to the active top-level window. GridForge must add editor/region/modal precedence above these widget-level primitives.
+
+### 8I-46.17. Audit disposition and remaining scope
+
+This tranche audits ToolDefinition, ToolManager, ToolShelf, ToolSettingsPanel, action routing, action metadata and menu/toolbar shortcut declarations. It does not complete:
+- full inventory of every concrete tool and its gesture behavior;
+- icon asset/resolver and all tool-ID-to-icon mappings;
+- complete shortcut inventory and collision analysis;
+- all context-menu implementations and selection-specific action sets;
+- command-search implementation status across all packages;
+- runtime verification of Escape, repeated placement, focus loss and document switching;
+- keyboard-only/accessibility user evaluation.
+
+**Disposition:** Research/reference audit only. No production source changed. No implementation, tests, CI, benchmarks, runtime validation or user study performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A designated V3 implementation ref is required before these findings can be promoted to V3 implementation defects.
