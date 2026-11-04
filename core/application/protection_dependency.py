@@ -341,6 +341,25 @@ def build_protection_dependency_registry(
         element_id = element.element_id
         prefix = f"element={element_id!r}"
         add_dependency("protection_element", element_id, element.to_dict())
+        if not element.enabled:
+            descriptor_fingerprint = _fingerprint(tuple(
+                (item.kind, item.identity, item.fingerprint) for item in dependencies
+            ))
+            descriptor = ProtectionElementDependencyDescriptor(
+                project_id=configuration.project_id,
+                activation_generation=activation_generation,
+                element_id=element_id,
+                relay_id=element.relay_id,
+                function_code=element.function_code,
+                fingerprint=descriptor_fingerprint,
+                dependencies=tuple(dependencies),
+                complete=True,
+                diagnostics=(),
+            )
+            descriptors[element_id] = descriptor
+            for dependency in dependencies:
+                consumer_sets.setdefault((dependency.kind, dependency.identity), set()).add(element_id)
+            continue
 
         try:
             function_specification = get_protection_function(element.function_code)
@@ -351,7 +370,7 @@ def build_protection_dependency_registry(
         else:
             input_contract = function_specification.input_contract
             if (
-                function_specification.status is ProtectionFunctionStatus.NOT_IMPLEMENTED
+                function_specification.status is not ProtectionFunctionStatus.IMPLEMENTED
                 or input_contract is None
                 or not input_contract.supported
             ):
