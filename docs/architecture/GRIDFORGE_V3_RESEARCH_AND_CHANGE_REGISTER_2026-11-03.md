@@ -1993,3 +1993,160 @@ Constraints:
 **UI-GATE-03 remains Open.** This proposal supplies a candidate envelope, category taxonomy, lifecycle constraints, UI behavior and acceptance scenarios. It does not settle alarm-management policy, authorization, retention, identity, timing or plugin schema governance. Domain owners must review and approve those decisions before the contract is frozen.
 
 **Scope boundary:** research register only. No implementation files, domain contracts or persistence schemas were changed. No V2 behavior was modified. No tests or CI were run.
+
+
+## 8I-12. Proposed cross-domain operational traceability contract (2026-11-04)
+
+**Purpose:** Define a reviewable V3 contract for UI-GATE-06 so an engineer can inspect how field measurements, Protection evaluation, optional Control/interlock context, command dispatch and device feedback relate. The trace must preserve independent domain authority, temporal evidence and explicit uncertainty. This is a proposed read-side contract, not an implementation authorization or a claim that the complete path currently exists.
+
+### A. Governing principle: linked facts, not a synthetic outcome
+
+The operational trace is a **correlated evidence graph and timeline** assembled from independently authoritative records. It is not one mutable workflow state and must not manufacture a single end-to-end success/failure flag.
+
+Each record retains its own producer, identity, timestamp, revision, lifecycle and authority. Relationships between records must state what is known:
+- **caused_by / evaluated_from:** only where the owning domain or execution contract explicitly records the causal/evaluation reference;
+- **input_to:** a measurement or signal was supplied as an input to a particular evaluation;
+- **requested_by / issued_for:** an output intent or command is linked to its originating decision/operation;
+- **interlocked_by / permitted_by / blocked_by:** a Control/interlock result is linked only where an explicit configured policy and execution record establish that relationship;
+- **acknowledged_by:** a command transport/device acknowledgement record references the command;
+- **feedback_confirms / feedback_disagrees_with:** a feedback observation is explicitly evaluated against the expected device state;
+- **correlated_with:** records share a correlation context but causality is not established.
+
+A shared correlation ID alone proves association, not causality. The UI must visually distinguish authoritative causal links from correlation-only links.
+
+### B. Trace stages and ownership
+
+| Stage | Evidence record | Authoritative owner | UI must show | Must not infer |
+|---|---|---|---|---|
+| 1. Physical instrument | Instrument identity, type, ratio/rating, installation/terminal association and configuration revision | Equipment/instrumentation model and owning Application services | Instrument tag/type, primary association, secondary terminal/channel mapping where configured | That a configured CT/PT/CVT is currently healthy or producing valid samples |
+| 2. Acquisition/channel | Channel identity, source binding, acquisition path, scaling, engineering unit and channel configuration revision | Signal and Measurement infrastructure / acquisition adapter | Source instrument, channel, terminal/source mapping, units, scaling and acquisition status | That channel configuration proves a fresh measurement exists |
+| 3. Sample/quality | Typed sample value, unit, sample timestamp, receive timestamp, quality, freshness and provenance | Measurement producer/acquisition and signal-quality contract | Value, units, source time, receive time, quality, age/freshness and lineage | That missing, stale, uncertain or bad-quality data is zero, healthy or acceptable |
+| 4. Protection evaluation | Evaluation identity, relay/function, input sample references, settings revision, result/decision and decision timestamp | Protection domain/runtime | Function code, configured element, measured inputs, quality/freshness, settings revision, pickup/operate/block/no-decision result and reason | That a displayed pickup equals a trip; or a Protection decision means a breaker physically operated |
+| 5. Control/interlock context (conditional) | Control cycle/evaluation, interlock policy, input references, blocked/permitted intent and execution result | Control domain/runtime | Whether a Control relationship was configured and actually evaluated; relevant rung/logic and block reason | That every Protection trip must pass through Control, or that a Control cycle can rewrite a Protection decision |
+| 6. Output intent | Typed trip/close/operate intent and target reference | Protection or Control owner that produced the intent | Originating authority, target, requested operation, preconditions and decision link | That intent is a command already dispatched |
+| 7. Command lifecycle | Command identity, target, payload/type, dispatch attempt, transport response, acknowledgement/rejection/timeout and timestamps | Application command orchestration and communication/device adapter | Separate created, dispatched, transport-accepted/rejected, timed-out and terminal states with correlation | That transport acceptance proves actuator movement or contact position |
+| 8. Device feedback | Independently acquired auxiliary contact, position/status or other device feedback with timestamp, quality and source | Device feedback/acquisition and Measurement infrastructure | Actual observed state, source, sample time, quality, freshness and expected-vs-observed comparison | That command acknowledgement is physical feedback; or that absent feedback means success |
+| 9. Historian/event record | Persisted time-series, alarm/event/SOE, command, feedback and disturbance references | Historian/event services and source domains | Historical sequence, time basis, provenance and gaps in retained evidence | That a missing historian record proves an event did not occur |
+
+The stages are a trace navigation model, not a mandatory serial execution pipeline. For example, a Protection trip may command a breaker through the Protection/Application output path without a Control logic execution stage. Control context appears only when a configured, authoritative relationship exists.
+
+### C. Typed trace record and relationship model
+
+Candidate record envelope:
+
+| Field | Meaning | Constraint |
+|---|---|---|
+| trace_record_id | Stable identity of an individual evidence record | Required; identity assigned by its authoritative producer |
+| record_kind | Instrument, channel, sample, quality transition, Protection evaluation/decision, Control evaluation, intent, command, acknowledgement, feedback, event or historian reference | Required; versioned discriminator |
+| authority_domain | Equipment, Signal/Measurement, Protection, Control, Application/Actuation, DeviceFeedback or Historian | Required; one authoritative producer |
+| source_ref | Producer/device/service identity | Required |
+| subject_refs | Typed project/domain object references | Required where attributable |
+| event_time | Time at which the source says the event/sample occurred | Preserve source clock and uncertainty |
+| ingest_time | Time received/recorded by the consuming service | Distinct from event_time |
+| sequence | Source-local sequence or monotonic ordering token where available | Optional; never fabricate global ordering |
+| project_revision | Canonical project/configuration revision relevant to the record | Conditional |
+| topology_revision | Physical topology revision relevant to association | Conditional; not a universal revision |
+| instrumentation_revision | Instrument, channel and measurement configuration revision | Conditional |
+| protection_revision | Protection settings/configuration revision | Conditional |
+| control_revision | Control logic/configuration revision | Conditional |
+| execution_revision | Evaluation/cycle/runtime sequence reference | Conditional |
+| payload_ref | Typed reference to the authoritative record/payload | Required; avoid copying mutable domain state into UI |
+| quality/provenance | Sample quality and lineage where measurement-derived | Required for sample-derived evidence |
+| correlation_refs | Explicit related record IDs and correlation identifiers | Optional; relation semantics must be typed |
+| completeness | Whether required source segments are present, unavailable, not configured, not retained or not yet received | Required at trace-view level; unknown must remain explicit |
+
+Candidate edge envelope includes: edge identity; source and target record IDs; typed relation; asserting producer; evidence reference; valid/recorded time where applicable; and an explicit distinction between authoritative and correlation-only relationships. Confidence/strength must only be included if a defined domain contract supplies it; no UI-generated confidence score.
+
+The graph service may assemble and index links, but it must not invent missing edges or upgrade correlation to causation. Any inferred association based on timestamp proximity must be labelled as a candidate association and excluded from authoritative causal claims until confirmed by a source contract.
+
+### D. Time, ordering and revision semantics
+
+1. Preserve source event time and receiving/ingest time separately. Display clock source, timezone and known synchronization quality where operationally relevant.
+2. Do not sort asynchronous records into a false total causal order merely by arrival time. Use source sequence numbers and explicit references where available; otherwise show a time-ordered view with uncertainty.
+3. Distinguish sample time, evaluation time, decision time, command creation/dispatch time, acknowledgement time and feedback observation time.
+4. Calculate freshness against a domain-approved policy and relevant sample period; the UI must not invent one universal stale threshold.
+5. A record remains historically true for the revision under which it was produced. A later configuration change does not rewrite the historical Protection decision or sample.
+6. Show whether current configuration differs from the configuration used by the historical decision. Never silently relabel a past decision as if evaluated using current settings.
+7. Keep topology, instrumentation/channel, Protection settings, Control logic, execution/cycle and sample-sequence revisions distinct. A single project revision is insufficient to explain all runtime evidence.
+8. If clocks are unsynchronized or time uncertainty is unknown, show that limitation; do not claim sub-millisecond ordering or sequence-of-events accuracy without evidence.
+9. Retention gaps, disconnected devices, late-arriving samples and unavailable historian segments must appear as explicit gaps, not as proof of no event.
+
+### E. UI presentation: operational trace workspace
+
+Candidate layout:
+- **Trace header:** target equipment/device, initiating record, correlation context, current project and relevant revision identifiers.
+- **Evidence timeline:** chronological view of samples, evaluations, decisions, intents, command transitions, acknowledgements, feedback and events; distinct lanes by authority domain.
+- **Relationship graph:** causal/evaluation links solid and labelled; correlation-only links visually distinct; absent/unverified links never drawn as confirmed edges.
+- **Evidence inspector:** source identity, typed payload, event/ingest timestamps, quality, provenance, revisions, references and lifecycle.
+- **Completeness panel:** present, unavailable, not configured, not retained, late or unresolved evidence segments.
+- **Current-vs-historical context:** explicitly separate live device state from historical trace state and identify configuration drift since the event.
+
+Interaction rules:
+1. Entry points may include a relay operation, breaker, instrument/channel, command, alarm/event or device feedback record.
+2. The user can traverse backward from decision to exact input samples and forward from decision to intent, command and feedback where links exist.
+3. Every stage can be opened in its owning domain workspace without transferring authority to the trace UI.
+4. Filters may hide records from view but must not delete or acknowledge them.
+5. The UI must distinguish “no relationship configured”, “relationship configured but not evaluated”, “evaluated and blocked”, “source unavailable”, “record not retained” and “relationship unknown”.
+6. An end-to-end summary may state only the strongest evidenced outcome. For example: “Protection decision issued; command dispatched; device feedback not received” is valid; “breaker tripped” is not valid without authoritative feedback evidence.
+7. If feedback contradicts the command expectation, show mismatch as an observed discrepancy and link the independent feedback record; do not automatically mutate the Protection decision or Control state.
+
+### F. Failure and edge-case behavior
+
+| Condition | Required trace behavior |
+|---|---|
+| CT/PT/CVT configured but no channel binding | Show configuration gap; do not fabricate a channel or sample |
+| Channel bound but no sample received | Show no sample/unavailable with last-known sample time if one exists |
+| Sample stale/bad/uncertain | Preserve value and quality context; mark evaluation eligibility according to Protection/Control owner's actual decision |
+| Protection evaluation has no valid input | Show no-decision/blocked/unavailable exactly as Protection reports; never synthesize pickup/no-pickup |
+| Protection decision exists but no output intent | Show decision and missing/not-configured output mapping as separate facts |
+| Intent exists but no command created | Show intent; command stage absent/pending with explicit owner-supplied status |
+| Command dispatched but no acknowledgement | Show dispatched/awaiting/timeout according to command owner; do not mark accepted or failed without evidence |
+| Command acknowledged but no physical feedback | Show transport acknowledgement and feedback unavailable separately |
+| Feedback contradicts expected state | Show mismatch with source/time/quality; preserve command and feedback as distinct records |
+| Control interlock not configured | Mark not configured/not applicable, not passed |
+| Control interlock configured but not evaluated | Mark not evaluated; do not imply permissive |
+| Historian data missing | Show retention/availability gap and live-source availability separately |
+| Configuration changed after operation | Preserve historical revision and show current-vs-event configuration difference |
+
+### G. Candidate acceptance scenarios for UI-GATE-06
+
+| Scenario | Setup/action | Expected evidence |
+|---|---|---|
+| UI-ACC-TRACE-01 Full trace | Valid instrument sample, Protection evaluation, output intent, command, acknowledgement and independent feedback | Each stage is independently sourced, timestamped, revisioned and linked; no synthetic state replaces records |
+| UI-ACC-TRACE-02 Direct Protection path | Protection trip path has no Control logic dependency | Trace correctly shows Protection → command path; Control is not invented as a mandatory stage |
+| UI-ACC-TRACE-03 Configured interlock | A configured Control interlock is evaluated and blocks or permits an action | Control evaluation and result are linked to the action; Protection decision remains unchanged |
+| UI-ACC-TRACE-04 Measurement quality failure | Stale/bad/unavailable measurement reaches an evaluation boundary | Source quality and Protection/Control owner response are visible; UI does not decide eligibility |
+| UI-ACC-TRACE-05 Command/feedback divergence | Command accepted but feedback indicates device did not reach expected state | Transport acceptance and physical mismatch are shown independently |
+| UI-ACC-TRACE-06 Revision drift | Settings or topology changes after historical decision | Historical decision retains its original revisions; current configuration is shown separately |
+| UI-ACC-TRACE-07 Time uncertainty | Event, sample and ingest clocks differ or are unsynchronized | UI preserves timestamps and uncertainty without asserting false causal ordering |
+| UI-ACC-TRACE-08 Missing evidence | One or more stages are unavailable, unconfigured or not retained | Completeness panel identifies exact gap category; no missing stage is inferred as success |
+| UI-ACC-TRACE-09 Historian reconstruction | Reopen a historical operation from retained records | Timeline reconstructs only retained authoritative records and identifies missing segments |
+| UI-ACC-TRACE-10 Cross-workspace navigation | Navigate from trace to instrument, relay function, Control rung, command or breaker | Correct owning workspace opens with stable identity and context; no duplicate authority is created |
+
+### H. Required domain and platform decisions
+
+1. Canonical identity and stable references for instrument, channel, sample, relay function, ProtectionDecision, Control evaluation, DeviceCommand, acknowledgement and DeviceFeedback.
+2. Explicit producer-owned relationship contract for Protection decision → output intent → command and for any Control interlock relationship.
+3. Direct Protection-to-actuation routing semantics versus Control-mediated or interlocked routing; no universal Control stage.
+4. Device acknowledgement taxonomy: transport receipt, protocol acceptance, command acceptance and device operation confirmation must be separately defined.
+5. Feedback source contract: auxiliary contact, position sensor, status telemetry, simulated feedback and manually entered state must retain source type and trust/quality.
+6. Clock synchronization, timestamp precision, sequence numbering and uncertainty representation for SOE-grade traces.
+7. Retention and historian query contract, including disturbance records and late-arriving data.
+8. Authorization boundaries for viewing sensitive control/operation details and initiating any follow-on command from a trace.
+9. Graph/query projection ownership, bounded query performance and plugin extension/version policy; avoid a parallel runtime/event architecture.
+10. Offline/simulation mode semantics: simulated sample/feedback must be unmistakably identified and never confused with field telemetry.
+
+### I. Gate disposition and architectural constraints
+
+**UI-GATE-06 remains Open.** This proposal defines trace stages, record/edge semantics, temporal/revision rules, UI behavior, failure handling and candidate acceptance scenarios. It does not approve canonical IDs, protocol acknowledgement semantics, clock accuracy, retention, authorization or a production graph/query service.
+
+The following constraints are mandatory for subsequent design review:
+- Protection and Control remain separate execution authorities.
+- Shared Signal/Measurement infrastructure supplies typed measurements, units, timestamps, quality and provenance; it does not itself decide Protection operation or Control execution.
+- ProtectionDecision, output intent, DeviceCommand, transport acknowledgement and DeviceFeedback remain distinct records.
+- Device feedback must be independently sourced; no fabricated acknowledgement or actuation success.
+- Correlation is not causation.
+- Historical records retain the revisions and source timestamps under which they were produced.
+- UI is a read-side projection plus typed navigation/action intent; it is not a new orchestration authority.
+
+**Scope boundary:** research register only. No implementation files, domain contracts, persistence schemas or runtime services were changed. No V2 behavior was modified. No tests or CI were run.
