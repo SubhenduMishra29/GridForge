@@ -72,8 +72,19 @@ class ProtectionMeasurementBinding:
                 self, "instrument_primary_component_fingerprint",
                 self.instrument_primary_component_fingerprint.strip(),
             )
-        if (self.instrument_primary_side is None) != (self.instrument_primary_component_fingerprint is None):
+        if (self.instrument_primary_side is not None) != (self.instrument_primary_component_fingerprint is not None):
             raise ValueError("CT primary-side association requires both side and component fingerprint.")
+        if self.instrument_primary_side is not None:
+            if self.measurement_type.strip().lower() != "current":
+                raise ValueError("CT primary-side association is valid only for current measurement bindings.")
+            prefix = "ct-primary-component:v1:"
+            digest = self.instrument_primary_component_fingerprint.removeprefix(prefix)
+            if (
+                not self.instrument_primary_component_fingerprint.startswith(prefix)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ValueError("instrument_primary_component_fingerprint must use the canonical v1 SHA-256 form.")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping.")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
