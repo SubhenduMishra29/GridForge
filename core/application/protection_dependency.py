@@ -338,6 +338,8 @@ def build_protection_dependency_registry(
             else:
                 if runtime_channels is not None and runtime_channels.get(binding.channel_id) is not channel:
                     element_diagnostics.append(f"{binding_prefix}: runtime channel object is not the active registry object.")
+                if getattr(channel, "source_terminal", None) is None:
+                    element_diagnostics.append(f"{binding_prefix}: physical channel has no canonical source terminal.")
                 add_dependency("measurement_channel", binding.channel_id, {
                     "configuration": _channel_configuration(channel),
                     "runtime_instance_identity": id(channel),
@@ -350,10 +352,19 @@ def build_protection_dependency_registry(
             if instrument is None:
                 element_diagnostics.append(f"{binding_prefix}: instrument {binding.instrument_id!r} is missing.")
             else:
+                instrument_configuration = _instrument_configuration(instrument)
+                endpoint_identities = instrument_configuration.get("endpoints", {})
+                if any(
+                    identity is not None and identity[0] == "unsupported"
+                    for identity in endpoint_identities.values()
+                ):
+                    element_diagnostics.append(
+                        f"{binding_prefix}: instrument endpoint identity cannot be represented canonically."
+                    )
                 add_dependency(
                     "instrument",
                     binding.instrument_id,
-                    _instrument_configuration(instrument),
+                    instrument_configuration,
                 )
 
             try:
@@ -414,6 +425,15 @@ def build_protection_dependency_registry(
                 },
             )
 
+        fingerprints_by_key: dict[tuple[str, str], str] = {}
+        for dependency in dependencies:
+            dependency_key = (dependency.kind, dependency.identity)
+            previous_fingerprint = fingerprints_by_key.get(dependency_key)
+            if previous_fingerprint is not None and previous_fingerprint != dependency.fingerprint:
+                element_diagnostics.append(
+                    f"{prefix}: dependency {dependency.kind}:{dependency.identity} changed during descriptor capture."
+                )
+            fingerprints_by_key[dependency_key] = dependency.fingerprint
         dependencies.sort(key=lambda item: (item.kind, item.identity, item.fingerprint))
         descriptor_fingerprint = _fingerprint(tuple(
             (item.kind, item.identity, item.fingerprint) for item in dependencies
