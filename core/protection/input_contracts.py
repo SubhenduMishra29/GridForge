@@ -122,8 +122,6 @@ CONTRACT_49 = ProtectionFunctionInputContract(
 CONTRACT_67 = ProtectionFunctionInputContract("67", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT})
 CONTRACT_21 = ProtectionFunctionInputContract(
     "21", {"voltage": _VOLTAGE_INPUT, "current": _CURRENT_INPUT},
-    supported=False,
-    unsupported_reason="distance zone reach settings do not declare an engineering unit; V/I cannot be proven comparable to configured reach",
 )
 
 
@@ -186,6 +184,71 @@ def validate_protection_input_contracts(
             diagnostics.append(f"{prefix}: no canonical function specification/input contract; function is fail-closed.")
             continue
         contract = specification.input_contract
+        if code == "21":
+            settings = getattr(element, "settings", {})
+            required_distance_basis = {
+                "impedance_unit": "ohm",
+                "measurement_reference_basis": "PRIMARY",
+                "voltage_current_pairing": "SAME_PHASE_TO_NEUTRAL",
+            }
+            for setting_name, expected in required_distance_basis.items():
+                actual = settings.get(setting_name) if isinstance(settings, Mapping) else None
+                if actual != expected:
+                    diagnostics.append(
+                        f"{prefix}: ANSI 21 requires explicit {setting_name}={expected!r}; "
+                        f"received {actual!r}. No implicit impedance basis or phase pairing is permitted."
+                    )
+            bindings_by_input = {
+                binding.relay_input_id: binding
+                for binding in getattr(configuration, "measurement_bindings", ())
+                if binding.protection_element_id == element.element_id
+            }
+            coverage_data = getattr(element, "metadata", {}).get("distance_coverage")
+            if not isinstance(coverage_data, Mapping):
+                diagnostics.append(
+                    f"{prefix}: typed distance_coverage is required to establish explicit protected-line "
+                    "and breaker/CT boundary ownership."
+                )
+            else:
+                try:
+                    from core.protection.distance.coverage import DistanceProtectionCoverage
+                    coverage = DistanceProtectionCoverage.from_mapping(coverage_data)
+                    if coverage.project_id != project_id:
+                        diagnostics.append(f"{prefix}: distance_coverage project identity does not match configuration.")
+                    if coverage.current_binding_id != getattr(bindings_by_input.get("current"), "binding_id", None):
+                        diagnostics.append(f"{prefix}: distance_coverage current binding identity is not configured.")
+                    if coverage.voltage_binding_id != getattr(bindings_by_input.get("voltage"), "binding_id", None):
+                        diagnostics.append(f"{prefix}: distance_coverage voltage binding identity is not configured.")
+                except (TypeError, ValueError, KeyError) as exc:
+                    diagnostics.append(f"{prefix}: distance_coverage is invalid: {exc}.")
+            for input_name, expected_type in (("voltage", "voltage"), ("current", "current")):
+                binding = bindings_by_input.get(input_name)
+                if binding is None:
+                    continue
+                if binding.measurement_type.strip().lower() != expected_type:
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: ANSI 21 physical binding must be {expected_type!r}."
+                    )
+                basis = binding.metadata.get("reference_basis")
+                if basis != "PRIMARY":
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: physical binding metadata must explicitly declare "
+                        "reference_basis='PRIMARY'; secondary quantities cannot be compared to primary-ohm reach."
+                    )
+                expected_reference = "PHASE_TO_NEUTRAL" if input_name == "voltage" else "PHASE_CONDUCTOR"
+                if binding.metadata.get("measurement_reference") != expected_reference:
+                    diagnostics.append(
+                        f"{prefix}, input={input_name!r}: binding metadata must explicitly declare "
+                        f"measurement_reference={expected_reference!r}."
+                    )
+                endpoint = binding.source_endpoint_reference
+                if input_name == "voltage":
+                    role = (endpoint.terminal_role or "").upper() if endpoint.is_terminal else ""
+                    primary_roles = {"PRIMARY_A", "PRIMARY_B", "H1", "H2"}
+                    if not endpoint.is_terminal or role not in primary_roles:
+                        diagnostics.append(
+                            f"{prefix}, input='voltage': ANSI 21 requires an explicit PT/CVT primary terminal."
+                        )
         if contract is None:
             diagnostics.append(f"{prefix}: canonical catalog has no declared input contract; function is fail-closed.")
             continue
@@ -308,6 +371,55 @@ def validate_protection_input_contracts(
             if channel is None:
                 diagnostics.append(f"{detail}: channel is absent from the authoritative measurement registry.")
                 continue
+
+            # The live relay path must consume the same explicit physical
+            # instrument -> channel -> RelayInput association as the detached
+            # Protection Study path. A channel ID alone is not proof of which
+            # CT/PT/CVT and physical measurement point produced the sample.
+            configured_bindings = tuple(
+                binding
+                for binding in getattr(configuration, "measurement_bindings", ())
+                if binding.protection_element_id == element.element_id
+                and binding.relay_input_id == name
+            )
+            if len(configured_bindings) != 1:
+                diagnostics.append(
+                    f"{detail}: exactly one persisted ProtectionMeasurementBinding is required "
+                    f"for the physical relay input; found {len(configured_bindings)}."
+                )
+                continue
+            binding = configured_bindings[0]
+            if binding.channel_id != channel_id:
+                diagnostics.append(
+                    f"{detail}: persisted measurement binding channel does not match the configured RelayInput channel."
+                )
+                continue
+            expected_measurement = (
+                "current" if any(item.value == "CURRENT" for item in requirement.signal_types)
+                else "voltage" if any(item.value == "VOLTAGE" for item in requirement.signal_types)
+                else None
+            )
+            if expected_measurement is not None and binding.measurement_type.strip().lower() != expected_measurement:
+                diagnostics.append(
+                    f"{detail}: binding measurement_type {binding.measurement_type!r} does not match "
+                    f"the function input's {expected_measurement} requirement."
+                )
+            source_id = getattr(channel, "source_id", None)
+            if source_id != binding.instrument_id:
+                diagnostics.append(
+                    f"{detail}: physical instrument identity does not match the authoritative channel source."
+                )
+            if binding.measurement_type.strip().lower() == "voltage":
+                if getattr(channel, "source_terminal", None) != binding.source_endpoint_reference:
+                    diagnostics.append(
+                        f"{detail}: PT/CVT primary terminal reference does not match the channel's authoritative source terminal."
+                    )
+            channel_phase = getattr(getattr(channel, "phase", None), "value", getattr(channel, "phase", None))
+            if str(binding.phase_or_sequence).strip().upper() != str(channel_phase).strip().upper():
+                diagnostics.append(
+                    f"{detail}: binding phase/sequence does not match the authoritative channel phase."
+                )
+
             signal_type = getattr(channel, "signal_type", None)
             if signal_type not in requirement.signal_types:
                 diagnostics.append(
