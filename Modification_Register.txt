@@ -21383,3 +21383,167 @@ Verification boundary:
   and persistence compatibility contract.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-151 — DIFFERENTIAL SCHEME OWNER AND LEGACY MIGRATION CONTRACT
+======================================================================
+
+Audit finding:
+- DifferentialProtectionSchemeConfiguration persists scheme identity,
+  protected-object identity, measurement binding IDs, current directions,
+  phase compensation, settings and metadata, but no owning
+  protection_element_id.
+- ProtectionMeasurementBinding already persists an explicit
+  protection_element_id for each member binding.
+- ProtectionProjectConfiguration.add_differential_scheme() and
+  replace_differential_scheme() verify binding existence and current
+  measurement type, but do not require all member bindings to belong to
+  one Protection element. A scheme can therefore span multiple elements.
+- ProtectionConfigurationService.create_differential_scheme() validates
+  protected-object identity/type but does not establish a unique Protection
+  element owner. Update has the same gap.
+- Schemes are persisted in project.json under protection.differential_schemes.
+  Project package schema is 4. ProjectPersistenceMigration currently has
+  schema steps 1->2, 2->3 and 3->4 only; no 4->5 migration or separate
+  Protection configuration schema exists.
+- ProjectPersistenceService migrates the raw project before restoring
+  ProtectionProjectConfiguration.from_dict(), making the persistence
+  migration pipeline the correct compatibility boundary.
+
+Required migration contract:
+- A legacy scheme owner may be populated only when every referenced
+  ProtectionMeasurementBinding exists and every explicit
+  protection_element_id is identical.
+- Missing bindings, mixed owners, malformed membership or absent owner
+  evidence must fail closed with a migration error. Never choose an owner
+  from binding order, relay name, scheme name or protected-object identity.
+- New and updated schemes must enforce the same single-owner invariant in
+  the aggregate and Application service boundary.
+- Runtime composition must bind the scheme to that exact Protection element;
+  owner persistence alone does not make the numerical kernel executable.
+
+Scope boundary:
+- The standalone differential kernel remains pure and non-actuating.
+- No owner field, project schema bump, migration or runtime bridge is added
+  by this audit-only entry. Implementation requires coordinated changes to
+  project schema migration, ProtectionProjectConfiguration, Application
+  command validation, runtime composition, canonical decision provenance
+  and action authorization.
+- CT topology association identity/rebind and per-element stale-decision
+  isolation remain separate open items under #1070/GF-AUD-148/GF-AUD-145.
+
+Verification boundary:
+- Inspected project configuration serialization/restoration, differential
+  scheme aggregate CRUD, Application differential scheme create/update,
+  ProtectionMeasurementBinding persistence, ProjectPersistenceService
+  load/save and ProjectPersistenceMigration schema registry.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-152 — ANSI 87 HAS NO CANONICAL PROTECTION RUNTIME OR SAMPLE CONTRACT
+======================================================================
+
+Audit finding:
+- The canonical Protection function catalog lists ANSI 87 as
+  NOT_IMPLEMENTED with no implementation or input contract.
+- ProtectionRuntime.compose() constructs configured elements exclusively
+  through ProtectionFactory.create_element(). The factory rejects catalog
+  entries that are not IMPLEMENTED and constructs RelayBase implementations
+  wrapped by ProtectionElement.
+- The standalone differential numerical kernel is neither a RelayBase nor
+  a ProtectionElement implementation and does not produce ProtectionDecision.
+  It therefore cannot enter ProtectionSystem.evaluate() or the canonical
+  ProtectionExecutionService decision/action path.
+- DifferentialCurrentSample currently carries binding_id,
+  reference_basis_id and three phase phasors only. It does not carry sample
+  timestamp, quality, producer sequence, channel/source/instrument identity,
+  instrument/configuration revision, or topology/CT-association provenance.
+  The kernel verifies exact binding membership and a common reference basis,
+  but cannot independently establish sample freshness, quality or physical
+  source provenance.
+
+Required integration contract:
+- Application-owned input preparation must resolve configured binding IDs to
+  trusted MeasurementChannel/sample snapshots and validate source instrument
+  identity, service state, ratio/configuration, channel quality/freshness and
+  topology-derived CT association.
+- CT currents must be normalized to an explicit common relay reference basis,
+  including equipment-specific ratio and phase compensation. Unsupported
+  transformer/vector-group compensation must fail closed, not be ignored.
+- A canonical ANSI 87 ProtectionElement must bind to the explicit persisted
+  Protection element owner, consume the prepared coherent input snapshot and
+  emit the standard ProtectionDecision.
+- The decision must retain evaluation provenance and use the existing
+  Application revision guards, explicit action mapping and Protection
+  dispatch path. A raw kernel result or result.operates boolean is not an
+  actionable ProtectionDecision.
+
+Scope boundary:
+- No direct differential-kernel-to-dispatch bridge is permitted.
+- The numerical kernel remains pure and non-actuating. No runtime adapter,
+  ANSI 87 catalog implementation, owner field or persistence migration was
+  added by this audit entry.
+- GF-AUD-151 defines the scheme-owner migration contract. CT association
+  local identity/rebind and per-element stale-decision isolation remain
+  separate dependencies under #1070/GF-AUD-148/GF-AUD-145.
+
+Verification boundary:
+- Inspected Protection function catalog, ProtectionRuntime.compose(),
+  ProtectionFactory.create_element(), DifferentialCurrentSample and
+  evaluate_differential_scheme(), and canonical ProtectionExecutionService.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+
+======================================================================
+
+
+======================================================================
+GF-AUD-153 — CT PRIMARY-SIDE ASSOCIATION IDENTITY IS NOT PERSISTED
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService.create_measurement_binding() resolves the
+  CT P1 and P2 SimpleWire topology components and verifies that the selected
+  source endpoint belongs to exactly one component.
+- The resulting matching_ct_roles value (P1 or P2) is used for validation
+  and discarded. ProtectionMeasurementBinding persists instrument ID,
+  source endpoint, electrical side, ratio and channel, but not the resolved
+  CT-primary side or a canonical fingerprint of either primary component.
+- The binding correlation key omits CT identity and resolved P1/P2 component
+  membership. Persisted binding state therefore cannot prove that its
+  original CT-primary association remains valid after a topology edit.
+- Differential scheme current_directions is explicit configuration, but
+  does not replace persisted/validated physical CT orientation and local
+  association provenance.
+
+Required correction contract:
+- Persist canonical CT association identity: CT identity, selected primary
+  side (P1/P2), explicit source endpoint and deterministic fingerprint of
+  resolved component membership.
+- Re-resolve against the active Network during configuration validation and
+  Protection input preparation. Compare local component identity rather
+  than relying only on project-wide topology revision.
+- Require explicit rebind/update when selected component membership or CT
+  orientation changes. Preserve configured INTO_ZONE/OUT_OF_ZONE semantics;
+  never silently reverse them from changed topology.
+- Keep sample timestamp, quality and producer sequence separate from
+  association/configuration identity.
+
+Scope boundary:
+- Refines GF-AUD-148 and remains within issue #1070.
+- No persistent association token, migration, rebind command or runtime
+  invalidation behavior was implemented by this audit entry.
+
+Verification boundary:
+- Inspected ProtectionConfigurationService CT P1/P2 component resolution,
+  ProtectionMeasurementBinding fields/to_dict/from_dict/correlation_key and
+  the differential scheme direction contract.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  topology-rebind scenarios were performed.
+
+======================================================================
