@@ -1163,6 +1163,45 @@ class Application:
                     or "Captured element dependency descriptor is incomplete.",
                     decision,
                 )
+
+            # Measurement samples have a separate freshness contract from
+            # equipment/configuration dependencies. A newer or mutated sample
+            # supersedes this decision but must not advance equipment revisions
+            # or force runtime recomposition.
+            for (sample_element_id, input_name), sample_snapshot in validated_measurement_snapshots.items():
+                if sample_element_id != str(decision.element_id):
+                    continue
+                channel_id = sample_snapshot.get("channel_id")
+                sample_channel = captured_channel_service.channels.get(channel_id)
+                if (
+                    sample_channel is None
+                    or id(sample_channel) != sample_snapshot.get("channel_identity")
+                ):
+                    invalidate_rejected_element(
+                        f"Validated sample channel for input {input_name!r} is no longer the captured channel object.",
+                        decision,
+                    )
+                try:
+                    current_timestamp = float(sample_channel.timestamp)
+                    current_validity = sample_channel.validity(current_time=evaluation_time)
+                    sample_unchanged = (
+                        sample_channel.engineering_value == sample_snapshot.get("value")
+                        and current_timestamp == sample_snapshot.get("timestamp")
+                        and sample_channel.quality is sample_snapshot.get("quality")
+                        and bool(sample_channel.available) is sample_snapshot.get("available")
+                        and bool(sample_channel.is_usable) is sample_snapshot.get("usable")
+                        and getattr(sample_channel, "sample_sequence", None)
+                        == sample_snapshot.get("sample_sequence")
+                        and current_validity is sample_snapshot.get("validity")
+                    )
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    sample_unchanged = False
+                if not sample_unchanged:
+                    invalidate_rejected_element(
+                        f"Validated measurement sample for input {input_name!r} changed or became invalid after Protection evaluation.",
+                        decision,
+                    )
+
             current_lifecycle = self.project_lifecycle
             current_project = current_lifecycle.context
             current_runtime = getattr(self, "protection_runtime", None)
