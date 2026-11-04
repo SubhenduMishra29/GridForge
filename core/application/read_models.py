@@ -188,6 +188,12 @@ class RelayReadModel:
             raise ValueError("RelayReadModel element decisions must have unique protection-element identities.")
         if self.decision is not None and len(decisions) > 1:
             raise ValueError("A relay-level singular decision cannot represent multiple protection elements.")
+        if (
+            self.decision is not None
+            and decisions
+            and str(self.decision.element_id) != str(decisions[0].element_id)
+        ):
+            raise ValueError("RelayReadModel singular and element decision identities must agree.")
         object.__setattr__(self, "element_decisions", decisions)
 
 
