@@ -850,7 +850,7 @@ class Application:
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
                 or (
-                    not (not captured_dependency_registry.diagnostics and network_state is None)
+                    (captured_dependency_registry.diagnostics or network_state is not None)
                     and (
                         not current_runtime.equipment_state_matches_composition
                         or relay_state_fingerprint(captured_network) != captured_relay_state
