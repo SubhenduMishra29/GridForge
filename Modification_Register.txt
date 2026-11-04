@@ -21679,3 +21679,72 @@ Scope:
 - Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
 - Depends on GF-AUD-154 for live residual-source sample snapshot support.
 ======================================================================
+
+
+======================================================================
+GF-AUD-156 — ONE INCOMPLETE ELEMENT DISABLES SELECTIVE INVALIDATION FOR ALL
+======================================================================
+
+Audit finding:
+- build_protection_dependency_registry() correctly records completeness
+  and diagnostics per ProtectionElementDependencyDescriptor.
+- The registry-level complete flag is also defined as requiring every
+  element descriptor to be complete.
+- Application.evaluate_protection() uses this all-elements registry
+  complete flag as a batch-wide switch in ensure_current_protection_provenance()
+  and ensure_current_protection_topology().
+- If any enabled element has an incomplete descriptor, the Application
+  re-enables global Relay/instrumentation equipment-state and revision
+  comparisons and a global topology-revision fence for every decision.
+- The canonical function catalog contains PARTIAL functions 46, 49, 67
+  and 21. The live 50N/51N descriptors are explicitly incomplete under
+  GF-AUD-154. Therefore one such element can disable selective invalidation
+  for otherwise complete, dispatchable 50/51/27/59 elements in the same
+  project batch.
+- The incomplete element itself is correctly rejected by the per-element
+  decision guard. The additional batch-wide fallback is broader than that
+  element's missing dependency coverage.
+
+Required correction contract:
+- Separate registry-wide capture integrity from per-element descriptor
+  completeness. Duplicate/unclassifiable shared identities, incoherent
+  capture, project/runtime ownership changes and other registry-wide
+  corruption remain batch-wide fail-closed conditions.
+- Keep incomplete or unsupported element descriptors non-dispatchable.
+  Do not let one incomplete descriptor alone downgrade complete sibling
+  descriptors to global invalidation.
+- For a decision with a complete descriptor, compare its captured dependency
+  fingerprints with the current descriptor and invalidate only that element
+  when its dependencies change.
+- For a decision with an incomplete descriptor, reject that decision before
+  dispatch. Preserve a conservative fallback for any decision whose own
+  dependency coverage cannot be proven.
+- Apply the same per-decision scope to topology and equipment-state checks.
+  Do not remove project identity, activation generation, runtime ownership,
+  configuration integrity, channel-service ownership or capture-coherence
+  fences.
+- Ensure batch dispatch order cannot allow a later incomplete/stale decision
+  to invalidate or suppress unrelated complete decisions except where a
+  true shared dependency or batch-wide integrity failure exists.
+- Reconcile callback contracts so pre-dispatch checks receive enough
+  decision context to apply per-element guards without weakening the
+  batch-wide fences.
+
+Implementation status:
+- Audit only. No code change made for this finding.
+- This is a scope correction to the selective-invalidation contract, not
+  permission to dispatch any PARTIAL/NOT_IMPLEMENTED Protection function.
+
+Verification boundary:
+- Inspected ProtectionFunctionStatus catalog classification,
+  build_protection_dependency_registry() descriptor and registry complete
+  semantics, and Application.ensure_current_protection_provenance(),
+  ensure_current_protection_topology() and
+  ensure_current_protection_decision_dependency().
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
+- Depends on GF-AUD-145 and the incomplete live residual-source safeguards
+  GF-AUD-154/GF-AUD-155.
+======================================================================
