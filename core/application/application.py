@@ -59,6 +59,7 @@ from .events import (
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
+from .recovery import ApplicationRecoveryStatus
 from .read_models import ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
@@ -214,6 +215,28 @@ class Application:
     def recovery_record(self) -> Mapping[str, Any] | None:
         """Return recovery diagnostics without exposing mutable internal state."""
         return self._command_manager.recovery_record
+
+    @property
+    def recovery_status(self) -> ApplicationRecoveryStatus:
+        """Return a read-only summary of command and project-lifecycle recovery state.
+
+        This status never resets either state machine. Recovery must replace this
+        Application through fresh composition rather than mutating degraded services.
+        """
+        lifecycle = self._project_lifecycle
+        lifecycle_state = lifecycle.state if lifecycle is not None else "UNCONFIGURED"
+        context = lifecycle.context if lifecycle is not None else None
+        record = self._command_manager.recovery_record
+        command_state = self._command_manager.integrity_state
+        recovery_required = command_state != "CLEAN" or lifecycle_state == "ROLLBACK_FAILED"
+        return ApplicationRecoveryStatus(
+            command_integrity_state=command_state,
+            project_lifecycle_state=lifecycle_state,
+            project_id=context.project_id if context is not None else None,
+            activation_generation=lifecycle.activation_generation if lifecycle is not None else 0,
+            recovery_artifact_available=bool(record and record.get("artifact_path")),
+            recovery_required=recovery_required,
+        )
 
     @property
     def draft_network(self) -> Any | None:
