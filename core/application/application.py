@@ -3725,6 +3725,90 @@ class Application:
 
     def command_types(self) -> tuple[str, ...]: return self._command_manager.registered_commands
 
+    def _reconcile_protection_runtime_after_history(
+        self,
+        command: Command,
+        network: Any,
+    ) -> str | None:
+        """Refresh or recompose Protection runtime after a committed undo."""
+        command_type = command.command_type
+        in_place_equipment_commands = {
+            "model.update_current_transformer",
+            "model.put_current_transformer_in_service",
+            "model.take_current_transformer_out_of_service",
+            "model.update_capacitive_voltage_transformer",
+            "model.put_capacitive_voltage_transformer_in_service",
+            "model.take_capacitive_voltage_transformer_out_of_service",
+            "model.update_potential_transformer",
+            "model.put_potential_transformer_in_service",
+            "model.take_potential_transformer_out_of_service",
+            "model.update_relay",
+            "model.put_relay_in_service",
+            "model.take_relay_out_of_service",
+        }
+        recompose_commands = {
+            "protection.create_configuration",
+            "protection.update_configuration",
+            "protection.delete_configuration",
+            "protection.bind_measurement",
+            "protection.unbind_measurement",
+            "protection.create_measurement_binding",
+            "protection.rebind_measurement_binding",
+            "protection.set_synchronism_check_configuration",
+            "protection.create_differential_scheme",
+            "protection.update_differential_scheme",
+            "protection.delete_differential_scheme",
+            "model.create_current_transformer",
+            "model.delete_current_transformer",
+            "model.create_capacitive_voltage_transformer",
+            "model.delete_capacitive_voltage_transformer",
+            "model.create_potential_transformer",
+            "model.delete_potential_voltage_transformer",
+            "model.create_relay",
+            "model.delete_relay",
+            "network.commit_draft",
+        }
+        if command_type not in in_place_equipment_commands | recompose_commands:
+            return None
+
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        channel_service = self.measurement_channel_service
+        if configuration_service is None or configuration_service.configuration is None:
+            self.protection_runtime = None
+            return "Protection configuration service is unavailable after history operation."
+        if channel_service is None or network is None:
+            self.protection_runtime = None
+            return "Protection channel service or active Network is unavailable after history operation."
+
+        try:
+            runtime = getattr(self, "protection_runtime", None)
+            if (
+                command_type in in_place_equipment_commands
+                and runtime is not None
+                and runtime.network is network
+                and runtime.configuration is configuration_service.configuration
+                and runtime.activation_generation == self.project_lifecycle.activation_generation
+            ):
+                runtime.refresh_equipment_state_snapshot()
+                return None
+
+            candidate = ProtectionRuntime(
+                network,
+                configuration_service.configuration,
+                activation_generation=self.project_lifecycle.activation_generation,
+            )
+            candidate.compose(channel_service.channels)
+            self.protection_runtime = candidate
+            return None
+        except Exception as exc:
+            # The Core history operation has already committed. Do not leave a
+            # stale Protection runtime available for evaluation or dispatch.
+            self.protection_runtime = None
+            return (
+                "Protection runtime reconciliation after history operation failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
     def undo(self) -> ApplicationResult | None:
         self._reject_during_async_commit()
         with self._execution_lock:
@@ -3737,6 +3821,21 @@ class Application:
                     self._revision_service.record_undo(
                         topology_revision=int(network.state.topology_revision) if network is not None else None
                     )
+                if command is not None:
+                    reconciliation_diagnostic = self._reconcile_protection_runtime_after_history(
+                        command,
+                        network,
+                    )
+                    if reconciliation_diagnostic is not None:
+                        result = ApplicationResult.success_result(
+                            value=result.value,
+                            message=result.message,
+                            metadata={
+                                **dict(result.metadata),
+                                "protection_runtime_status": "unavailable",
+                                "protection_runtime_diagnostic": reconciliation_diagnostic,
+                            },
+                        )
                 if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
