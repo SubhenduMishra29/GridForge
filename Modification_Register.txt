@@ -21039,3 +21039,48 @@ Source inspection and transaction lifecycle tracing only. No tests, CI,
 syntax/import checks, or runtime undo/rollback execution were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-143 — SCENARIO PROTECTION POST-EVALUATION PROVENANCE FENCE
+======================================================================
+
+Audit finding:
+- Application._evaluate_protection_scenario already checked the composed
+  runtime's equipment fingerprint before evaluating scenario inputs.
+- Its post-evaluation guard checked project/network/runtime/configuration
+  identity and MeasurementChannel service identity, but omitted the
+  post-evaluation CT/PT/CVT and Relay equipment fingerprint, the three
+  independent Protection revision dimensions, and exact channel-object
+  registry continuity.
+- An equipment or channel-registry mutation during runtime.system.evaluate()
+  could therefore leave a scenario result accepted after its input
+  provenance had become stale.
+
+Correction on feat/protection-independent-revisions:
+- Capture the Application ProjectRevision and authoritative channel-object
+  mapping before scenario evaluation.
+- After runtime.system.evaluate(), recheck:
+  * project/network/activation/runtime/configuration identity;
+  * ProtectionRuntime configuration and complete CT/CVT/PT/Relay equipment
+    composition fingerprints;
+  * instrumentation_revision, protection_equipment_revision and
+    protection_configuration_revision;
+  * MeasurementChannel service identity, project/generation/network
+    provenance and exact channel-object mapping;
+  * the supplied scenario topology snapshot against current Network topology.
+- Reject stale scenario decisions with StaleProtectionExecutionError.
+- No sample sequence/timestamp/quality state is included in equipment
+  revisions. No Core or UI ownership changes.
+
+Scope boundary:
+This remains a conservative project-wide equipment/configuration fence.
+Per-Protection-element dependency-scoped invalidation is not implemented.
+Unknown or unresolved dependency mappings must remain fail-closed until
+their canonical associations are established.
+
+Verification boundary:
+Source inspection and post-evaluation control-flow review only. No tests,
+CI, syntax/import checks, or scenario runtime execution were performed.
+
+======================================================================
