@@ -4161,3 +4161,293 @@ Frozen invariants:
 - All mutating actions follow UI → Controller → Command → Application → owning domain → Event → Projection → UI, with typed authorization and audit.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, alarm engine, event bus, historian, retention policy, alarm philosophy, tests or CI were changed or run.
+
+
+## 8I-22. Proposed V3 engineering project collaboration, review and change-control architecture (2026-11-04)
+
+**Purpose:** define controlled multi-engineer collaboration around the GridForge Project persistence root, with explicit ownership, revision-aware editing, review/approval, conflict resolution, auditability and safe project handover. Collaboration must not weaken domain validation, safety authority or the distinction between editing, engineering review and operational authorization.
+
+**Status:** research proposal. This section does not approve a distributed collaboration service, locking mechanism, approval matrix, signature scheme, cloud synchronization design or project file format change.
+
+### A. Governing principles
+
+1. **Project remains the persistence root.** Collaboration operates on a project identity and its revisioned contents; it does not create competing persistence roots for SLD, Protection, Control, Studies or plugins.
+2. **One authoritative accepted revision.** Every accepted project change has a stable identity, author/source, timestamp, parent revision and resulting revision. Local drafts and review proposals are not accepted project state.
+3. **Concurrent editing is explicit.** Two engineers editing the same project or object must not silently overwrite each other's accepted work.
+4. **Locking is a coordination aid, not correctness.** Domain validation and optimistic concurrency checks remain necessary even when a lease/lock is held.
+5. **Review is not mutation authority.** Review comments and approval decisions do not directly mutate Core. Accepted changes still pass through Application commands and owning domain validation.
+6. **Approval is scoped and revision-bound.** An approval applies to an identified change set and exact content revision, not an evolving project head.
+7. **Engineering approval is not operational authorization.** A design review sign-off cannot authorize a Protection trip, Control dispatch, device operation or bypass.
+8. **Immutable history with explicit supersession.** Accepted revisions and audit evidence are retained according to policy; corrections create new records rather than silently rewriting history.
+9. **Conflict resolution is semantic.** Merge decisions account for domain meaning, dependencies, topology, configuration and provenance—not only text/file differences.
+10. **Project handover is verifiable.** A receiving engineer can identify project revision, outstanding changes, unresolved findings, approval scope, external references and known limitations.
+11. **Offline work is a first-class scenario.** Disconnected edits remain proposals until reconciled against the authoritative project revision.
+12. **Least privilege and separation of duties.** Project access, editing, reviewing, approving, exporting and administrative actions are distinct permissions.
+13. **Plugins participate through public contracts.** Extensions can contribute typed change metadata/review evidence but cannot bypass project transaction, audit or domain authority.
+14. **No implied distributed transaction.** Cross-domain project changes need an explicit Application orchestration/transaction policy; collaboration transport does not make independent domain mutations atomic by itself.
+
+### B. Project identity, revision and change-set model
+
+Candidate concepts:
+
+- **Project identity:** stable project ID independent of file path, display name, local checkout or storage location.
+- **Project revision:** immutable accepted snapshot or revision identifier with parent relation and content digest/manifest as appropriate.
+- **Working copy:** local editable view tied to a known base revision and user/session identity.
+- **Draft change set:** typed collection of proposed changes with target IDs, expected object/configuration revisions, author, creation time and status.
+- **Review request:** immutable reference to a draft change set and exact proposed revision, with review scope and requested reviewers.
+- **Review decision:** reviewer identity, decision, timestamp, scope, comments and exact revision reviewed.
+- **Approval record:** explicit authority, approval policy/version, approved scope and exact change-set/revision digest.
+- **Accepted project revision:** project state resulting from validated and authorized change-set application.
+- **Handover package:** project revision plus required manifest, provenance, review/approval state, unresolved findings and explicitly included evidence.
+- **Local annotation/comment:** collaboration metadata linked to project/object/revision; not silently part of engineering model unless explicitly committed.
+
+Do not assume a Git commit is the project revision identity. Source-control commits can be useful provenance for implementation artifacts, while the engineering Project has its own revision and transaction semantics.
+
+### C. Ownership and permissions
+
+Candidate permission dimensions:
+- Project owner/administrator: membership, lifecycle, archive/restore and access policy.
+- Engineer/editor: create and modify permitted project content through owning domain workflows.
+- Reviewer: inspect a scoped revision, request changes and record review findings.
+- Approver: approve a defined change scope under an approved authorization matrix.
+- Read-only stakeholder: inspect authorized project state and review evidence.
+- Export/handover operator: create a controlled delivery package without altering accepted engineering content.
+- Platform administrator: manage infrastructure/security without inheriting engineering approval authority by default.
+
+Permission evaluation must consider user, role, project, workspace/domain, object scope, action, revision state and contextual constraints. A hidden UI control is not access control; Application/domain services revalidate permission at execution.
+
+Separation-of-duties controls may require:
+- Author cannot approve their own change for designated high-risk scopes.
+- Reviewer and approver may be distinct roles.
+- Approval quorum or discipline-specific approvals for defined project classes.
+- Emergency/expedited path is explicit, audited and retrospectively reviewed; never a silent bypass.
+- Permission changes and membership changes are audited with actor, before/after state and effective time.
+
+Exact roles, thresholds and mandatory dual control require project governance and risk classification; do not hard-code a universal matrix.
+
+### D. Concurrent editing and coordination
+
+Candidate strategy combines optimistic concurrency with optional scoped coordination:
+
+1. Working copy records its base project revision and target object revisions.
+2. On edit, the client may request a short-lived lease for high-conflict resources (e.g. project-wide settings, topology subgraph, Protection settings group), if the collaboration service supports it.
+3. A lease identifies owner, scope, acquisition/expiry time, renewal policy and server authority; it is not a permanent lock.
+4. Before commit, Application/domain service verifies expected revisions and validates the proposed change against current accepted state.
+5. If revisions match and validation succeeds, accept the change set and publish the new revision.
+6. If stale, return a typed conflict with base/current/proposed values and affected dependencies; do not silently last-write-wins.
+7. Lease expiry, client crash or network partition releases/invalidates the lease under explicit policy; no client can claim exclusive ownership after expiry.
+8. A user may continue offline in a local draft, but cannot represent it as accepted or approved project state.
+9. Reconnection initiates reconciliation; it does not auto-commit or auto-approve queued changes.
+10. High-risk changes may require explicit exclusive coordination, but safety-critical validation never relies solely on lock state.
+
+Conflict classes:
+- **Disjoint property edits:** may be auto-reconciled only when typed properties are independent and domain owner confirms no dependency conflict.
+- **Same property edit:** explicit choose/rebase/resolve workflow; preserve both proposals.
+- **Topology/connectivity edit:** semantic graph conflict; inspect affected terminals, edges, equipment and dependent studies/protection zones.
+- **Instrumentation/measurement mapping:** compare source, channel, calibration and consumer bindings; stale dependent evidence is surfaced.
+- **Protection settings/function edit:** conflict by relay/function/settings group and relevant input/configuration revision; no blind merge of protection curves or function parameters.
+- **Control logic edit:** graph/element/binding conflict; require domain-aware review, not text merge alone.
+- **Study setup/input edit:** separate immutable run inputs/results; re-run creates new result identity.
+- **Presentation-only edit:** may be independently mergeable if it does not affect engineering model or shared layout ownership.
+- **Project metadata/membership/policy edit:** governed by project administrator and explicit authorization.
+
+### E. Semantic change sets and dependency impact
+
+A change set should describe intent and impact, not merely serialize a file diff:
+
+- Stable target identity and target type.
+- Owning domain and typed operation.
+- Base revision and expected target/object revisions.
+- Before/after values or typed operation payload, with sensitive data redaction policy.
+- Reason/engineering rationale and linked issue/requirement where applicable.
+- Declared affected objects/domains and dependency references.
+- Validation results, warnings, unresolved questions and validation revision.
+- Author, creation time, tool/version and source workspace.
+- Review scope, requested reviewers and required approvals.
+- Commit/acceptance result and resulting project revision.
+
+Impact analysis should identify:
+- Electrical topology/connectivity and affected equipment/terminals.
+- Instrumentation and measurement mappings/calibration revisions.
+- Protection settings, input associations, coverage and affected zones.
+- Control bindings, interlocks and action targets.
+- Study input snapshots and results requiring recomputation.
+- SLD/presentation-only changes versus engineering changes.
+- Reports, exports and handover artifacts invalidated by the change.
+
+Impact analysis is advisory until the owning domain validates it. Missing dependency knowledge must be marked incomplete/unknown rather than represented as “no impact”.
+
+### F. Review and approval lifecycle
+
+Candidate lifecycle:
+1. **Draft:** author edits a working copy/change set; not accepted project state.
+2. **Ready for validation:** author requests validation against a known base revision.
+3. **Validation blocked / warnings:** typed findings are returned; author resolves or explicitly records allowed dispositions.
+4. **Submitted for review:** immutable proposed revision/change set is frozen for review.
+5. **In review:** assigned reviewers inspect scope, technical basis, impact and evidence.
+6. **Changes requested:** review decision returns specific findings; author creates a new proposal revision or explicitly amends draft and resubmits.
+7. **Approved:** authorized reviewers approve the exact change-set digest/revision and defined scope.
+8. **Ready to accept:** all required approvals and preconditions remain valid; revalidate against current project head.
+9. **Accepted:** Application commits through owning domain services and creates a new accepted project revision.
+10. **Superseded/withdrawn/rejected:** proposal remains traceable and cannot be mistaken for accepted content.
+
+Rules:
+- Review comments refer to stable object/property/operation IDs and exact proposed revision.
+- Approval expires or becomes invalid if the proposal content, relevant base revision, approval policy or required dependency revision changes.
+- Any material edit after approval creates a new reviewable proposal; no silent mutation under an existing approval.
+- Acceptance rechecks validation, permissions, expected revisions and approval validity.
+- An approved proposal may still fail acceptance if the project head changed or a precondition is no longer true.
+- Review completion does not guarantee that a physical device has been commissioned, tested or operated.
+- Record reviewer rationale, findings and disposition; comments alone are not approval.
+- Do not equate code review, engineering design review, project approval, safety authorization and commissioning acceptance.
+
+### G. Domain-specific review controls
+
+**G1. Electrical/SLD**
+- Review topology, equipment identity/type, terminal compatibility, ratings, connection intent and layout/model distinction.
+- Changes affecting topology require impact review of connected equipment, Protection zones, measurement associations and Study inputs.
+- SLD presentation-only changes may use a lighter review path if project policy allows, but cannot alter engineering ownership.
+
+**G2. Instrumentation & Signals**
+- Review instrument type/ratio/range, calibration, channel mapping, signal units/quality, source provenance and consumer impact.
+- Changes to CT/PT/CVT or measurement mapping must show affected Protection and Control consumers and revision effects.
+- Historical measurements retain the calibration and mapping context effective at acquisition.
+
+**G3. Protection**
+- Review relay/function settings, characteristic/curve, CT/PT inputs, polarity/scaling, topology/zone impact, model coverage and validation evidence.
+- Approval is tied to exact relay/function/settings revision and relevant topology/instrumentation revision.
+- Protection setting approval does not authorize a trip, breaker operation, bypass or live setting change.
+
+**G4. Control**
+- Review logic graph, typed I/O, interlocks, action targets, execution semantics and failure behavior.
+- Changes affecting device actions or permissives require explicit safety/operational review policy.
+- Design approval does not itself authorize runtime dispatch or bypass.
+
+**G5. Studies**
+- Review input snapshot, assumptions, solver/options, convergence, result identity and report interpretation.
+- A result cannot be approved independently of the exact inputs and solver context that generated it.
+- Re-run creates a new result and, where required, a new review decision.
+
+### H. Project revision, merge and conflict-resolution model
+
+- Accepted revisions form an explicit parented history or equivalent immutable revision graph.
+- Change application creates a new revision; accepted history is not rewritten by ordinary edit or conflict resolution.
+- Semantic merge is delegated to owning domain services for topology, Protection, Control, measurement and Study content.
+- Textual/structural three-way merge may be used for compatible metadata, notes or presentation data only where schema semantics permit.
+- Merge UI presents base, current accepted, proposed change, owner validation and dependency impact.
+- Unresolved conflict blocks acceptance for affected scope; unrelated independent changes may proceed only if the transaction contract supports scoped acceptance and makes partial outcome explicit.
+- Rebase recalculates proposed change against a new base and reruns validation; it does not preserve old approval automatically.
+- If a conflict cannot be resolved safely, preserve both proposals and require a human/domain owner decision.
+- Project revision history supports compare, inspect, restore-as-new-revision and trace to prior approval/handover; “restore” must not delete intervening audit evidence.
+- Content digest/integrity metadata may detect corruption or unauthorized change; cryptographic guarantees require a specified and verified design.
+
+### I. Audit, evidence and signatures
+
+Audit records should capture:
+- Actor/service identity and effective role/authorization.
+- Action, target, project ID, base and resulting revision.
+- Before/after or typed operation reference under data minimization policy.
+- Timestamp/time quality, client/tool version and source context.
+- Validation results, warnings, approval references and conflict/rebase decisions.
+- Review comments/dispositions and approval policy version.
+- Export/handover creation, recipient, manifest/digest and delivery outcome.
+- Administrative membership/permission changes and exceptional overrides.
+
+Digital signatures or electronic approvals require explicit trust, identity, key custody, revocation, timestamping, canonicalization and legal/regulatory analysis. A username/password confirmation or UI badge must not be represented as a legally binding signature without the relevant controls.
+
+Audit history is distinct from operational historian data and from source-control history. Retention and access controls are independently defined.
+
+### J. Project handover and delivery
+
+Candidate handover package contains:
+1. Stable project identity, accepted revision and package/schema version.
+2. Canonical project data and required internal dependencies according to the frozen Project persistence contract.
+3. Change summary from the agreed baseline and relevant revision lineage.
+4. Required discipline review/approval records bound to exact accepted revision.
+5. Open validation findings, unresolved risks, deviations and explicit exclusions.
+6. Study run identities, input snapshots and required reports.
+7. Relevant alarm/event/Protection/Control evidence only where handover scope requires it; include time/provenance metadata.
+8. Equipment/instrumentation/Protection/Control configuration revision summary.
+9. External references, licences, catalogue editions and dependency availability; identify references not embedded.
+10. Export manifest, content integrity information, creation actor/time and delivery/receipt evidence.
+
+Handover workflow:
+- Sender selects a specific accepted revision and delivery scope.
+- System validates package completeness and flags unresolved/incompatible content.
+- Required approvals are checked against exact revision.
+- Package is generated as a reproducible artifact with manifest and integrity checks.
+- Recipient verifies package integrity/schema, opens a separate working copy and records receipt/acceptance.
+- Recipient acceptance does not retroactively modify sender's accepted project revision.
+- Subsequent corrections are new revisions and, where required, new handover packages.
+
+Do not silently include transient local drafts, private comments, credentials, tokens or unrelated user data in an engineering handover.
+
+### K. Offline collaboration and recovery
+
+- Offline work is a local working copy/change set tied to last known accepted revision and user identity.
+- Clearly mark offline, stale, pending synchronization and unresolved conflict states.
+- Local draft persistence and crash recovery must not imply server acceptance, approval or synchronization.
+- On reconnect, fetch current revision and reconcile before any commit.
+- Never replay queued physical operations, Protection commands, Control dispatches or device actions as part of project synchronization.
+- Retry only idempotent collaboration operations with stable operation IDs; review/approval actions require fresh authorization and revision checks.
+- Conflict recovery preserves original proposal and creates a new rebased proposal; it does not overwrite the prior record.
+- Project backup/restore and collaboration synchronization are distinct workflows with distinct audit evidence.
+
+### L. Candidate acceptance scenarios
+
+| ID | Scenario | Candidate pass evidence |
+|---|---|---|
+| UI-ACC-COL-01 | Two engineers edit disjoint independent properties | Owner confirms independence; both changes accepted without lost update |
+| UI-ACC-COL-02 | Two engineers edit the same property | Conflict surfaced with base/current/proposed values; no last-write-wins |
+| UI-ACC-COL-03 | Concurrent topology edits | Semantic graph conflict and affected terminals/equipment/dependencies identified |
+| UI-ACC-COL-04 | Edit Protection setting during review | Existing approval invalidated for changed proposal revision |
+| UI-ACC-COL-05 | Reviewer approves a proposal | Approval bound to exact change-set digest/revision and scope |
+| UI-ACC-COL-06 | Project head changes after approval | Acceptance revalidates and rejects/requires rebase where preconditions changed |
+| UI-ACC-COL-07 | Author attempts self-approval | Policy enforced by Application authorization, not UI visibility |
+| UI-ACC-COL-08 | Offline draft reconnects | Reconciliation occurs; no automatic acceptance or approval |
+| UI-ACC-COL-09 | Rebase after conflict | New proposal revision and validation; original proposal retained |
+| UI-ACC-COL-10 | Restore an earlier project state | Restore creates a new accepted revision; intervening audit history retained |
+| UI-ACC-COL-11 | Handover to another engineer | Package identifies exact accepted revision, approvals, open findings and manifest |
+| UI-ACC-COL-12 | Recipient verifies handover | Integrity/schema verification and receipt recorded independently |
+| UI-ACC-COL-13 | Permission revoked during edit | Commit rechecks authorization and rejects stale permission |
+| UI-ACC-COL-14 | Plugin contributes a project change | Change uses public contract and Application transaction/audit; no direct Core mutation |
+| UI-ACC-COL-15 | Cross-domain change affects Study and Protection | Impact analysis identifies dependent revisions; each owner validates its scope |
+
+These are candidate scenarios, not approved release criteria or evidence of current implementation conformance.
+
+### M. Open decisions and evidence required
+
+1. Establish V3 source repository/branch/commit and inspect existing project persistence, transaction, revision, audit and plugin contracts.
+2. Decide whether collaboration is local-first, server-authoritative or hybrid; define supported deployment topologies and offline guarantees.
+3. Define project identity, revision graph, digest, change-set schema and compatibility/migration policy.
+4. Inventory domain semantic merge capabilities and identify which conflict classes must always require human review.
+5. Define project roles, separation-of-duties, approval matrix, quorum, delegation and emergency override policy with engineering governance/security.
+6. Determine whether leases/locks are needed for specific resource classes; define expiry, renewal, recovery and failure behavior.
+7. Define transaction boundaries and acceptance policy for cross-domain change sets; no implied distributed atomicity.
+8. Define approval invalidation rules for changed base revision, policy version, dependency revision or change-set digest.
+9. Determine signature/electronic approval requirements, identity assurance, key management and legal applicability.
+10. Define audit retention, privacy, export, archival and access policy.
+11. Define handover manifest, package completeness checks, recipient verification and receipt semantics.
+12. Validate usability and operational procedures with discipline engineers, reviewers, project owners and commissioning/handover stakeholders.
+
+### N. Gate disposition and frozen invariants
+
+**UI-GATE-02, UI-GATE-03, UI-GATE-06 and UI-GATE-07 remain Open** for project/session lifecycle, diagnostics, cross-domain traceability and scope/priority decisions implicated here. UI-GATE-04 remains Open from prior accessibility research. Other gates retain their previously recorded status.
+
+Frozen invariants:
+- Project remains the engineering persistence root; collaboration does not create domain-specific competing roots.
+- Accepted project revisions are distinct from local drafts, review proposals and approvals.
+- Approval is bound to an exact revision/change-set digest and scope; material change invalidates it.
+- Review/approval does not directly mutate Core and does not authorize physical operation.
+- Application and owning domain services revalidate authorization, expected revisions and domain constraints at acceptance.
+- Locks/leases coordinate users but do not replace optimistic concurrency or domain validation.
+- Semantic conflicts in topology, Protection, Control, instrumentation and Studies cannot be resolved by blind file overwrite.
+- Disconnected drafts are not accepted project state; reconnect never auto-commits or auto-approves.
+- Cross-domain impact is explicit; unknown dependency coverage is not reported as no impact.
+- Audit, operational historian, project revision history and source-control history remain distinct evidence classes.
+- Handover identifies exact accepted revision and does not leak local drafts or credentials.
+- Plugins use public change contracts and Application services; no direct Core mutation.
+- Physical commands, Protection dispatch and Control actions are never replayed as collaboration synchronization.
+- All accepted engineering changes follow UI → Controller → Command → Application → owning domain → Event → Projection → UI.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, collaboration server, locking service, approval engine, signature system, project schema, tests or CI were changed or run.
