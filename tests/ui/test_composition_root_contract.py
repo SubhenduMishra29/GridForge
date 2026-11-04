@@ -5,6 +5,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+from core.protection.decision import ProtectionDecision
+from ui.protection.protection_workspace import ProtectionGraphicsSurface
+from ui.protection.protection_tools import ProtectionInteractionController
+
 from core.application.bootstrap import create_application
 from core.network.network import Network
 from ui.canvas.canvas_composition import CanvasComposer
@@ -149,8 +154,6 @@ def test_real_properties_panel_is_injected_before_selection_projection_is_used(q
 
 # Protection commissioning projection is a read-side contract: an unconfigured
 # physical Relay must not be rendered as an executable protection function.
-from types import SimpleNamespace
-from ui.protection.protection_workspace import ProtectionGraphicsSurface
 
 
 class _ProtectionSceneProbe:
@@ -231,9 +234,6 @@ def test_commissioned_relay_projects_the_configured_function_code():
     assert any(node.kind == "decision" for node in surface.created)
     assert any(node.kind == "trip_output" for node in surface.created)
 
-
-from core.protection.decision import ProtectionDecision
-from ui.protection.protection_tools import ProtectionInteractionController
 
 
 def test_multifunction_relay_projects_each_function_inputs_and_decision_by_element_id():
