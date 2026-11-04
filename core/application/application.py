@@ -234,7 +234,11 @@ class Application:
             project_lifecycle_state=lifecycle_state,
             project_id=context.project_id if context is not None else None,
             activation_generation=lifecycle.activation_generation if lifecycle is not None else 0,
-            recovery_artifact_available=bool(record and record.get("artifact_path")),
+            recovery_artifact_available=bool(
+                record
+                and record.get("artifact_path")
+                and Path(str(record["artifact_path"])).is_file()
+            ),
             recovery_required=recovery_required,
         )
 
