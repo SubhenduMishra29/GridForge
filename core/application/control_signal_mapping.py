@@ -444,7 +444,13 @@ class ControlSignalMapping:
                     ):
                         diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} has an invalid stale-after policy.")
                         signal_quality = ControlSignalQuality.STALE
-                    elif current_time is not None and timestamp is not None and current_time - timestamp > stale_after:
+                    elif (
+                        current_time is not None
+                        and isinstance(timestamp, (int, float))
+                        and not isinstance(timestamp, bool)
+                        and math.isfinite(timestamp)
+                        and current_time - timestamp > stale_after
+                    ):
                         diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} is stale.")
                         signal_quality = ControlSignalQuality.STALE
                     if (
