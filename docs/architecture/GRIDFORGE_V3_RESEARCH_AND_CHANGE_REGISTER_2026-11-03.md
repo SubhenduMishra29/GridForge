@@ -1863,3 +1863,133 @@ Packages must be vertically coherent and avoid duplicate managers, event buses, 
 - V2 main: remains legacy comparison baseline, not a substitute V3 implementation source.
 
 **Next bounded activity:** obtain the intended V3 source ref and product/domain owners' gate decisions. Until then, further source-to-spec claims or implementation prioritization would be speculative. No source implementation files were changed; only this research register is updated. No tests or CI were run.
+
+
+## 8I-11. Proposed typed engineering diagnostics contract (2026-11-04)
+
+**Purpose:** Provide a reviewable candidate contract for UI-GATE-03. The contract standardizes how diagnostic information is identified, transported and presented without transferring acknowledgement, clearing, alarm-management or engineering decision authority into the UI. This is a proposal for V3 review, not an approved schema or implementation directive.
+
+### A. Design decision: common envelope, category-owned lifecycle
+
+Adopt one **typed diagnostic read-model envelope** for cross-workspace presentation, backed by category-specific payloads and lifecycle policies.
+
+The shared envelope is a presentation/interoperability contract. It must not become a universal diagnostic engine, event bus, alarm manager or mutation API. The originating domain/service remains authoritative for determining whether a condition exists and its severity; deciding whether it is active, cleared, superseded, inhibited or otherwise resolved; defining whether acknowledgement, shelving, suppression or operator disposition is meaningful; authorizing and recording state-changing operator actions; and retaining the authoritative event/history record.
+
+The UI consumes read models and submits explicitly typed intent only through the owning Application service/command. It never changes a diagnostic record locally to imply domain acknowledgement or clearance.
+
+### B. Candidate diagnostic categories
+
+| Category | Meaning | Authoritative owner (candidate) | Lifecycle authority |
+|---|---|---|---|
+| Engineering validation | Invalid/incomplete equipment, terminal, topology, configuration or study input | Owning Core validator/domain service, surfaced by Application | Validation run/result owner; re-evaluated against relevant revision |
+| Protection operation/diagnostic | Relay function evaluation, pickup/trip decision, blocked evaluation, supervision or Protection subsystem fault | Protection domain/runtime | Protection policy; operation records are historical facts, not generic dismissible messages |
+| Control execution diagnostic | Logic evaluation, interlock, blocked action, cycle fault or execution diagnostic | Control domain/runtime | Control execution/cycle policy; a blocked action is not an alarm acknowledgement |
+| Alarm/event/SOE | Process alarm, state transition, sequence-of-events or operator event | Signal/alarm/event subsystem and configured alarm policy | Alarm-management policy; acknowledgement and shelving only where supported |
+| Measurement/instrumentation quality | Stale, invalid, uncertain, out-of-range, unavailable, bad-quality or calibration/provenance issue | Signal and Measurement infrastructure | Measurement quality/source lifecycle; UI cannot promote bad data to good |
+| Command/actuation/feedback | Dispatch, acceptance/rejection, timeout, device feedback mismatch or unavailable feedback | Application command orchestration and device/actuation integration; device feedback source | Command lifecycle and device-feedback authority; never infer acknowledgement from dispatch |
+| Application/platform diagnostic | Persistence, import/export, plugin load, communication transport or recoverable application fault | Owning Application service/platform adapter | Owning service recovery and operation policy |
+| User guidance/information | Non-fault contextual information or workflow hint | Producing workflow/service | Usually ephemeral; no alarm semantics unless explicitly classified otherwise |
+
+Categories must not be collapsed merely because they share severity colors or appear in one panel. Alarm, Protection operation, Control block and engineering validation are not interchangeable.
+
+### C. Candidate common envelope
+
+| Field | Semantics | Requiredness / constraints |
+|---|---|---|
+| diagnostic_id | Stable identifier for this diagnostic instance/read-model item | Required; unique within owning authority identity namespace |
+| category | Closed, versioned category discriminator | Required; one of approved categories |
+| type_code | Stable machine-readable condition code | Required; not localized display text |
+| title / summary | Localizable concise human-readable description | Required for presentation; not used as identity |
+| severity | Domain-supplied severity/priority classification | Required where category defines severity; no UI-inferred escalation |
+| lifecycle_state | Category-specific state projected into a typed common state vocabulary | Required; source remains authoritative |
+| source | Originating subsystem/service/device identity | Required; stable source reference where available |
+| subject_refs | Typed references to affected project objects, equipment, terminal, channel, relay, control element, study or command | Empty only when genuinely not attributable |
+| project_revision | Canonical project/configuration revision relevant to evaluation | Required when diagnostic depends on project state |
+| topology_revision | Physical topology revision where relevant | Optional; must not substitute for instrumentation/configuration revisions |
+| domain_state_revision | Relevant Protection, Control, signal/measurement or study-state revision | Required when that domain revision affects interpretation |
+| observed_at | Time condition was observed by authoritative producer | Required when time-based; preserve source clock semantics |
+| recorded_at | Time accepted/recorded by receiving service | Required; do not overwrite observed_at |
+| last_changed_at | Time of most recent authoritative lifecycle transition | Required when lifecycle is stateful |
+| correlation_id | Links related evaluation, cycle, trip, command, event or study execution | Optional but strongly preferred for traceability |
+| provenance | Producer, acquisition path, input/sample references and processing lineage | Required for measurement- and decision-derived items |
+| quality_context | Measurement quality/freshness or source availability when relevant | Conditional; preserve unknown/unavailable distinctly |
+| evidence_refs | References to validation details, measurements, relay function, control cycle, command, feedback or study result | Optional; typed and resolvable, not opaque UI-only strings |
+| available_actions | Explicit action capabilities returned by the owner | Required as empty or populated set; never inferred from category/severity |
+| schema_version | Read-model contract version | Required for evolution and compatibility |
+
+The envelope is a read model. It does not itself authorize a command. Any action must revalidate current state and authorization at the owning Application boundary; a stale diagnostic card is not a valid command precondition.
+
+### D. Lifecycle and operator-action constraints
+
+| Category | Candidate lifecycle | Permitted UI behavior | Prohibited inference |
+|---|---|---|---|
+| Engineering validation | Current / superseded / resolved by revalidation | Navigate to object/input; rerun validation through owning workflow | Acknowledge does not make invalid configuration valid |
+| Protection operation | Evaluated / picked up / operated / blocked / reset or superseded as defined by Protection | Inspect function, inputs, decision and associated equipment; navigate to trace | Dismissal cannot erase a trip/operation fact or reset relay state |
+| Control execution | Evaluated / blocked / executed / failed / superseded by next cycle | Inspect rung/element, inputs, blocked-action reason and cycle trace | Acknowledging a block cannot force execution or bypass interlocks |
+| Alarm/event/SOE | Policy-defined active / acknowledged / returned-to-normal / shelved / suppressed / archived states as applicable | Expose only actions granted by alarm policy and role | Returned-to-normal is not acknowledged; shelving is not clearance |
+| Measurement quality | Good / uncertain / bad / stale / unavailable / not-yet-established as defined by signal contract | Show value, unit, source, timestamp, quality and calibration/provenance context | Never silently coerce unknown, stale or bad quality to good |
+| Command/actuation/feedback | Created / dispatched / accepted or rejected / timed out / completed / feedback-confirmed or mismatch, according to command contract | Show each independently sourced transition and correlation | Dispatch is not acceptance; acceptance is not physical operation; timeout is not proof of failure or success |
+| Application/platform | Active / retrying / recovered / failed / superseded according to owning service | Show recovery guidance and supported retry/navigation actions | UI dismissal cannot mark service recovered |
+| User guidance | Presented / expired / dismissed | Allow local dismissal where harmless | Do not apply alarm acknowledgement semantics |
+
+These are candidate lifecycle labels, not a mandate that every category implement every state. Each owner must define its valid transition graph and terminal/retention semantics.
+
+### E. Presentation and interaction contract
+
+1. Provide a unified Diagnostics workspace/panel with category filters, severity/source filters where meaningful, search, stable sorting and direct navigation to a resolvable subject.
+2. Preserve category identity in every row/card; never rely on color alone.
+3. Show observed time and recorded time distinctly when latency or clock provenance matters.
+4. Provide a detail view with source, subject, revisions, provenance, correlation and evidence references.
+5. Show stale/unavailable/unknown states explicitly. Do not render missing data as zero, healthy or acknowledged.
+6. Make action controls capability-driven from the owner; hide or disable unsupported actions with a reason where useful.
+7. Separate transient workflow feedback (toast/status) from persistent diagnostic records and alarm/event history.
+8. Group related items by correlation/evaluation/command only where this does not hide individual records or chronology.
+9. Support navigation from a diagnostic to the relevant editor, object, channel, relay function, rung, command or study result when the reference is valid.
+10. Do not silently clear, delete, acknowledge, shelve or suppress records when a panel is closed, a filter changes or a workspace is switched.
+
+### F. Boundary and data-flow contract
+
+Candidate flow:
+
+`Domain / Application owner → typed diagnostic read model → projection/query service → UI presentation`
+
+For an operator action:
+
+`UI intent → owning controller → Application command/service → owner validation/authorization → authoritative state transition → event/read-model refresh → UI`
+
+Constraints:
+- Core/domain code must not depend on Qt widgets, graphics items or UI plugin implementations.
+- A plugin may contribute a diagnostic producer or presentation adapter only through a public contract; it must not create a parallel global diagnostic store or event bus.
+- The shared envelope may be consumed by multiple workspaces, but each workspace may provide domain-specific detail and action affordances.
+- Historical event storage and alarm lifecycle remain separate from transient UI notification state.
+- Diagnostic identity and correlation must survive projection refresh; localized title text is not an identifier.
+- Revision dimensions remain distinct: topology, equipment/instrumentation configuration, Protection configuration/runtime, Control configuration/runtime, measurement sample sequence and study execution are not one generic project revision.
+
+### G. Candidate acceptance scenarios for UI-GATE-03
+
+| Scenario | Setup/action | Expected evidence |
+|---|---|---|
+| UI-ACC-DIAG-02 Mixed categories | Present validation error, Protection operation, Control block, bad-quality measurement and alarm/event together | Category, source, severity and lifecycle remain distinguishable; no universal acknowledgement action appears |
+| UI-ACC-DIAG-03 Revision supersession | Change relevant configuration after a validation or evaluation result | Prior result is marked superseded/stale by its owner; UI does not silently present it as current |
+| UI-ACC-DIAG-04 Measurement provenance | Open a Protection/Control diagnostic derived from a measurement | Source instrument/channel, sample time, quality and provenance can be traced; unavailable data stays explicit |
+| UI-ACC-DIAG-05 Command trace | Follow a Control/Protection output through dispatch and device feedback | Dispatch, acceptance, physical feedback and mismatch/timeout are separate sourced facts |
+| UI-ACC-DIAG-06 Action authorization | Attempt an action from a stale diagnostic or a category without that capability | Owner revalidates; unsupported or unauthorized action is not executed and UI reports authoritative outcome |
+| UI-ACC-DIAG-07 Navigation | Navigate from mixed diagnostics to affected object/editor | Correct workspace/object opens where resolvable; unresolved references remain identifiable without fabricated navigation |
+
+### H. Open decisions before approval
+
+1. Final category taxonomy and ownership for communications, alarm, event and platform diagnostics.
+2. Whether severity is universal, category-specific or a typed combination; mapping must not erase domain meaning.
+3. Stable diagnostic identity, deduplication and correlation policy.
+4. Retention/history policy and distinction between active state and immutable event record.
+5. Role/authorization model and category-specific action catalogue.
+6. Clock source, time synchronization and ordering policy for SOE/Protection/command traces.
+7. Whether diagnostics are project-scoped, session-scoped, device-scoped or historian-scoped, and how offline projects display unavailable sources.
+8. Versioning and compatibility policy for plugin-contributed diagnostic types.
+9. Ownership and service contract for shared read-side projection/query; avoid a second event bus or manager.
+
+### I. Gate disposition
+
+**UI-GATE-03 remains Open.** This proposal supplies a candidate envelope, category taxonomy, lifecycle constraints, UI behavior and acceptance scenarios. It does not settle alarm-management policy, authorization, retention, identity, timing or plugin schema governance. Domain owners must review and approve those decisions before the contract is frozen.
+
+**Scope boundary:** research register only. No implementation files, domain contracts or persistence schemas were changed. No V2 behavior was modified. No tests or CI were run.
