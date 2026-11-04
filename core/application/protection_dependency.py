@@ -312,9 +312,14 @@ def build_protection_dependency_registry(
     ):
         raise ValueError("runtime ownership does not match the supplied Network/configuration/activation.")
 
+    diagnostics: list[str] = []
+    equipment_fingerprint = getattr(runtime, "_equipment_state_fingerprint", None)
+    if not callable(equipment_fingerprint):
+        raise TypeError("runtime does not expose its canonical equipment-state fingerprint.")
+    captured_equipment_state = equipment_fingerprint(network)
+    captured_topology_revision = getattr(getattr(network, "state", None), "topology_revision", None)
     bindings_by_element: dict[str, list[Any]] = {}
     bindings_by_id: dict[str, Any] = {}
-    diagnostics: list[str] = []
     element_ids = [element.element_id for element in configuration.elements]
     if len(set(element_ids)) != len(element_ids):
         diagnostics.append("duplicate Protection element identities prevent dependency ownership classification.")
@@ -925,6 +930,26 @@ def build_protection_dependency_registry(
         descriptors[element_id] = descriptor
         for dependency in dependencies:
             consumer_sets.setdefault((dependency.kind, dependency.identity), set()).add(element_id)
+
+    # A dependency registry is one coherent capture, not a mixture of
+    # equipment/topology states observed while a concurrent command mutates
+    # the active Network.
+    if equipment_fingerprint(network) != captured_equipment_state:
+        diagnostics.append("instrumentation or Relay equipment changed while the dependency registry was being captured.")
+    current_topology_revision = getattr(getattr(network, "state", None), "topology_revision", None)
+    if current_topology_revision != captured_topology_revision:
+        diagnostics.append("physical topology changed while the dependency registry was being captured.")
+
+    shared_fingerprints: dict[tuple[str, str], str] = {}
+    for descriptor in descriptors.values():
+        for dependency in descriptor.dependencies:
+            dependency_key = (dependency.kind, dependency.identity)
+            previous = shared_fingerprints.get(dependency_key)
+            if previous is not None and previous != dependency.fingerprint:
+                diagnostics.append(
+                    f"shared dependency {dependency.kind}:{dependency.identity} changed during registry capture."
+                )
+            shared_fingerprints[dependency_key] = dependency.fingerprint
 
     consumers = {
         key: tuple(sorted(element_ids))
