@@ -3440,3 +3440,259 @@ Frozen invariants:
 - All mutation follows UI → Controller → Command → Application → Core → Event → Projection → UI.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, UI behavior, project schema, permissions, tests or CI were changed or run.
+
+
+## 8I-19. Proposed V3 command, action and keyboard interaction architecture (2026-11-04)
+
+**Purpose:** define one discoverable and predictable user-action model across GridForge workspaces while preserving domain-owned command semantics, focus-aware keyboard behavior, transaction boundaries and engineering safety.
+
+**Status:** research proposal. This section does not approve a command API, keyboard map, undo model, permission system, confirmation policy or implementation.
+
+### A. Architectural invariants
+
+1. **One action identity, multiple presentation surfaces.** A user operation has one stable command/action identity and one authoritative execution path whether invoked from a menu, toolbar, palette, context menu, keyboard shortcut, Inspector or accessibility action.
+2. **Presentation does not own mutation.** Widgets and canvas items express typed user intent; they do not directly mutate Core state, project persistence or domain runtime state.
+3. **Application controls mutation.** Mutating actions route through the owning Controller/Command/Application service and then the appropriate Core/domain contract. UI-only presentation actions may remain within the UI layer.
+4. **Domain ownership is explicit.** SLD, Instrumentation/Signals, Protection, Control and Study actions retain their owning domain and validation rules. A common command framework must not become a second domain service, event bus, scheduler, transaction manager or execution authority.
+5. **Command identity is not a shortcut.** A shortcut is one possible binding to a command, not its identity or implementation.
+6. **Availability is contextual and explainable.** Enabled, disabled, hidden, unavailable, unsupported and permission-denied states are distinct. Disabled actions expose a concise reason and, where safe, the missing precondition.
+7. **No silent semantic substitution.** If an action cannot run in the current workspace, selection, revision or permission context, the system must not redirect it to a similarly named action or a different domain.
+8. **Revision-aware execution.** Mutating commands identify the target document/object and expected revision or concurrency token where required. Stale intents are rejected or explicitly reconciled by the owning service.
+9. **Asynchronous work is explicit.** Long-running commands report accepted/queued/running/completed/failed/cancelled only according to actual service/task state. UI timeout or dialog closure is not proof of cancellation.
+10. **Undo is a domain capability, not a visual illusion.** Undo/redo reverses supported accepted operations through the owning transaction/history contract. It must not rewind physical reality, Protection/Control runtime execution, external commands or irreversible side effects.
+11. **Safety and authority are not delegated to UI confirmation.** Confirmation can prevent accidental invocation but cannot replace domain validation, authorisation, interlocks, fail-closed behavior or device acknowledgement.
+12. **Accessible invocation parity.** Every discoverable command has a keyboard and assistive-technology route where applicable, meaningful name/description, deterministic focus behavior and visible outcome feedback.
+
+### B. Candidate command descriptor and lifecycle
+
+A shared command catalogue may expose typed metadata without centralizing command implementation. Candidate descriptor fields:
+
+| Field | Purpose |
+|---|---|
+| command_id | Stable namespaced identity, independent of display text or shortcut |
+| display_name / description | Localizable user-facing label and concise purpose |
+| owner_domain | Owning domain/Application capability |
+| target_types | Supported semantic object/document types |
+| invocation_contexts | Supported workspace, selection and focus contexts |
+| parameter_schema | Typed inputs, units, constraints and required references |
+| precondition_query | Read-only capability/availability evaluation |
+| permission_requirement | Required capability/authorisation, resolved by security owner |
+| execution_kind | UI-only, synchronous Application action or asynchronous task |
+| revision_policy | Required target revision/concurrency behavior |
+| undo_policy | Reversible, compensatable, non-reversible or unsupported |
+| confirmation_policy | None, contextual warning, explicit confirmation or domain-controlled authorisation |
+| result_contract | Typed outcome, diagnostics, affected identities and resulting revision/task reference |
+| shortcut_bindings | Optional context-scoped key bindings |
+
+This is metadata, not a proposed universal execute method. Domain commands may require richer typed request/result interfaces and retain those interfaces.
+
+Candidate lifecycle:
+1. Resolve invocation source and current focus/workspace/document/selection.
+2. Resolve command identity and validate supported context.
+3. Query availability and preconditions without mutating state.
+4. Collect typed parameters and show units, defaults, assumptions and constraints.
+5. Revalidate permission, target identity and revision at the execution boundary.
+6. Request confirmation only when action risk/policy requires it; identify target and consequence.
+7. Dispatch through the owning Controller and Application service.
+8. Present typed success, partial outcome, rejection, diagnostics or task reference based on actual response.
+9. Refresh affected projections using returned identities/revisions/events; do not fabricate a successful update.
+10. Preserve an audit/evidence reference where the domain lifecycle requires one.
+
+### C. Single command catalogue and invocation surfaces
+
+Candidate platform capability: a command registry/catalogue that stores descriptors and resolves command identities. It is not a second command bus or service locator for domain mutation.
+
+- Menus, toolbars, palette buttons, context menus, Inspector actions, command search and accessibility actions reference the same command identity.
+- A command appears only where relevant; canonical metadata and owning handler remain singular.
+- Searchable command access supports name, synonym, category and shortcut discovery; results show contextual availability and disabled reason.
+- Tooltips explain purpose and important consequences, not merely repeat the label.
+- Toolbars prioritize frequent context-relevant operations; menus retain complete discoverability; palettes expose domain-specific construction tools; context menus expose selection-specific actions.
+- Context menus cannot bypass normal availability, permission or validation checks.
+- Plugin-provided commands register through approved versioned plugin contracts and capability declarations. Core must not import plugin command implementations.
+- Duplicate IDs, conflicting shortcut bindings and missing handlers are registration errors, not arbitrary last-registration-wins behavior.
+- Compatibility aliases resolve explicitly to a canonical command and have a documented deprecation lifecycle.
+
+### D. Focus-aware keyboard dispatch and shortcut policy
+
+A single focus-aware dispatcher is a candidate service at the UI/application-shell boundary. It resolves bindings but does not execute domain logic.
+
+Proposed precedence, subject to platform conventions and usability validation:
+1. Active modal dialog/editor control consumes keys required for its own input operation.
+2. Active specialized editor (SLD canvas, Control canvas, plot/table) receives keys explicitly reserved by that editor.
+3. Focused panel or document-level commands resolve when no higher-priority control claims the key.
+4. Active workspace bindings resolve next.
+5. Application-global bindings resolve last.
+6. Unhandled keys remain available to the platform/window manager.
+
+Additional requirements:
+- Every binding declares scope, priority, platform conflicts, repeat behavior and whether it is safe during text editing.
+- Shortcut conflicts are detected at registration/configuration. Resolution is deterministic and discoverable; no silent shadowing.
+- User remapping, if approved, preserves required safety/accessibility commands and offers reset-to-default.
+- Menus and command search display the effective shortcut for the current context.
+- Key-down/key-up handling avoids duplicate invocation when focus changes mid-sequence.
+- Press-and-hold/repeat behavior is explicit; destructive or irreversible actions must not repeat unintentionally.
+- Canvas navigation, tool activation, selection, text editing and panel focus have documented workspace-specific bindings.
+- Platform-reserved shortcuts and international keyboard layouts are part of the supported platform matrix.
+- A shortcut is never the only way to invoke a critical command; provide a visible and accessible route.
+- Tool/workspace changes cannot leave stale shortcut ownership attached to the prior editor.
+
+### E. Command availability, preconditions and feedback
+
+Availability is typed, not a Boolean that loses its reason:
+
+- **Available:** known contextual and permission preconditions currently pass.
+- **Unavailable in context:** command does not apply to current workspace/target type.
+- **Selection required:** a supported target is not selected.
+- **Configuration required:** required data or setup is missing.
+- **Validation blocked:** domain validation reports a blocking condition.
+- **Permission denied:** security/authorisation layer denies the action.
+- **Unsupported capability:** current model/plugin/domain capability does not implement it.
+- **Stale target:** target identity/revision is no longer current.
+- **Busy/locked:** owning service reports a conflict or operation in progress.
+- **Unknown:** availability cannot be determined; fail closed for safety-relevant mutation.
+
+Availability is advisory and can become stale. The owning Application/domain service revalidates at execution. The UI displays authoritative rejection details returned by the service.
+
+Feedback requirements:
+- Distinguish accepted request from completed operation and completed operation from physical/device outcome.
+- Provide inline parameter errors, object-level engineering diagnostics and task-level progress for asynchronous operations.
+- Preserve diagnostic identity/source when navigating from a failed command to its target.
+- Do not show generic success for partial completion, warnings, queued work or later failure.
+- Retry is offered only where the operation is idempotent or the owner defines safe retry semantics.
+- Command feedback is not the only record of a safety-relevant or operational action.
+
+### F. Undo, redo, transactions and irreversible actions
+
+| Policy class | Meaning | Candidate UI behavior |
+|---|---|---|
+| Reversible edit | Accepted project/configuration change with a valid inverse | Undo/redo with affected objects and revision |
+| Compensatable operation | Original action cannot be erased; owner provides a compensating action | Present as a new action; do not claim historical erasure |
+| Non-reversible operation | External, physical, runtime or irreversible action | No ordinary undo; explain why and expose approved recovery path |
+| Unsupported | No reliable inverse/compensation contract | Disable undo and identify the history boundary |
+
+Requirements:
+- History entries identify command, owner, actor/session where applicable, target identities, before/after revisions and meaningful summary.
+- Transaction atomicity and rollback are defined by the owning Application/domain service, not by UI grouping.
+- Multi-step workflows may use an explicit transaction/saga where supported; partial success and compensation outcomes remain visible.
+- Failed transactions are not recorded as completed undo entries; partial external effects require explicit owner-reported status and recovery.
+- Undo/redo revalidates current state, permissions and revisions; stale inverses are rejected or reconciled safely.
+- Selection, zoom, pan, panel resizing, hover, tooltips and navigation are not engineering undo entries unless a separate presentation-history feature is approved.
+- Draft edits and committed configuration changes have clear history boundaries. Draft-local undo may be distinct from project command history if documented.
+- Save/open/close, import/migration and project replacement need explicit history-boundary behavior.
+- Protection decisions, Control cycles, device commands, trip outputs, acknowledgements and physical feedback are records of events, not reversible edits. Reset/reclose/reissue is a new authorised domain action.
+- Undo never fabricates reversal of a physical process or deletes audit/evidence records.
+
+### G. Confirmation, destructive actions and engineering safety
+
+- Low-risk, reversible presentation actions generally need no confirmation.
+- Destructive project/object operations disclose target, scope, dependency impact and recovery/undo availability.
+- Bulk operations disclose object count, eligible/ineligible items and partial-outcome behavior before commit.
+- Irreversible/external actions require domain/security policy and explicit target/context; a generic dialog is insufficient.
+- Protection and Control paths enforce domain interlocks, authorisation and fail-closed validation independently of UI confirmation.
+- Disabled safety-relevant actions state the actual known blocker without exposing protected information.
+- Confirmation identifies concrete target, consequence and expected transition; avoid vague prompts.
+- Confirmation is invalidated if target identity, revision, selection scope or precondition changes before execution.
+- Dangerous actions cannot depend on accidental key repeat, ambiguous shortcuts or context-menu position alone.
+- Closing a confirmation is not evidence that an already-dispatched asynchronous/external operation was cancelled.
+
+### H. Workspace-specific command semantics
+
+**H1. SLD / Electrical**
+- Place, configure, connect, move-layout, validate, commit, delete and edit-property operations have distinct identities and preconditions.
+- Preview placement remains transient; commit creates/updates Core-owned equipment through Application and a separate SLD projection.
+- Equipment mutation and symbol/layout manipulation must not share ambiguous labels or undo semantics.
+- Wire/connect actions resolve stable terminal identities; snapping is an intent aid, not topology authority.
+- Topology-changing commands revalidate terminal compatibility and target revisions in the owning domain.
+- Selection and viewport commands do not enter electrical model history.
+
+**H2. Instrumentation & Signals**
+- Instrument configuration, channel allocation/binding, calibration, signal processing/routing and subscription are distinct actions.
+- Channel binding must not silently alter physical topology or Protection/Control configuration without an explicit owner-approved workflow.
+- Availability/quality/freshness inspection is read-only unless an authorised configuration command is invoked.
+- Calibration/scaling changes retain source, revision and effective-time semantics.
+
+**H3. Protection**
+- Relay settings, function configuration, measurement binding, evaluation request, reset/enable/bypass and coordination analysis are distinct commands with owner-defined permissions/preconditions.
+- UI availability is never the sole Protection interlock.
+- ProtectionDecision, trip/output intent, command dispatch, acknowledgement and physical breaker feedback remain separate outcomes.
+- Runtime decision history is not undoable; settings changes are separate configuration revisions and do not rewrite historical evaluations.
+- Restricted or unsupported function coverage is explicit before an action is offered.
+
+**H4. Control**
+- Logic edit, connection, parameter configuration, channel mapping, validation, accepted configuration, evaluation/cycle request and equipment action are distinct.
+- Control-specific graph semantics remain independent of SLD electrical connectivity.
+- A blocked action is a domain result, not a failed UI command; evaluation may complete while action eligibility is blocked.
+- Cycle completion does not imply every output command was dispatched, acknowledged or physically realised.
+- Undo applies only to supported configuration edits, not executed cycles or physical actions.
+
+**H5. Studies**
+- Study configuration, input snapshot creation, run request, cancellation request, result inspection, comparison and export are separate commands.
+- Study runs bind to identified input/configuration revisions; late results cannot attach to a different active document.
+- Result visualization actions do not mutate canonical numerical datasets.
+- Cancellation semantics/final state come from the solver/task owner, not from closing a progress view.
+
+### I. Plugin and extension command contracts
+
+- Plugins declare commands as capabilities with stable namespaced IDs, supported host/API versions, target types, invocation contexts, parameter/result schemas and permission requirements.
+- Descriptors are validated before registration; incompatible or untrusted plugins cannot expose active commands.
+- Registration is deterministic and scoped to plugin lifecycle; unload removes availability and prevents new invocation while in-flight work follows an explicit safe lifecycle.
+- Plugin code invokes public Application/domain contracts; it cannot mutate Core directly or create a parallel event bus/command history.
+- Host diagnostics report duplicate IDs, missing handlers, unsupported schemas, unavailable dependencies and failed registration.
+- Plugin commands participate in undo only when their owner supplies a valid inverse/compensation contract accepted by the host.
+- Plugin commands cannot override reserved safety or application-global command identities.
+
+### J. Candidate command/action acceptance scenarios
+
+| ID | Scenario | Candidate pass evidence |
+|---|---|---|
+| UI-ACC-CMD-01 | Invoke one action from menu, toolbar and shortcut | All surfaces resolve the same command identity and owner handler |
+| UI-ACC-CMD-02 | Type in Inspector while shortcuts are active | Text editing receives keys; global/editor shortcuts do not steal input |
+| UI-ACC-CMD-03 | Switch SLD to Control with a tool active | Prior workspace shortcut/tool ownership is cleared or safely restored |
+| UI-ACC-CMD-04 | Resolve shortcut conflict | Conflict is detected and deterministic resolution is visible |
+| UI-ACC-CMD-05 | Execute against stale selected object | Owner rejects/reconciles stale revision; no same-name substitute is mutated |
+| UI-ACC-CMD-06 | Invoke command with missing precondition | Disabled reason is actionable; service revalidates at execution |
+| UI-ACC-CMD-07 | Undo accepted configuration edit | Supported inverse restores prior accepted state and records new revision |
+| UI-ACC-CMD-08 | Attempt undo after physical command | UI does not imply physical reversal; compensation is a separate action |
+| UI-ACC-CMD-09 | Bulk delete mixed selection | Scope and eligible/ineligible objects are explicit before/after execution |
+| UI-ACC-CMD-10 | Asynchronous study cancellation | UI distinguishes cancellation request from confirmed cancelled state |
+| UI-ACC-CMD-11 | Protection trip path | Confirmation does not replace interlocks, authorisation or feedback evidence |
+| UI-ACC-CMD-12 | Control evaluation with blocked output | Evaluation completion and blocked action are separate facts |
+| UI-ACC-CMD-13 | Plugin registers duplicate command | Registration fails deterministically with actionable diagnostic |
+| UI-ACC-CMD-14 | Invoke by keyboard/screen reader | Accessible name, focus, keyboard invocation and outcome are available |
+| UI-ACC-CMD-15 | Retry after uncertain external outcome | UI prevents blind retry and exposes owner-defined reconciliation |
+
+These scenarios are candidates for design review and validation. They are not approved release criteria and do not establish current implementation conformance.
+
+### K. Open decisions and research evidence required
+
+1. Establish the authoritative V3 Application command abstraction and compose it with existing Controller, Command, transaction and event contracts without duplicating managers or buses.
+2. Inspect the actual V3 source repository/branch/commit before defining exact package placement or migration steps; V2 is not a V3 implementation source.
+3. Build a complete command inventory from representative SLD, Instrumentation, Protection, Control and Study workflows; classify read-only, reversible, compensatable and non-reversible actions.
+4. Review shortcut registrations, menu QAction metadata, ToolShortcutRegistry and focus handling in the selected baseline; validate collisions across supported keyboard layouts/platforms.
+5. Decide command search/discovery behavior and whether user remapping is in initial scope.
+6. Define permission/role ownership with security architecture; do not infer roles from workspace names.
+7. Define project/draft/document undo boundaries, transaction atomicity, partial failure and history persistence.
+8. Identify asynchronous task lifecycle/cancellation contracts for studies, imports, exports, plugin operations and supported external command paths.
+9. Define audit/evidence requirements for safety-relevant configuration and operational actions, including retention and privacy.
+10. Conduct moderated task validation with electrical, Protection, Control and Study engineers, including keyboard-only and screen-reader interaction.
+11. Reconcile command descriptors and availability states with plugin platform research and versioned capability contracts.
+12. Obtain explicit owner disposition for UI-GATE-01 through UI-GATE-07 before treating proposed behavior as approved.
+
+### L. Gate disposition and frozen invariants
+
+**UI-GATE-03, UI-GATE-04 and UI-GATE-07 remain Open** for diagnostic feedback, accessibility/keyboard and scope/priority decisions implicated here. Other gates retain their previously recorded status and evidence requirements. This section is not authorization to implement a new command framework or change existing command APIs.
+
+Frozen invariants:
+- UI emits typed intent; Application and the owning domain control mutation and validation.
+- No duplicate command bus, event bus, transaction manager, scheduler, domain service or history authority is introduced.
+- Core remains independent of Qt, widgets, graphics, UI plugins and command-presentation metadata.
+- Stable command identity is independent of menu text, shortcut and widget instance.
+- Focus-aware dispatch cannot steal normal text input or accessibility navigation.
+- Availability display is advisory; the owning service revalidates preconditions, permission and revision at execution.
+- Undo/redo applies only where the owner provides a valid inverse or explicit compensation contract.
+- Physical operations, Protection decisions, Control execution, commands, acknowledgements and feedback are never erased or reversed by ordinary UI undo.
+- Confirmation is an accidental-operation safeguard, not a substitute for engineering interlocks, authorisation or fail-closed domain validation.
+- Plugin commands extend public contracts and cannot directly mutate Core or override reserved safety actions.
+- Every mutating action follows UI → Controller → Command → Application → Core → Event → Projection → UI.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, command API, shortcut map, permission policy, project schema, tests or CI were changed or run.
