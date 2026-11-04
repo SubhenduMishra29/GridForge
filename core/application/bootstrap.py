@@ -901,7 +901,10 @@ def recover_application(
     CommandHistory, services, and Application are composed first; the canonical
     package is then loaded and activated through the ordinary transactional
     project lifecycle. The replacement is returned only after its project
-    identity, lifecycle state, and clean command boundary are verified.
+    identity, lifecycle state, clean command boundary, and a project-bound
+    presentation have been verified. Callers must configure the appropriate
+    presentation contract before recovery; absent presentation restoration is
+    a hard failure, not a successful Core-only recovery.
 
     UI/application-shell owners must swap to the returned instance only after
     this function succeeds. On any failure the old instance remains the
@@ -933,6 +936,21 @@ def recover_application(
         # ProjectPersistenceService.load() performs manifest/schema/migration,
         # Core deserialization, SLD association, and cross-domain validation.
         context = replacement.open_project(str(target), decision="discard")
+        # A clean Core command boundary is not sufficient for a usable GridForge
+        # project: the canonical package also carries the engineer's SLD
+        # presentation. The headless bootstrap must not silently accept a load
+        # that skipped presentation deserialization because no presentation
+        # contract was configured by the composition owner.
+        presentation = replacement.presentation
+        if presentation is None:
+            raise RuntimeError(
+                "Replacement Application did not restore the project presentation; "
+                "recovery requires a presentation-aware composition contract."
+            )
+        if getattr(presentation, "project_id", None) != context.project_id:
+            raise RuntimeError(
+                "Replacement project presentation does not belong to the canonical project identity."
+            )
         status = replacement.recovery_status
         if status.recovery_required or status.command_integrity_state != "CLEAN":
             raise RuntimeError("Replacement Application did not establish a clean command boundary.")
