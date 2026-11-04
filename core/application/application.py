@@ -2680,6 +2680,17 @@ class Application:
         )
 
         command_type = command.command_type
+        draft_protection_equipment_changed = bool(
+            draft_equipment_types
+            & {
+                "current_transformer",
+                "cvt",
+                "capacitive_voltage_transformer",
+                "pt",
+                "potential_transformer",
+                "relay",
+            }
+        )
         if command_type in {
             "protection.create_configuration",
             "protection.update_configuration",
@@ -2706,7 +2717,7 @@ class Application:
             "model.delete_relay",
             "model.put_relay_in_service",
             "model.take_relay_out_of_service",
-        }:
+        } or (command_type == "network.commit_draft" and draft_protection_equipment_changed):
             configuration_service = getattr(self, "protection_configuration_service", None)
             channel_service = self._measurement_channel_service
             if configuration_service is None or configuration_service.configuration is None:
