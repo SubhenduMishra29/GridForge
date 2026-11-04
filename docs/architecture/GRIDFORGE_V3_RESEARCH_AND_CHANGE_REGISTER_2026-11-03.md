@@ -3696,3 +3696,222 @@ Frozen invariants:
 - Every mutating action follows UI → Controller → Command → Application → Core → Event → Projection → UI.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, command API, shortcut map, permission policy, project schema, tests or CI were changed or run.
+
+
+## 8I-20. Proposed V3 engineering Inspector and property-editing architecture (2026-11-04)
+
+**Purpose:** establish a technically rigorous, consistent property-inspection and configuration workflow across GridForge domains while preserving typed domain ownership, engineering units, validation authority, revision semantics and the distinction between configured, calculated, live and historical values.
+
+**Status:** research proposal. This section does not approve a universal property schema, editor implementation, configuration workflow, validation engine or V3 release requirement.
+
+### A. Governing principles
+
+1. Domain-owned property semantics: Core/domain contracts define engineering meaning, type, units, constraints and lifecycle. The Inspector renders typed read models and emits typed configuration intent; it does not define engineering truth.
+2. No universal untyped property bag. Shared presentation may reuse editor primitives and metadata conventions, but domain schemas remain explicit and versioned.
+3. Every value has state and provenance. Identify whether it is configured, defaulted, derived, calculated, measured, estimated, historical or presentation metadata.
+4. Units are first-class. Store/exchange values in defined canonical units; display conversion must not change stored quantity or silently reinterpret input.
+5. Validation has an owner. UI validation improves immediate feedback; Application/domain validation remains authoritative at commit/evaluation boundaries.
+6. Draft is not accepted configuration. Draft edits, preview values, accepted configuration revisions and runtime-observed values are distinct.
+7. Revision-aware editing. An edit is bound to target identity and expected configuration revision; concurrent or stale changes are explicitly reconciled.
+8. Multi-selection is conservative. Common values may be inspected; bulk edits require explicit scope, compatibility and per-object outcome.
+9. Calculated/live/historical values are not casually editable. Read-only values expose source, timestamp, quality, revision and calculation basis.
+10. Cross-domain visibility is not cross-domain ownership. Inspector may display typed references to other domains but routes configuration to the owning domain.
+11. Failure preserves accepted state. A rejected edit must not partially overwrite accepted configuration; supported partial operations are reported explicitly.
+12. Accessibility and auditability are intrinsic. Editors expose labels, units, constraints, errors, focus order, accessible descriptions and change provenance.
+
+### B. Candidate typed property read model
+
+| Attribute | Purpose |
+|---|---|
+| property_id | Stable domain-owned property identity |
+| owner_domain | Core/domain owner of meaning and mutation |
+| target_id / target_type | Stable semantic object identity and type |
+| value_type | Boolean, integer, decimal, enum, text, structured value, quantity, reference, curve/table or explicit type |
+| value | Typed value or structured value reference |
+| unit | Canonical engineering unit or explicit dimensionless marker |
+| display_unit_options | Permitted presentation conversions, where supported |
+| value_state | Configured, defaulted, derived, calculated, measured, estimated, historical or presentation-only |
+| source | User/configuration, standard catalogue, calculation, instrument/channel, solver or typed provenance |
+| quality | Applicable validity/quality state for observed values; not fabricated for static configuration |
+| timestamp | Effective/sample/calculation time as appropriate |
+| revision | Configuration, model, measurement sequence or result revision |
+| constraints | Type, range, enum, dependency and cross-field constraints |
+| edit_policy | Read-only, editable draft or owner-specific command workflow |
+| visibility_policy | Context, role/permission and applicability rules |
+| description | Engineering meaning, assumptions and standard/reference |
+
+The model must not force every property to carry every field. A static nameplate rating does not need a measurement freshness timestamp; a live measurement does. Missing and not-applicable are distinct.
+
+### C. Value-state and provenance presentation
+
+Distinguish:
+- **Configured:** accepted value belonging to a specific configuration revision.
+- **Draft:** proposed, uncommitted edit; no implication of domain acceptance.
+- **Defaulted:** supplied by a declared default/catalogue rule; show whether inherited or explicitly accepted.
+- **Derived:** computed from other model data; identify dependencies where useful.
+- **Calculated:** solver/analysis output with input snapshot, method/options, result identity and limitations.
+- **Measured/live:** sample with source identity, unit, timestamp, quality and freshness.
+- **Estimated/predicted:** model/inference output, explicitly not an authoritative measurement or Protection decision.
+- **Historical:** value retained for a past revision/time basis; never present as current without evidence.
+- **Presentation-only:** user display preference such as label position, formatting or local annotation; separate from engineering configuration.
+
+State must be textual and accessible, not colour-only. Stale or bad-quality live values must not appear as normal current values.
+
+### D. Engineering units, numeric input and precision
+
+- Domain contracts define physical dimension, canonical storage unit, supported display units, precision and rounding rules.
+- Unit conversion uses dimensionally valid conversions; incompatible dimensions are rejected, not guessed.
+- Display unit changes presentation only. Changing physical quantity requires an explicit value edit.
+- Parse decimal separators/localized number formats under explicit locale policy while preserving canonical numeric semantics.
+- Distinguish significant digits, display precision, solver tolerance, instrument resolution and configured setting increments.
+- Do not silently round an entered value to a different engineering value. If quantization is required, show accepted value and rule before commit.
+- Preserve full canonical value for calculations and export even when engineering notation/scaling is used.
+- Complex values, phasors, per-unit quantities, ranges, curves and matrices need domain-specific editors, not generic scalar controls.
+- Validate finite values and explicit NaN/infinity/overflow policy; missing values are not zero.
+- Show min/max/increment and constraint source when available. Conditional constraints are re-evaluated by the owner.
+- Validate conversions/formatting around boundaries, negative values, very small/large magnitudes and locale changes before release criteria are approved.
+
+### E. Inspector layout and progressive disclosure
+
+Candidate layout:
+1. Identity header: designation, object type, owner domain, document/context and configuration revision.
+2. State/provenance strip: accepted/draft/default/calculated/live/historical state and relevant source/time/quality.
+3. Task sections: Identity, Ratings/Nameplate, Electrical/Physical, Connections, Instrumentation, Protection, Control, Studies/Calculated, Diagnostics and Presentation, only when applicable.
+4. Field editor: label, current value, unit, constraints, description, validation and edit affordance.
+5. Change summary: pending edits, affected targets, dependency warnings and expected commit boundary.
+6. Validation region: typed field/object/cross-object findings, severity, source and navigation.
+7. Actions: Apply/Commit, Revert, Reset-to-default, Open owner workflow and inspect provenance, only where supported.
+
+Frequent task-critical properties appear first; advanced fields are progressively disclosed without hiding safety-critical or required configuration state. Avoid unstructured forms and duplicate labels. Keep object and revision visible while scrolling. Search large property sets by stable property identity. Preserve focus/scroll context after validation or refresh where safe. Use explicit task workflows for complex configuration.
+
+### F. Edit, validate, commit and revision lifecycle
+
+1. Select a semantic object and obtain typed property read model at a known revision.
+2. Open edit session bound to target ID, owner domain and expected configuration revision.
+3. Validate syntax, type, dimensions and obvious bounds locally; label this preliminary feedback.
+4. Collect related edits into typed change request; preserve entered value and unit context.
+5. Run owner-provided preview/precondition checks where available; distinguish warnings, errors and unresolved checks.
+6. Present affected fields/objects, dependencies and expected scope.
+7. Submit through Controller → Application → owning domain service with expected revision/concurrency token.
+8. Owner performs authoritative field, cross-field, cross-object, permission and domain validation.
+9. On success, return accepted configuration revision, normalized values, affected identities and diagnostics; refresh projections from returned result/event.
+10. On rejection/conflict, preserve prior accepted state and user's draft where safe; show typed diagnostics and offer refresh/rebase/review rather than silent overwrite.
+11. Record change summary/audit reference according to domain lifecycle and retention policy.
+12. Clear or retain draft state according to explicit Apply/Commit/Cancel and recovery semantics; never silently imply persistence.
+
+No universal autosave or automatic commit is assumed. Apply versus Commit semantics must be defined per workflow and project/session policy.
+
+### G. Multi-selection and bulk editing
+
+- Identify selection count, object types and homogeneous/heterogeneous selection.
+- Show common properties only when semantic property identity, type/dimension and edit policy are compatible.
+- Display mixed values as mixed/indeterminate, not blank, zero or an arbitrary selected object's value.
+- Offer bulk edit only when the owner exposes a safe batch command/transaction.
+- Disclose target count, eligible/ineligible objects, constraints, dependency effects and atomicity/partial-success semantics.
+- Atomic batch failure leaves accepted values unchanged. Supported partial success reports each target outcome and preserves evidence.
+- Equal labels across equipment classes do not prove equal property semantics.
+- Undo is available only through the owning reversible/compensatable contract in 8I-19.
+
+### H. Domain-specific Inspector contracts
+
+**H1. Electrical equipment and SLD**
+- Separate Core-owned electrical properties (ratings, terminals, topology references, equipment type) from SLD presentation (symbol variant, label position, rotation, layer/annotation).
+- Terminal/connectivity facts are read-only projections of Core topology except through explicit topology commands.
+- Placement preview values remain draft; accepted equipment configuration is revisioned and distinct from symbol geometry.
+- Bus, transformer, line/cable, breaker, CT/PT/CVT and load sections use type-specific schemas and applicable catalogue basis.
+- The engineering property target is equipment identity, never a graphics item or symbol object.
+
+**H2. Instrumentation & Signals**
+- Separate instrument nameplate/calibration/configuration, acquisition channel settings, signal processing/routing and consumer bindings.
+- Display engineering unit, range, scaling, calibration revision, source terminal/instrument identity, channel identity, sample timestamp, quality and freshness separately.
+- Configured does not imply allocated, connected, active, healthy, fresh or valid.
+- Calibration/channel reconfiguration retain effective-time/revision semantics; historical samples retain the calibration context used at acquisition.
+- Distinguish raw, calibrated, filtered, derived and substituted values; never silently display inferred values as raw measurement.
+
+**H3. Protection**
+- Separate relay hardware identity, settings group, function elements, CT/PT/CVT input bindings, model coverage, evaluation status and historical ProtectionDecision evidence.
+- ANSI/IEC settings show function identity, units, characteristic/curve, tolerances and standard/model basis.
+- Measurement inputs expose source instrument/channel, phase/polarity/ratio/scaling, timestamp, quality and freshness.
+- Show topology revision separately from instrumentation and Protection configuration revisions.
+- Live evaluation/decision/operation records are read-only evidence; settings change through Protection-owned commands.
+- Restricted/unsupported model coverage is explicit.
+
+**H4. Control**
+- Separate logic element parameters, typed I/O bindings, channel mappings, interlocks, action target configuration and execution-cycle evidence.
+- Control graph connectivity remains Control-owned, not SLD electrical topology.
+- Show signal source, data type, unit, quality/freshness, scaling and mapping direction where relevant.
+- Execution decisions, blocked actions and cycle results are read-only runtime evidence; configuration edits follow Control-owned validation/commit.
+- Do not edit live measurement or device feedback through a Control property field.
+
+**H5. Studies**
+- Separate study setup, input snapshot, solver/options, standard assumptions, run metadata, numerical results and report presentation.
+- Results identify units, input revision/snapshot, solver version/options, convergence, assumptions and limitations.
+- Result datasets are immutable/identified outputs; plot range, sorting, filtering and visual decimation are presentation operations.
+- Re-running creates a new run/result identity; it does not silently replace historical evidence.
+
+### I. Standards, catalogue and derived-property handling
+
+- Catalogue values identify publisher/standard/catalogue edition, item identity, source date and jurisdiction where known.
+- Distinguish normative requirement, manufacturer data, project specification, user-entered value, engineering assumption and default.
+- Standard-derived constraints identify exact edition and clause/characteristic where licensed and available; never fabricate references.
+- Derived properties expose dependency information and update when source revisions change.
+- If a dependency changes, mark derived/calculated properties stale or pending recomputation.
+- Manufacturer/catalogue values are not automatically valid for project duty; project-specific validation remains required.
+- Property metadata schema evolution needs explicit migration and unknown-field behavior; unrecognized data must not be silently discarded.
+
+### J. Candidate Inspector acceptance scenarios
+
+| ID | Scenario | Candidate pass evidence |
+|---|---|---|
+| UI-ACC-INS-01 | Inspect accepted equipment rating | Type, unit, source and configuration revision visible |
+| UI-ACC-INS-02 | Edit quantity in alternate display unit | Canonical quantity preserved; conversion dimensionally valid |
+| UI-ACC-INS-03 | Enter out-of-range value | Preliminary error immediate; owner rejects at commit with typed diagnostic |
+| UI-ACC-INS-04 | Concurrent configuration update | Stale edit rejected/reconciled; no silent overwrite |
+| UI-ACC-INS-05 | Edit multiple compatible objects | Mixed values, target count, eligibility and outcome explicit |
+| UI-ACC-INS-06 | Select heterogeneous equipment | Only semantically compatible common properties shown |
+| UI-ACC-INS-07 | Inspect live measurement | Source, unit, timestamp, quality and freshness separate |
+| UI-ACC-INS-08 | Inspect historical Study result | Input snapshot, solver basis and result identity visible |
+| UI-ACC-INS-09 | Change CT ratio/calibration | Historical provenance retained; consumers see correct revision effects |
+| UI-ACC-INS-10 | Edit Protection settings | Protection owner validates; historical decisions not rewritten |
+| UI-ACC-INS-11 | Edit Control channel mapping | Control mapping revision changes through owner command; SLD topology unchanged |
+| UI-ACC-INS-12 | Edit symbol position | Only SLD presentation changes; Core equipment/topology unchanged |
+| UI-ACC-INS-13 | Commit partially eligible bulk change | Per-object result and partial/atomic semantics explicit |
+| UI-ACC-INS-14 | Refresh Inspector during draft edit | User draft preserved or conflict explicitly presented |
+| UI-ACC-INS-15 | Keyboard/screen-reader field navigation | Labels, units, constraints, errors and edit state announced predictably |
+
+These scenarios are candidates for design review and validation. They are not approved release criteria and do not establish current implementation conformance.
+
+### K. Open decisions and evidence required
+
+1. Establish actual V3 repository/branch/commit before mapping this contract to source packages or APIs.
+2. Inventory typed property contracts for representative electrical equipment, CT/PT/CVT, measurement channels, Protection functions, Control elements and Study settings/results.
+3. Define canonical units and conversion/precision policy by quantity type and domain; avoid a UI-owned engineering units registry.
+4. Determine how Application services expose draft/preview validation, commit, concurrency conflict and accepted revision.
+5. Define which configuration classes support draft persistence, autosave, recovery, Apply, Commit and Cancel in alignment with project/session lifecycle research.
+6. Define cross-field/cross-object validation response schemas and diagnostic navigation.
+7. Define safe bulk-edit capabilities and atomicity/partial success for each owner.
+8. Reconcile catalogue/standard provenance with licensing and exact-edition traceability.
+9. Define role/permission visibility and authorization with security architecture; hiding a field is not access control.
+10. Validate Inspector usability with domain engineers and assistive technology users.
+11. Define migration and compatibility for property metadata and persisted configuration schemas.
+12. Obtain explicit owner disposition for UI-GATE-01, UI-GATE-02, UI-GATE-03, UI-GATE-04 and UI-GATE-07 before implementation.
+
+### L. Gate disposition and frozen invariants
+
+**UI-GATE-02, UI-GATE-03, UI-GATE-04 and UI-GATE-07 remain Open** for project/session, diagnostic, accessibility and scope/priority decisions implicated here. Other gates retain previously recorded status and evidence requirements. This section does not authorize a universal property framework or changes to domain configuration APIs.
+
+Frozen invariants:
+- Core/domain contracts own property meaning, units, constraints and engineering truth.
+- Application owns controlled mutation, validation orchestration, transactions and accepted revision publication.
+- UI Inspector renders typed projections and emits typed intent; it is not a property database or alternate mutation authority.
+- No untyped universal property bag replaces domain-specific schemas.
+- Configured, draft, defaulted, derived, calculated, measured, estimated, historical and presentation-only values remain distinguishable.
+- Display-unit conversion never changes canonical engineering quantity without explicit user edit.
+- Live sample quality/freshness/provenance and historical calculation basis are never fabricated or hidden by generic formatting.
+- Protection and Control configuration/runtime evidence remain owned by separate domains.
+- SLD symbol/layout edits cannot mutate Core equipment or topology.
+- Study visualization cannot modify canonical numerical results.
+- Rejected edits preserve accepted state and report owner-provided diagnostics.
+- All mutating property edits follow UI → Controller → Command → Application → Core → Event → Projection → UI.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, property schema, unit registry, editor, project schema, tests or CI were changed or run.
