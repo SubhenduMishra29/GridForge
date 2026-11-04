@@ -57,11 +57,21 @@ class ProtectionConfigurationHandlers:
     def set_synchronism_check_configuration(self, command, context, transaction):
         return self._service.set_synchronism_check_configuration(transaction=transaction, **command.payload)
 
+    @staticmethod
+    def _differential_scheme_from_command(command):
+        scheme = command.payload["scheme"]
+        owner_id = command.payload["protection_element_id"]
+        if owner_id != scheme.protection_element_id:
+            raise ValueError("Differential command owner metadata does not match its immutable scheme.")
+        return scheme
+
     def create_differential_scheme(self, command, context, transaction):
-        return self._service.create_differential_scheme(transaction=transaction, **command.payload)
+        scheme = self._differential_scheme_from_command(command)
+        return self._service.create_differential_scheme(transaction=transaction, scheme=scheme)
 
     def update_differential_scheme(self, command, context, transaction):
-        return self._service.update_differential_scheme(transaction=transaction, **command.payload)
+        scheme = self._differential_scheme_from_command(command)
+        return self._service.update_differential_scheme(transaction=transaction, scheme=scheme)
 
     def delete_differential_scheme(self, command, context, transaction):
         return self._service.delete_differential_scheme(transaction=transaction, **command.payload)
