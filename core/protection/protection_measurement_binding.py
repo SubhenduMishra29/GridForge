@@ -34,6 +34,8 @@ class ProtectionMeasurementBinding:
     channel_id: str
     relay_input_id: str
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    instrument_primary_side: str | None = None
+    instrument_primary_component_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -56,6 +58,33 @@ class ProtectionMeasurementBinding:
             raise ValueError("instrument_ratio must be positive.")
         object.__setattr__(self, "instrument_ratio", ratio)
 
+        if self.instrument_primary_side is not None:
+            if not isinstance(self.instrument_primary_side, str) or self.instrument_primary_side.strip().upper() not in {"P1", "P2"}:
+                raise ValueError("instrument_primary_side must be P1, P2, or None.")
+            object.__setattr__(self, "instrument_primary_side", self.instrument_primary_side.strip().upper())
+        if self.instrument_primary_component_fingerprint is not None:
+            if (
+                not isinstance(self.instrument_primary_component_fingerprint, str)
+                or not self.instrument_primary_component_fingerprint.strip()
+            ):
+                raise ValueError("instrument_primary_component_fingerprint must be a non-empty string or None.")
+            object.__setattr__(
+                self, "instrument_primary_component_fingerprint",
+                self.instrument_primary_component_fingerprint.strip(),
+            )
+        if (self.instrument_primary_side is not None) != (self.instrument_primary_component_fingerprint is not None):
+            raise ValueError("CT primary-side association requires both side and component fingerprint.")
+        if self.instrument_primary_side is not None:
+            if self.measurement_type.strip().lower() != "current":
+                raise ValueError("CT primary-side association is valid only for current measurement bindings.")
+            prefix = "ct-primary-component:v1:"
+            digest = self.instrument_primary_component_fingerprint.removeprefix(prefix)
+            if (
+                not self.instrument_primary_component_fingerprint.startswith(prefix)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ValueError("instrument_primary_component_fingerprint must use the canonical v1 SHA-256 form.")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("metadata must be a mapping.")
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
@@ -167,6 +196,8 @@ class ProtectionMeasurementBinding:
             "channel_id": self.channel_id,
             "relay_input_id": self.relay_input_id,
             "metadata": dict(self.metadata),
+            "instrument_primary_side": self.instrument_primary_side,
+            "instrument_primary_component_fingerprint": self.instrument_primary_component_fingerprint,
         }
 
     @classmethod
@@ -207,6 +238,8 @@ class ProtectionMeasurementBinding:
             channel_id=data["channel_id"],
             relay_input_id=data["relay_input_id"],
             metadata=data.get("metadata", {}),
+            instrument_primary_side=data.get("instrument_primary_side"),
+            instrument_primary_component_fingerprint=data.get("instrument_primary_component_fingerprint"),
         )
 
     def correlation_key(self) -> tuple[str, str, str, str, str]:

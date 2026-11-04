@@ -624,8 +624,9 @@ class ProtectionSystem:
         self,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Return decisions from the most recently successfully
-        committed evaluation cycle.
+        Return still-eligible decisions from the most recently successfully
+        committed evaluation cycle. Decisions explicitly invalidated by
+        element dependency changes are omitted.
         """
 
         return self._last_decisions
@@ -636,8 +637,9 @@ class ProtectionSystem:
         self,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Return decisions from the most recently successfully
-        committed evaluation cycle.
+        Return still-eligible decisions from the most recently successfully
+        committed evaluation cycle. Decisions explicitly invalidated by
+        element dependency changes are omitted.
 
         Method form retained as a convenient API alias.
         """
@@ -842,6 +844,36 @@ class ProtectionSystem:
             for element in self._elements.values()
             if element.id in blocked_ids
         )
+
+    # ==================================================================
+    # PER-ELEMENT DECISION INVALIDATION
+    # ==================================================================
+
+    def invalidate_element_decision(
+        self,
+        element_id: Any,
+        *,
+        expected_decision: ProtectionDecision | None = None,
+    ) -> ProtectionDecision | None:
+        """Invalidate one element's decision, optionally only if it is still current."""
+        element = self.get_element(element_id)
+        current_decision = element.last_decision
+        if (
+            expected_decision is not None
+            and current_decision is not expected_decision
+        ):
+            # A re-entrant evaluation may already have committed a newer
+            # decision for this element. Never clear that newer decision while
+            # rejecting an older in-flight action.
+            return None
+        try:
+            return element.invalidate_decision()
+        finally:
+            self._last_decisions = tuple(
+                decision
+                for decision in self._last_decisions
+                if decision.element_id != element_id
+            )
 
     # ==================================================================
     # RESET

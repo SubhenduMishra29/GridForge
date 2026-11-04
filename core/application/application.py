@@ -66,6 +66,7 @@ from .revision_service import RevisionService
 from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
+from .protection_dependency import build_protection_dependency_registry
 from .protection_execution import (
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -73,6 +74,7 @@ from .protection_execution import (
     PostconditionStatus,
     ProtectionPostconditionVerification,
     StaleProtectionExecutionError,
+    StaleProtectionDecisionError,
 )
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
@@ -768,11 +770,15 @@ class Application:
                 (
                     str(getattr(relay, "id", "")),
                     str(getattr(relay, "relay_type", "")),
+                    str(getattr(relay, "type", "")),
+                    str(getattr(relay, "function_type", "")),
                     getattr(relay, "plugin_id", None),
                     repr(getattr(relay, "settings", {})),
                     bool(getattr(relay, "in_service", False)),
                     bool(getattr(relay, "enabled", False)),
                     bool(getattr(relay, "blocked", False)),
+                    bool(getattr(relay, "picked_up", False)),
+                    bool(getattr(relay, "tripped", False)),
                 )
                 for relay in relays
             ), key=lambda item: item[0]))
@@ -838,16 +844,21 @@ class Application:
                 or current_runtime.activation_generation != captured_generation
                 or current_runtime.configuration is not captured_configuration
                 or not current_runtime.configuration_matches_composition
-                or not current_runtime.equipment_state_matches_composition
                 or current_channels is not captured_channel_service
                 or current_channels.project_id != captured_project.project_id
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
-                or relay_state_fingerprint(captured_network) != captured_relay_state
-                or instrumentation_state_fingerprint(captured_network) != captured_instrumentation_state
-                or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
-                or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
+                or (
+                    (captured_dependency_registry.diagnostics or network_state is not None)
+                    and (
+                        not current_runtime.equipment_state_matches_composition
+                        or relay_state_fingerprint(captured_network) != captured_relay_state
+                        or instrumentation_state_fingerprint(captured_network) != captured_instrumentation_state
+                        or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
+                        or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
+                    )
+                )
                 or self.revision.protection_configuration_revision != captured_revision.protection_configuration_revision
             ):
                 raise StaleProtectionExecutionError(
@@ -858,6 +869,14 @@ class Application:
 
         def ensure_current_protection_topology() -> None:
             """Reject an action based on a topology snapshot changed during evaluation."""
+            if not captured_dependency_registry.diagnostics and network_state is None:
+                # Registry-level diagnostics indicate an unclassifiable or
+                # incoherent capture and remain batch-wide fail-closed. An
+                # incomplete individual descriptor is rejected by that
+                # decision's guard; it must not downgrade complete siblings.
+                # Component and conductive-equipment fingerprints provide
+                # per-decision topology invalidation for live evaluations.
+                return
             current_state = getattr(captured_network, "state", None)
             current_revision = getattr(current_state, "topology_revision", None)
             if current_revision != captured_topology_revision:
@@ -880,6 +899,9 @@ class Application:
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
         )
+        # CT/PT/CVT source-to-primary topology associations are classified
+        # per Protection element by the dependency registry below. Do not
+        # turn one stale binding into a project-wide evaluation rejection.
         for element in runtime.configuration.elements:
             if not element.enabled:
                 continue
@@ -895,12 +917,9 @@ class Application:
                 if getattr(channel, "id", None) != channel_id:
                     diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
                     continue
-                source_diagnostic = self._protection_measurement_source_diagnostic(
-                    captured_network, channel, prefix
-                )
-                if source_diagnostic is not None:
-                    diagnostics.append(source_diagnostic)
-                    continue
+                # Physical instrument/source identity and service-state are
+                # checked per element by the dependency registry. Keep sample
+                # quality/freshness validation separate from equipment state.
                 # Read the sample sequence around the complete validation
                 # window. When a producer supplies a sequence, any change means
                 # the fields cannot be treated as one coherent measurement.
@@ -1073,6 +1092,209 @@ class Application:
 
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+
+        # Capture the exact dependency identities that produced this cycle.
+        # Incomplete element descriptors remain non-dispatchable; they do not
+        # authorize a project-wide fallback to guessed ownership.
+        captured_dependency_registry = build_protection_dependency_registry(
+            captured_network,
+            runtime.configuration,
+            channels,
+            activation_generation=captured_generation,
+            runtime=runtime,
+            runtime_channels=runtime.channels,
+        )
+
+        def invalidate_rejected_element(message: str, decision: Any) -> None:
+            """Remove only the stale element's decision from the Core decision cache."""
+            try:
+                captured_runtime.system.invalidate_element_decision(
+                    decision.element_id,
+                    expected_decision=decision,
+                )
+            except Exception as exc:
+                raise StaleProtectionExecutionError(
+                    f"{message}; per-element decision-cache invalidation failed: {exc}"
+                ) from exc
+            raise StaleProtectionDecisionError(message)
+
+        def ensure_current_protection_decision_dependency(
+            decision: Any,
+            control_decision: Any | None = None,
+        ) -> None:
+            """Require one decision's dependencies and resolved target to remain unchanged."""
+            if captured_dependency_registry.diagnostics:
+                raise StaleProtectionExecutionError(
+                    "Protection dependency registry contains duplicate or unclassifiable binding identities."
+                )
+            try:
+                cached_element = captured_runtime.system.get_element(str(decision.element_id))
+            except (KeyError, LookupError, ValueError):
+                raise StaleProtectionDecisionError(
+                    f"Protection element {decision.element_id!r} is no longer present in the captured runtime."
+                )
+            if (
+                cached_element.last_decision is not decision
+                or not any(
+                    cached is decision
+                    for cached in captured_runtime.system.last_decisions
+                )
+            ):
+                # A re-entrant cycle may have replaced this decision. Reject
+                # the old action without invalidating a newer cached decision.
+                raise StaleProtectionDecisionError(
+                    f"Protection decision for element {decision.element_id!r} is no longer the current cached decision."
+                )
+            if str(getattr(cached_element.state, "value", cached_element.state)).upper() == "FAILED":
+                invalidate_rejected_element(
+                    f"Protection element {decision.element_id!r} entered FAILED state after decision evaluation.",
+                    decision,
+                )
+            try:
+                captured_descriptor = captured_dependency_registry.descriptor_for(
+                    str(decision.element_id)
+                )
+            except KeyError:
+                invalidate_rejected_element(
+                    f"No captured dependency descriptor exists for element {decision.element_id!r}.",
+                    decision,
+                )
+            if not captured_descriptor.complete:
+                invalidate_rejected_element(
+                    "; ".join(captured_descriptor.diagnostics)
+                    or "Captured element dependency descriptor is incomplete.",
+                    decision,
+                )
+
+            # Measurement samples have a separate freshness contract from
+            # equipment/configuration dependencies. A newer or mutated sample
+            # supersedes this decision but must not advance equipment revisions
+            # or force runtime recomposition.
+            for (sample_element_id, input_name), sample_snapshot in validated_measurement_snapshots.items():
+                if sample_element_id != str(decision.element_id):
+                    continue
+                channel_id = sample_snapshot.get("channel_id")
+                sample_channel = captured_channel_service.channels.get(channel_id)
+                if (
+                    sample_channel is None
+                    or id(sample_channel) != sample_snapshot.get("channel_identity")
+                ):
+                    invalidate_rejected_element(
+                        f"Validated sample channel for input {input_name!r} is no longer the captured channel object.",
+                        decision,
+                    )
+                try:
+                    current_timestamp = float(sample_channel.timestamp)
+                    current_validity = sample_channel.validity(current_time=evaluation_time)
+                    sample_unchanged = (
+                        sample_channel.engineering_value == sample_snapshot.get("value")
+                        and current_timestamp == sample_snapshot.get("timestamp")
+                        and sample_channel.quality is sample_snapshot.get("quality")
+                        and bool(sample_channel.available) is sample_snapshot.get("available")
+                        and bool(sample_channel.is_usable) is sample_snapshot.get("usable")
+                        and getattr(sample_channel, "sample_sequence", None)
+                        == sample_snapshot.get("sample_sequence")
+                        and current_validity is sample_snapshot.get("validity")
+                    )
+                except (AttributeError, TypeError, ValueError, OverflowError):
+                    sample_unchanged = False
+                if not sample_unchanged:
+                    invalidate_rejected_element(
+                        f"Validated measurement sample for input {input_name!r} changed or became invalid after Protection evaluation.",
+                        decision,
+                    )
+
+            current_lifecycle = self.project_lifecycle
+            current_project = current_lifecycle.context
+            current_runtime = getattr(self, "protection_runtime", None)
+            current_configuration_service = getattr(self, "protection_configuration_service", None)
+            current_channel_service = self.measurement_channel_service
+            if (
+                current_lifecycle.state != "ACTIVE"
+                or current_project is None
+                or current_project.project_id != captured_dependency_registry.project_id
+                or current_lifecycle.activation_generation != captured_dependency_registry.activation_generation
+                or current_runtime is None
+                or current_runtime.network is not captured_network
+                or current_runtime.configuration is not captured_configuration
+                or current_configuration_service is not captured_configuration_service
+                or current_configuration_service.configuration is not captured_configuration
+                or current_channel_service is not captured_channel_service
+                or current_channel_service.network is not captured_network
+            ):
+                raise StaleProtectionExecutionError(
+                    "Active project, runtime, configuration, channel registry or activation generation changed."
+                )
+            current_registry = build_protection_dependency_registry(
+                captured_network,
+                current_configuration_service.configuration,
+                current_channel_service.channels,
+                activation_generation=current_lifecycle.activation_generation,
+                runtime=current_runtime,
+                runtime_channels=current_runtime.channels,
+            )
+            if current_registry.diagnostics:
+                raise StaleProtectionExecutionError(
+                    "Current Protection dependency registry contains duplicate or unclassifiable binding identities."
+                )
+            try:
+                current_descriptor = current_registry.descriptor_for(
+                    str(decision.element_id)
+                )
+            except KeyError:
+                invalidate_rejected_element(
+                    f"Current dependency descriptor is unavailable for element {decision.element_id!r}.",
+                    decision,
+                )
+            if (
+                not current_descriptor.complete
+                or current_descriptor.fingerprint != captured_descriptor.fingerprint
+            ):
+                invalidate_rejected_element(
+                    "; ".join(current_descriptor.diagnostics)
+                    or f"Protection dependencies changed for element {decision.element_id!r}.",
+                    decision,
+                )
+            if control_decision is not None:
+                resolved_target_type = str(
+                    getattr(control_decision, "target_equipment_type", "")
+                ).strip().lower()
+                resolved_target_id = str(
+                    getattr(control_decision, "target_equipment_id", "")
+                ).strip()
+                resolved_action_type = str(
+                    getattr(
+                        getattr(control_decision, "action_type", None),
+                        "value",
+                        getattr(control_decision, "action_type", ""),
+                    )
+                ).strip().lower()
+                target_dependency_key = f"{resolved_target_type}:{resolved_target_id}"
+                if not any(
+                    dependency.kind == "action_target"
+                    and dependency.identity == target_dependency_key
+                    for dependency in captured_descriptor.dependencies
+                ):
+                    invalidate_rejected_element(
+                        "Resolved action target is not part of the persisted Protection element dependency contract.",
+                        decision,
+                    )
+                try:
+                    configured_element = captured_configuration.get(str(decision.element_id))
+                except KeyError:
+                    invalidate_rejected_element(
+                        "Resolved action has no active persisted Protection element configuration.",
+                        decision,
+                    )
+                if (
+                    configured_element.action_target_type != resolved_target_type
+                    or configured_element.action_target_id != resolved_target_id
+                    or configured_element.action_type != resolved_action_type
+                ):
+                    invalidate_rejected_element(
+                        "Resolved action target/type differs from the persisted Protection function-to-target mapping.",
+                        decision,
+                    )
 
         context_metadata = dict(evaluation_metadata or {})
         context_metadata.update({
@@ -1266,6 +1488,7 @@ class Application:
             self.control_execution.dispatcher,
             action_resolver=resolve_explicit_protection_action,
             pre_dispatch_guard=ensure_current_protection_dispatch_provenance,
+            decision_guard=ensure_current_protection_decision_dependency,
             state_observer=observe_protection_command_state,
         )
         return execution.execute(decisions)
@@ -1355,6 +1578,13 @@ class Application:
             raise RuntimeError("Protection runtime retains stale MeasurementChannel objects.")
 
         diagnostics = list(validate_protection_input_contracts(configuration, channels))
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        if configuration_service is None or configuration_service.configuration is not configuration:
+            diagnostics.append("Scenario Protection configuration service does not own the active runtime configuration.")
+        else:
+            diagnostics.extend(
+                configuration_service.validate_measurement_binding_associations(lifecycle.network)
+            )
         samples_by_binding = {item.binding_id: item for item in samples}
         bindings_by_input: dict[tuple[str, str], list[Any]] = {}
         bindings_by_id = {
@@ -2722,37 +2952,70 @@ class Application:
                 "relay",
             }
         )
-        if command_type in {
+        in_place_protection_equipment_commands = {
+            "model.update_current_transformer",
+            "model.put_current_transformer_in_service",
+            "model.take_current_transformer_out_of_service",
+            "model.update_capacitive_voltage_transformer",
+            "model.put_capacitive_voltage_transformer_in_service",
+            "model.take_capacitive_voltage_transformer_out_of_service",
+            "model.update_potential_transformer",
+            "model.put_potential_transformer_in_service",
+            "model.take_potential_transformer_out_of_service",
+            "model.update_relay",
+            "model.put_relay_in_service",
+            "model.take_relay_out_of_service",
+        }
+        protection_runtime_recomposition_commands = {
             "protection.create_configuration",
             "protection.update_configuration",
             "protection.delete_configuration",
             "protection.bind_measurement",
             "protection.unbind_measurement",
+            "protection.create_measurement_binding",
+            "protection.rebind_measurement_binding",
             "protection.set_synchronism_check_configuration",
             "protection.create_differential_scheme",
             "protection.update_differential_scheme",
             "protection.delete_differential_scheme",
             "model.create_current_transformer",
-            "model.update_current_transformer",
             "model.delete_current_transformer",
-            "model.put_current_transformer_in_service",
-            "model.take_current_transformer_out_of_service",
             "model.create_capacitive_voltage_transformer",
-            "model.update_capacitive_voltage_transformer",
             "model.delete_capacitive_voltage_transformer",
-            "model.put_capacitive_voltage_transformer_in_service",
-            "model.take_capacitive_voltage_transformer_out_of_service",
             "model.create_potential_transformer",
-            "model.update_potential_transformer",
             "model.delete_potential_transformer",
-            "model.put_potential_transformer_in_service",
-            "model.take_potential_transformer_out_of_service",
             "model.create_relay",
-            "model.update_relay",
             "model.delete_relay",
-            "model.put_relay_in_service",
-            "model.take_relay_out_of_service",
-        } or (command_type == "network.commit_draft" and draft_protection_equipment_changed):
+        }
+        if command_type in in_place_protection_equipment_commands:
+            configuration_service = getattr(self, "protection_configuration_service", None)
+            previous_runtime = getattr(self, "protection_runtime", None)
+            if (
+                configuration_service is None
+                or configuration_service.configuration is None
+                or network is None
+                or previous_runtime is None
+                or previous_runtime.network is not network
+                or previous_runtime.configuration is not configuration_service.configuration
+                or previous_runtime.activation_generation != self.project_lifecycle.activation_generation
+            ):
+                raise RuntimeError(
+                    "An in-place Protection equipment mutation requires the active composed runtime and configuration."
+                )
+            previous_equipment_snapshot = previous_runtime.equipment_state_snapshot
+            if previous_equipment_snapshot is None:
+                raise RuntimeError(
+                    "Active Protection runtime has no equipment-state baseline for an in-place mutation."
+                )
+            previous_runtime.refresh_equipment_state_snapshot()
+            transaction.record_rollback_finalizer(
+                lambda runtime=previous_runtime, snapshot=previous_equipment_snapshot:
+                    runtime.restore_equipment_state_snapshot(snapshot)
+            )
+        elif (
+            command_type in protection_runtime_recomposition_commands
+            or (command_type == "network.commit_draft" and draft_protection_equipment_changed)
+        ):
             configuration_service = getattr(self, "protection_configuration_service", None)
             channel_service = self._measurement_channel_service
             if configuration_service is None or configuration_service.configuration is None:
@@ -3503,6 +3766,91 @@ class Application:
 
     def command_types(self) -> tuple[str, ...]: return self._command_manager.registered_commands
 
+    def _reconcile_protection_runtime_after_history(
+        self,
+        command: Command,
+        network: Any,
+    ) -> str | None:
+        """Refresh or recompose Protection runtime after a committed undo."""
+        command_type = command.command_type
+        in_place_equipment_commands = {
+            "model.update_current_transformer",
+            "model.put_current_transformer_in_service",
+            "model.take_current_transformer_out_of_service",
+            "model.update_capacitive_voltage_transformer",
+            "model.put_capacitive_voltage_transformer_in_service",
+            "model.take_capacitive_voltage_transformer_out_of_service",
+            "model.update_potential_transformer",
+            "model.put_potential_transformer_in_service",
+            "model.take_potential_transformer_out_of_service",
+            "model.update_relay",
+            "model.put_relay_in_service",
+            "model.take_relay_out_of_service",
+        }
+        recompose_commands = {
+            "protection.create_configuration",
+            "protection.update_configuration",
+            "protection.delete_configuration",
+            "protection.bind_measurement",
+            "protection.unbind_measurement",
+            "protection.create_measurement_binding",
+            "protection.rebind_measurement_binding",
+            "protection.set_synchronism_check_configuration",
+            "protection.create_differential_scheme",
+            "protection.update_differential_scheme",
+            "protection.delete_differential_scheme",
+            "model.create_current_transformer",
+            "model.delete_current_transformer",
+            "model.create_capacitive_voltage_transformer",
+            "model.delete_capacitive_voltage_transformer",
+            "model.create_potential_transformer",
+            "model.delete_potential_transformer",
+            "model.create_relay",
+            "model.delete_relay",
+            "network.commit_draft",
+        }
+        if command_type not in in_place_equipment_commands | recompose_commands:
+            return None
+
+        configuration_service = getattr(self, "protection_configuration_service", None)
+        channel_service = self.measurement_channel_service
+        if configuration_service is None or configuration_service.configuration is None:
+            self.protection_runtime = None
+            return "Protection configuration service is unavailable after history operation."
+        if channel_service is None or network is None:
+            self.protection_runtime = None
+            return "Protection channel service or active Network is unavailable after history operation."
+
+        try:
+            runtime = getattr(self, "protection_runtime", None)
+            if (
+                command_type in in_place_equipment_commands
+                and runtime is not None
+                and runtime.network is network
+                and runtime.configuration is configuration_service.configuration
+                and runtime.configuration_matches_composition
+                and runtime.activation_generation == self.project_lifecycle.activation_generation
+            ):
+                runtime.refresh_equipment_state_snapshot()
+                return None
+
+            candidate = ProtectionRuntime(
+                network,
+                configuration_service.configuration,
+                activation_generation=self.project_lifecycle.activation_generation,
+            )
+            candidate.compose(channel_service.channels)
+            self.protection_runtime = candidate
+            return None
+        except Exception as exc:
+            # The Core history operation has already committed. Do not leave a
+            # stale Protection runtime available for evaluation or dispatch.
+            self.protection_runtime = None
+            return (
+                "Protection runtime reconciliation after history operation failed: "
+                f"{type(exc).__name__}: {exc}"
+            )
+
     def undo(self) -> ApplicationResult | None:
         self._reject_during_async_commit()
         with self._execution_lock:
@@ -3515,6 +3863,21 @@ class Application:
                     self._revision_service.record_undo(
                         topology_revision=int(network.state.topology_revision) if network is not None else None
                     )
+                if command is not None:
+                    reconciliation_diagnostic = self._reconcile_protection_runtime_after_history(
+                        command,
+                        network,
+                    )
+                    if reconciliation_diagnostic is not None:
+                        result = ApplicationResult.success_result(
+                            value=result.value,
+                            message=result.message,
+                            metadata={
+                                **dict(result.metadata),
+                                "protection_runtime_status": "unavailable",
+                                "protection_runtime_diagnostic": reconciliation_diagnostic,
+                            },
+                        )
                 if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
@@ -3535,6 +3898,20 @@ class Application:
                         topology_revision=int(network.state.topology_revision)
                         if network is not None and self._revision_service.is_topology_command(command)
                         else None
+                    )
+                reconciliation_diagnostic = self._reconcile_protection_runtime_after_history(
+                    command,
+                    network,
+                )
+                if reconciliation_diagnostic is not None:
+                    result = ApplicationResult.success_result(
+                        value=result.value,
+                        message=result.message,
+                        metadata={
+                            **dict(result.metadata),
+                            "protection_runtime_status": "unavailable",
+                            "protection_runtime_diagnostic": reconciliation_diagnostic,
+                        },
                     )
                 if self._validation_service is not None and not command.command_type.startswith("sld."):
                     self._validation_service.invalidate()

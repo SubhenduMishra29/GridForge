@@ -179,6 +179,7 @@ class DifferentialProtectionSchemeConfiguration:
     """Explicit differential-scheme membership, independent of CT placement."""
 
     scheme_id: str
+    protection_element_id: str
     protected_object_type: str
     protected_object_id: str
     measurement_binding_ids: tuple[str, ...]
@@ -189,7 +190,7 @@ class DifferentialProtectionSchemeConfiguration:
     differential_settings: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for name in ("scheme_id", "protected_object_type", "protected_object_id"):
+        for name in ("scheme_id", "protection_element_id", "protected_object_type", "protected_object_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string.")
@@ -275,6 +276,7 @@ class DifferentialProtectionSchemeConfiguration:
     def to_dict(self) -> dict[str, Any]:
         return {
             "scheme_id": self.scheme_id,
+            "protection_element_id": self.protection_element_id,
             "protected_object_type": self.protected_object_type,
             "protected_object_id": self.protected_object_id,
             "measurement_binding_ids": list(self.measurement_binding_ids),
@@ -291,6 +293,7 @@ class DifferentialProtectionSchemeConfiguration:
             raise TypeError("differential protection scheme configuration must be a mapping.")
         return cls(
             scheme_id=data["scheme_id"],
+            protection_element_id=data["protection_element_id"],
             protected_object_type=data["protected_object_type"],
             protected_object_id=data["protected_object_id"],
             measurement_binding_ids=tuple(data["measurement_binding_ids"]),
@@ -411,6 +414,10 @@ class ProtectionProjectConfiguration:
             raise ValueError(
                 f"Cannot remove protection element {element_id!r} while measurement bindings reference it."
             )
+        if any(scheme.protection_element_id == element_id for scheme in self._differential_schemes.values()):
+            raise ValueError(
+                f"Cannot remove protection element {element_id!r} while a differential scheme is owned by it."
+            )
         try:
             return self._elements.pop(element_id)
         except KeyError as exc:
@@ -491,8 +498,14 @@ class ProtectionProjectConfiguration:
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
         if scheme.scheme_id in self._differential_schemes:
             raise ValueError(f"Differential scheme already exists: {scheme.scheme_id}")
+        self.get(scheme.protection_element_id)
         for binding_id in scheme.measurement_binding_ids:
             binding = self.get_measurement_binding(binding_id)
+            if binding.protection_element_id != scheme.protection_element_id:
+                raise ValueError(
+                    f"Differential scheme member {binding_id!r} belongs to Protection element "
+                    f"{binding.protection_element_id!r}, not {scheme.protection_element_id!r}."
+                )
             if binding.measurement_type.strip().lower() != "current":
                 raise ValueError(f"Differential scheme member {binding_id!r} must be a current measurement binding.")
         self._differential_schemes[scheme.scheme_id] = scheme
@@ -502,8 +515,14 @@ class ProtectionProjectConfiguration:
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
         if scheme.scheme_id not in self._differential_schemes:
             raise KeyError(scheme.scheme_id)
+        self.get(scheme.protection_element_id)
         for binding_id in scheme.measurement_binding_ids:
             binding = self.get_measurement_binding(binding_id)
+            if binding.protection_element_id != scheme.protection_element_id:
+                raise ValueError(
+                    f"Differential scheme member {binding_id!r} belongs to Protection element "
+                    f"{binding.protection_element_id!r}, not {scheme.protection_element_id!r}."
+                )
             if binding.measurement_type.strip().lower() != "current":
                 raise ValueError("Differential scheme members must be current measurement bindings.")
         self._differential_schemes[scheme.scheme_id] = scheme

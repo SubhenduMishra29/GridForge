@@ -172,6 +172,106 @@ class _ProjectSchema3To4(ProjectMigration):
         return result
 
 
+class _ProjectSchema4To5(ProjectMigration):
+    source_schema = 4
+    target_schema = 5
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 4-to-5 received a non-schema-4 payload.")
+
+        protection = result.get("protection")
+        if protection is not None:
+            if not isinstance(protection, Mapping):
+                raise ProjectMigrationError("Protection configuration must be an object during schema 4-to-5 migration.")
+            protection_copy = deepcopy(dict(protection))
+            raw_bindings = protection_copy.get("measurement_bindings", [])
+            raw_schemes = protection_copy.get("differential_schemes", [])
+            if not isinstance(raw_bindings, list):
+                raise ProjectMigrationError("Protection measurement_bindings must be an array during schema 4-to-5 migration.")
+            if not isinstance(raw_schemes, list):
+                raise ProjectMigrationError("Protection differential_schemes must be an array during schema 4-to-5 migration.")
+
+            bindings_by_id: dict[str, Mapping[str, Any]] = {}
+            for index, binding in enumerate(raw_bindings):
+                if not isinstance(binding, Mapping):
+                    raise ProjectMigrationError(
+                        f"Protection measurement binding at index {index} is not an object; differential ownership cannot be resolved."
+                    )
+                binding_id = binding.get("binding_id")
+                if not isinstance(binding_id, str) or not binding_id.strip():
+                    raise ProjectMigrationError(
+                        f"Protection measurement binding at index {index} has no stable binding_id."
+                    )
+                if binding_id in bindings_by_id:
+                    raise ProjectMigrationError(
+                        f"Duplicate Protection measurement binding ID {binding_id!r}; differential ownership is ambiguous."
+                    )
+                bindings_by_id[binding_id] = binding
+
+            migrated_schemes: list[dict[str, Any]] = []
+            for index, raw_scheme in enumerate(raw_schemes):
+                if not isinstance(raw_scheme, Mapping):
+                    raise ProjectMigrationError(
+                        f"Differential scheme at index {index} is not an object; ownership cannot be migrated."
+                    )
+                scheme = deepcopy(dict(raw_scheme))
+                scheme_id = scheme.get("scheme_id", f"<index:{index}>")
+                member_ids = scheme.get("measurement_binding_ids")
+                if not isinstance(member_ids, list) or len(member_ids) < 2:
+                    raise ProjectMigrationError(
+                        f"Differential scheme {scheme_id!r} must contain at least two explicit measurement_binding_ids."
+                    )
+
+                member_owners: set[str] = set()
+                for binding_id in member_ids:
+                    if not isinstance(binding_id, str) or not binding_id.strip():
+                        raise ProjectMigrationError(
+                            f"Differential scheme {scheme_id!r} contains an invalid measurement binding ID."
+                        )
+                    binding = bindings_by_id.get(binding_id)
+                    if binding is None:
+                        raise ProjectMigrationError(
+                            f"Differential scheme {scheme_id!r} references missing measurement binding {binding_id!r}."
+                        )
+                    measurement_type = binding.get("measurement_type")
+                    if not isinstance(measurement_type, str) or measurement_type.strip().lower() != "current":
+                        raise ProjectMigrationError(
+                            f"Differential scheme {scheme_id!r} member {binding_id!r} is not a current measurement binding."
+                        )
+                    owner = binding.get("protection_element_id")
+                    if not isinstance(owner, str) or not owner.strip():
+                        raise ProjectMigrationError(
+                            f"Differential scheme {scheme_id!r} member {binding_id!r} has no Protection element owner."
+                        )
+                    member_owners.add(owner.strip())
+
+                if len(member_owners) != 1:
+                    raise ProjectMigrationError(
+                        f"Differential scheme {scheme_id!r} spans multiple Protection element owners; migration will not guess an owner."
+                    )
+                resolved_owner = next(iter(member_owners))
+                persisted_owner = scheme.get("protection_element_id")
+                if persisted_owner is not None:
+                    if not isinstance(persisted_owner, str) or not persisted_owner.strip():
+                        raise ProjectMigrationError(
+                            f"Differential scheme {scheme_id!r} has an invalid persisted protection_element_id."
+                        )
+                    if persisted_owner.strip() != resolved_owner:
+                        raise ProjectMigrationError(
+                            f"Differential scheme {scheme_id!r} persisted owner {persisted_owner!r} conflicts with member owner {resolved_owner!r}."
+                        )
+                scheme["protection_element_id"] = resolved_owner
+                migrated_schemes.append(scheme)
+
+            protection_copy["differential_schemes"] = migrated_schemes
+            result["protection"] = protection_copy
+
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -490,6 +590,7 @@ class ProjectPersistenceMigration:
         1: _ProjectSchema1To2(),
         2: _ProjectSchema2To3(),
         3: _ProjectSchema3To4(),
+        4: _ProjectSchema4To5(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3()}
 

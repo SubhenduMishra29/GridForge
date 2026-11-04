@@ -9,6 +9,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import replace
+from hashlib import sha256
+import json
 from math import isfinite
 
 from core.application.errors import DomainError, ResourceError
@@ -50,6 +53,159 @@ class ProtectionConfigurationService:
     def _require_configuration(self) -> ProtectionProjectConfiguration:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")
         return self._configuration
+
+    @staticmethod
+    def _ct_primary_component_fingerprint(component) -> str:
+        """Hash canonical topology endpoint identities, independent of graph iteration order."""
+        identities = []
+        for reference in component:
+            if reference.is_terminal:
+                endpoint = reference.terminal_reference
+                identities.append((
+                    "terminal",
+                    endpoint.equipment_type.value,
+                    endpoint.object_id,
+                    endpoint.terminal_role,
+                ))
+            elif reference.is_bus:
+                endpoint = reference.bus_reference
+                identities.append((
+                    "bus",
+                    endpoint.object_id,
+                    endpoint.attachment_id,
+                ))
+            elif reference.is_junction:
+                identities.append(("junction", reference.junction_id))
+            else:
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_TOPOLOGY_INVALID",
+                    message="CT primary component contains an unsupported topology endpoint kind.",
+                    details={"endpoint_kind": str(reference.kind)},
+                )
+        canonical = sorted(identities)
+        payload = json.dumps(canonical, ensure_ascii=True, separators=(",", ":"))
+        return "ct-primary-component:v1:" + sha256(payload.encode("ascii")).hexdigest()
+
+    def validate_measurement_binding_associations(
+        self,
+        network: Network | None = None,
+    ) -> tuple[str, ...]:
+        """Revalidate persisted CT P1/P2 association identities against live topology."""
+        active = self._require_configuration()
+        active_network = network
+        if active_network is None and self._network_provider is not None:
+            active_network = self._network_provider()
+        if active_network is None:
+            return ("active Network is unavailable; CT primary-side association cannot be established.",)
+
+        diagnostics: list[str] = []
+        resolver = ConnectivityResolver(active_network)
+        for binding in active.measurement_bindings:
+            if binding.measurement_type.strip().lower() != "current":
+                continue
+            prefix = f"binding={binding.binding_id!r}, element={binding.protection_element_id!r}"
+            if (
+                binding.instrument_primary_side is None
+                or binding.instrument_primary_component_fingerprint is None
+            ):
+                diagnostics.append(
+                    f"{prefix}: legacy CT binding has no persisted P1/P2 component identity; explicit rebind is required."
+                )
+                continue
+            try:
+                instrument = active_network.get_by_identity(binding.instrument_id)
+                if not isinstance(instrument, CurrentTransformer):
+                    raise ValueError("bound instrument is not an authoritative CurrentTransformer")
+                source_reference = binding.source_endpoint_reference
+                if source_reference.is_bus:
+                    selected_endpoint = TopologyEndpointReference.from_bus(source_reference)
+                elif source_reference.is_terminal:
+                    selected_endpoint = TopologyEndpointReference.from_terminal(source_reference)
+                else:
+                    raise ValueError("source endpoint is neither a terminal nor a Bus attachment")
+                primary_references = {
+                    role: EndpointReference.terminal(
+                        equipment_type=EquipmentType("ct"),
+                        equipment_id=instrument.id,
+                        terminal_role=role,
+                    )
+                    for role in ("P1", "P2")
+                }
+                components = {
+                    role: resolver.topology_component(
+                        TopologyEndpointReference.from_terminal(reference)
+                    )
+                    for role, reference in primary_references.items()
+                }
+                if set(components["P1"]) == set(components["P2"]):
+                    raise ValueError("CT P1 and P2 resolve to the same topology component")
+                matching_roles = tuple(
+                    role for role, component in components.items()
+                    if selected_endpoint in component
+                )
+                if len(matching_roles) != 1:
+                    raise ValueError(
+                        f"selected source endpoint belongs to {len(matching_roles)} CT primary components"
+                    )
+                resolved_side = matching_roles[0]
+                resolved_fingerprint = self._ct_primary_component_fingerprint(
+                    components[resolved_side]
+                )
+                if binding.instrument_primary_side != resolved_side:
+                    diagnostics.append(
+                        f"{prefix}: persisted CT primary side {binding.instrument_primary_side!r} "
+                        f"does not match resolved side {resolved_side!r}; explicit rebind is required."
+                    )
+                    continue
+                if binding.instrument_primary_component_fingerprint != resolved_fingerprint:
+                    diagnostics.append(
+                        f"{prefix}: CT primary component membership changed; explicit rebind is required."
+                    )
+            except (TypeError, ValueError, KeyError, AttributeError) as exc:
+                diagnostics.append(f"{prefix}: CT primary association cannot be resolved safely: {exc}.")
+        return tuple(diagnostics)
+
+    @staticmethod
+    def _validate_differential_scheme_ownership(
+        active: ProtectionProjectConfiguration,
+        scheme: DifferentialProtectionSchemeConfiguration,
+    ) -> None:
+        """Validate scheme ownership independently at the Application boundary."""
+        try:
+            active.get(scheme.protection_element_id)
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_DIFFERENTIAL_OWNER_NOT_FOUND",
+                message="Differential scheme Protection element owner is not configured.",
+                details={"scheme_id": scheme.scheme_id, "protection_element_id": scheme.protection_element_id},
+            ) from exc
+
+        for binding_id in scheme.measurement_binding_ids:
+            try:
+                binding = active.get_measurement_binding(binding_id)
+            except KeyError as exc:
+                raise ResourceError(
+                    code="PROTECTION_DIFFERENTIAL_BINDING_NOT_FOUND",
+                    message="Differential scheme references a missing measurement binding.",
+                    details={"scheme_id": scheme.scheme_id, "binding_id": binding_id},
+                ) from exc
+            if binding.protection_element_id != scheme.protection_element_id:
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_OWNER_MISMATCH",
+                    message="Every differential member binding must belong to the scheme's explicit Protection element owner.",
+                    details={
+                        "scheme_id": scheme.scheme_id,
+                        "protection_element_id": scheme.protection_element_id,
+                        "binding_id": binding_id,
+                        "binding_owner_id": binding.protection_element_id,
+                    },
+                )
+            if binding.measurement_type.strip().lower() != "current":
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_MEMBER_NOT_CURRENT",
+                    message="Differential scheme members must be current measurement bindings.",
+                    details={"scheme_id": scheme.scheme_id, "binding_id": binding_id},
+                )
 
     def validate_configuration(
         self,
@@ -336,16 +492,57 @@ class ProtectionConfigurationService:
         binding: ProtectionMeasurementBinding,
         transaction: Transaction,
     ) -> ApplicationResult[ProtectionMeasurementBinding]:
-        """Persist one element/input-scoped source binding transactionally."""
+        """Create one new element/input-scoped source binding transactionally."""
+        self._require_transaction(transaction)
+        return self._persist_measurement_binding(
+            binding=binding, transaction=transaction, replace_existing=False
+        )
+
+    def rebind_measurement_binding(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        transaction: Transaction,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Explicitly re-resolve and transactionally replace one existing source association."""
+        self._require_transaction(transaction)
+        return self._persist_measurement_binding(
+            binding=binding, transaction=transaction, replace_existing=True
+        )
+
+    def _persist_measurement_binding(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        transaction: Transaction,
+        replace_existing: bool,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Validate a candidate binding and atomically create or replace its persisted value."""
         self._require_transaction(transaction)
         if not isinstance(binding, ProtectionMeasurementBinding):
             raise TypeError("binding must be ProtectionMeasurementBinding.")
         active = self._require_configuration()
         element = active.get(binding.protection_element_id)
-        if element.input_channel_ids.get(binding.relay_input_id) != binding.channel_id:
+        residual = element.residual_current_input
+        residual_binding_ids = frozenset()
+        if residual is not None:
+            residual_binding_ids = (
+                frozenset((residual.phase_binding_ids or {}).values())
+                if residual.mode == "THREE_PHASE_SUM"
+                else frozenset((residual.direct_binding_id,))
+            )
+        is_residual_source = (
+            element.function_code in {"50N", "51N"}
+            and binding.relay_input_id == "residual_current"
+            and binding.binding_id in residual_binding_ids
+        )
+        if (
+            not is_residual_source
+            and element.input_channel_ids.get(binding.relay_input_id) != binding.channel_id
+        ):
             raise DomainError(
                 code="PROTECTION_MEASUREMENT_BINDING_INPUT_MISMATCH",
-                message="Measurement binding does not match the configured element input channel.",
+                message="Measurement binding does not match the configured element input channel or explicit residual-current source membership.",
                 details={
                     "element_id": binding.protection_element_id,
                     "input_name": binding.relay_input_id,
@@ -473,13 +670,15 @@ class ProtectionConfigurationService:
                     )
                     for role in ("P1", "P2")
                 }
-                primary_components = {
-                    role: set(
-                        resolver.topology_component(
-                            TopologyEndpointReference.from_terminal(reference)
-                        )
+                primary_component_values = {
+                    role: resolver.topology_component(
+                        TopologyEndpointReference.from_terminal(reference)
                     )
                     for role, reference in primary_references.items()
+                }
+                primary_components = {
+                    role: set(component)
+                    for role, component in primary_component_values.items()
                 }
             except (TypeError, ValueError, KeyError) as exc:
                 raise DomainError(
@@ -512,6 +711,42 @@ class ProtectionConfigurationService:
                         "matching_ct_primary_roles": matching_ct_roles,
                     },
                 )
+            resolved_primary_side = matching_ct_roles[0]
+            resolved_component_fingerprint = self._ct_primary_component_fingerprint(
+                primary_component_values[resolved_primary_side]
+            )
+            if (
+                binding.instrument_primary_side is not None
+                and binding.instrument_primary_side != resolved_primary_side
+            ):
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_SIDE_STALE",
+                    message="Persisted CT primary-side association no longer matches the selected source endpoint; explicit rebind is required.",
+                    details={
+                        "instrument_id": binding.instrument_id,
+                        "persisted_primary_side": binding.instrument_primary_side,
+                        "resolved_primary_side": resolved_primary_side,
+                    },
+                )
+            if (
+                binding.instrument_primary_component_fingerprint is not None
+                and binding.instrument_primary_component_fingerprint != resolved_component_fingerprint
+            ):
+                raise DomainError(
+                    code="PROTECTION_CT_PRIMARY_COMPONENT_STALE",
+                    message="CT primary component membership changed; explicit transactional rebind is required.",
+                    details={
+                        "instrument_id": binding.instrument_id,
+                        "instrument_primary_side": resolved_primary_side,
+                        "persisted_fingerprint": binding.instrument_primary_component_fingerprint,
+                        "resolved_fingerprint": resolved_component_fingerprint,
+                    },
+                )
+            binding = replace(
+                binding,
+                instrument_primary_side=resolved_primary_side,
+                instrument_primary_component_fingerprint=resolved_component_fingerprint,
+            )
             expected_types = {"CT"}
             ratio_attribute = "ratio"
         elif measurement_type == "voltage":
@@ -650,16 +885,58 @@ class ProtectionConfigurationService:
                     "channel_id": binding.channel_id,
                 },
             )
-        active.add_measurement_binding(binding)
-        transaction.record_undo(lambda: active.remove_measurement_binding(binding.binding_id))
+        previous_binding = None
+        if replace_existing:
+            try:
+                previous_binding = active.get_measurement_binding(binding.binding_id)
+            except KeyError as exc:
+                raise ResourceError(
+                    code="PROTECTION_MEASUREMENT_BINDING_NOT_FOUND",
+                    message=f"Protection measurement binding not found: {binding.binding_id}",
+                    details={"binding_id": binding.binding_id},
+                ) from exc
+            if (
+                previous_binding.protection_element_id != binding.protection_element_id
+                or previous_binding.relay_input_id != binding.relay_input_id
+                or previous_binding.channel_id != binding.channel_id
+                or previous_binding.instrument_id != binding.instrument_id
+            ):
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_REBIND_IDENTITY_MISMATCH",
+                    message="Explicit rebind must preserve the owning element, relay input, channel and physical instrument identities.",
+                    details={"binding_id": binding.binding_id},
+                )
+            if (
+                binding.instrument_primary_side is not None
+                or binding.instrument_primary_component_fingerprint is not None
+            ):
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_REBIND_MUST_RESOLVE",
+                    message="Explicit rebind must submit an unassociated immutable binding candidate so the active topology is resolved afresh.",
+                    details={"binding_id": binding.binding_id},
+                )
+            active.replace_measurement_binding(binding)
+            transaction.record_undo(
+                lambda previous=previous_binding: active.replace_measurement_binding(previous)
+            )
+        else:
+            active.add_measurement_binding(binding)
+            transaction.record_undo(lambda: active.remove_measurement_binding(binding.binding_id))
         return ApplicationResult.success_result(
             value=binding,
-            message=f"Protection source binding created: {binding.binding_id}",
+            message=(
+                f"Protection source binding rebound: {binding.binding_id}"
+                if replace_existing
+                else f"Protection source binding created: {binding.binding_id}"
+            ),
             metadata={
                 "object_type": "protection_measurement_binding",
                 "object_id": binding.binding_id,
                 "element_id": binding.protection_element_id,
                 "input_name": binding.relay_input_id,
+                "instrument_primary_side": binding.instrument_primary_side,
+                "instrument_primary_component_fingerprint": binding.instrument_primary_component_fingerprint,
+                "rebound": replace_existing,
             },
         )
 
@@ -674,6 +951,7 @@ class ProtectionConfigurationService:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
         active = self._require_configuration()
+        self._validate_differential_scheme_ownership(active, scheme)
         network = self._network_provider() if self._network_provider is not None else None
         if network is not None:
             try:
@@ -700,6 +978,7 @@ class ProtectionConfigurationService:
             metadata={
                 "object_type": "differential_protection_scheme",
                 "object_id": scheme.scheme_id,
+                "protection_element_id": scheme.protection_element_id,
                 "protected_object_type": scheme.protected_object_type,
                 "protected_object_id": scheme.protected_object_id,
                 "measurement_binding_ids": scheme.measurement_binding_ids,
@@ -717,6 +996,7 @@ class ProtectionConfigurationService:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
         active = self._require_configuration()
+        self._validate_differential_scheme_ownership(active, scheme)
         try:
             previous = active.get_differential_scheme(scheme.scheme_id)
         except KeyError as exc:
@@ -747,7 +1027,11 @@ class ProtectionConfigurationService:
         return ApplicationResult.success_result(
             value=scheme,
             message=f"Differential protection scheme updated: {scheme.scheme_id}",
-            metadata={"object_type": "differential_protection_scheme", "object_id": scheme.scheme_id},
+            metadata={
+                "object_type": "differential_protection_scheme",
+                "object_id": scheme.scheme_id,
+                "protection_element_id": scheme.protection_element_id,
+            },
         )
 
     def delete_differential_scheme(

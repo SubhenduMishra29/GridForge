@@ -34,6 +34,13 @@ from .protection_execution import (
     ProtectionPostconditionVerification,
     ProtectionTargetUnavailableError,
     StaleProtectionExecutionError,
+    StaleProtectionDecisionError,
+)
+from .protection_dependency import (
+    ProtectionDependency,
+    ProtectionElementDependencyDescriptor,
+    ProtectionDependencyRegistry,
+    build_protection_dependency_registry,
 )
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .project_presentation import ProjectPresentationCollection
@@ -93,12 +100,17 @@ __all__ = [
     "ControlSignalResolution",
     "ControlSignalResolutionError",
     "StaleProtectionExecutionError",
+    "StaleProtectionDecisionError",
     "ProtectionTargetUnavailableError",
     "PostconditionStatus",
     "ProtectionPostconditionVerification",
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
+    "ProtectionDependency",
+    "ProtectionElementDependencyDescriptor",
+    "ProtectionDependencyRegistry",
+    "build_protection_dependency_registry",
     "ProjectTransitionDecision",
     "ProjectTransitionRequired",
     "ProjectPresentationCollection",
