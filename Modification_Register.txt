@@ -21615,3 +21615,67 @@ Scope:
 - Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
 - ANSI 87 remains NOT_IMPLEMENTED and outside live differential execution.
 ======================================================================
+
+
+======================================================================
+GF-AUD-155 — LIVE RESIDUAL-SOURCE SAMPLE PUBLICATION DOES NOT TRIGGER PROTECTION
+======================================================================
+
+Audit finding:
+- Application._on_measurement_sample_published() starts a Protection cycle
+  only when the published channel ID appears in an enabled element's
+  input_channel_ids.
+- ANSI 50N/51N explicitly forbid physical input_channel_ids. Their source
+  channels are reached through the element-owned persisted
+  ProtectionMeasurementBinding records selected by residual_current_input.
+- Consequently, publication of a new A/B/C, Neutral CT or CBCT residual
+  source sample does not trigger the owning 50N/51N Protection element.
+- This trigger gap is independent of the live derived residual snapshot gap
+  in GF-AUD-154. Correcting only the evaluator would leave sample-driven
+  live operation dormant.
+
+Required correction contract:
+- Resolve the exact source binding IDs from each enabled 50N/51N element's
+  persisted residual_current_input: A/B/C phase_binding_ids for
+  THREE_PHASE_SUM, or direct_binding_id for NEUTRAL_CT/CBCT.
+- Match only bindings owned by that same element with relay_input_id
+  residual_current and a channel_id equal to the newly published channel.
+- Trigger the owning Protection cycle using the trusted Application clock
+  supplied by MeasurementChannelService, never the source sample timestamp
+  as evaluation time.
+- Preserve fail-closed behavior until GF-AUD-154's live derived snapshot
+  and provenance validation are complete. Do not allow sample publication
+  alone to authorize a decision or dispatch.
+- Ensure a source channel shared by multiple configured elements triggers
+  evaluation for each relevant consumer without cross-element sample
+  attribution.
+- Keep scenario-derived samples separate; they are not live channel events.
+
+Additional live sample contract:
+- MeasurementChannel.engineering_value is raw_value * scale * polarity.
+  The residual normalization path must select one representation and apply
+  channel scale/polarity exactly once. Reusing engineering_value and then
+  applying normalization scale/polarity again would double-apply conversion.
+- Preserve timestamp_domain, timestamp, quality, availability, usability,
+  validity and producer sequence for every physical residual source.
+- Require source sample clock-domain compatibility with the trusted
+  Application evaluation clock. A/B/C samples must satisfy an explicit
+  coherent-acquisition policy before their phasors are summed.
+- Recheck each exact source channel identity and sample snapshot at the
+  same evaluation/dispatch boundaries as other validated inputs.
+
+Implementation status:
+- Audit only. The sample-publication trigger has not yet been changed.
+- Live residual-source evaluation and automatic cycle triggering remain
+  blocked pending the complete GF-AUD-154/GF-AUD-155 contract.
+
+Verification boundary:
+- Inspected Application._on_measurement_sample_published(), the
+  MeasurementChannelService trusted clock/attestation path, MeasurementChannel
+  raw/engineering value semantics, and persisted residual binding contracts.
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
+- Depends on GF-AUD-154 for live residual-source sample snapshot support.
+======================================================================
