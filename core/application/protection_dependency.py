@@ -248,6 +248,7 @@ def build_protection_dependency_registry(
     channels: Mapping[str, Any],
     *,
     activation_generation: int,
+    runtime: Any,
     runtime_channels: Mapping[str, Any] | None = None,
 ) -> ProtectionDependencyRegistry:
     """Build canonical per-element dependencies without reading sample state."""
@@ -263,8 +264,16 @@ def build_protection_dependency_registry(
         or activation_generation < 1
     ):
         raise ValueError("activation_generation must be a positive integer.")
+    if runtime is None:
+        raise TypeError("runtime must be the active composed ProtectionRuntime.")
     if runtime_channels is not None and not isinstance(runtime_channels, Mapping):
         raise TypeError("runtime_channels must be a mapping or None.")
+    if (
+        getattr(runtime, "network", None) is not network
+        or getattr(runtime, "configuration", None) is not configuration
+        or getattr(runtime, "activation_generation", None) != activation_generation
+    ):
+        raise ValueError("runtime ownership does not match the supplied Network/configuration/activation.")
 
     bindings_by_element: dict[str, list[Any]] = {}
     bindings_by_id: dict[str, Any] = {}
@@ -335,18 +344,45 @@ def build_protection_dependency_registry(
             relay = network.get_by_id("relay", element.relay_id)
         except (LookupError, ValueError):
             relay = None
+        runtime_element = None
         if relay is None:
             element_diagnostics.append(f"{prefix}: configured Relay {element.relay_id!r} is absent from the active Network.")
         else:
             add_dependency("relay", element.relay_id, _relay_configuration(relay))
-            add_dependency(
-                "relay_input_registry",
-                element.relay_id,
-                {
-                    name: getattr(channel, "id", None)
-                    for name, channel in sorted(relay.input_channels.items())
-                },
-            )
+            try:
+                runtime_element = runtime.system.get_element(element_id)
+            except (KeyError, LookupError, ValueError):
+                runtime_element = None
+            if runtime_element is None:
+                element_diagnostics.append(f"{prefix}: composed ProtectionElement is absent from the active runtime.")
+            elif getattr(runtime_element, "relay", None) is not relay:
+                element_diagnostics.append(
+                    f"{prefix}: composed ProtectionElement does not reference the active canonical Relay object."
+                )
+            else:
+                function = getattr(runtime_element, "function", None)
+                if (
+                    function is None
+                    or str(getattr(function, "function_code", "")).strip().upper()
+                    != element.function_code
+                ):
+                    element_diagnostics.append(
+                        f"{prefix}: composed RelayBase implementation does not match the configured Protection function."
+                    )
+                else:
+                    add_dependency(
+                        "runtime_relay_input_registry",
+                        element_id,
+                        {
+                            name: (
+                                getattr(getattr(relay_input, "source", None), "id", None),
+                                id(getattr(relay_input, "source", None)),
+                            )
+                            for name, relay_input in sorted(
+                                getattr(function, "inputs", {}).items()
+                            )
+                        },
+                    )
 
         owned_bindings = bindings_by_element.get(element_id, [])
         expected: dict[str, tuple[str, str | None]] = {}
@@ -446,13 +482,18 @@ def build_protection_dependency_registry(
                 if getattr(channel, "source_terminal", None) is None:
                     element_diagnostics.append(f"{binding_prefix}: physical channel has no canonical source terminal.")
                 if (
-                    relay is not None
+                    runtime_element is not None
                     and element.function_code not in {"50N", "51N"}
-                    and relay.input_channels.get(binding.relay_input_id) is not channel
                 ):
-                    element_diagnostics.append(
-                        f"{binding_prefix}: Relay input is not bound to the active canonical MeasurementChannel object."
-                    )
+                    relay_input = getattr(
+                        getattr(runtime_element, "function", None),
+                        "inputs",
+                        {},
+                    ).get(binding.relay_input_id)
+                    if getattr(relay_input, "source", None) is not channel:
+                        element_diagnostics.append(
+                            f"{binding_prefix}: composed RelayBase input is not bound to the active canonical MeasurementChannel object."
+                        )
                 add_dependency("measurement_channel", binding.channel_id, {
                     "configuration": _channel_configuration(channel),
                     "runtime_instance_identity": id(channel),
