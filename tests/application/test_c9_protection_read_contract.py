@@ -9,6 +9,7 @@ from types import MappingProxyType, SimpleNamespace
 from core.application.read_models import ProtectionReadModel, RelayInputBindingReadModel, RelayReadModel
 from core.application.read_service import ProtectionReadService
 from core.application.application import Application
+from core.protection.decision import ProtectionDecision
 
 
 def relay():
@@ -70,3 +71,40 @@ def test_application_protection_facade_delegates_to_protection_read_service():
     application._protection_read_service = StubProtectionReadService()
     assert application.read_protection().relays == ()
     assert application.read_relay("R1").object_id == "R1"
+
+
+def test_relay_read_model_preserves_decisions_for_multiple_protection_elements():
+    decision_51 = ProtectionDecision.no_operation(
+        relay_id="R1",
+        element_id="E51",
+        function_code="51",
+    )
+    decision_67 = ProtectionDecision.blocked_decision(
+        relay_id="R1",
+        element_id="E67",
+        function_code="67",
+    )
+
+    read = ProtectionReadService._to_read_model(
+        relay(),
+        decision_provider=lambda _relay_id: (decision_51, decision_67),
+    )
+
+    assert read.element_decisions == (decision_51, decision_67)
+    assert read.decision is None
+
+
+def test_relay_read_model_keeps_legacy_singular_decision_when_unambiguous():
+    decision = ProtectionDecision.no_operation(
+        relay_id="R1",
+        element_id="E51",
+        function_code="51",
+    )
+
+    read = ProtectionReadService._to_read_model(
+        relay(),
+        decision_provider=lambda _relay_id: decision,
+    )
+
+    assert read.decision is decision
+    assert read.element_decisions == (decision,)
