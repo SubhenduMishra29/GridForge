@@ -986,3 +986,84 @@ All findings above are source-backed usability risks or investigation items. The
 - Qt Menus example — https://doc.qt.io/QT-6/qtwidgets-mainwindows-menus-example.html
 
 **Verification limits:** The authoritative research branch source was inspected selectively: main.py, MainWindow, shell/menu/toolbar/status plugins, action catalogue/definition/router, workspace definitions/controller/manager/realizer, keymap registry and engineering workspace tabs. The current running application was not launched. Menus, toolbar, enabled states, keyboard navigation, focus, screen scaling and actual visible layout were not observed on screen. The action/shortcut audit is incomplete; no claim of runtime shortcut conflict is made. No settings persistence exhaustive search was completed. No tests, CI, V2 source edits or implementation were performed.
+
+
+## 8I-3. SLD engineer workflow: authoring, configuration, wiring, validation, commit and recovery (2026-11-04)
+
+**Scope:** Source-trace the SLD workflow through SLDEditor, ModelPlacementTool, WireTool, DraftNetwork, DraftSLDProjection, draft presentation realization, EngineeringParameterEditor, commit handler, project persistence and command history. This is a targeted source audit, not a running-application usability test.
+
+### A. Workflow model established by source
+
+- SLDEditor composes document tabs, a compact tool shelf, tool settings, canvas, Explorer, Inspector, Messages and status. Its constructor deliberately hides Explorer, Inspector, Messages/Diagnostics and Tool Settings initially. The region controls can reveal these panels; contextual selection can reveal Inspector unless the user has overridden visibility. The default therefore prioritizes canvas area, but important engineering context is not immediately visible to a first-time engineer.
+- ModelPlacementTool is a shared position-first interaction. On initial press it obtains a grid/object snap, stores a placement coordinate in the transient CreationDraft and shows a SymbolPreviewItem. On release it calls place_creation_draft(), which resolves the trusted Application creation contract and submits AddDraftEquipmentCommand. The placement transition is therefore automatic on mouse release; it is not a separate explicit “confirm placement” click.
+- The placement tool intentionally permits incomplete engineering parameters at draft placement. Its source comment says engineering validation is authoritative at later commit. This is a sound separation of visual authoring from complete equipment configuration.
+- After AddDraftEquipmentCommand succeeds, the tool selects the draft identity, ends the transient CreationContext interaction, clears the preview and reports that the equipment is a draft and that Commit Network is the later boundary. This feedback is useful, but the source alone does not establish whether the visible canvas gives the engineer a persistent and unmistakable draft/uncommitted visual state.
+- DraftNetwork is Application-owned and stores DraftEquipment, DraftConnection, presentation coordinates, engineering values, endpoint identities, validation state and trusted creation-contract metadata. DraftSLDProjection reads the Application draft read model and converts draft nodes/connections to immutable canvas projection DTOs. DraftPresentationFactory realizes those draft nodes as SymbolPreviewItem objects using canonical equipment and symbol registries. This is a deliberate projection boundary and avoids constructing Core equipment just to display a draft.
+- Draft and committed canvas state have an explicit composite projection contract (committed SLD snapshot plus DraftSLDCanvasSnapshot). The source establishes the data path and realization factory; whether the active renderer refreshes both consistently under every event, selection and workspace transition was not established in this targeted pass.
+- WireTool is endpoint-first: first valid object endpoint starts a connection preview; a second valid object endpoint submits the connection command. Grid/empty cursor positions are not promoted to electrical endpoints. If command execution fails, the source endpoint remains selected in the preview and an actionable reason is retained. Draft endpoints create CreateDraftConnectionCommand; committed Core endpoints use the Simple Wire command path.
+- DraftConnection stores canonical source and target DraftEndpointReference identities, connection kind, route and validation state. DraftNetwork candidate validation rejects unsupported connection kinds, self-connections, invalid endpoints and incompatible terminal pairs before the draft connection is added. This is useful immediate feedback for impossible endpoint selections, but it means some electrical compatibility checks happen during wire authoring rather than exclusively at the final commit boundary.
+- EngineeringParameterEditor accepts only parameters projected as editable and non-derived, enforces paired-field requirements, coerces typed values and creates an EngineeringConfigurationIntent. It routes draft targets through prepare_draft_engineering_update and committed targets through prepare_engineering_update. The UI editor itself does not own equipment-specific command construction or engineering state.
+- CommitNetworkHandler validates the canonical creation-contract metadata, connection terminal compatibility, DraftNetwork validation and required connection cardinality before preparing Core equipment and Simple Wire commands. It detects Core identity collisions and prepares all commands before the first Core mutation. Successful commit clears the active draft in the same transaction and returns created-element/connection metadata. This is a strong prepare-before-mutate and transactional boundary.
+- The commit handler currently aggregates draft validation errors into a ValueError string ("Draft validation failed: ..."). A structured set of per-object/per-terminal diagnostic records was not established in the inspected commit path. This can make correction navigation harder when several draft items fail together.
+- ProjectPersistenceService serializes optional DraftNetwork data into canonical project.json and restores it as part of LoadedProject. Thus draft state has a persistence contract; a complete user-facing save/close/reopen recovery experience and its UI status affordance still require runtime and lifecycle tracing.
+- CommandHistory is Application-owned and records successful commands with undo journals. Draft handlers register a pre-command DraftNetwork snapshot as a transaction inverse. This supports transactional undo foundations, but the visible SLD undo/redo experience for a mixed sequence of draft placement, property edits, wire edits, commit and save/reopen was not established by this source pass.
+
+### B. Workflow risks and recommendations
+
+- The engineer-facing workflow should explicitly distinguish three object states: transient preview (follows cursor and can be cancelled), persisted draft (selectable/editable and saved with the project), and committed Core equipment/connectivity (authoritative engineering network). These are different lifecycle states, not just different colors of one symbol.
+- The automatic release-to-draft transition is efficient for repeated placement, but it is easy to mistake for a committed network insertion. Provide an explicit, persistent status/visual distinction and a clear next action; consider a user-configurable placement mode (single-place vs repeat-place) rather than adding a mandatory confirmation dialog to every placement.
+- The tool should expose a compact equipment configuration step after placement or on selection, with required/optional/derived parameter semantics, units, range constraints, defaults and missing-field indicators. Do not block initial placement merely because a model has incomplete engineering data.
+- Draft preview and persisted draft realization both use SymbolPreviewItem. Ensure the draft presentation state is visibly distinct from transient cursor preview and committed equipment, while keeping symbol geometry and terminal hit targets consistent.
+- The endpoint-first wire workflow is appropriate for electrical engineering, but the source audit should be complemented by a live check of snap radius, endpoint highlight, route preview, crossing ambiguity, duplicate wire feedback, keyboard cancellation and touch/trackpad behavior. Keep simple wire semantics separate from Line/Cable equipment semantics.
+- Retain minimal endpoint identity and safety checks during wire creation, but make the boundary explicit: immediate checks should prevent invalid target selection; comprehensive network, equipment and engineering validation should produce a complete pre-commit diagnostic set. Review whether all current DraftNetwork candidate compatibility checks belong in interaction-time preflight or should be deferred to commit, consistent with the frozen SLD authoring requirements.
+- Commit should present a reviewable summary (equipment count, connection count, unresolved requirements, blocking errors and warnings) before mutation, then return diagnostics that identify each affected draft object, parameter or endpoint and offer direct selection/focus. A generic concatenated error string is insufficient for efficient multi-error correction.
+- Save/reopen should preserve draft objects, connections, engineering values, presentation geometry, active SLD document and a recoverable dirty/unsaved state. The user must be able to tell whether a draft has been saved and whether commit has completed.
+- Undo/redo should be defined as user-visible engineering transactions. Placement, parameter edits, connection add/remove and commit must each have predictable undo scope; undoing commit should restore the draft authoring state and corresponding SLD projection without duplicating or losing equipment.
+- Keep the current Core/Application/UI boundary: UI interactions emit intent; Application owns draft and command transactions; Core receives equipment/topology only at explicit commit; renderer receives immutable committed-plus-draft projections.
+
+### C. Findings added
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-UI-F21 | P1 | ModelPlacementTool stores a transient preview on press and automatically submits AddDraftEquipmentCommand on release; there is no separate confirmation interaction in this path | Make preview, draft placement and committed state unmistakable; provide clear post-placement feedback and optional single-place/repeat-place mode without a modal on every placement |
+| V3-UI-F22 | P1 | DraftNetwork is projected independently through DraftSLDProjection and DraftPresentationFactory; committed and draft snapshots are represented as a composite canvas snapshot | Define and visually verify a single canvas lifecycle contract for transient preview, persistent draft and committed projections; verify refresh, selection, z-order and event ordering |
+| V3-UI-F23 | P1 | EngineeringParameterEditor supports draft and committed identities, editable/derived metadata, typed coercion and paired-field validation, but Inspector is hidden by default and no complete first-placement configuration flow was established | Provide contextual equipment properties on placement/selection, expose required/optional/derived status, units and missing-field state, and retain draft-aware editing |
+| V3-UI-F24 | P1 | WireTool requires stable object endpoint snaps and retains source preview on failure; DraftConnection has canonical endpoint identities | Standardize endpoint highlighting, snap feedback, wire route preview, crossing/duplicate handling, cancellation and actionable correction; verify these behaviors live across equipment types |
+| V3-UI-F25 | P1 | DraftNetwork.validate_connection_candidate applies endpoint compatibility during draft connection creation; CommitNetworkHandler repeats trusted terminal compatibility and full draft validation at commit | Separate immediate target eligibility from comprehensive commit validation; reconcile early rejection with the approved engineer workflow and avoid duplicate/conflicting diagnostics |
+| V3-UI-F26 | P1 | CommitNetworkHandler aggregates snapshot validation and required-connection errors into a single ValueError string; structured commit diagnostics per draft item/parameter/terminal were not established | Return typed, stable diagnostics with severity, object/field/endpoint identity, corrective guidance and direct canvas/Inspector navigation |
+| V3-UI-F27 | P1 | ProjectPersistenceService writes DraftNetwork into project.json and restores it into LoadedProject; full UI recovery/dirty-state behavior was not traced | Specify and verify save/reopen/recovery for draft equipment, wiring, parameters, layout, active document and unsaved changes |
+| V3-UI-F28 | P1 | Draft commands record transaction inverses and CommandHistory stores undo journals; mixed draft/commit undo behavior was not established end-to-end | Define the SLD undo/redo transaction model, including undoing commit to restore the exact draft and projection state; expose disabled reasons and command descriptions |
+| V3-UI-F29 | P2 | SLDEditor hides Explorer, Inspector, Messages and Tool Settings at construction; inspector can be shown contextually on selection | Re-evaluate first-run SLD defaults and provide discoverable, non-obstructive access to equipment catalogue, properties and diagnostics |
+| V3-UI-F30 | P2 | WireTool dispatches draft and committed endpoint pairs through different Application command paths while presenting one simple-wire gesture | Preserve one coherent user gesture while making draft/committed endpoint state and resulting transaction semantics transparent; audit mixed-state connections and error recovery |
+
+These findings are source-backed workflow risks and design recommendations. The presence of the underlying architecture is confirmed; visual defects, runtime event-ordering problems, lost selection, projection refresh failures and undo/redo defects have **not** been reproduced in a running application.
+
+### D. Source files inspected
+
+- ui/editors/sld/sld_editor.py
+- ui/tools/model_placement_tool.py
+- ui/tools/wire_tool.py
+- ui/tools/electrical_insertion_tool.py (insertion workflow sampled)
+- ui/tools/tool_dispatcher.py
+- ui/canvas/interaction_manager.py
+- ui/canvas/draft_sld_projection.py
+- ui/canvas/draft_presentation_factory.py
+- ui/canvas/sld_canvas_projection.py
+- ui/sld/sld_controller.py
+- ui/sld/sld_document.py
+- ui/sld/sld_projection_manager.py
+- ui/panels/engineering_parameter_editor.py
+- ui/panels/properties_panel.py
+- core/application/draft/network.py
+- core/application/draft/handlers.py
+- core/application/commands/draft_commands.py
+- core/application/services/validation_service.py
+- core/application/history.py
+- core/persistence/project_package.py
+- core/persistence/project_persistence.py
+
+### E. Verification limits and next sequence
+
+**Verification limits:** This was a selective source audit on the V3 research branch. No GUI was launched, no screenshot or recording was captured, and no mouse/keyboard workflow was executed. The complete event-to-renderer path, selection hit-testing of draft items, commit dialog/result presentation, mixed draft/Core connection policy, settings persistence and full undo/redo behavior remain to be traced. ProjectPersistenceService's draft serialization/restoration is source-confirmed, but end-user recovery behavior is not. No tests, CI, V2 source edits or implementation were performed.
+
+**Next:** 8I-4 — Control canvas/ladder and Protection workspace workflow audit, covering editor entry, tool discovery, signal/channel availability, selection, property editing, validation, execution/monitoring, diagnostics and cross-domain navigation while preserving separate Control and Protection execution authority.
