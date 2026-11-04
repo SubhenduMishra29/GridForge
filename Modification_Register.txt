@@ -21084,3 +21084,45 @@ Source inspection and post-evaluation control-flow review only. No tests,
 CI, syntax/import checks, or scenario runtime execution were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-144 — ANSI 25 POLICY CHANGE REVISION CLASSIFICATION
+======================================================================
+
+Audit finding:
+- protection.set_synchronism_check_configuration is a registered canonical
+  Application command and transactionally replaces/disables the project
+  ANSI 25 breaker-policy registry.
+- It was absent from RevisionService._PROTECTION_CONFIGURATION_COMMANDS,
+  so protection_configuration_revision did not advance.
+- It was also absent from Application._coordinate_pre_commit's Protection
+  runtime recomposition command set. Because the composed runtime retains a
+  canonical configuration fingerprint, a successful policy edit could leave
+  the runtime's captured configuration snapshot stale.
+- The ANSI 25 guard reads the policy through a live configuration provider,
+  but that does not replace the missing Application revision transition.
+
+Correction on feat/protection-independent-revisions:
+- Add the exact canonical command identity to the Protection configuration
+  revision classifier.
+- Include it in transactional ProtectionRuntime recomposition, keeping the
+  composed configuration fingerprint synchronized with the aggregate.
+- The guard continues to read the current typed ANSI 25 policy through its
+  existing provider; no separate guard reconstruction was introduced.
+
+Remaining configuration API gap:
+- ProtectionConfigurationService exposes create/delete differential-scheme
+  operations, but ProtectionConfigurationHandlers and the canonical command
+  module expose no corresponding differential-scheme commands. These
+  operations therefore have no canonical Application command/revision
+  identity. Do not treat direct service mutation as revision-covered.
+  A dedicated command/API correction remains required before differential
+  scheme edits can participate in the revision contract.
+
+Verification boundary:
+Command constant, handler registration, revision classifier, runtime
+recomposition path and guard configuration provider inspected. No tests,
+CI, syntax/import checks or runtime ANSI 25 command execution performed.
+
+======================================================================
