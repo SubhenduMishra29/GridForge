@@ -893,10 +893,9 @@ class Application:
             f"project={project.project_id!r}: {message}"
             for message in validate_protection_input_contracts(runtime.configuration, channels)
         )
-        diagnostics.extend(
-            f"project={project.project_id!r}: {message}"
-            for message in captured_configuration_service.validate_measurement_binding_associations(captured_network)
-        )
+        # CT/PT/CVT source-to-primary topology associations are classified
+        # per Protection element by the dependency registry below. Do not
+        # turn one stale binding into a project-wide evaluation rejection.
         for element in runtime.configuration.elements:
             if not element.enabled:
                 continue
