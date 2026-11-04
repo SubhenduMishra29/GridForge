@@ -21298,3 +21298,48 @@ Verification boundary:
   topology mutation experiments were performed.
 
 ======================================================================
+
+======================================================================
+GF-AUD-149 — LIVE PROTECTION DISPATCH MUST FENCE TOPOLOGY REVISION
+======================================================================
+
+Audit finding:
+- The live Protection evaluation path captured project/runtime identity,
+  instrumentation and Relay state fingerprints, and independent revision
+  counters, but did not capture Network.state.topology_revision.
+- Its pre-dispatch and action-resolver guards could therefore accept a
+  pending decision after a re-entrant Control or other Application command
+  changed electrical switching/connectivity on the same Network object.
+- The post-command Core-state observer shares the general provenance guard;
+  it must not compare the pre-dispatch topology revision after the Protection
+  command itself, because that command may legitimately change topology.
+
+Correction on fix/protection-live-topology-dispatch-fence:
+- Capture the active Network topology_revision at the start of the live
+  Protection evaluation-to-dispatch interval.
+- Add a separate topology freshness guard that rejects a pending action if
+  the same Network object's topology revision changes.
+- Apply both general provenance and topology guards before and after the
+  Application-owned action resolver and immediately before each command
+  dispatch.
+- Keep the post-command observer on the general identity/equipment guard;
+  it can verify the resulting Core postcondition without falsely treating
+  the Protection command's own topology mutation as stale pre-dispatch state.
+- A changed topology during a multi-action batch causes subsequent actions
+  to fail closed rather than continuing against the earlier evaluation.
+
+Scope boundary:
+- This is an evaluation-to-dispatch freshness fence, not blanket runtime
+  recomposition. Non-topological motor running state and ordinary sample
+  publication do not increment the physical topology revision and do not
+  trigger this guard.
+- Scenario provenance and topology-derived CT association local identity
+  remain separately tracked under GF-AUD-148.
+
+Verification boundary:
+- Source-level inspection of live Protection capture, action resolver,
+  pre-dispatch guard and post-command observer; source diff only.
+- No tests, CI, syntax/import checks or runtime switching/Protection dispatch
+  execution were performed.
+
+======================================================================
