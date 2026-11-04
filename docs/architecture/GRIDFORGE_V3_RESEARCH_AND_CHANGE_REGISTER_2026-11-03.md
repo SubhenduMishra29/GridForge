@@ -6223,3 +6223,340 @@ All remain open. This entry does not approve a family taxonomy, schema, catalogu
 - No catalogue, extracted document value, assumed parameter or AI inference is silently promoted to verified engineering truth.
 
 **Scope boundary:** research register only. No equipment schema, catalogue dataset, family implementation, parameter database, evidence repository, plugin, model provider, UI, project migration, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+
+## 8I-29. Proposed V3 engineering equipment library taxonomy and initial family specification (2026-11-04)
+
+### A. Objective and scope
+
+This entry translates the canonical equipment architecture in 8I-28 into an initial family taxonomy, minimum family contracts and a staged implementation scope. It is a research specification, not approval to implement all listed families.
+
+The equipment library must serve engineering workflows rather than become a product-catalogue browser. Its first release should enable an engineer to create a coherent electrical network, specify equipment, associate instrumentation, configure Protection and Control interfaces, execute supported studies and trace results to exact equipment parameters.
+
+Organize the library by engineering function and capability. Keep manufacturer/product variants as catalogue records under a semantic family, not as independent hard-coded equipment classes. Use stable family/type identifiers, typed capabilities, parameter schemas, port contracts and domain-owned model assignments.
+
+### B. Taxonomy: top-level library structure
+
+Proposed top-level groups:
+
+1. **Network infrastructure:** busbars, nodes, overhead lines, underground cables, bus ducts, grounding/earthing conductors and network connection accessories.
+2. **Power transformation:** two-winding and multi-winding transformers, autotransformers, instrument transformers and reactors.
+3. **Sources and rotating machines:** synchronous generators, induction motors, synchronous motors, equivalent sources and grid connections.
+4. **Loads and conversion:** static loads, aggregated loads, capacitor banks, shunt reactors, power-electronic converters, rectifiers, inverters, drives and energy storage.
+5. **Switchgear and protection primary devices:** circuit breakers, disconnectors, earthing switches, fuses, contactors, reclosers and switchgear assemblies.
+6. **Instrumentation and measurement:** CTs, VTs/PTs, CVTs, sensors, transducers, meters, measurement channels and signal conditioning.
+7. **Protection and automation devices:** numerical relays, protection IEDs, PLCs, RTUs, controllers, remote I/O, gateways and communication interfaces.
+8. **Actuation and field devices:** trip/close coils, motor operators, control valves, actuators, position switches, auxiliary contacts and process sensors.
+9. **Auxiliary and plant systems:** DC battery systems, chargers, UPS, station service transformers, cooling, lubrication, excitation and other auxiliaries.
+10. **Mechanical/process interfaces:** shafts, inertia/load models, thermal nodes, fluid/process boundary models and equipment interfaces needed by supported co-simulation use cases.
+
+The taxonomy is a navigation and semantic classification, not a rigid inheritance hierarchy. A transformer can implement power transformation and measurement-related capabilities; a breaker can implement switching, protection-interface and feedback capabilities. Multi-class membership should be explicit and must not duplicate the equipment identity.
+
+### C. Shared family specification template
+
+Every family specification must define the following before implementation:
+
+- stable family and type IDs, display names, aliases and lifecycle status;
+- engineering purpose, scope, exclusions and terminology;
+- required/optional capabilities and compatibility constraints;
+- terminal/port topology, count/cardinality, direction, phase and neutral/earth semantics;
+- mandatory, optional, conditional and derived parameters;
+- parameter quantity kind, dimension, canonical unit, per-unit base rules, precision and valid range;
+- nameplate, manufacturer, design, project, measured and calculated value provenance;
+- applicable standards and clause traceability, with edition and applicability;
+- validation rules, error/warning severity and remediation;
+- supported study/solver domains and minimum model readiness;
+- supported model classes, fidelity, initialization and limitations;
+- signal, Protection and Control interfaces where relevant;
+- presentation-independent defaults and eligible symbol capabilities;
+- catalogue mapping, evidence requirements and import/export mappings;
+- schema versioning, migration and unknown-field preservation;
+- candidate acceptance scenarios and verification evidence.
+
+Do not add a family merely because it has a symbol. A family enters the supported library when its semantic, parameter, validation and domain-consumption contracts are specified.
+
+### D. Cross-family reusable capabilities
+
+Candidate shared capability contracts:
+
+- **Electrical connection:** terminal identity, phase participation, nominal voltage domain, connection role and topology semantics.
+- **Impedance/admittance:** frequency, sequence, phase-domain or other declared representation; explicit units and reference bases.
+- **Power rating:** active/reactive/apparent power, current, voltage, frequency, duty and operating conditions.
+- **Switching:** discrete state, permitted transitions, interlocking interface, mechanism and auxiliary feedback.
+- **Measurement:** measured quantity, sensor/transformer ratio, polarity, accuracy, burden, bandwidth and channel mapping.
+- **Protection interface:** measurement inputs, configured function identity, trip/close interface and feedback; no implicit dispatch authority.
+- **Control interface:** typed command, permissive/interlock, status and feedback signals; Control-domain ownership remains explicit.
+- **Thermal:** temperature, thermal limits, heat capacity, loss/thermal network and cooling assumptions.
+- **Mechanical:** speed, torque, inertia, shaft coupling and mechanical boundary conditions.
+- **Grounding/insulation:** grounding method, insulation level, dielectric/withstand data and relevant fault-path semantics.
+- **Communication:** protocol, data object/signal identity, quality, timestamp and supported services.
+- **Lifecycle/evidence:** maintenance, inspection, calibration, test and commissioning record links.
+
+Capabilities must be independently versioned and composable. Reuse should be based on identical engineering meaning, not superficial property-name similarity. For example, breaker interrupting current, CT secondary rated current and motor full-load current are all currents but have different semantic parameter identities and constraints.
+
+### E. Initial family specifications and minimum parameter sets
+
+The following are minimum semantic requirements, not exhaustive manufacturer datasheets. Every parameter must have a declared quantity definition, unit, provenance and applicability condition.
+
+#### E1. Busbar, bus section and connection node
+
+- Topology: explicit electrical node/bus identity, phase configuration, nominal voltage and connection membership.
+- Configuration: bus arrangement/section identity, grounding context, operating state where modeled and relevant ratings.
+- Study data: nominal voltage and applicable short-circuit withstand/rating data; fault level may be a project constraint or derived study result and must not be confused with a manufacturer rating.
+- Constraints: a bus is not a two-terminal branch; bus sectioning and coupler devices are separate equipment/topology concepts.
+- Presentation: bus symbol/geometry is independent from node identity and connected terminals.
+
+#### E2. Overhead line
+
+- Terminals: two network ends with phase and earth/ground return semantics as supported.
+- Geometry/design: route length, conductor type/material, phase arrangement, spacing, transposition assumptions, earth wire and installation conditions.
+- Electrical: positive/negative/zero sequence resistance and reactance, shunt capacitance/susceptance or explicit phase-domain matrices; frequency and temperature basis.
+- Thermal/operational: continuous/emergency current ratings, ambient/weather assumptions, temperature limits and applicable sag/clearance data when supported.
+- Model scope: positive-sequence load flow and declared short-circuit model first; phase-domain, frequency-dependent and dynamic line models are later fidelity tiers.
+- Validation: parameter completeness and physical consistency, sequence/matrix symmetry and units.
+
+#### E3. Underground cable and bus duct
+
+- Terminals: two ends, phase/core configuration, screen/sheath/armour and earth bonding representation where modeled.
+- Construction: conductor material/area, insulation type and level, number of cores, screen/armour, installation method, route length and grouping.
+- Electrical: sequence or phase-domain series impedance and shunt capacitance, dielectric loss where supported, frequency and temperature basis.
+- Thermal: current rating and installation/soil/ambient/duct conditions; derating assumptions and thermal limits.
+- Bus duct: rated current, voltage, short-time withstand, enclosure/IP and configuration-specific impedance/thermal data.
+- Model scope: distinguish cable and bus duct family semantics while reusing compatible impedance and thermal capabilities.
+
+#### E4. Two-winding and multi-winding power transformer
+
+- Topology: winding count, terminal identities, winding connection, vector group/phase displacement, neutral and grounding configuration.
+- Nameplate: rated power per winding, rated voltage, rated current (derived or declared with provenance), frequency, tap range/steps and cooling class.
+- Electrical: short-circuit impedance, load loss, no-load loss, exciting current, resistance/reactance split where known, zero-sequence/grounding data and test reference temperature.
+- Operational: tap-changer type, position, limits, control mode and cooling stages where modeled.
+- Model tiers: ideal/nameplate, steady-state equivalent, sequence model, tap-changing model and dynamic/inrush/EMT model as separate capabilities.
+- Validation: vector-group consistency, winding rating relationships, tap range and impedance base conversion.
+
+#### E5. Synchronous generator
+
+- Ratings: apparent/active power, terminal voltage, current, frequency, power factor, speed and pole count.
+- Electrical: stator resistance, synchronous/transient/subtransient reactances and time constants, sequence parameters, grounding and excitation data as applicable.
+- Dynamic: inertia constant or inertia, damping, capability limits, saturation and governor/excitation model assignments with explicit fidelity.
+- Interfaces: electrical terminals, excitation/governor/control signal ports and protection measurement/trip interfaces.
+- Validation: consistent units/bases, speed-frequency-pole relationship, parameter completeness for each selected study model.
+
+#### E6. Induction and synchronous motor
+
+- Ratings: output power, voltage, current, frequency, speed, pole count, efficiency, power factor, duty, service factor and connection.
+- Induction motor electrical model: stator/rotor resistance and leakage reactance, magnetizing branch, slip/rated operating point and starting characteristics, with parameter source and test basis.
+- Synchronous motor: stator and rotor/excitation parameters, reactances, time constants and operating mode where supported.
+- Dynamic/mechanical: inertia, load torque-speed curve, shaft/load coupling, friction/damping and thermal limits.
+- Drive interface: direct-on-line, soft starter, variable-frequency drive or converter assignment as separate configuration/model components.
+- Model tiers: nameplate estimate (explicitly estimated), steady-state equivalent, starting/transient dynamic and coupled electromechanical/thermal model.
+- Initial implementation priority is high because Motor Dynamics is the first closed-loop simulation reference; no assumed parameter may be presented as measured or manufacturer-verified.
+
+#### E7. Circuit breaker and switching devices
+
+- Ratings: rated voltage/current/frequency, short-time withstand, peak withstand, making and breaking capacity, operating sequence and applicable duty.
+- Switching: pole count, open/closed/intermediate states where applicable, mechanism, trip/close coil interface and auxiliary contacts.
+- Timing: opening/closing time and pole scatter where specified or measured.
+- Constraints: breaking capacity and duty comparison must use compatible voltage, X/R, asymmetry and standard-defined conditions; no simplistic current-only acceptance.
+- Domain boundary: equipment capability/rating is distinct from live operational state, Protection decision, Control command and physical feedback.
+- Separate family contracts for breaker, disconnector, earthing switch, fuse and contactor despite shared switching capabilities.
+
+#### E8. Current transformer (CT)
+
+- Primary/secondary terminals and polarity/dot convention; ratio and rated secondary current.
+- Core identity and purpose (measurement, protection, differential, metering) with separate core data where multi-core.
+- Accuracy class, burden, rated output, instrument security factor or accuracy limit factor as applicable.
+- Excitation/magnetization curve, winding resistance, knee-point/saturation data and transient performance where required.
+- Frequency, insulation level, short-time thermal/dynamic current ratings and grounding.
+- Association to primary network terminal and secondary measurement channels is explicit; ratio or core changes create instrumentation revisions and selectively invalidate dependent Protection elements.
+
+#### E9. VT/PT and CVT
+
+- Primary/secondary winding or divider configuration, ratio, polarity, phase relationship and grounding.
+- Rated burden/output, accuracy class, voltage factor, frequency and insulation level.
+- Winding resistance/impedance or CVT divider/compensation and transient response where required by the selected application.
+- Secondary protection/fusing and channel association.
+- Measurement quality and bandwidth limitations are declared; instrument transformer presence does not guarantee fresh or valid measurements.
+
+#### E10. Protection relay and IED
+
+- Device identity: manufacturer, model, hardware/firmware revision, supported protocol and capability set.
+- Inputs: CT/VT channel requirements, nominal secondary quantities, sampling/measurement characteristics and channel mapping.
+- Functions: stable function identity/code, setting groups, parameters, characteristic/curve references, logic and enabled state.
+- Outputs: trip/alarm/indication interfaces, contact ratings and communication interfaces.
+- Evidence: setting file revision, checksum, source, approval and commissioning/test records.
+- Domain boundary: relay equipment/configuration is distinct from ProtectionElement evaluation, ProtectionDecision, DeviceCommand, acknowledgement and physical breaker feedback. No catalogue template or imported setting file may directly authorize a trip.
+
+#### E11. Static load and aggregated load
+
+- P/Q or current/impedance representation, nominal voltage, frequency, phase connection and operating condition.
+- Load model composition (constant power/current/impedance or declared ZIP mix), power factor convention and demand/diversity assumptions.
+- Time profile and dependency references where dynamic load is supported.
+- Explicit distinction between measured demand, design demand, estimated load and study scenario.
+- Validation of sign convention, base, voltage dependency and operating range.
+
+#### E12. Capacitor bank, shunt reactor and power-electronic converter
+
+- Capacitor/reactor: rated voltage, reactive power, frequency, connection, steps, tolerance, losses, grounding and switching/detuning/reactor data where applicable.
+- Converter: AC/DC ports, rated power/voltage/current, topology/class, switching frequency and control mode where modeled.
+- Dynamic model: control loops, limits, DC-link and switching/averaged model selection with fidelity and initialization declared.
+- Harmonic emission/filter characteristics must be separate from fundamental-frequency equivalent parameters.
+- Converter control remains governed by its domain model; model execution must not create an operational command path.
+
+#### E13. Sensors, transducers and measurement channels
+
+- Measurand and quantity dimension, range, output type, scaling, accuracy, resolution, response time/bandwidth and calibration.
+- Channel identity, acquisition source, sampling rate, timestamp semantics, quality state and source identity.
+- Analog/digital/communication interfaces and engineering-unit conversion.
+- Sensor/device configuration is distinct from measurement sample; a configured channel does not imply valid, fresh or good-quality data.
+- RTD, thermocouple, pressure, temperature, vibration and process sensors should share the signal infrastructure while retaining sensor-specific calibration and transfer characteristics.
+
+#### E14. PLC, RTU, controller, remote I/O and actuator
+
+- Device identity, hardware/firmware, module/slot/channel structure, signal type, range and communication capability.
+- PLC/RTU: task/cycle characteristics, I/O mapping, supported languages/runtime and configuration provenance; executable logic is separately versioned and sandboxed where supported.
+- Actuator: command type, operating range, travel/response time, energy source, fail position, limits and feedback.
+- Typed command/feedback signals, interlock/permissive contracts and communication quality.
+- Control execution and authorization remain Control-domain-owned; equipment definition cannot bypass interlocks or directly mutate device state.
+
+### F. Initial family coverage matrix and sequencing
+
+Recommended implementation waves:
+
+**Wave 0 — Canonical contracts and minimum electrical network**
+- Equipment identity, family/type registry contract, typed quantities, terminals/ports, provenance, lifecycle and validation.
+- Bus/node, line, cable, two-winding transformer, static load and breaker/disconnector minimum contracts.
+- SLD palette and Inspector consume these contracts; symbol placement remains separate from equipment creation.
+- Enables basic project network construction and initial Load Flow/Short Circuit input readiness.
+
+**Wave 1 — Instrumentation and Protection foundations**
+- CT, VT/PT, CVT, sensor, measurement channel and relay/IED contracts.
+- Explicit primary/secondary association, core/channel mapping, calibration and measurement quality.
+- Protection input resolution and per-element dependency invalidation.
+- Does not imply completed relay vendor configuration or live device connectivity.
+
+**Wave 2 — Motor Dynamics reference**
+- Induction motor, synchronous motor (where required), mechanical load, shaft/inertia, starter/drive interfaces and thermal boundary minimum.
+- Nameplate and estimated parameter provenance; model readiness and fidelity.
+- CPU reference model first, optional GPU acceleration only after correctness evidence; NPU inference is not physical model authority.
+- Closed-loop simulation uses the shared runtime while Protection and Control remain separate participants.
+
+**Wave 3 — Generation, reactive compensation and power conversion**
+- Synchronous generator, capacitor bank, shunt reactor, converter/inverter, storage and excitation/governor interfaces.
+- Expand dynamic studies and co-simulation with explicit model readiness.
+
+**Wave 4 — Industrial auxiliaries and process interfaces**
+- UPS/DC system, chargers, cooling/lubrication, process instrumentation, actuators and selected mechanical/fluid/thermal components.
+- Delivered by validated domain extensions where practical, not by bloating the primary Core family set.
+
+This sequence is a proposal; user approval and gate review are required before implementation planning is frozen.
+
+### G. Core versus extension placement
+
+Core should contain stable identity, generic typed parameter/value primitives, quantity/unit semantics, terminal/port abstractions, capability contracts, lifecycle/provenance references, validation result contracts and domain-neutral equipment relationships.
+
+Core should not contain every vendor product, UI symbol, datasheet parser, vendor-specific relay setting format, PLC runtime, model executable or optional process-equipment implementation.
+
+Domain-owned packages should implement family semantics where those semantics are inseparable from a domain (e.g. Protection function configuration, Control program/runtime, motor dynamic equations). The consolidated plugin location should host extension manifests, registrations and provider adapters. A single public extension registry should discover equipment definitions, model providers, catalogue adapters, symbol renderers and import/export mappings without introducing duplicate managers or event buses.
+
+A plugin must declare stable IDs, semantic version, compatibility range, capabilities, dependencies, trust/permissions, licensing, migration support and data ownership. Missing providers must not delete persisted equipment or silently substitute another family/model.
+
+### H. Catalogue, standards and regionalization
+
+Manufacturer catalogue datasets should be optional, versioned and independently updateable. The project stores the selected product reference, exact catalogue revision and copied/overridden project parameter values needed for reproducibility; it must not require a live catalogue service to reopen or recalculate a saved project.
+
+Catalogue values must be traceable to source documents and conditions. No product selection is automatically standards-compliant. Each family parameter/rule should link to the applicable standards baseline and clause mapping described in 8I-25. BIS/IEC/IEEE designation, edition, amendment, national adoption and applicability must be verified independently; do not infer compliance from a product category or vendor declaration alone.
+
+Regional variants, grid codes, frequency, voltage classes, environmental conditions and national deviations should be represented as applicability profiles, not hard-coded global defaults. The default project context must be explicit and user-confirmed.
+
+### I. Engineering validation and readiness levels
+
+Provide distinct readiness outcomes:
+- **Structurally valid:** schema, identity and references are valid.
+- **Parameter complete:** required parameters for a declared use case are present with units and provenance.
+- **Study ready:** a selected solver has all required model inputs and boundary conditions.
+- **Protection/Control ready:** domain-specific interfaces, configuration and dependencies meet the relevant owner contract.
+- **Commissioning evidenced:** required external test/inspection/approval evidence is linked and reviewed.
+- **Operationally eligible:** only a separately governed operational system may determine this; library readiness must never imply physical actuation authorization.
+
+Readiness is scoped to a family, instance, model and intended use. It is not a universal green status. A motor may be ready for a basic Load Flow but not a transient starting study; a CT may be valid for metering but not demonstrated adequate for a differential protection application.
+
+### J. UI library and engineer workflow
+
+The equipment browser should support semantic category navigation, search by function/tag/manufacturer/model, filters by voltage/rating/capability, recently used/favourites and project-approved catalogue sources. Search results must clearly distinguish generic family templates from exact manufacturer products and project instances.
+
+Creation workflow:
+1. choose a semantic family/type;
+2. choose generic template or verified catalogue product;
+3. enter or review required project/nameplate parameters;
+4. resolve terminal and capability configuration;
+5. inspect missing values, assumptions, unit/base warnings and model readiness;
+6. place the equipment instance and separate SLD representation;
+7. connect through explicit compatible terminals;
+8. complete domain-specific configuration in the owning workspace;
+9. commit through Application validation and preserve provenance.
+
+The Inspector must show source/status for each critical parameter and identify whether it is editable in the current domain. Bulk edit must preserve per-instance provenance and report partial failures. No hidden defaults or catalogue auto-fill may be accepted without disclosure.
+
+### K. Candidate acceptance scenarios
+
+The following are proposed only and are not represented as executed or passed:
+
+- UI-ACC-LIB-01: navigate the library by engineering family and capability.
+- UI-ACC-LIB-02: distinguish generic templates, catalogue products and project equipment instances.
+- UI-ACC-LIB-03: create a bus/node without treating it as a two-terminal branch.
+- UI-ACC-LIB-04: configure line/cable electrical parameters with explicit units and temperature/frequency basis.
+- UI-ACC-LIB-05: configure a two-winding transformer with winding, vector-group, tap and impedance semantics.
+- UI-ACC-LIB-06: configure a multi-winding transformer without flattening winding identity.
+- UI-ACC-LIB-07: configure motor nameplate and dynamic parameters with measured/estimated provenance.
+- UI-ACC-LIB-08: report motor readiness separately for Load Flow and transient simulation.
+- UI-ACC-LIB-09: configure breaker ratings separately from open/closed state and Protection decision.
+- UI-ACC-LIB-10: configure CT multi-core ratio/class/burden and explicit primary/secondary associations.
+- UI-ACC-LIB-11: configure PT/CVT ratio, phase and secondary channel mapping.
+- UI-ACC-LIB-12: map relay function/settings/input channels without conflating relay configuration and ProtectionDecision.
+- UI-ACC-LIB-13: map PLC/RTU signals and actuator feedback without bypassing Control authority.
+- UI-ACC-LIB-14: preserve measured, catalogue, nameplate and assumed parameter conflicts with source evidence.
+- UI-ACC-LIB-15: reject incompatible dimensions, units, bases and conditional parameter combinations.
+- UI-ACC-LIB-16: update catalogue data without overwriting a project instance or invalidating unrelated studies.
+- UI-ACC-LIB-17: replace a family symbol without changing equipment identity, terminals or topology.
+- UI-ACC-LIB-18: preserve equipment data when a family/model plugin is missing or disabled.
+- UI-ACC-LIB-19: selectively invalidate dependent studies and Protection elements after a relevant parameter change.
+- UI-ACC-LIB-20: report exact family/model/standards readiness and unresolved assumptions for an engineering deliverable.
+
+### L. Open decisions and research tasks
+
+1. Approve the top-level taxonomy and stable family/type naming conventions.
+2. Decide the exact Wave 0 family list and minimum supported Load Flow/Short Circuit semantics.
+3. Decide whether bus section, bus coupler and grounding switch are separate equipment types or capabilities plus explicit connection topology; preserve physical semantics either way.
+4. Define parameter dictionaries and canonical quantity ontology for the first families.
+5. Determine which line/cable sequence and phase-domain representations are required at initial release.
+6. Establish minimum transformer vector-group, tap and zero-sequence support.
+7. Specify motor equivalent-circuit parameter estimation policy and explicit uncertainty for missing test data.
+8. Define CT/VT core, burden, saturation and transient data needed for each supported Protection function.
+9. Prioritize relay/IED configuration depth and supported vendor import formats.
+10. Define PLC/RTU/actuator scope without turning the equipment library into an unrestricted code execution environment.
+11. Decide catalogue sourcing, licensing, offline cache and product lifecycle policy.
+12. Define standards profiles for target jurisdictions and the evidence required to claim conformance.
+13. Reconcile family schemas with project persistence (8I-23), interoperability (8I-24), standards traceability (8I-25), solver governance (8I-26), co-simulation (8I-27) and canonical equipment model (8I-28).
+14. Confirm the first closed-loop Motor Dynamics model scope and the minimum equipment/signal/control/protection participants it requires.
+
+### M. Gate and scope disposition
+
+This section informs UI-GATE-02 (project/equipment persistence), UI-GATE-03 (typed validation and readiness), UI-GATE-04 (accessible parameterization), UI-GATE-05 (library/catalogue performance), UI-GATE-06 (provenance and dependency traceability) and UI-GATE-07 (family prioritization and release scope).
+
+All affected gates remain open. This section does not freeze the taxonomy, parameter schemas, family implementation, catalogue provider or release plan. The family matrix and scenarios are proposed architecture/acceptance candidates only.
+
+### N. Frozen invariants and scope boundary
+
+- Equipment identity, semantic type, engineering parameters, catalogue record, evidence, model assignment and presentation remain distinct linked concepts.
+- Core owns canonical equipment identity, terminals, topology and domain engineering truth; Application owns controlled mutation and lifecycle orchestration.
+- Family semantics are typed and capability-based; generic property bags do not replace engineering parameter contracts.
+- Units, dimensions, bases, precision, uncertainty and provenance remain explicit.
+- Catalogue and extracted data do not silently overwrite project configuration or become verified engineering truth.
+- Protection and Control remain separate domain authorities; equipment definitions cannot dispatch physical actions.
+- Equipment symbols are projections and cannot define equipment identity or connectivity.
+- Plugins use the consolidated public extension architecture; Core does not depend on plugin implementations.
+- Persisted project data remains portable under the frozen .gridforge package contract.
+- Missing model parameters/providers produce explicit readiness/unsupported states, never fabricated certainty.
+- No catalogue, family, parameter or model scope is approved for implementation solely by this research entry.
+
+**Scope boundary:** research register only. No equipment family, schema, catalogue dataset, product record, UI library, parameter database, plugin, model, migration, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
