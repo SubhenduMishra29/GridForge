@@ -3858,6 +3858,20 @@ class Application:
                         if network is not None and self._revision_service.is_topology_command(command)
                         else None
                     )
+                reconciliation_diagnostic = self._reconcile_protection_runtime_after_history(
+                    command,
+                    network,
+                )
+                if reconciliation_diagnostic is not None:
+                    result = ApplicationResult.success_result(
+                        value=result.value,
+                        message=result.message,
+                        metadata={
+                            **dict(result.metadata),
+                            "protection_runtime_status": "unavailable",
+                            "protection_runtime_diagnostic": reconciliation_diagnostic,
+                        },
+                    )
                 if self._validation_service is not None and not command.command_type.startswith("sld."):
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
