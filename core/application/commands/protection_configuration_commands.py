@@ -19,6 +19,7 @@ UPDATE_PROTECTION_CONFIGURATION = "protection.update_configuration"
 DELETE_PROTECTION_CONFIGURATION = "protection.delete_configuration"
 BIND_PROTECTION_MEASUREMENT = "protection.bind_measurement"
 UNBIND_PROTECTION_MEASUREMENT = "protection.unbind_measurement"
+CREATE_PROTECTION_MEASUREMENT_BINDING = "protection.create_measurement_binding"
 REBIND_PROTECTION_MEASUREMENT_BINDING = "protection.rebind_measurement_binding"
 SET_SYNCHRONISM_CHECK_CONFIGURATION = "protection.set_synchronism_check_configuration"
 CREATE_DIFFERENTIAL_SCHEME = "protection.create_differential_scheme"
@@ -82,6 +83,37 @@ class UnbindProtectionMeasurementCommand(Command):
             {"element_id": element_id.strip(), "input_name": input_name.strip()},
             command_id=command_id, correlation_id=correlation_id, causation_id=causation_id,
         ))
+
+class CreateProtectionMeasurementBindingCommand(Command):
+    """Create one canonical source-to-RelayInput measurement binding."""
+
+    def __init__(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be ProtectionMeasurementBinding.")
+        if (
+            binding.instrument_primary_side is not None
+            or binding.instrument_primary_component_fingerprint is not None
+        ):
+            raise ValueError("Create command requires an unassociated candidate binding.")
+        super().__init__(**_command(
+            CREATE_PROTECTION_MEASUREMENT_BINDING,
+            {
+                "binding": binding,
+                "binding_id": binding.binding_id,
+                "protection_element_id": binding.protection_element_id,
+            },
+            command_id=command_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        ))
+
 
 class RebindProtectionMeasurementBindingCommand(Command):
     """Explicitly re-resolve one persisted CT primary-side association."""
@@ -185,6 +217,7 @@ class SetSynchronismCheckConfigurationCommand(Command):
 __all__ = [
     "CREATE_PROTECTION_CONFIGURATION", "UPDATE_PROTECTION_CONFIGURATION", "DELETE_PROTECTION_CONFIGURATION", "BIND_PROTECTION_MEASUREMENT", "UNBIND_PROTECTION_MEASUREMENT", "SET_SYNCHRONISM_CHECK_CONFIGURATION",
     "CREATE_DIFFERENTIAL_SCHEME", "UPDATE_DIFFERENTIAL_SCHEME", "DELETE_DIFFERENTIAL_SCHEME",
+    "CREATE_PROTECTION_MEASUREMENT_BINDING", "CreateProtectionMeasurementBindingCommand",
     "REBIND_PROTECTION_MEASUREMENT_BINDING", "RebindProtectionMeasurementBindingCommand",
     "CreateDifferentialSchemeCommand", "UpdateDifferentialSchemeCommand", "DeleteDifferentialSchemeCommand",
     "CreateProtectionConfigurationCommand", "UpdateProtectionConfigurationCommand",
