@@ -1332,6 +1332,7 @@ class Application:
 
         channels = service.channels
         runtime_channels = runtime.channels
+        captured_scenario_revision = self.revision
         if runtime_channels.keys() != channels.keys() or any(
             runtime_channels[channel_id] is not channel for channel_id, channel in channels.items()
         ):
@@ -1762,6 +1763,8 @@ class Application:
         )
         decisions = runtime.system.evaluate(context)
         current_lifecycle = self.project_lifecycle
+        current_channels = self.measurement_channel_service
+        current_channel_mapping = current_channels.channels
         if (
             current_lifecycle.state != "ACTIVE"
             or current_lifecycle.context is not project
@@ -1771,10 +1774,20 @@ class Application:
             or (protection_runtime is None and active_runtime is not runtime)
             or configuration_service.configuration is not configuration
             or not runtime.configuration_matches_composition
-            or self.measurement_channel_service is not service
+            or not runtime.equipment_state_matches_composition
+            or current_channels is not service
+            or current_channels.project_id != project.project_id
+            or current_channels.activation_generation != current_lifecycle.activation_generation
+            or current_channels.network is not current_lifecycle.network
+            or current_channel_mapping.keys() != channels.keys()
+            or any(current_channel_mapping[channel_id] is not channel for channel_id, channel in channels.items())
+            or self.revision.instrumentation_revision != captured_scenario_revision.instrumentation_revision
+            or self.revision.protection_equipment_revision != captured_scenario_revision.protection_equipment_revision
+            or self.revision.protection_configuration_revision != captured_scenario_revision.protection_configuration_revision
+            or network_state.topology_revision != current_lifecycle.network.state.topology_revision
         ):
             raise StaleProtectionExecutionError(
-                "Project, topology, protection runtime/configuration or measurement authority changed during scenario evaluation."
+                "Project, topology, protection runtime/configuration, equipment revisions or measurement authority changed during scenario evaluation."
             )
         return ProtectionExecutionResult(decisions=decisions)
 
