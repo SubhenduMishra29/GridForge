@@ -2501,3 +2501,245 @@ Frozen architecture invariants:
 - Device feedback, Protection decisions, Control execution and measurement quality retain distinct semantics when announced.
 
 **Scope boundary:** research register only. No implementation files, accessibility adapters, theme behavior, platform configuration or V2 behavior were changed. No tests or CI were run.
+
+
+## 8I-15. Proposed V3 display performance and rendering usability contract (2026-11-04)
+
+**Purpose:** Establish UI-GATE-05 requirements for responsive engineering canvases and large-project usability. This is a research/specification proposal, not a benchmark result, confirmed bottleneck diagnosis, renderer selection or implementation authorization.
+
+### A. Technical research basis
+
+Primary references:
+1. Qt 6.12 QGraphicsView: https://doc.qt.io/qt-6/qgraphicsview.html
+2. Qt 6.12 QGraphicsScene: https://doc.qt.io/qt-6/qgraphicsscene.html
+3. Qt 6.12 QPainter performance: https://doc.qt.io/qt-6/qpainter.html
+
+Relevant Qt behavior:
+- QGraphicsView offers multiple viewport update modes. MinimalViewportUpdate is the default and generally minimizes redraw area, but many small changes can make damage-region calculation more expensive than repainting. FullViewportUpdate can be preferable when many small items repeatedly change or when the viewport does not support partial updates. No mode is universally optimal. (Qt QGraphicsView documentation.)
+- QGraphicsScene uses BSP indexing by default, suited to largely static scenes. NoIndex avoids index-maintenance costs for frequently changing scenes but makes location queries linear. A fixed scene rectangle avoids the expensive fallback of computing bounds from every item. BSP depth trades lookup behavior against memory and should not be tuned without representative data. (Qt QGraphicsScene documentation.)
+- QPainter performance varies by paint engine, device, composition mode, transforms, clipping, antialiasing and image formats. Qt documents high-performance subsets but recommends benchmarking other combinations on target systems. OpenGL-backed painting is an option, not proof of a universal speedup over raster. (Qt QPainter documentation.)
+
+**Research conclusion:** performance must be measured end-to-end on representative engineering workloads. Selecting an update mode, BSP policy, cache, OpenGL viewport or batching strategy from intuition alone is not an acceptable architecture decision.
+
+### B. User-perceived performance contract
+
+Measure complete user-visible operations, not only paint-event duration:
+1. Open/load: project selection to interactive document; separately measure package I/O, deserialization, projection construction, first useful paint and full detail availability.
+2. First paint: shell and canvas become useful without waiting for all optional labels, overlays, diagnostics or secondary indexes.
+3. Pan/zoom: navigation remains predictable; no stale transform, jump, disappearing geometry or delayed pointer response.
+4. Selection/hit testing: pointer or keyboard selection returns the correct engineering object and Inspector context without a long UI stall.
+5. Placement/preview: preview follows pointer smoothly; snap candidates and compatibility hints do not block the UI thread.
+6. Wire/connect: preview geometry and terminal targeting remain responsive while domain validation and topology operations remain authoritative.
+7. Move/rotate/multi-select: only affected visual regions and dependent projections are recomputed where possible.
+8. Property editing: field changes update only necessary projection/validation/display; expensive studies are not triggered synchronously by accident.
+9. Telemetry/operational overlay: high-rate samples are coalesced for display; rendering does not become a second acquisition or historian pipeline.
+10. Save/reopen and workspace switching: long operations expose progress and safe cancellation without freezing unrelated interaction.
+
+### C. Proposed rendering pipeline and ownership
+
+Candidate pipeline:
+1. Core/Application own engineering truth, revisions, commands, validation and typed read models.
+2. Projection adapters produce immutable or safely versioned render snapshots for a document, discipline, viewport and revision.
+3. A view-specific render layer converts snapshots into display primitives and semantic hit-test/accessibility structures.
+4. Viewport culling and level-of-detail (LOD) select detail for the visible region and scale.
+5. Renderer paints visible content and transient interaction overlays.
+6. Input/hit testing resolves a stable semantic object reference; command/controller revalidates current document/revision before mutation.
+
+Ownership rules:
+- Qt widgets, QGraphicsItem, QGraphicsScene and renderer caches remain UI infrastructure, never Core state or canonical project persistence.
+- Render snapshots are disposable projections, rebuildable from authoritative project/read-model data; they are not a second engineering truth.
+- Background workers may perform pure data preparation, indexing, routing/layout calculation or image preparation when inputs are immutable and outputs versioned. Qt scene/widget mutation and final UI presentation remain on the owning UI thread.
+- Every asynchronous result carries document identity and source revision/generation. Discard stale results rather than applying them to a changed document or newly active project.
+- Rendering optimization cannot change topology, connectivity, terminal identity, Protection zone, Control logic, measurement quality or numerical results.
+- Renderer does not own engineering validation or decide whether a wire/equipment placement is valid.
+
+### D. Scalability and rendering techniques to evaluate
+
+**1. Viewport culling**
+- Draw only visible objects plus a controlled margin for labels, wire joins, selection handles and interaction affordances.
+- Use spatial queries over stable projection geometry; avoid scanning all domain objects on every paint or pointer move.
+- Ensure culling never hides semantically relevant connectivity or produces false endpoint hit targets.
+- Bound and instrument visibility-query cost.
+
+**2. Level of detail**
+- Define zoom bands for symbols, labels, terminal markers, wire decorations, grid, measurement overlays and Control/Protection annotations.
+- At overview scale, simplify labels and decorative detail while preserving essential topology and status distinctions.
+- At detail scale, expose terminals, tags, values and interaction affordances.
+- Use hysteresis around LOD thresholds to avoid flicker during small zoom changes.
+- Hidden details remain available through object outline, Inspector, search and accessible navigation.
+
+**3. Batching and draw-call reduction**
+- Evaluate batched drawing for homogeneous static geometry (grid, repeated markers, simple wires) where selection, z-order, accessibility and per-object styling remain correct.
+- Retain stable semantic hit-test mapping from rendered batches to domain object references.
+- Avoid one heavyweight widget/proxy per decorative primitive.
+- Do not batch objects with incompatible update rates/lifecycles in ways that force full-batch invalidation.
+
+**4. Caching**
+- Cache only expensive deterministic revision-keyed results: static symbol paths, text layouts, background/grid tiles, stable geometry and derived display fragments.
+- Cache keys include project/document identity, source revision, symbol/library version, theme, scale/LOD and device-pixel ratio where applicable.
+- Bound cache memory; expose hit/miss, eviction and rebuild cost.
+- Invalidate narrowly when an object, style, theme, zoom or document revision changes.
+- Never cache mutable engineering authority or treat cached data as proof of current operational state.
+
+**5. Scene/index policy**
+- Benchmark spatial index policies against real static SLD networks and dynamic Control/Protection overlays.
+- Set and maintain an explicit scene/view bounds strategy; avoid repeatedly deriving global bounds from every item.
+- Compare BSP indexing with NoIndex or purpose-built spatial indexes for distinct workloads; do not assume one policy fits all canvases.
+- Avoid unbounded scene rectangles and excessive index retuning during edits.
+- Profile item count, bounding-rectangle complexity, shape/path complexity, index rebuilds and hit-test latency.
+
+**6. Update/damage policy**
+- Track changed regions and update only what is needed when damage is sparse.
+- Compare minimal, bounding-rect and full viewport update behavior under sparse edits, high-rate overlays and mass state changes.
+- Coalesce multiple events into one presentation update where freshness requirements permit.
+- Avoid repeated synchronous layout, text measurement, scene-wide bounds calculation or full projection rebuild during pointer movement.
+- Preserve correct repaint after expose, resize, dock movement, DPI transition and theme change.
+
+**7. Rendering backend**
+- Benchmark supported raster and accelerated viewport options on target hardware and driver combinations.
+- Use fallback behavior when accelerated context creation fails or remote desktop/driver conditions make it unsuitable.
+- Do not promise GPU acceleration until measured on the supported platform matrix.
+- Backend changes cannot alter rendering semantics, hit testing, text legibility or accessibility exposure.
+
+**8. Labels and overlays**
+- Defer nonessential labels at overview zoom; prioritize selected objects, warnings and user-requested annotations.
+- Avoid label-overlap algorithms that block interaction or repeatedly recompute globally.
+- Separate fast operational overlays from static network geometry and high-rate telemetry ingestion.
+- Display timestamps/quality and stale-state cues without repainting the entire network for every sample.
+
+### E. Discipline-specific performance requirements
+
+**SLD**
+- Large electrical networks remain navigable with predictable pan, zoom, fit-to-content, search, selection, terminal inspection and wire tracing.
+- Static topology/layout is not rebuilt for unrelated status/measurement updates.
+- Selection/hit testing distinguishes overlapping wires, terminals, bus segments and equipment at different zoom levels.
+- Draft previews and committed objects retain visual continuity without full-scene reconstruction.
+- Label simplification does not hide topology-critical connection meaning.
+
+**Control**
+- Ladder/rung navigation and editing remain responsive as logic, branch and signal-reference counts grow.
+- Runtime updates are coalesced and scoped to affected elements; UI refresh does not throttle or join the Control execution cycle.
+- Logic graph layout/route preparation may be asynchronous, but connections remain tied to stable logic identities and revisions.
+- Execution overlays cannot delay or change Control evaluation or actuation.
+
+**Protection**
+- Relay, function, measurement-channel, decision and event overlays update without rebuilding the electrical network.
+- Time-series plots and TCC/coordination curves use resolution-aware data reduction while preserving extrema, trip intersections and engineering-relevant features.
+- Curve visibility, selection and legend updates remain responsive with multiple relays/functions; expensive recalculation is explicit and cancellable where safe.
+- Rendering never changes Protection evaluation cadence or decision authority.
+
+**Study**
+- Large result tables, profiles and plots use lazy retrieval/virtualized presentation rather than a widget per visual cell/point.
+- Numerical calculation runs outside the UI thread through Application-owned execution services; progress and cancellation are explicit.
+- Display decimation never overwrites/reduces canonical numerical result data.
+- Result rendering/export identifies whether data are full-resolution, sampled or decimated.
+
+### F. Threading, event flow and responsiveness
+
+1. UI event loop must not perform long numerical studies, large project parsing, expensive global layout, bulk projection rebuild or synchronous external I/O.
+2. Application services own task lifecycle, cancellation, progress and result publication; UI consumes typed progress/result events.
+3. Worker inputs are immutable snapshots or explicitly synchronized data. Do not share mutable QGraphicsItem/QWidget or live Core entities across threads.
+4. Each result includes document identity, task identity, input revision and cancellation state.
+5. On document close/switch, cancel or detach tasks according to lifecycle; stale completion cannot mutate the active document.
+6. High-frequency signal updates are sampled/coalesced for display at a bounded presentation cadence. Acquisition/historian paths retain independent timing/fidelity.
+7. Prioritize user input, active viewport and visible diagnostics over offscreen decoration or background precomputation.
+8. Avoid unbounded task queues; backpressure and drop/coalesce policies are explicit for display-only events.
+9. Report long-running work with meaningful stages; do not fabricate percentage completion when total work is unknown.
+10. Unsupported acceleration must degrade to a correct supported path where feasible, with a visible diagnostic rather than a blank canvas.
+
+### G. Candidate performance measurement model
+
+Measure per operation and workload:
+- input-to-visible-feedback latency (p50, p95, p99);
+- frame/presentation interval distribution and missed-frame rate;
+- paint duration split by background, geometry, labels, overlays and selection;
+- projection build and invalidation duration;
+- spatial query/hit-test latency;
+- scene/index rebuild time;
+- project load to first useful paint and full interactive readiness;
+- memory for project model, projection, scene/items, caches and peak transient allocation;
+- worker queue depth, cancellation latency and stale-result discard count;
+- CPU and GPU/backend utilization where measurable;
+- telemetry-to-visible-overlay age, separately from acquisition sample age;
+- save/close responsiveness while background tasks are active.
+
+Build reproducible workload tiers from representative GridForge projects:
+- small: interactive editing and normal study;
+- medium: typical plant/substation project with multiple workspaces and overlays;
+- large: high object/connection counts, dense labels, multiple studies and live/simulated overlays;
+- stress: pathological geometry, dense overlap, high-rate status events and rapid zoom/pan/selection.
+
+Do not set object-count targets using arbitrary round numbers alone. Derive them from real project samples, product scale and customer use cases. Record dataset generator/version and workload characteristics.
+
+### H. Provisional targets and decision policy
+
+Candidate target bands for product review, not approved release criteria:
+- common direct interactions should provide visible acknowledgement within 100 ms at p95;
+- continuous navigation should target stable 60 Hz presentation on agreed reference hardware where supported (16.7 ms frame interval), with a separately agreed lower-tier fallback;
+- first useful canvas paint should precede optional offscreen detail, with numeric budget set from representative load measurements;
+- long operations expose progress/cancellation or staged availability rather than freezing the UI;
+- memory/cache budgets are set per supported hardware tier and measured under multi-document use.
+
+These are provisional usability goals, not a claim that every operation/device must meet them. Release profile specifies reference hardware, resolution, DPI, Qt build, backend, power mode, data scale, warm/cold cache and measurement methodology. Report p50/p95/p99, not only averages. One best-case screenshot or one machine's subjective impression is insufficient.
+
+### I. Candidate UI performance diagnostics
+
+A developer/engineering diagnostics view may expose:
+- active document and renderer/backend;
+- visible/total object counts by semantic class;
+- visible/culled counts and LOD band;
+- projection revision and render snapshot generation;
+- frame interval, paint duration and invalidation region size;
+- hit-test/spatial-query duration;
+- cache occupancy/hit rate/evictions;
+- pending worker tasks, stale results and cancellation state;
+- telemetry overlay age and coalescing/drop counts;
+- warnings for repeated full-scene invalidation, expensive bounds calculation or excessive item churn.
+
+Diagnostics are read-only; they do not expose mutable renderer objects or change engineering state. Performance instrumentation is not permanently visible in normal engineering workspaces.
+
+### J. Candidate acceptance scenarios for UI-GATE-05
+
+| Scenario | Setup/action | Expected evidence |
+|---|---|---|
+| UI-ACC-PERF-01 Large SLD navigation | Open representative large network; pan, zoom, fit and search | Input latency/frame distribution recorded; topology and selection remain correct |
+| UI-ACC-PERF-02 Dense hit testing | Select terminals/wires/equipment in overlapping regions at several zoom levels | Correct stable object resolution; p95 query latency recorded |
+| UI-ACC-PERF-03 Local edit invalidation | Move one object/change one property in a large network | Unrelated geometry not unnecessarily rebuilt; dirty region and projection work measured |
+| UI-ACC-PERF-04 High-rate overlay | Update measurement/operational overlays while navigating | Display coalesces safely; acquisition/history fidelity and UI responsiveness remain independent |
+| UI-ACC-PERF-05 Control execution display | Run representative large ladder/control model with active overlays | UI refresh does not block or alter Control cycle/execution |
+| UI-ACC-PERF-06 Protection overlay and curves | Show many relay/function states, TCC curves and event markers | Network remains navigable; curve decimation preserves relevant engineering features |
+| UI-ACC-PERF-07 Study result scale | Open large result tables/plots while calculation executes | UI remains interactive; display sampling does not alter canonical results |
+| UI-ACC-PERF-08 Save/load responsiveness | Load/save representative project sizes | First useful paint, full readiness and save stages measured; no partial project reported saved |
+| UI-ACC-PERF-09 Background task staleness | Switch/close document while projection/layout task runs | Stale result discarded/detached; no cross-document mutation |
+| UI-ACC-PERF-10 Backend fallback | Force accelerated backend unavailable/unsupported | Correct fallback or clear failure; no blank canvas or semantic mismatch |
+| UI-ACC-PERF-11 Cache invalidation | Change theme, scale, DPI, symbol revision and document revision | Correct invalidation; no stale visual or unbounded memory growth |
+| UI-ACC-PERF-12 Stress/recovery | Exercise dense geometry, repeated edits, rapid zoom and high-rate events | No crash/data corruption; responsiveness and memory degradation characterized |
+
+### K. Open decisions before approval
+
+1. What are reference hardware tiers and minimum GPU/driver/platform configurations?
+2. Which renderer remains V3 default: QGraphicsView/QPainter raster, accelerated QOpenGLWidget, custom painter/scene or another Qt-supported approach?
+3. What are supported project-size/workload tiers and representative real-world datasets?
+4. Which p95/p99 latency, frame pacing, load-to-first-paint and memory targets are release gates?
+5. Which LOD/label suppression rules are acceptable to engineers for SLD, Control, Protection and Study?
+6. Which rendering operations may run asynchronously, and what immutable snapshot/revision contract governs them?
+7. What display cadence/coalescing policy applies to measurement, Protection, Control and device-feedback overlays?
+8. Which cache budgets and invalidation dimensions apply to theme, DPI, symbol library and project revision?
+9. What backend fallback and remote-desktop support are required?
+10. Who owns performance instrumentation, dataset corpus, benchmark reproducibility and regression review?
+11. What is the minimum multi-document memory/responsiveness profile?
+12. Which visual details may be reduced at overview zoom, and which engineering semantics must never be hidden?
+
+### L. Gate disposition and invariants
+
+**UI-GATE-05 remains Open.** This proposal defines end-to-end measurement, rendering ownership, culling/LOD/caching/indexing choices to benchmark, discipline-specific behavior, threading boundaries, provisional target bands and candidate acceptance scenarios. No renderer, cache policy, object-count limit or performance threshold is approved.
+
+Frozen architecture invariants:
+- Core and Application remain authoritative for engineering state; render snapshots are disposable projections.
+- UI rendering and telemetry display cannot become part of Protection/Control execution authority or acquisition/historian fidelity.
+- Qt scene/widgets and renderer caches are not project persistence data.
+- Asynchronous work is revision- and document-bound; stale results cannot mutate a changed or newly active document.
+- Optimizations cannot alter electrical topology, terminal identity, Control logic, Protection decisions, numerical study results or feedback truth.
+- Discipline-specific canvas semantics remain distinct even when they share rendering infrastructure.
+
+**Scope boundary:** research register only. No renderer, scene policy, cache, threading model, benchmark harness, project schema, source implementation or V2 behavior was changed. No tests or CI were run.
