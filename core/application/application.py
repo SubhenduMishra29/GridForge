@@ -330,10 +330,8 @@ class Application:
                 read_service=self._read_service,
                 measurement_read_service=self._measurement_channel_read_service,
             )
-        self._control_signal_mapping = mapping
-        if mapping is None:
-            self._control_signal_mapping_project_id = None
-        else:
+        project_id = None
+        if mapping is not None:
             lifecycle = self._project_lifecycle
             active_context = lifecycle.context if lifecycle is not None else None
             project_id = (
@@ -343,7 +341,8 @@ class Application:
             )
             if not isinstance(project_id, str) or not project_id.strip():
                 raise RuntimeError("Control signal mapping requires an identifiable project owner.")
-            self._control_signal_mapping_project_id = project_id
+        self._control_signal_mapping = mapping
+        self._control_signal_mapping_project_id = project_id
         if next_cycle is not None:
             self._control_cycle = next_cycle
     def configure_dynamic_control_runtime(
