@@ -216,7 +216,12 @@ class ProtectionGraphicsSurface(QGraphicsView):
                     element_id=element_id,
                 )
                 decision = decisions_by_element.get(element_id)
-                decision_text = self._decision_text(decision) if decision is not None else "NOT EVALUATED"
+                if decision is not None:
+                    decision_text = self._decision_text(decision)
+                elif not bool(getattr(configuration, "enabled", True)):
+                    decision_text = "DISABLED — NOT EVALUATED"
+                else:
+                    decision_text = "NOT EVALUATED"
                 decision_node = self._add_node(
                     f"{relay_id}:element:{element_id}:decision",
                     f"DECISION\n{decision_text}",
@@ -492,7 +497,10 @@ class ProtectionInspector(QGroupBox):
 
             decision = decision_by_element.get(element_id)
             if decision is None:
-                lines.append("  Decision: No evaluated ProtectionDecision is available for this element.")
+                if not bool(getattr(configuration, "enabled", True)):
+                    lines.append("  Decision: DISABLED — this element was not evaluated.")
+                else:
+                    lines.append("  Decision: No evaluated ProtectionDecision is available for this element.")
             else:
                 lines.extend([
                     f"  Decision: {ProtectionGraphicsSurface._decision_text(decision)}",
