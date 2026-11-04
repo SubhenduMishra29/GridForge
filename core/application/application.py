@@ -1106,7 +1106,10 @@ class Application:
         def invalidate_rejected_element(message: str, decision: Any) -> None:
             """Remove only the stale element's decision from the Core decision cache."""
             try:
-                captured_runtime.system.invalidate_element_decision(decision.element_id)
+                captured_runtime.system.invalidate_element_decision(
+                    decision.element_id,
+                    expected_decision=decision,
+                )
             except Exception as exc:
                 raise StaleProtectionExecutionError(
                     f"{message}; per-element decision-cache invalidation failed: {exc}"
@@ -1121,6 +1124,29 @@ class Application:
             if captured_dependency_registry.diagnostics:
                 raise StaleProtectionExecutionError(
                     "Protection dependency registry contains duplicate or unclassifiable binding identities."
+                )
+            try:
+                cached_element = captured_runtime.system.get_element(str(decision.element_id))
+            except (KeyError, LookupError, ValueError):
+                raise StaleProtectionDecisionError(
+                    f"Protection element {decision.element_id!r} is no longer present in the captured runtime."
+                )
+            if (
+                cached_element.last_decision is not decision
+                or not any(
+                    cached is decision
+                    for cached in captured_runtime.system.last_decisions
+                )
+            ):
+                # A re-entrant cycle may have replaced this decision. Reject
+                # the old action without invalidating a newer cached decision.
+                raise StaleProtectionDecisionError(
+                    f"Protection decision for element {decision.element_id!r} is no longer the current cached decision."
+                )
+            if str(getattr(cached_element.state, "value", cached_element.state)).upper() == "FAILED":
+                invalidate_rejected_element(
+                    f"Protection element {decision.element_id!r} entered FAILED state after decision evaluation.",
+                    decision,
                 )
             try:
                 captured_descriptor = captured_dependency_registry.descriptor_for(
