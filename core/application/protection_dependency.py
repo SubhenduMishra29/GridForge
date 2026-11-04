@@ -249,7 +249,7 @@ def build_protection_dependency_registry(
 
         try:
             relay = network.get_by_id("relay", element.relay_id)
-        except (KeyError, ValueError):
+        except (LookupError, ValueError):
             relay = None
         if relay is None:
             element_diagnostics.append(f"{prefix}: configured Relay {element.relay_id!r} is absent from the active Network.")
@@ -264,7 +264,7 @@ def build_protection_dependency_registry(
                 element_diagnostics.append(f"{prefix}: residual-current configuration is missing.")
             else:
                 expected = {
-                    binding_id: ("residual_current", binding_id)
+                    binding_id: ("residual_current", None)
                     for binding_id in (
                         (residual.phase_binding_ids or {}).values()
                         if residual.mode == "THREE_PHASE_SUM"
@@ -296,7 +296,7 @@ def build_protection_dependency_registry(
                 )
                 continue
             binding = matches[0]
-            if binding.channel_id != expected_channel_id:
+            if expected_channel_id is not None and binding.channel_id != expected_channel_id:
                 element_diagnostics.append(
                     f"{prefix}, binding={binding.binding_id!r}: channel identity does not match configured input membership."
                 )
@@ -316,7 +316,7 @@ def build_protection_dependency_registry(
                 element_diagnostics.append(f"{binding_prefix}: binding owner does not match its element.")
                 continue
             add_dependency("measurement_binding", binding.binding_id, binding.to_dict())
-            add_dependency("source_equipment", binding.source_equipment_id, {
+            add_dependency("source_endpoint_association", binding.source_equipment_id, {
                 "source_equipment_id": binding.source_equipment_id,
                 "source_endpoint": binding.source_endpoint_reference.to_mapping(),
             })
@@ -432,9 +432,11 @@ def build_protection_dependency_registry(
         activation_generation=activation_generation,
         descriptors=descriptors,
         consumers=consumers,
-        complete=(len(descriptors) == len(configuration.elements) and all(
-            item.complete for item in descriptors.values()
-        )),
+        complete=(
+            not diagnostics
+            and len(descriptors) == len(configuration.elements)
+            and all(item.complete for item in descriptors.values())
+        ),
         diagnostics=tuple(diagnostics),
     )
 
