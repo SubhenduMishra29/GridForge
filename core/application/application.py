@@ -840,16 +840,21 @@ class Application:
                 or current_runtime.activation_generation != captured_generation
                 or current_runtime.configuration is not captured_configuration
                 or not current_runtime.configuration_matches_composition
-                or not current_runtime.equipment_state_matches_composition
                 or current_channels is not captured_channel_service
                 or current_channels.project_id != captured_project.project_id
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
-                or relay_state_fingerprint(captured_network) != captured_relay_state
-                or instrumentation_state_fingerprint(captured_network) != captured_instrumentation_state
-                or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
-                or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
+                or (
+                    not (captured_dependency_registry.complete and network_state is None)
+                    and (
+                        not current_runtime.equipment_state_matches_composition
+                        or relay_state_fingerprint(captured_network) != captured_relay_state
+                        or instrumentation_state_fingerprint(captured_network) != captured_instrumentation_state
+                        or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
+                        or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
+                    )
+                )
                 or self.revision.protection_configuration_revision != captured_revision.protection_configuration_revision
             ):
                 raise StaleProtectionExecutionError(
@@ -860,6 +865,12 @@ class Application:
 
         def ensure_current_protection_topology() -> None:
             """Reject an action based on a topology snapshot changed during evaluation."""
+            if captured_dependency_registry.complete and network_state is None:
+                # Every enabled, dispatchable function has a complete
+                # element-local topology dependency set. Component and
+                # conductive equipment fingerprints now replace the global
+                # topology revision as the invalidation authority.
+                return
             current_state = getattr(captured_network, "state", None)
             current_revision = getattr(current_state, "topology_revision", None)
             if current_revision != captured_topology_revision:
