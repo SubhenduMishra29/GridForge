@@ -7661,3 +7661,296 @@ All affected gates remain open. This entry does not approve a signal schema, dri
 - Project persistence remains within the frozen .gridforge package contract.
 
 **Scope boundary:** research register only. No acquisition driver, signal bus, measurement schema, time-synchronization service, protocol stack, signal processor, historian, UI, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+
+## 8I-34. Proposed V3 Protection and Control signal-consumer contracts and deterministic execution integration (2026-11-04)
+
+### A. Research objective and architectural decision
+
+8I-33 defines a shared Signal and Measurement Infrastructure for physical, simulated and replayed sources. This section defines how Protection and Control consume that infrastructure without collapsing their distinct engineering semantics, execution authorities, lifecycle, safety policy or traceability.
+
+**Primary decision:** shared signals and measurements are common data infrastructure, not a common domain execution engine. Protection and Control shall use separate typed consumer contracts, dependency models, schedulers, state machines and decision/action pipelines. Shared infrastructure may provide immutable measurement snapshots, provenance, quality metadata, time coordination primitives, subscription transport and diagnostics; it must not decide Protection trips, Control actions, interlocks or physical outputs.
+
+The architecture must make every evaluation reproducible from a defined input snapshot and revision set, while preventing stale, incomplete, out-of-order or untrusted data from silently authorizing an operation.
+
+### B. Domain boundary and responsibility matrix
+
+| Concern | Shared Signal/Measurement infrastructure | Protection domain | Control domain |
+|---|---|---|---|
+| Source and channel identity | Canonical identity and provenance | Consumes exact bound sources | Consumes exact bound sources |
+| Raw acquisition and timestamps | Acquisition, time quality, sequence and source status | Applies Protection acceptance rules | Applies Control task/input rules |
+| Typed engineering values | Units, dimensions, phase, convention, quality | Interprets relay-function-specific quantities | Interprets logic/process-specific quantities |
+| Calibration and processing lineage | Versioned provenance and immutable derived values | Validates required calibration and processing revisions | Validates required input configuration and processing revisions |
+| Dependency configuration | Exposes revisioned read models | Owns element/function dependency graph | Owns task/program/input dependency graph |
+| Evaluation scheduling | Delivers data/events with declared semantics | Protection-owned scheduler and evaluation lifecycle | Control-owned scan/task/event scheduler |
+| Decision and action | No authority | ProtectionDecision and Protection-owned trip logic | Control evaluation, action intent and sequence logic |
+| Physical command and feedback | Correlation and transport metadata only | Uses authorized command path | Uses authorized command path |
+| Historian and trace | Common evidence storage interfaces | Protection-specific evidence semantics | Control-specific evidence semantics |
+
+A shared adapter may normalize data representation, but must not normalize away domain-specific quality, timing, state, interlock or execution semantics. Neither domain may mutate canonical measurement history to make an input appear valid.
+
+### C. Typed Protection consumer contract
+
+Each Protection relay function or ProtectionElement shall declare an explicit, revisioned input contract. A contract shall identify, as applicable:
+
+- Stable relay identity, function identity and function code; canonical ProtectionDecision fields remain relay_id, function_id and function_code. Do not substitute element_id for function_id.
+- Required measurement or signal identities and the exact source/acquisition-channel binding policy.
+- Electrical quantity, engineering dimension and unit; phase or sequence component; polarity/reference direction; RMS, peak or phasor convention; frequency and nominal base where applicable.
+- Required CT/PT/CVT association, ratio, secondary rating, phase mapping, polarity, burden/model assumptions where relevant, and calibration revision.
+- Required signal-processing chain and algorithm/configuration revision, including filtering, RMS/phasor estimation, frequency estimation or sequence extraction.
+- Required quality dimensions, allowed time-quality classes, maximum sample age, maximum inter-channel skew, ordering/sequence constraints and minimum data completeness.
+- Explicit treatment of unavailable, substituted, simulated, replayed, test-injected or manually overridden values.
+- Function settings revision, characteristic/curve revision, pickup/dropout semantics, timer state policy and reset/latch policy.
+- Effective topology/instrumentation dependency revisions and the configuration revision at which the binding was accepted.
+
+The contract shall be inspectable and diagnosable. A binding that merely names a generic tag or latest-value topic without resolving its physical/simulated provenance and engineering meaning is insufficient for a safety-relevant Protection input.
+
+#### C1. Protection dependency and revision model
+
+Keep independent revision dimensions; do not compress all changes into one topology revision:
+
+1. Physical topology/connectivity revision.
+2. Instrumentation placement and association revision (CT/PT/CVT primary association, phase and polarity).
+3. Acquisition/channel configuration revision.
+4. Calibration revision.
+5. Signal-processing/derived-measurement revision.
+6. Protection function configuration and settings revision.
+7. Protection execution/algorithm version.
+8. Time-synchronization quality/configuration revision where it affects acceptance.
+
+A change invalidates only the Protection functions whose declared dependencies intersect the changed revision. However, a dependency change must invalidate the affected function's prior authorization state before the next evaluation; it must not wait for an unrelated topology edit. The system must record the invalidation reason and the first evaluation using the new dependency set.
+
+CT/PT/CVT lifecycle changes, source/channel replacement, ratio/polarity/phase edits, calibration changes and signal-processing changes are distinct from physical topology changes. A CT moved or reassociated in the SLD may change both instrumentation association and, depending on the actual network edit, topology; the implementation must emit the precise affected revisions rather than assume one implies the other.
+
+#### C2. Measurement snapshot and acceptance
+
+A Protection evaluation shall consume one immutable, internally consistent snapshot. It must not read each required measurement independently from a mutable latest-value store during the calculation.
+
+The snapshot shall record:
+- Required and received measurement identities.
+- Source, sensor/transducer and channel identities.
+- Sample sequence numbers and source timestamps.
+- Event/sample time, receive/ingest time and evaluation time with clock-domain identifiers.
+- Time synchronization quality and estimated uncertainty.
+- Measurement quality, calibration status, processing lineage and units.
+- Snapshot completeness, maximum age and maximum cross-channel skew.
+- All dependency/configuration revisions and the Protection algorithm version.
+
+Acceptance is function-specific. A single universal freshness threshold is not technically appropriate for all relay functions. The function contract supplies the maximum age, skew, quality and ordering constraints, subject to approved system policy. Missing required inputs, invalid quality, excessive age/skew, sequence discontinuity, unknown calibration state or unacceptable time quality must prevent a new valid Protection evaluation.
+
+Fail-closed behavior means: no new trip authorization or other safety-relevant Protection decision may be based on invalid, stale, incomplete, substituted or untrusted data. It does not mean inventing a trip or silently asserting a healthy state. The result should be an explicit blocked/invalid evaluation status with typed diagnostics and a defined fail-safe response policy. A prior valid decision must not be reused as if it were a current evaluation.
+
+Replay, simulated and test-injected data must carry explicit source mode and provenance. They must not enter a physical Protection execution path unless a separately authorized, isolated test mode explicitly permits it. Simulation must never create a physical output.
+
+#### C3. Protection evaluation and state ownership
+
+Protection owns relay-function algorithms and state: pickup/dropout, hysteresis, timers, IDMT/inverse-time accumulation, differential restraint, directional/polarizing logic, latching, reset, blocking, permissive logic and function-specific memory. Shared signal infrastructure must not own or advance these states.
+
+Evaluation should produce a typed result that distinguishes at least:
+- evaluated and no operation;
+- pickup / operating condition;
+- trip decision;
+- blocked due to invalid or unavailable input;
+- inhibited by an authorized setting/interlock;
+- stale or superseded evaluation;
+- execution failure/deadline miss.
+
+A ProtectionDecision is not a DeviceCommand. A decision shall identify relay_id, function_id, function_code, decision identity, input snapshot identity, dependency revisions, evaluation time, reason/evidence and validity/status. Command authorization, routing, issue, acknowledgement, breaker/device actuation and feedback are subsequent distinct lifecycle stages. No acknowledgement may be fabricated from command issue or inferred from a ProtectionDecision.
+
+#### C4. CT/PT/CVT-specific dependencies
+
+Protection input resolution must preserve the physical-to-measurement chain:
+- CT primary terminals identify the monitored primary network and its phase/polarity relationship.
+- CT secondary feeds a measurement channel; the measurement channel is not itself the primary topology connection.
+- PT/CVT primary association is resolved against the relevant bus/line/network quantity; secondary measurement channels remain distinct.
+- Relay input binds to a typed measurement with explicit phase, quantity, ratio, polarity, calibration and processing lineage.
+- Differential functions declare all boundary measurements and the required time alignment and polarity conventions.
+- CT saturation, transient response and instrument-transformer model limitations are explicit quality/model inputs where the selected function requires them.
+
+The resolver shall return a deterministic association result or a typed ambiguity/invalid-binding diagnostic. It must not silently choose one of multiple plausible primary associations.
+
+### D. Typed Control consumer contract
+
+Control consumes shared typed signals through a separate Control input-binding contract. A binding shall define signal identity, engineering type/unit, source mode, quality/freshness policy, update semantics, task association, debounce/filtering policy where appropriate, and the behavior on missing or invalid input.
+
+Control execution remains distinct from Protection execution. Its scheduler and program model may support periodic scan, event-triggered tasks, ordered sequence execution and asynchronous process events. The semantics must be explicit per task rather than inherited from the signal transport.
+
+#### D1. Control task and scan semantics
+
+Each Control task shall declare:
+- Stable task/program identity and revision.
+- Trigger mode: periodic scan, event-triggered, startup, operator request or explicit simulation event.
+- Period, phase/offset, priority, deadline and execution budget where applicable.
+- Deterministic ordering for tasks sharing a cycle or event.
+- Input snapshot boundary and rules for values updated during execution.
+- Timer/edge/retentive-state semantics and state initialization/restart behavior.
+- Overrun, missed-cycle, queue-overflow and skipped-event policy.
+- Output/action-intent boundary and permitted command targets.
+
+The system shall not imply PLC scan equivalence for a task that actually runs event-driven or asynchronously. A task must observe a defined input snapshot for its execution; it must not see a nondeterministic mixture of pre-cycle and mid-cycle values.
+
+#### D2. Control evaluation, interlocks and actuation
+
+Control should distinguish:
+1. Input snapshot and quality assessment.
+2. Condition/logic evaluation.
+3. Interlock and permissive evaluation.
+4. Action intent generation.
+5. Command authorization and issue.
+6. Command acknowledgement.
+7. Physical or simulated actuation.
+8. Feedback acquisition and next evaluation.
+
+An interlock is not merely a Boolean UI property. It is a typed, traceable condition with source measurements, quality/freshness requirements, evaluation time and outcome. Invalid or unknown inputs must follow the configured fail-safe behavior; they must not be coerced to false/true without an explicit engineering rule.
+
+Control may consume Protection status or ProtectionDecision through a read-only, typed interface, but it cannot create, edit, suppress or rewrite a ProtectionDecision. Control cannot mutate physical topology or bypass the Application command/authorization path. Protection likewise cannot use Control state as an implicit replacement for required electrical measurements unless the Protection function contract explicitly defines and validates that input.
+
+Control degraded-mode behavior is domain-specific and must not be conflated with Protection fail-closed policy. A Control task may be configured to hold, de-energize, enter a safe sequence, inhibit selected outputs or continue with a declared degraded subset, but only where the engineered safety case and authorization permit it. No degraded-mode policy may weaken an interlock or silently promote unknown input to healthy.
+
+### E. Shared snapshot, routing and subscription services
+
+Shared infrastructure should expose narrow services:
+- Immutable typed measurement snapshot/read model.
+- Source, channel, sensor and calibration provenance.
+- Time-quality and synchronization metadata.
+- Versioned derived-measurement lineage.
+- Explicit subscription/delivery contract.
+- Bounded buffering, backpressure and loss diagnostics.
+- Correlation identifiers linking sample, snapshot, evaluation and downstream action.
+- Common diagnostics and historian persistence interfaces.
+
+It must not expose a generic callback that permits arbitrary consumers to mutate domain state on acquisition threads. Consumer adapters should translate shared measurement contracts into Protection- or Control-specific snapshots and diagnostics.
+
+Delivery modes must be declared rather than assumed:
+- Latest-value for explicitly selected continuous-value use cases.
+- Ordered event delivery for state transitions and sequence events.
+- Bounded time-series windows for functions requiring history.
+- Waveform/sample-block delivery for high-resolution analysis.
+- Durable event/historian delivery for evidence retention.
+
+Latest-value delivery is not equivalent to lossless event delivery. If intermediate samples or events are dropped, the consumer must know the gap and apply its own policy. Queue overflow, coalescing, duplicate delivery, reorder and reconnect must be observable. Do not claim exactly-once delivery without a defined persistence/acknowledgement protocol and evidence.
+
+### F. Deterministic execution and temporal semantics
+
+Determinism requires more than sorting callbacks. Each evaluation must have an explicit snapshot boundary, stable input ordering, revision set, algorithm version and time basis.
+
+#### F1. Ordering and event time
+
+- Preserve source sequence numbers and event/sample timestamps.
+- Distinguish event time from receive/processing time.
+- Define a stable tie-breaker for equal timestamps (source identity plus source sequence, then a documented deterministic fallback).
+- Define treatment of duplicate, late, out-of-order and missing sequence values.
+- Late data may be used for historian correction or offline replay, but must not retroactively authorize a Protection trip or Control action in an already completed live cycle.
+- Reconnection and buffer replay must not cause an old event to be treated as a new live permissive.
+- Every domain scheduler must declare whether it evaluates on sample arrival, completed snapshot, periodic scan or explicit cycle barrier.
+
+#### F2. Time domains and coordination
+
+Keep wall-clock, monotonic process time, source/device time, synchronized network time, simulation logical time and historian event time distinct. Clock synchronization protocols do not by themselves prove measurement accuracy. The snapshot carries clock domain, time-quality class, estimated offset/uncertainty and synchronization status.
+
+For simulation/co-simulation, the coordinator defines logical-time barriers and participant ordering. A candidate causality sequence is:
+
+acquisition/source update → measurement publication → snapshot boundary → Protection evaluation and Control task evaluation according to an explicitly configured simulation schedule → domain decision/action intent → command path → device model or isolated actuator → feedback → next acquisition/sample boundary.
+
+This is a candidate orchestration pattern, not a universal rule that Protection must always execute before Control. Where a simulation needs a particular order, it must be declared in the scenario and recorded. A consumer must not re-enter or mutate another domain's in-progress evaluation. Same-time events require deterministic tie-breaking and explicit causal edges.
+
+#### F3. CPU/GPU/NPU implications
+
+Protection and Control execution should prioritize bounded, deterministic and auditable behavior over opportunistic acceleration. CPU is the reference execution path for discrete Protection/Control decisions and state transitions. GPU may accelerate eligible bulk signal processing or numerical simulation, but asynchronous completion must be reconciled at a defined snapshot/cycle barrier. NPU inference may provide advisory analytics only unless a separately approved safety case defines a permitted role; model output cannot directly become Protection authority or bypass Control interlocks. Numerical equivalence, deterministic reduction/order and deadline behavior must be measured before an accelerated path is accepted.
+
+### G. Reproducibility, traceability and diagnostics
+
+Every Protection evaluation and Control task execution should be reconstructable from an evidence record containing:
+- Domain, relay/function or task/program identity.
+- Input snapshot identity and complete input/provenance manifest.
+- Source sequence, event time, time quality and evaluation time.
+- Topology, instrumentation, acquisition, calibration, processing and domain-configuration revisions.
+- Algorithm/software version and relevant execution configuration.
+- Quality/freshness acceptance outcomes and rejected inputs.
+- Evaluation result, state transition, interlock/permissive outcome and reason codes.
+- Action intent, command identity, target, authorization, acknowledgement, actuation and feedback references where they exist.
+- Scheduler/cycle identity, deadline/overrun status and event-order evidence.
+
+Diagnostics must distinguish at least: source unavailable, channel unavailable, invalid measurement, stale measurement, excessive inter-channel skew, time-quality failure, calibration unknown/expired, sequence gap, out-of-order event, substituted/test source rejected, snapshot incomplete, dependency revision changed, Protection function blocked, Control task skipped, Control interlock false, Control interlock unknown, task deadline missed, queue overflow and command/feedback mismatch.
+
+A blocked Protection function is not the same as a no-trip evaluation. A Control interlock-blocked action is not the same as an action successfully issued. A command acknowledgement is not proof of physical operation. Historian, alarm, SOE and disturbance records remain distinct record classes correlated through stable identities.
+
+### H. Security, authorization and operating modes
+
+- Signal source registration, channel mapping, calibration, Protection bindings, Control bindings and settings changes require role-based authorization and auditable revision history.
+- Runtime subscriptions must enforce domain and project boundaries; untrusted plugins cannot subscribe to privileged signals or issue commands by bypassing Application services.
+- Replay, simulation, commissioning/test injection and live acquisition are explicit operating modes with visible provenance.
+- Physical command routing must reject simulation/replay-originated decisions and actions unless an isolated, explicitly authorized test configuration is active.
+- Loss of trust, tampering, source identity mismatch and unauthorized configuration changes invalidate affected consumer bindings and raise diagnostics.
+- Safety policy must be domain-owned and reviewed; common infrastructure provides evidence, not a universal safety decision.
+
+### I. Candidate standards and evidence discipline
+
+Candidate reference families for later edition-specific and BIS catalogue verification include:
+- IEC 60255 series for measuring relays and protection equipment.
+- IEC 61850 series for power utility automation communication, data models and quality/event semantics.
+- IEC 61131-3 for programmable controller programming languages and related Control program semantics.
+- IEEE 1588 / IEC 61588 for precision clock synchronization.
+- IEC 61869 series for instrument transformers.
+- IEC 61508 and IEC 61511 where the product scope and applicable safety lifecycle justify their use.
+
+This is a candidate standards map only. It does not establish current edition, Indian adoption, BIS catalogue status, clause-level applicability, certification, compliance or conformance. The separate evidence-driven BIS verification work remains required. No exact clause or normative requirement is asserted here.
+
+### J. Candidate acceptance and engineering scenarios
+
+The following 20 scenarios are proposed for later specification and verification. They are not executed tests and do not imply current product capability.
+
+1. **UI-ACC-PCSIG-01** — A Protection function declares two required phase measurements; the runtime produces one immutable snapshot and rejects a mixed-revision read.
+2. **UI-ACC-PCSIG-02** — A required CT measurement becomes stale; the affected Protection function is explicitly blocked and cannot reuse its previous decision as current.
+3. **UI-ACC-PCSIG-03** — A CT ratio or polarity change increments instrumentation/configuration dependencies without falsely incrementing physical topology when topology is unchanged.
+4. **UI-ACC-PCSIG-04** — A CT primary association change invalidates only dependent Protection functions and records the exact association revision.
+5. **UI-ACC-PCSIG-05** — A calibration revision changes; dependent measurements and Protection bindings show provenance and require valid recalculation/reacceptance.
+6. **UI-ACC-PCSIG-06** — Two required measurements exceed the function's permitted time skew; evaluation is blocked with a specific diagnostic.
+7. **UI-ACC-PCSIG-07** — Equal-time samples from multiple sources are ordered deterministically using documented sequence/tie-break rules.
+8. **UI-ACC-PCSIG-08** — A late or replayed permissive event cannot retroactively authorize a live Protection operation.
+9. **UI-ACC-PCSIG-09** — Invalid, unknown or untrusted time quality is handled according to the function contract and cannot silently pass freshness validation.
+10. **UI-ACC-PCSIG-10** — CT saturation or declared instrument-transformer limitation is represented as explicit quality/model evidence for functions that depend on it.
+11. **UI-ACC-PCSIG-11** — A ProtectionDecision records relay_id, function_id and function_code plus input snapshot and revision provenance.
+12. **UI-ACC-PCSIG-12** — A ProtectionDecision, DeviceCommand, acknowledgement, actuation and DeviceFeedback remain separate correlated lifecycle records.
+13. **UI-ACC-PCSIG-13** — A Control periodic task sees one defined cycle snapshot even when an input update arrives during task execution.
+14. **UI-ACC-PCSIG-14** — Two Control tasks triggered in the same cycle follow explicit deterministic priority/order and record the order.
+15. **UI-ACC-PCSIG-15** — A Control interlock input is unknown or stale; the configured safe behavior is applied and the result is not mislabeled as a false condition.
+16. **UI-ACC-PCSIG-16** — A missed Control deadline or scan overrun is diagnosed distinctly from an interlock block or successful execution.
+17. **UI-ACC-PCSIG-17** — Queue overflow or dropped event is visible to the consumer; an event stream is not silently treated as latest-value delivery.
+18. **UI-ACC-PCSIG-18** — A simulated or replay measurement cannot cause physical command output in live mode.
+19. **UI-ACC-PCSIG-19** — A replayed simulation records logical-time ordering and reproduces the same input snapshot/revision set without contaminating live state.
+20. **UI-ACC-PCSIG-20** — A trace view follows one measurement through snapshot, Protection/Control evaluation, action intent, command, acknowledgement and feedback without conflating their meanings.
+
+### K. Open design decisions and dependencies
+
+The following require explicit engineering decisions before implementation:
+- Per-function Protection freshness, skew, time-quality and data-completeness policies, including how settings are governed.
+- Control task classes, scan/event semantics, scheduler priorities, deadline and overrun policies.
+- Snapshot consistency and delivery guarantees for each signal class.
+- Source sequence and timestamp trust model, tie-break rules and late-data policy.
+- Instrument-transformer saturation and uncertainty models required by each Protection function.
+- Exact dependency invalidation matrix for topology, instrumentation, acquisition, calibration, processing, settings and software revisions.
+- Simulation cycle barriers and participant ordering for each co-simulation profile.
+- Physical-output isolation and authorization rules for replay, commissioning and simulation.
+- Evidence retention, historian/event correlation and replay reproducibility policy.
+- Standards editions, BIS adoption and clause applicability from primary catalogue evidence.
+
+Dependencies: 8I-21 typed diagnostics/events, 8I-22 revision/change control, 8I-25 standards traceability, 8I-26 solver governance, 8I-27 simulation/co-simulation, 8I-31 network model, 8I-32 calibration/uncertainty and 8I-33 signal acquisition/measurement. This section refines the consumer boundary and does not replace those contracts.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. These gates require evidence and explicit decisions; this research entry does not close them.
+
+### L. Frozen invariants and scope boundary
+
+- Shared signal infrastructure owns signal/measurement data contracts and provenance, not Protection or Control execution authority.
+- Protection and Control retain separate dependency graphs, schedulers, state, evaluation semantics and diagnostics.
+- ProtectionDecision canonical identity remains relay_id + function_id + function_code.
+- Protection invalid/stale required inputs fail closed; invalid input does not imply a fabricated trip or healthy result.
+- Control unknown/stale inputs follow explicit safe-state/interlock policy; no silent Boolean coercion or interlock weakening.
+- Measurement snapshot, decision, action intent, DeviceCommand, acknowledgement, physical actuation and DeviceFeedback are distinct.
+- Physical topology, instrumentation association, acquisition, calibration, signal processing and domain settings revisions remain separately traceable.
+- Event time, receive time, processing time, wall-clock and simulation logical time remain distinct.
+- CPU remains the reference for discrete domain decisions; GPU/NPU acceleration cannot bypass deterministic barriers, Protection authority or Control interlocks.
+- Simulation/replay provenance cannot produce physical output in live mode.
+- Frozen V2 architecture and .gridforge persistence invariants remain unchanged; V3 proposals are additive and require approval before implementation.
+
+**Scope boundary:** research register only. No Protection or Control consumer contract, scheduler, execution engine, signal adapter, measurement schema, driver, protocol, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. V2 main remains unchanged.
