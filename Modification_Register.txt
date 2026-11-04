@@ -20956,3 +20956,44 @@ or live/scenario runtime execution were performed. Confirm the exact
 MeasurementChannel terminal-role serialization contract before merge.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-141 — DRAFT COMMIT MUST PUBLISH EQUIPMENT REVISION DOMAINS
+======================================================================
+
+Audit finding:
+- DraftNetwork supports current_transformer, cvt, potential_transformer,
+  and relay creation contracts.
+- CommitNetworkHandler executes the prepared canonical equipment commands
+  through CommandManager.execute_in_transaction using one shared outer
+  network.commit_draft transaction.
+- Child commands intentionally do not invoke independent pre-commit hooks.
+  The outer Application hook previously recorded only the aggregate model
+  and topology revision. It did not advance instrumentation_revision or
+  protection_equipment_revision for CT/PT/CVT/Relay created by draft commit.
+- The outer hook also did not recompose ProtectionRuntime for those newly
+  committed draft instruments/relays.
+
+Correction on feat/protection-independent-revisions:
+- RevisionService.record_draft_commit classifies created_elements by
+  element_type and advances instrumentation_revision once when any
+  CT/PT/CVT is committed, and protection_equipment_revision once when
+  any Relay is committed. The aggregate command remains one revision
+  transition; it does not create per-child history transitions.
+- Application._coordinate_pre_commit routes network.commit_draft through
+  this aggregate classifier and recomposes ProtectionRuntime when the
+  committed draft contains CT/PT/CVT/Relay equipment.
+- The existing transaction revision snapshot and runtime inverse keep
+  rollback/undo restoration within the same outer transaction journal.
+- Physical topology revision continues to come from the Core Network
+  topology revision; no instrumentation/Relay mutation is added to Core
+  topology invalidation.
+
+Verification boundary:
+Source inspection and exact diff review only. No tests, CI, syntax/import
+checks, or runtime draft-commit execution were performed. Confirm aggregate
+draft equipment metadata and runtime recomposition in runtime verification
+before merge.
+
+======================================================================
