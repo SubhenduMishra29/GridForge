@@ -74,6 +74,7 @@ from .protection_execution import (
     PostconditionStatus,
     ProtectionPostconditionVerification,
     StaleProtectionExecutionError,
+    StaleProtectionDecisionError,
 )
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
@@ -1090,6 +1091,16 @@ class Application:
             runtime_channels=runtime.channels,
         )
 
+        def invalidate_rejected_element(message: str, decision: Any) -> None:
+            """Remove only the stale element's decision from the Core decision cache."""
+            try:
+                captured_runtime.system.invalidate_element_decision(decision.element_id)
+            except Exception as exc:
+                raise StaleProtectionExecutionError(
+                    f"{message}; per-element decision-cache invalidation failed: {exc}"
+                ) from exc
+            raise StaleProtectionDecisionError(message)
+
         def ensure_current_protection_decision_dependency(decision: Any) -> None:
             """Require one decision's complete dependency token to remain unchanged."""
             if captured_dependency_registry.diagnostics:
@@ -1100,14 +1111,16 @@ class Application:
                 captured_descriptor = captured_dependency_registry.descriptor_for(
                     str(decision.element_id)
                 )
-            except KeyError as exc:
-                raise StaleProtectionExecutionError(
-                    f"No captured dependency descriptor exists for element {decision.element_id!r}."
-                ) from exc
+            except KeyError:
+                invalidate_rejected_element(
+                    f"No captured dependency descriptor exists for element {decision.element_id!r}.",
+                    decision,
+                )
             if not captured_descriptor.complete:
-                raise StaleProtectionExecutionError(
+                invalidate_rejected_element(
                     "; ".join(captured_descriptor.diagnostics)
-                    or "Captured element dependency descriptor is incomplete."
+                    or "Captured element dependency descriptor is incomplete.",
+                    decision,
                 )
             current_lifecycle = self.project_lifecycle
             current_project = current_lifecycle.context
@@ -1145,17 +1158,19 @@ class Application:
                 current_descriptor = current_registry.descriptor_for(
                     str(decision.element_id)
                 )
-            except KeyError as exc:
-                raise StaleProtectionExecutionError(
-                    f"Current dependency descriptor is unavailable for element {decision.element_id!r}."
-                ) from exc
+            except KeyError:
+                invalidate_rejected_element(
+                    f"Current dependency descriptor is unavailable for element {decision.element_id!r}.",
+                    decision,
+                )
             if (
                 not current_descriptor.complete
                 or current_descriptor.fingerprint != captured_descriptor.fingerprint
             ):
-                raise StaleProtectionExecutionError(
+                invalidate_rejected_element(
                     "; ".join(current_descriptor.diagnostics)
-                    or f"Protection dependencies changed for element {decision.element_id!r}."
+                    or f"Protection dependencies changed for element {decision.element_id!r}.",
+                    decision,
                 )
 
         context_metadata = dict(evaluation_metadata or {})
