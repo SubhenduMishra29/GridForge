@@ -104,7 +104,8 @@ class ProtectionRuntime:
                 captured.append((kind, str(getattr(item, "id", "")), values, endpoints))
         for relay in getattr(network, "relays", ()):
             values = tuple((field, repr(getattr(relay, field, default))) for field, default in (
-                ("relay_type", ""), ("plugin_id", None), ("settings", {}),
+                ("relay_type", ""), ("type", ""), ("function_type", ""),
+                ("plugin_id", None), ("settings", {}),
                 ("in_service", False), ("enabled", False), ("blocked", False),
                 ("picked_up", False), ("tripped", False),
             ))
