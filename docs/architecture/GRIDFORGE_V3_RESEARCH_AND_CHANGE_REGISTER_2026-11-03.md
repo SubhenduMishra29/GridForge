@@ -901,3 +901,88 @@ These are research findings/candidate risks, not confirmed runtime defects. Prio
 - ISA TR101.02 HMI Usability and Performance — https://webstore.ansi.org/standards/isa/isatr101022019
 
 **Research limits:** ISO/ISA standards are referenced by scope and public abstracts/official descriptions; normative licensed clauses were not reviewed. Comparative vendor manuals are interaction examples, not standards. Repository inspection was source-level and selective. No running GridForge UI was launched, no screenshot/recording or user test was collected, and no runtime defect is declared reproduced. No tests, CI, V2 source changes or implementation were performed.
+
+
+## 8I-2. Application startup, main shell, menus, toolbars and workspace navigation audit (2026-11-04)
+
+**Scope:** Trace the actual source composition path from main.py through MainWindow, ShellPlugin, MenuPlugin, ToolbarPlugin, StatusPlugin, WorkspaceManager/Controller/Realizer, action catalogue/router and workspace definitions. This is source tracing, not a live visual audit.
+
+### A. Actual startup and visible shell
+
+- main.py is the executable composition root. It creates QApplication and branding/splash, Core/Application facade and Network, engineering plugin host, SLD projection/read synchronization, WorkspaceManager and PresentationBootstrap, SLD/Control/Protection/Study tool runtimes, canvas surfaces, ControlSurfaceHost, UI PluginManager, MainWindow, action router, project lifecycle adapter, editor context factory, panel composition, projections and shutdown lifecycle.
+- The inspected main.py contains approximately 1,419 lines. It performs substantial orchestration: creates dependencies, registers action handlers, evaluates action availability, manages project transitions, handles document lifecycle, synchronizes projections, binds status state, and starts/shuts down the UI.
+- This is a composition root by design, not evidence that MainWindow itself violates its mechanical-host boundary. However, the size and mixed orchestration responsibilities make startup flow, action behavior and UI evolution difficult to audit as one unit.
+- MainWindow remains a QMainWindow host for central root widget and toolbar/dock mechanics. ShellPlugin composes the application header, canvas surface and status widget into the central root. ToolbarPlugin attaches its QToolBar to QMainWindow's top toolbar area; ShellPlugin explicitly does not insert that toolbar into its central root layout. These are separate QMainWindow and central-shell composition paths.
+- ShellPlugin's header currently presents GridForge branding, project name and a text engineering context summary (discipline, study and system state). The inspected header does not itself provide workspace navigation.
+- MenuPlugin builds eight menus from declarative MenuSpec values: File, Edit, View, SLD, Study, Reports, Window and Help. It routes each menu action through UIActionRouter, obtains description/status-tip and enabled state from canonical action metadata/router, and refreshes enabled states.
+- ToolbarPlugin composes a top-level toolbar and routes actions through the same UIActionRouter. Its default action set is SLD-oriented editing/navigation plus Equipment, Study Cases, SLD, Topology, Map, Reports, Control and Protection entry actions. It has no explicit Study workspace button; Study Cases/Reports are the available study entry affordances.
+- StatusPlugin projects authoritative state into status fields and exposes transient status messages. main.py binds it to Controller, Application, selection, GraphicsView, WorkspaceController and project adapter.
+- UI plugin lifecycle is explicit and dependency ordered; ShellPlugin composes existing widgets rather than discovering/constructing them. This is a positive separation of composition responsibilities.
+
+### B. Workspace navigation and conceptual model
+
+- Canonical WorkspaceManager definitions are SLD, Control, Protection and Study. The default workspace is SLD. Each definition has one main Area and an Editor composed of Regions.
+- WorkspaceController activates a prepared workspace by asking WorkspaceRealizer to realize the layout, then commits the logical state. The Realizer restores the previous realized layout if a transition fails. This provides a deliberate transition boundary.
+- Workspace switches in main.py update the active engineering context and clear the shared SLD selection so hidden SLD selection does not leak into another editor. This is a positive context-safety behavior.
+- Topology and Map are explicitly described in main.py as compatibility surfaces outside WorkspaceController; _activate_surface activates them through ControlSurfaceHost and updates context separately. The Window menu places these alongside SLD, Control, Protection and Study, even though they are not canonical WorkspaceManager workspaces.
+- EngineeringWorkspaceTabs defines a second tab-oriented surface host for SLD, Topology, Map, Reports, Control and Protection. No usage was identified in the inspected main.py composition path. Do not assume this class is part of the visible shell without tracing another composition path.
+- The visible workspace navigation is therefore distributed: menu Window, global toolbar actions, discipline editor surfaces, and separate Topology/Map compatibility surfaces. This may be functionally accessible but does not present one simple conceptual model of workspace versus secondary view.
+- Study is reachable through Window → Study and toolbar/menu Study Cases or Reports actions; the toolbar does not offer a direct Study workspace control. Reports and Study Cases are separate labels but their action handlers activate the Study workspace. The Study workspace definition declares central_surface="reports". This naming needs a user-task model: opening study setup, reviewing completed reports and entering the Study editor are related but not identical intentions.
+
+### C. Menu/action behavior and discoverability risks
+
+- MenuPlugin uses declarative menu specifications and requires every menu action ID to exist in UIActionRouter before construction. Action descriptions are supplied as tooltips/status tips; enabled state is projected from the canonical router.
+- The View menu labels Explorer, Inspector, Messages and Tool Settings generically. Their handlers call _toggle_sld_region, which activates the SLD workspace before toggling the corresponding SLD Region. In _action_enabled, these four actions (and Maximize Editor) are enabled based on project-active state, without checking that the active discipline is SLD. Consequently, when a user is in Control, Protection or Study, these View actions can remain enabled and selecting one transitions the user to SLD. This is a source-confirmed interaction surprise risk, not a reproduced runtime defect.
+- The same menu labels do not disclose that they are SLD-specific. The action catalogue descriptions identify SLD Explorer/Inspector/validation, but the visible menu labels remain generic. V3 should either make the context explicit, adapt the menu to the active workspace, or provide discipline-correct equivalent panels.
+- View → Equipment Browser and the toolbar Equipment action call a helper that activates SLD and toggles the hidden Explorer Region. The source documents Explorer as hidden in the default SLD layout. This is a valid discoverability path, but the user is taken to SLD rather than opening a contextual equipment browser inside the current discipline.
+- Fit/zoom/pan actions are aliases to SLD canvas actions and are gated as SLD-only. This is more explicit in the Fit SLD View menu label and action availability than the generic panel toggles.
+- File operations include New/Open/Save/Save As/Close/Exit. Open and Save As use standard file dialogs; project close and application close use unsaved-change decision handling. This is a positive lifecycle affordance. The startup composition also creates an initial project named GridForge Project; no separate landing/start page or recent-project chooser was identified in the inspected startup/menu paths.
+- Edit menu and toolbar provide Undo/Redo, Delete, Select All, Copy/Paste/Cut. The code explicitly prevents multi-object Cut until deletion supports an atomic Application batch, and reports cancellation through Messages. This is a good example of safety over misleading affordance, but the disabled/unsupported state and reason should be visible before the user attempts the action.
+- The action router supports canonical definitions, aliases, dynamic enabled-state provider, error reporting and dispatch. Menu and toolbar QAction enabled states are refreshed on engineering-context and Controller state changes. This is a strong single-action-authority foundation.
+- ToolShortcutRegistry defines semantic actions and contexts (global, SLD, Control, Protection, Study, canvas, inspector and tool shelf), but the inspected startup composition does not show it being installed as the single runtime shortcut dispatcher. Menu QAction shortcuts are specified separately in MenuSpec, while action metadata also carries shortcut strings. Full keyboard shortcut ownership, conflicts, context precedence and runtime coverage remain unverified; do not claim a duplicate-shortcut defect from source samples alone.
+
+### D. Status and feedback
+
+- The shell header reports project and engineering context; StatusPlugin reports authoritative controller/project/viewport state. This can give users both high-level and immediate context.
+- Routed action failures are appended to the persistent Messages panel with action ID, exception/error code, message, details and cause where available. Commit Draft errors use critical modal dialogs; study-case errors also use critical dialogs. Different error paths therefore use both persistent and modal feedback.
+- V3 should define a consistent feedback policy: inline validation for editable fields; non-modal diagnostic entries for recoverable engineering/action failures; modal confirmation only for destructive/irreversible or project-transition decisions; persistent operation state for long-running studies; and explicit recovery/navigation actions. Avoid duplicating the same failure in a modal and message feed.
+- Status should separate project/document dirty state, active workspace/editor, active tool, selection count, cursor coordinates/zoom, snap/grid state, validation severity, simulation/study run state and background task progress. The current StatusPlugin is bound to authoritative state, but the exact field catalogue and usability at runtime require further inspection.
+
+### E. Findings added
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-UI-F11 | P1 | main.py composition root is ~1,419 lines and combines dependency composition, action handlers, enabled-state rules, project lifecycle, projection synchronization and startup/shutdown | Decompose composition into named, declarative presentation-composition modules while retaining one top-level composition root and single shared service/manager/registry instances |
+| V3-UI-F12 | P1 | View panel toggles are enabled on project presence but their handlers force SLD activation; labels are generic despite SLD-only behavior | Make action availability and labels discipline-aware; do not unexpectedly switch editor when toggling a panel; define equivalent per-workspace panels or explicit scope |
+| V3-UI-F13 | P1 | Window menu mixes canonical SLD/Control/Protection/Study workspaces with Topology/Map compatibility surfaces outside WorkspaceController | Define a clear navigation taxonomy: workspaces, documents, secondary views and tool windows; keep menu grouping and action semantics aligned |
+| V3-UI-F14 | P1 | Study Cases and Reports both route to Study workspace; Study is absent as an explicit top-level toolbar workspace entry | Separate study setup, run monitoring and result/report review navigation; make Study workspace entry explicit and consistent across menu/toolbar |
+| V3-UI-F15 | P2 | Startup opens a default project directly; no landing/recent-project workflow identified in inspected paths | Research start page with recent projects, new/open actions, recovery and sample/tutorial projects; preserve direct SLD-first entry for fast engineering sessions |
+| V3-UI-F16 | P1 | Shortcut semantics exist in ToolShortcutRegistry, action metadata and menu specifications, but one runtime shortcut-dispatch/ownership contract was not established | Audit all active QAction/QShortcut/keymap registrations; define one canonical shortcut catalogue with editor scope, precedence, conflict resolution, remapping and discoverability |
+| V3-UI-F17 | P2 | Toolbar is a fixed top-level QToolBar; shell central layout separately hosts header/canvas/status; toolbar defaults contain a large SLD-centric command set | Evaluate toolbar density, contextual action visibility, workspace-specific command groups, customization and compact/expanded modes with real screen/DPI scenarios |
+| V3-UI-F18 | P2 | Multi-object Cut is safely blocked but cancellation is surfaced after invocation through Messages | Reflect unavailable operations and their reason before activation; provide consistent disabled-state explanation and recovery guidance |
+| V3-UI-F19 | P1 | Action errors, commit failures, study failures and validation messages use different modal/persistent channels | Specify one diagnostic/feedback taxonomy and modality policy with deduplication, source navigation and recovery actions |
+| V3-UI-F20 | P2 | No start-page/recent-project flow or explicit user layout persistence was established from this targeted startup/workspace trace | Audit project recents, crash recovery, workspace layout preferences and settings persistence; do not assume absence until full settings path inspected |
+
+All findings above are source-backed usability risks or investigation items. They are not declarations that runtime UI behavior has been reproduced as faulty.
+
+### F. Qt desktop interaction references
+
+- Qt's QMainWindow model explicitly separates menu bar, toolbars, dock widgets, central widget and status bar; QActions can be shared across menus and toolbars so the same command behaves consistently regardless of entry surface. GridForge already uses an action router across menu and toolbar; V3 should preserve one command identity and improve context-specific presentation.
+- Qt's main-window framework supports docked/floating helper panels and toolbar/dock layout persistence through saveState/restoreState. This is a platform capability, not proof that GridForge currently persists user layouts. Qt warns restoreState should only consume data produced by the same/compatible application version, not arbitrary untrusted data.
+- Qt accessibility guidance emphasizes scalable UI, configurable fonts/font sizes and keyboard navigation; these should be included in the native desktop evaluation plan.
+
+### G. Next research sequence
+
+1. 8I-3: deep SLD engineer workflow from project creation to equipment discovery, preview, placement, connection, selection, contextual properties, validation, commit, undo/redo, save/reopen and recovery.
+2. 8I-4: Control canvas/ladder and Protection workspace workflow, with a shared interaction contract but discipline-specific semantics.
+3. 8I-5: audit actual shortcut dispatch, menu/action availability, status field catalogue, settings persistence, dialogs, error recovery and accessibility.
+4. 8I-6: consolidate UI requirements and prioritized V3 proposal.
+
+### H. Sources and verification limits
+
+- Qt 6.11 Application Main Window — https://doc.qt.io/QT-6/mainwindow.html
+- Qt 6.12 QMainWindow API, dock/toolbars and saveState/restoreState — https://doc.qt.io/qt-6/qmainwindow.html
+- Qt 6.12 Accessibility — https://doc.qt.io/qt-6/accessible.html
+- Qt Menus example — https://doc.qt.io/QT-6/qtwidgets-mainwindows-menus-example.html
+
+**Verification limits:** The authoritative research branch source was inspected selectively: main.py, MainWindow, shell/menu/toolbar/status plugins, action catalogue/definition/router, workspace definitions/controller/manager/realizer, keymap registry and engineering workspace tabs. The current running application was not launched. Menus, toolbar, enabled states, keyboard navigation, focus, screen scaling and actual visible layout were not observed on screen. The action/shortcut audit is incomplete; no claim of runtime shortcut conflict is made. No settings persistence exhaustive search was completed. No tests, CI, V2 source edits or implementation were performed.
