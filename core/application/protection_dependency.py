@@ -917,9 +917,11 @@ def build_protection_dependency_registry(
                     "action_target",
                     target_identity,
                     {
+                        # This is the shared physical target-state dependency.
+                        # Function-to-action mapping remains element-local in
+                        # the ProtectionElement configuration fingerprint.
                         "target_type": element.action_target_type,
                         "target_id": element.action_target_id,
-                        "action_type": element.action_type,
                         "authoritative_state": target_state,
                     },
                 )
