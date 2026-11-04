@@ -169,10 +169,26 @@ class RelayReadModel:
     tripped: bool
     input_channel_bindings: tuple[RelayInputBindingReadModel, ...] = ()
     decision: ProtectionDecision | None = None
+    element_decisions: tuple[ProtectionDecision, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "settings", _freeze(self.settings))
         object.__setattr__(self, "input_channel_bindings", tuple(self.input_channel_bindings))
+        decisions = tuple(self.element_decisions)
+        if self.decision is not None and not isinstance(self.decision, ProtectionDecision):
+            raise TypeError("RelayReadModel.decision must be ProtectionDecision or None.")
+        if not decisions and self.decision is not None:
+            decisions = (self.decision,)
+        if any(not isinstance(item, ProtectionDecision) for item in decisions):
+            raise TypeError("RelayReadModel.element_decisions must contain ProtectionDecision values.")
+        if any(str(item.relay_id) != str(self.object_id) for item in decisions):
+            raise ValueError("RelayReadModel element decisions must belong to its physical Relay.")
+        element_ids = tuple(str(item.element_id) for item in decisions)
+        if len(set(element_ids)) != len(element_ids):
+            raise ValueError("RelayReadModel element decisions must have unique protection-element identities.")
+        if self.decision is not None and len(decisions) > 1:
+            raise ValueError("A relay-level singular decision cannot represent multiple protection elements.")
+        object.__setattr__(self, "element_decisions", decisions)
 
 
 @dataclass(frozen=True, slots=True)
