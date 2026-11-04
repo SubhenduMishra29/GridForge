@@ -21927,3 +21927,18 @@ Additional fail-closed correction — direct ControlInput consumer:
 - This closes a direct-consumer bypass not covered by the
   ControlSignalMapping resolver's own stricter validation.
 - Static source inspection only; no tests or CI run.
+
+Additional persistence audit — Control signal mapping ownership:
+- ControlSignalMapping.to_dict()/from_dict() provide schema-v2 serialization and
+  schema-v1 read compatibility, and SetControlSignalMappingCommand makes edits
+  undoable through the Application command boundary.
+- However, ControlConfiguration.to_dict()/from_dict() currently serialize
+  program, action bindings, interlocks and dynamic associations only; they do
+  not include ControlSignalMapping. Application also keeps the active mapping
+  in a separate in-memory field. The inspected project configuration path
+  therefore does not yet establish save/reload persistence for these bindings.
+- Do not claim that mapping schema serialization proves project persistence.
+  A canonical Application-owned project persistence envelope or equivalent
+  boundary is still required; do not make Core depend on Application classes.
+- Issue #1031 remains open pending a defined persistence owner and round-trip
+  source mapping evidence. Static source inspection only; no tests/CI.
