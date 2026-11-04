@@ -22011,6 +22011,11 @@ Architecture boundary:
   not repair or mutate Core topology.
 - No Qt/QGraphics dependency was added to Core or Application. No new public
   exports were introduced; existing service entry points remain stable.
+- Application.validate_project() receives the active SLD document through
+  ProjectLifecycleService.presentation. Collection-wide multi-SLD validation
+  is not included because the collection snapshot provider is a separate
+  lifecycle persistence boundary; keep #997 open until all-document coverage
+  is explicitly reconciled.
 
 Verification boundary:
 - Inspected current main SLDService audit/reconciliation, DraftNetwork commit
