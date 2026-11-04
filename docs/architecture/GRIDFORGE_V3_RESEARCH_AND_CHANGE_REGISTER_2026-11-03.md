@@ -7954,3 +7954,308 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - Frozen V2 architecture and .gridforge persistence invariants remain unchanged; V3 proposals are additive and require approval before implementation.
 
 **Scope boundary:** research register only. No Protection or Control consumer contract, scheduler, execution engine, signal adapter, measurement schema, driver, protocol, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. V2 main remains unchanged.
+
+
+## 8I-35. Proposed V3 end-to-end Protection and Control operational lifecycle, command authorization, physical feedback and event/SOE traceability (2026-11-04)
+
+### A. Research objective and system boundary
+
+Sections 8I-33 and 8I-34 establish the shared signal/measurement infrastructure and the separate Protection and Control consumer contracts. This section defines the operational lifecycle after a Protection decision or Control evaluation: authorization, command intent, routing, device protocol interaction, acknowledgement, physical actuation, feedback reconciliation, event/SOE recording and end-to-end evidence.
+
+**Primary decision:** an operational action is a correlated lifecycle of distinct domain facts, not a single Boolean or command status. A ProtectionDecision or Control action intent does not itself change equipment state. A DeviceCommand does not prove receipt, acceptance or actuation. A communication acknowledgement does not prove physical operation. Physical feedback does not retroactively prove that the initiating decision or authorization was valid.
+
+The architecture shall preserve separate Protection and Control authority while providing a common, auditable operational trace. Shared command transport and evidence infrastructure must not become a generic engine that overrides domain interlocks, Protection decisions, operating authority or equipment-specific behavior.
+
+### B. Canonical operational lifecycle and identities
+
+The following stages are separate records or typed state transitions, correlated by stable identifiers:
+
+1. **Domain evaluation:** Protection function evaluates an immutable measurement snapshot, or Control task evaluates its defined input snapshot.
+2. **Domain outcome:** ProtectionDecision or ControlEvaluation records the result and evidence. A Control result may produce an ActionIntent; a Protection result may produce a Protection operation request under its approved function semantics.
+3. **Action intent:** typed request identifying the desired operation, target, originating domain, reason, priority class and causal source. Intent is not yet an issued command.
+4. **Authorization and interlock assessment:** evaluate the applicable operating mode, user/system authority, equipment availability, interlocks, permissives, blocking conditions, command priority and target state.
+5. **Command creation:** immutable DeviceCommand with command identity, target, requested operation, origin, authorization evidence, expiry/deadline, idempotency/correlation key and routing policy.
+6. **Dispatch:** command is handed to a selected device adapter/channel with transport identity and dispatch time.
+7. **Transport/protocol response:** communication-layer receipt, protocol response, negative response or timeout. This is not physical feedback.
+8. **Device-level acknowledgement:** device reports command acceptance/rejection where protocol/device semantics support it. This is not proof of completed operation.
+9. **Actuation:** device mechanism or simulated device model performs or attempts the operation.
+10. **Physical/device feedback:** independently acquired auxiliary contacts, position/state indication, analog evidence or device-reported state with source, timestamp and quality.
+11. **Reconciliation:** compare requested operation, device acknowledgement, expected transition, measured feedback and deadline. Produce a typed outcome, including mismatch/uncertain state.
+12. **Operational evidence:** append correlated events, SOE entries, alarms where warranted, historian references and operator/audit records.
+
+The system must not collapse stages 7–10 into a single “success” flag. Each stage may be absent, unsupported, delayed, duplicated, contradictory or unavailable; the lifecycle state must represent that explicitly.
+
+Canonical identifiers should include:
+- evaluation_id and input_snapshot_id;
+- protection_decision_id or control_evaluation_id;
+- action_intent_id;
+- authorization_decision_id and interlock_evaluation_id;
+- device_command_id and idempotency_key;
+- dispatch_attempt_id and transport_session/message identity;
+- device_acknowledgement_id where available;
+- actuation/equipment-operation event identity where observable;
+- feedback_sample_id / feedback_snapshot_id;
+- reconciliation_id;
+- event_id / SOE_record_id / alarm_id / historian_record_id.
+
+Each record carries project identity, target equipment/device identity, source domain, creation time, event time where applicable, software/configuration revision and correlation links. Correlation IDs do not replace the independent identity of each lifecycle fact.
+
+### C. Domain authority and operation classes
+
+Protection and Control remain separate authorities:
+- Protection owns relay-function evaluation and ProtectionDecision semantics. A valid trip decision may initiate an authorized Protection operation path according to the configured protection scheme.
+- Control owns process/sequence evaluation, interlock evaluation and Control action intent.
+- Operator/manual operation originates from an authenticated human command request and must pass the same target, mode, interlock, authorization and command lifecycle checks required by the operation class.
+- Automation, remote supervisory commands and engineering/commissioning commands are separately identified origins with explicit authorization scopes.
+- Simulation and replay are non-physical origins and must remain isolated from live physical command routes.
+
+Command priority is a policy decision, not an incidental ordering of message arrival. The architecture must define how protection trips, emergency actions, safety interlocks, local/remote operator commands, automatic Control actions and maintenance/test commands interact for each equipment class. A generic priority number is insufficient unless the policy also specifies arbitration, blocking, pre-emption, cancellation and evidence. Protection trip authority must not be weakened by a normal Control or operator command. Local/remote selector and device-level hardwired interlocks must be represented as independent constraints where relevant.
+
+No generic command arbiter may manufacture a ProtectionDecision, rewrite a Control interlock, or bypass a domain-owned authorization rule. Application services orchestrate permitted requests and controlled mutation; Core/domain logic owns engineering rules and state invariants; device adapters perform protocol translation and report evidence without deciding engineering authorization.
+
+### D. Authorization, interlocks and permissive governance
+
+Authorization must be evaluated at the point of command creation and revalidated at dispatch where relevant conditions can change between approval and transmission.
+
+An authorization decision should record:
+- authenticated principal or system identity and credential/session context;
+- role, capability and project/equipment scope;
+- command origin and requested operation;
+- target device/equipment and operating mode;
+- applicable permit/work authorization or maintenance/test mode reference where in scope;
+- interlock/permissive snapshot identity and revision;
+- Protection/Control status dependencies where required;
+- local/remote selector, device availability and command-blocking state;
+- authorization policy revision, evaluation time, result and reason codes;
+- any approval/confirmation or dual-authorization evidence required by the operation risk class.
+
+Authorization categories should distinguish at minimum: permitted, denied, blocked by interlock, blocked by mode, blocked by equipment state, approval required, expired, stale authorization context and indeterminate due to unavailable evidence. “Unknown” is not “permitted”.
+
+Interlocks must be typed, owned and traceable. Each condition declares its source, engineering meaning, quality/freshness contract, evaluation time, polarity/normal state, bypass policy, authorization requirement and reset behavior. Bypass is a separate controlled action with identity, scope, reason, duration/expiry, approval and audit trail; it must never silently rewrite the underlying interlock or measurement. The UI may display bypass status but cannot create a bypass outside the Application command path.
+
+The architecture must distinguish:
+- process permissives and sequence conditions;
+- electrical/mechanical interlocks;
+- Protection blocking and trip logic;
+- equipment availability/maintenance lockout;
+- local/remote and selector state;
+- command authorization and cybersecurity policy;
+- external hardwired safety systems.
+
+These may contribute to an operation decision, but they are not interchangeable. A display summary must expose which category blocked an operation and the evidence/revision used.
+
+### E. DeviceCommand contract and dispatch semantics
+
+DeviceCommand should be an immutable, typed request, not a mutable shared object. It should contain:
+- stable command ID and idempotency key;
+- project, target equipment and device identities;
+- operation code and typed parameters, including units and bounds;
+- origin domain and originating decision/evaluation/action intent;
+- authorization and interlock evidence references;
+- priority/arbitration class and expiry/deadline;
+- target protocol endpoint/route policy reference (not vendor SDK objects);
+- expected feedback transition and reconciliation policy;
+- issue time, event/correlation metadata and command schema version.
+
+Command lifecycle state should distinguish at least: created, authorized, denied, blocked, queued, dispatching, dispatched, transport-accepted, device-accepted, device-rejected, execution-pending, completed-by-feedback, failed, timed-out, expired, cancelled, superseded and outcome-unknown. Not every device/protocol supports every intermediate state; unsupported stages must be marked not applicable rather than inferred.
+
+#### E1. Idempotency, retry and duplicate handling
+
+A retry must not accidentally cause a second physical operation. The command adapter must declare device/protocol idempotency support, deduplication key scope, sequence behavior, timeout semantics and reconnect behavior. If the endpoint cannot prove deduplication, automatic retries of non-idempotent operations require a specific risk policy and may need to stop at outcome-unknown pending feedback/operator reconciliation.
+
+Transport timeout does not prove command failure: the device may have received and acted on the request while the response was lost. Re-dispatching blindly can create duplicate operations. Conversely, a successful transport write does not prove device receipt. Retry policy must be operation- and endpoint-specific, bounded, observable and recorded as separate dispatch attempts under one command identity or a clearly linked replacement command.
+
+Cancellation is best-effort once dispatch begins. A cancellation request is not proof that the device did not execute the original command. Superseding commands must retain causal links and must not erase the original pending/unknown outcome.
+
+#### E2. Command expiry and stale authorization
+
+A command has a defined validity window. Before dispatch, re-check any authorization, interlock, equipment state, local/remote mode, target identity and measurement freshness dependencies that are required to remain valid. If they changed, the command must be rejected, re-authorized or explicitly escalated according to policy; it must not dispatch using an obsolete approval snapshot.
+
+Once a command is dispatched, later interlock changes do not rewrite history. They may trigger a separate abort/compensating action only if the equipment and operation class support it and the applicable safety policy permits it.
+
+### F. Protocol adapters and device abstraction
+
+Protocol adapters translate between canonical DeviceCommand / device feedback contracts and vendor/device-specific protocols. They must not contain domain policy, alter Protection decisions, bypass Control interlocks or mutate Core directly.
+
+Adapter contracts should define:
+- endpoint/device identity and authenticated connection context;
+- supported operation and feedback capabilities;
+- protocol profile and version, point/object mapping revision;
+- transport delivery/response semantics;
+- device acknowledgement semantics and quality;
+- command sequencing, deduplication and retry support;
+- connection state, latency, timeout and reconnect behavior;
+- unsolicited event and cyclic/polled feedback semantics;
+- time source, timestamp quality and sequence counter behavior;
+- diagnostics, audit metadata and capability discovery.
+
+Candidate protocol families for later edition/profile verification include IEC 61850 services (including relevant control models and reporting), IEC 60870-5-104, DNP3, Modbus and OPC UA. Their use is not interchangeable; each has different control, reporting, security and acknowledgement semantics. Vendor-specific behavior must be isolated behind adapters and documented as a profile/capability, not leak into the domain model.
+
+Protocol acknowledgement shall be labelled precisely: transport accepted, protocol response received, command accepted by device, command activation/in-progress, operation complete, or explicit negative response. If the protocol/device does not provide a particular stage, the system must not synthesize it.
+
+### G. Feedback acquisition and state reconciliation
+
+Feedback is independent evidence, not a copy of command status. It may arrive through auxiliary contacts, digital input channels, device reports, analog measurements, protection relay indications or simulated device state. Each feedback item must carry source/channel identity, sample sequence, event time, receive time, time quality, measurement quality and provenance from the shared signal infrastructure.
+
+Reconciliation policy is equipment- and operation-specific. It should define:
+- expected state transition and permitted intermediate states;
+- feedback point(s) and required combinations;
+- debounce/filtering and stability interval;
+- maximum completion time and timeout behavior;
+- contradictory indication handling (e.g. open and closed contacts both active);
+- stale/missing/poor-quality feedback behavior;
+- device-reported state versus independently wired indication precedence;
+- handling of mechanism travel, spring-charge, gas/pressure and other readiness states where relevant;
+- final outcome classes and operator escalation.
+
+At minimum, reconciliation outcomes distinguish: confirmed expected state, confirmed alternate state, operation incomplete/in progress, feedback unavailable, feedback stale/invalid, contradictory feedback, timeout, device rejection, command outcome unknown and uncommanded state change. “Command completed” must not be displayed where only a protocol acknowledgement exists.
+
+A feedback transition may occur without a known command (manual local operation, protection action outside the application route, device restart, wiring change or unsolicited remote operation). Such events must be recorded as uncommanded/external state changes with source evidence, not discarded because no matching DeviceCommand exists. Conversely, command feedback matching must not infer causation if multiple commands or independent operations overlap; correlation confidence and ambiguity must be explicit.
+
+### H. Event, SOE, alarm and historian model
+
+Operational traceability requires distinct but correlated records:
+- **Domain evaluation record:** Protection/Control input snapshot, evaluation result and reason.
+- **Action/command record:** intent, authorization, command, dispatch attempts and protocol/device responses.
+- **SOE record:** time-ordered discrete state/event occurrence with source timestamp, time quality, receive time, sequence and point identity.
+- **Alarm record:** abnormal condition lifecycle (raised, acknowledged, returned-to-normal, shelved/suppressed where supported) with priority and operator response.
+- **Historian record:** time-series values and quality, including measurement lineage and retention metadata.
+- **Disturbance/event waveform record:** high-resolution samples and trigger context where supported.
+- **Audit record:** principal, configuration/setting/bypass/authorization change and before/after revision evidence.
+
+An alarm acknowledgement is not an SOE acknowledgement, Protection reset, command acknowledgement or equipment operation. Alarm return-to-normal does not imply the alarm was acknowledged. SOE is not a replacement for historian samples or the audit log. A historian value is not necessarily an event, and a timestamped event is not necessarily an alarm.
+
+#### H1. Time ordering and clock quality
+
+Preserve source event time, source clock domain, time quality, sequence number, receive/ingest time and server processing time. A display may sort by event time but must expose uncertainty and distinguish receive order. Equal timestamps require a deterministic tie-breaker; uncertain or unsynchronized source clocks must not be represented as exact global order.
+
+PTP/GNSS/NTP/IRIG-B and protocol time semantics are candidate synchronization mechanisms, not evidence of achieved accuracy. SOE precision claims require measured source/device timestamp performance, clock health, transport behavior and end-to-end uncertainty. Do not claim millisecond or microsecond SOE performance from a configured protocol alone.
+
+#### H2. Causal trace graph
+
+Provide a trace graph linking:
+measurement/source → immutable snapshot → ProtectionDecision or ControlEvaluation → action intent → authorization/interlock assessment → DeviceCommand → dispatch attempt → transport/device acknowledgement → feedback sample/transition → reconciliation → SOE/alarm/historian/audit references.
+
+The graph must allow missing edges and ambiguous causation. It should show why an operation occurred, why it was blocked, what command was sent, what the endpoint reported, what physical evidence was observed and what remains unknown. A single timeline can render these records, but the underlying typed record classes and identities remain separate.
+
+### I. Failure handling, abnormal conditions and operator workflow
+
+Failure handling must be explicit at each lifecycle stage:
+- signal source loss or invalidity;
+- Protection/Control evaluation blocked, failed or deadline-missed;
+- authorization denied, stale or indeterminate;
+- interlock/permissive false or unknown;
+- target offline, local mode, unavailable or mismatched identity;
+- dispatch queue full, adapter disconnected or protocol error;
+- transport timeout with possible device receipt;
+- device negative acknowledgement or execution error;
+- feedback missing, contradictory, stale or inconsistent with the request;
+- unexpected/uncommanded state transition;
+- historian/SOE persistence degradation or evidence backlog.
+
+Operational UI should show requested operation, target, origin, current lifecycle stage, authorization/interlock reasons, last confirmed physical state, feedback quality/time, pending/unknown status, command expiry and next permitted operator action. It must visually distinguish “requested”, “sent”, “accepted”, “physically confirmed” and “unknown”. Never present optimistic command state as actual equipment state.
+
+An operator workflow should support: inspect evidence → understand block/failure → verify local/remote and equipment condition → request authorized action or escalation → observe dispatch/acknowledgement → verify physical feedback → acknowledge applicable alarm → retain trace. UI convenience must not skip authorization or safety checks.
+
+For outcome-unknown commands, the operator should be directed to inspect independent device/field feedback before any retry or compensating operation. The interface must warn that the original command may have executed. Acknowledge/close actions must not erase the unresolved command state.
+
+### J. Persistence, recovery and evidence integrity
+
+Persist command and operational evidence with stable IDs and append-only lifecycle history. A restart must reconstruct pending, dispatched, acknowledged, timed-out and outcome-unknown command states without reissuing physical commands automatically. Recovery should reconcile with device status and feedback before any retry policy resumes.
+
+Use transactional outbox/inbox or equivalent durable handoff patterns where required to prevent loss between domain action creation and dispatch queue persistence. Clearly define the consistency boundary: a committed domain action intent must either be durably queued or visibly rejected; it must not disappear between application state and transport dispatch. Inbound duplicate protocol events must be deduplicated without erasing their source sequence or audit evidence.
+
+Project persistence remains governed by the frozen .gridforge project package contract. High-volume historian, SOE, alarm, audit and waveform retention may require external stores or services in a future design, but such storage must be explicitly versioned, linked and recoverable; no external dependency may be silently required to reopen the canonical project package. The project package stores project configuration and approved project-scope state, not an unbounded operational historian.
+
+Evidence integrity should cover schema version, source identity, sequence continuity, timestamp quality, retention policy, access control, tamper detection and export provenance. Corrections to event metadata must be append-only amendments with reason and author, not silent mutation of historical evidence.
+
+### K. Security, safety and governance
+
+- Authenticate command origins and device endpoints; authorize operations by project, equipment, operation class and operating mode.
+- Apply least privilege to operator, engineer, protection engineer, control engineer, service account and plugin identities.
+- Protect command channels and management interfaces with suitable authenticated transport and key/certificate lifecycle.
+- Validate target identity, command parameters, ranges, units and schema version at domain/application boundaries and again at adapter boundary.
+- Log setting, calibration, mapping, bypass, local/remote, authorization and endpoint configuration changes with revision and actor.
+- Separate live, simulation, replay, commissioning and maintenance modes; prevent simulation/replay commands from reaching physical endpoints.
+- Do not permit a plugin or protocol adapter to self-authorize or directly mutate Core equipment state.
+- Define fail-safe behavior for loss of communication and uncertain device state by equipment and operation class; there is no universally safe generic response.
+- Treat external hardwired interlocks and protection circuits as independent safety layers; software visibility does not imply software authority over them.
+- Include cybersecurity threat modelling for command spoofing, replay, endpoint substitution, unauthorized control, denial of service, clock manipulation and audit tampering.
+
+### L. Candidate standards and evidence discipline
+
+Candidate reference families for later edition-specific, profile-specific and BIS catalogue verification include:
+- IEC 61850 series for utility automation data models, reporting and control services.
+- IEC 60870-5-104 for telecontrol transmission and application-layer control/monitoring semantics.
+- IEEE 1815 (DNP3) for distributed network protocol interoperability.
+- IEC 62541 (OPC UA) for information modelling and secure communication.
+- IEC 62351 series for security of power-system information exchange and associated protocols.
+- IEC 60255 series for protection equipment and relay function context.
+- IEC 61131-3 for programmable controller programming semantics.
+- IEC 61869 series for instrument transformer measurement chain context.
+- IEC 60255-24 / COMTRADE for disturbance data exchange where applicable.
+- ISA-18.2 / IEC 62682 for alarm management lifecycle concepts where applicable.
+
+This is a candidate standards map, not a claim of current edition, BIS adoption, clause-level applicability, certification, compliance or conformance. Protocol-specific command and acknowledgement behavior must be checked against the exact applicable edition, profile, device implementation and engineering configuration. The separate evidence-driven BIS catalogue verification remains open.
+
+### M. Candidate acceptance and engineering scenarios
+
+The following 20 scenarios are proposed for later specification and verification; they are not executed tests and do not imply current product capability.
+
+1. **UI-ACC-OPS-01** — A ProtectionDecision creates a distinct operation intent and does not directly mutate breaker state.
+2. **UI-ACC-OPS-02** — A Control action intent is denied when its required interlock is false, with the exact condition and input snapshot recorded.
+3. **UI-ACC-OPS-03** — An unknown/stale interlock result is not treated as permitted; the operation follows the declared safe policy.
+4. **UI-ACC-OPS-04** — A local/remote selector change between authorization and dispatch invalidates or re-evaluates the command according to policy.
+5. **UI-ACC-OPS-05** — A command's target identity, operation code, units and parameter bounds are validated before dispatch.
+6. **UI-ACC-OPS-06** — A transport write acknowledgement is displayed separately from device acceptance and physical feedback.
+7. **UI-ACC-OPS-07** — A device accepts a command but physical auxiliary contacts do not change; reconciliation reports pending/failed/unknown rather than completed.
+8. **UI-ACC-OPS-08** — A command times out after possible receipt; automatic retry is prevented unless endpoint idempotency and operation policy permit it.
+9. **UI-ACC-OPS-09** — Duplicate command delivery with the same idempotency key does not cause an unintended second operation where endpoint capability supports deduplication.
+10. **UI-ACC-OPS-10** — A cancellation request after dispatch is recorded as best-effort and does not claim that the original command was not executed.
+11. **UI-ACC-OPS-11** — An uncommanded local/device state transition is recorded with source feedback and no fabricated command origin.
+12. **UI-ACC-OPS-12** — Contradictory open/closed feedback produces an explicit uncertain state and diagnostic.
+13. **UI-ACC-OPS-13** — A simulated/replay action cannot dispatch to a physical device endpoint in live mode.
+14. **UI-ACC-OPS-14** — An outcome-unknown command survives application restart and is reconciled before retry.
+15. **UI-ACC-OPS-15** — SOE event time, receive time, source clock quality and sequence are preserved; uncertain ordering is visible.
+16. **UI-ACC-OPS-16** — Alarm acknowledgement, alarm return-to-normal, Protection reset, command acknowledgement and device feedback remain separate actions/states.
+17. **UI-ACC-OPS-17** — A bypass request requires authorization, reason, scope, expiry and audit evidence and leaves the underlying interlock intact.
+18. **UI-ACC-OPS-18** — An operator can trace a physical operation from measurement snapshot through decision, authorization, command and independent feedback.
+19. **UI-ACC-OPS-19** — A command queue or historian/SOE persistence failure is visible and cannot silently drop a committed action or evidence.
+20. **UI-ACC-OPS-20** — After recovery, pending and dispatched commands are not automatically resent; device status and feedback determine the next safe step.
+
+### N. Open design decisions and dependencies
+
+Decisions required before implementation:
+- Operation-class command priority and arbitration, including Protection trip, emergency, Control, operator, maintenance and test operations.
+- Exact authorization roles, approval thresholds, dual-control requirements and permit/work authorization integration.
+- Interlock ownership, bypass policy, expiry and external hardwired interlock representation.
+- DeviceCommand schema, idempotency scope, expiry, cancellation and per-protocol retry semantics.
+- Device acknowledgement taxonomy for each supported protocol and endpoint profile.
+- Equipment-specific expected feedback transitions, debounce/stability windows and reconciliation timeouts.
+- Precedence/conflict policy for device-reported state and independently wired feedback.
+- Outcome-unknown handling and restart/recovery reconciliation procedure.
+- SOE timestamp accuracy targets, source clock quality acceptance and event ordering guarantees.
+- Alarm lifecycle and priority policy, historian/SOE/audit retention and storage boundaries.
+- Durable outbox/inbox, deduplication and transaction boundaries for action dispatch and inbound events.
+- Physical output isolation for simulation, replay, test and commissioning.
+- Exact protocol editions, device profiles, cybersecurity requirements and BIS catalogue applicability.
+
+Dependencies: 8I-10 UI/UX gates, 8I-11 typed diagnostics, 8I-12 operational traceability, 8I-21 event model, 8I-22 revision/change control, 8I-25 standards traceability, 8I-27 simulation/co-simulation, 8I-33 signal acquisition/measurement and 8I-34 Protection/Control signal-consumer contracts. This section composes these contracts; it does not replace them.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. No gate is closed by this research entry.
+
+### O. Frozen invariants and scope boundary
+
+- Protection and Control remain separate execution and decision authorities.
+- ProtectionDecision, ControlEvaluation, ActionIntent, authorization decision, DeviceCommand, dispatch attempt, protocol/device acknowledgement, actuation, feedback and reconciliation are distinct facts.
+- A command acknowledgement is not proof of physical operation; independent feedback is required for physical confirmation.
+- Unknown, stale or contradictory evidence cannot be presented as a confirmed healthy/operated state.
+- Command retry, cancellation, expiry and recovery are explicit, bounded and endpoint-aware; uncertain outcomes are not blindly resent.
+- Interlocks, bypasses, local/remote mode and authorization remain independently typed and auditable.
+- SOE, alarm, historian, disturbance and audit records remain distinct but correlatable.
+- Source event time, receive time, processing time and clock quality remain explicit; no unsupported timestamp-accuracy claims.
+- Protocol adapters translate and report; they do not authorize operations or mutate Core directly.
+- Simulation/replay cannot produce physical outputs in live mode.
+- Frozen V2 architecture and .gridforge persistence invariants remain unchanged; V3 proposals require approval before implementation.
+
+**Scope boundary:** research register only. No command service, arbiter, authorization engine, protocol adapter, feedback reconciler, historian, SOE/alarm subsystem, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. V2 main remains unchanged.
