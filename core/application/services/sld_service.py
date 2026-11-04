@@ -461,23 +461,28 @@ class SLDService:
         return str(nodes[0].node_id)
 
     def _sld_endpoint_from_mapping(self, mapping: Mapping[str, Any]) -> dict[str, Any]:
-        """Translate a Core endpoint using its independent SLD presentation identity."""
+        """Translate a topology endpoint envelope to independent SLD node identity."""
         if not isinstance(mapping, Mapping):
-            raise TypeError("Core endpoint mapping must be a mapping.")
+            raise TypeError("Core topology endpoint mapping must be a mapping.")
         kind = str(mapping.get("kind") or "")
-        object_id = str(mapping.get("object_id") or "")
         if kind not in {"bus", "terminal"}:
             raise ValueError(f"Unsupported Core endpoint kind for SLD projection: {kind!r}.")
+        endpoint_mapping = mapping.get("endpoint")
+        if not isinstance(endpoint_mapping, Mapping):
+            raise ValueError("Core topology endpoint mapping requires an endpoint object.")
+        if str(endpoint_mapping.get("kind") or "") != kind:
+            raise ValueError("Core topology endpoint discriminator does not match its nested endpoint.")
+        object_id = str(endpoint_mapping.get("object_id") or "")
         if not object_id:
             raise ValueError("Core endpoint mapping requires a non-empty object_id.")
-        node_id = self._sld_node_for_endpoint_mapping(mapping)
+        node_id = self._sld_node_for_endpoint_mapping(endpoint_mapping)
         return {
             "kind": "bus" if kind == "bus" else "equipment",
             "node_id": node_id,
             "equipment_id": object_id if kind != "bus" else None,
-            "terminal_role": mapping.get("terminal_role") if kind != "bus" else None,
+            "terminal_role": endpoint_mapping.get("terminal_role") if kind != "bus" else None,
             "bus_id": object_id if kind == "bus" else None,
-            "attachment_id": mapping.get("attachment_id") if kind == "bus" else None,
+            "attachment_id": endpoint_mapping.get("attachment_id") if kind == "bus" else None,
         }
 
     def attach_application(self, application: Any) -> None:
