@@ -51,6 +51,48 @@ class ProtectionConfigurationService:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")
         return self._configuration
 
+    @staticmethod
+    def _validate_differential_scheme_ownership(
+        active: ProtectionProjectConfiguration,
+        scheme: DifferentialProtectionSchemeConfiguration,
+    ) -> None:
+        """Validate scheme ownership independently at the Application boundary."""
+        try:
+            active.get(scheme.protection_element_id)
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_DIFFERENTIAL_OWNER_NOT_FOUND",
+                message="Differential scheme Protection element owner is not configured.",
+                details={"scheme_id": scheme.scheme_id, "protection_element_id": scheme.protection_element_id},
+            ) from exc
+
+        for binding_id in scheme.measurement_binding_ids:
+            try:
+                binding = active.get_measurement_binding(binding_id)
+            except KeyError as exc:
+                raise ResourceError(
+                    code="PROTECTION_DIFFERENTIAL_BINDING_NOT_FOUND",
+                    message="Differential scheme references a missing measurement binding.",
+                    details={"scheme_id": scheme.scheme_id, "binding_id": binding_id},
+                ) from exc
+            if binding.protection_element_id != scheme.protection_element_id:
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_OWNER_MISMATCH",
+                    message="Every differential member binding must belong to the scheme's explicit Protection element owner.",
+                    details={
+                        "scheme_id": scheme.scheme_id,
+                        "protection_element_id": scheme.protection_element_id,
+                        "binding_id": binding_id,
+                        "binding_owner_id": binding.protection_element_id,
+                    },
+                )
+            if binding.measurement_type.strip().lower() != "current":
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_MEMBER_NOT_CURRENT",
+                    message="Differential scheme members must be current measurement bindings.",
+                    details={"scheme_id": scheme.scheme_id, "binding_id": binding_id},
+                )
+
     def validate_configuration(
         self,
         configuration: ProtectionFunctionConfiguration,
@@ -674,6 +716,7 @@ class ProtectionConfigurationService:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
         active = self._require_configuration()
+        self._validate_differential_scheme_ownership(active, scheme)
         network = self._network_provider() if self._network_provider is not None else None
         if network is not None:
             try:
@@ -700,6 +743,7 @@ class ProtectionConfigurationService:
             metadata={
                 "object_type": "differential_protection_scheme",
                 "object_id": scheme.scheme_id,
+                "protection_element_id": scheme.protection_element_id,
                 "protected_object_type": scheme.protected_object_type,
                 "protected_object_id": scheme.protected_object_id,
                 "measurement_binding_ids": scheme.measurement_binding_ids,
@@ -717,6 +761,7 @@ class ProtectionConfigurationService:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
         active = self._require_configuration()
+        self._validate_differential_scheme_ownership(active, scheme)
         try:
             previous = active.get_differential_scheme(scheme.scheme_id)
         except KeyError as exc:
@@ -747,7 +792,11 @@ class ProtectionConfigurationService:
         return ApplicationResult.success_result(
             value=scheme,
             message=f"Differential protection scheme updated: {scheme.scheme_id}",
-            metadata={"object_type": "differential_protection_scheme", "object_id": scheme.scheme_id},
+            metadata={
+                "object_type": "differential_protection_scheme",
+                "object_id": scheme.scheme_id,
+                "protection_element_id": scheme.protection_element_id,
+            },
         )
 
     def delete_differential_scheme(
