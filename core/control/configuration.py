@@ -167,6 +167,12 @@ class ControlConfiguration:
         for binding in self.action_bindings:
             if binding.source_component not in component_ids:
                 raise ValueError(f"Action binding {binding.control_id!r} references a missing source component.")
+            source_component = self.program.engine.get(binding.source_component)
+            if binding.source_output not in set(source_component.output_names):
+                raise ValueError(
+                    f"Action binding {binding.control_id!r} references missing output "
+                    f"{binding.source_component}.{binding.source_output}."
+                )
             if binding.interlock_id is not None and binding.interlock_id not in interlock_ids:
                 raise ValueError(f"Action binding {binding.control_id!r} references missing interlock {binding.interlock_id!r}.")
         for rung in self.program.rungs():

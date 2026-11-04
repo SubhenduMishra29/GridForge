@@ -92,11 +92,11 @@ class MeasurementChannelService:
         self._activation_generation = 0
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
-        self._sample_published_handler: Callable[[str, float, float], Any] | None = None
+        self._sample_published_handler: Callable[[str, float, float, str], Any] | None = None
 
     def bind_sample_published_handler(
         self,
-        handler: Callable[[str, float, float], Any] | None,
+        handler: Callable[[str, float, float, str], Any] | None,
     ) -> None:
         """Bind the Application-owned protection trigger to trusted sample ingress."""
         if handler is not None and not callable(handler):
@@ -108,6 +108,11 @@ class MeasurementChannelService:
         if not callable(getattr(execution_lock, "__enter__", None)) or not callable(getattr(execution_lock, "__exit__", None)):
             raise TypeError("execution_lock must be a context-manager lock.")
         self._execution_lock = execution_lock
+
+    @property
+    def clock_domain(self) -> str | None:
+        """Trusted clock-domain identity used for authenticated live sample ingress."""
+        return self._clock_domain
 
     @property
     def project_id(self) -> str | None:

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from enum import Enum
+import math
 from typing import Any, Mapping
 
 from .read_service import ReadService
@@ -66,6 +67,9 @@ class ControlSignalDestination:
     control_id: str
     component_id: str
     input_name: str
+    expected_signal_types: tuple[str, ...] = ()
+    expected_phases: tuple[str, ...] = ()
+    accepted_units: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("control_id", "component_id", "input_name"):
@@ -73,6 +77,20 @@ class ControlSignalDestination:
             if not value:
                 raise ValueError(f"{name} must be a non-empty string.")
             object.__setattr__(self, name, value)
+        for name in ("expected_signal_types", "expected_phases", "accepted_units"):
+            raw_values = getattr(self, name)
+            if not isinstance(raw_values, (tuple, list)):
+                raise TypeError(f"{name} must be a tuple or list of strings.")
+            values = tuple(str(item).strip() for item in raw_values)
+            if any(not item for item in values):
+                raise ValueError(f"{name} cannot contain empty values.")
+            normalized = tuple(
+                item.casefold() if name == "accepted_units" else item.upper()
+                for item in values
+            )
+            if len(normalized) != len(set(normalized)):
+                raise ValueError(f"{name} cannot contain duplicates.")
+            object.__setattr__(self, name, normalized)
 
 
 @dataclass(frozen=True, slots=True, order=True)
@@ -183,16 +201,19 @@ class ControlSignalMapping:
                     "control_id": binding.destination.control_id,
                     "component_id": binding.destination.component_id,
                     "input_name": binding.destination.input_name,
+                    "expected_signal_types": list(binding.destination.expected_signal_types),
+                    "expected_phases": list(binding.destination.expected_phases),
+                    "accepted_units": list(binding.destination.accepted_units),
                 },
             })
-        return {"schema_version": 1, "bindings": bindings}
+        return {"schema_version": 2, "bindings": bindings}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "ControlSignalMapping":
         if not isinstance(data, Mapping):
             raise TypeError("Control signal mapping data must be a mapping.")
         version = int(data.get("schema_version", 1))
-        if version != 1:
+        if version not in {1, 2}:
             raise ValueError(f"Unsupported Control signal mapping schema version {version}.")
         records = data.get("bindings", ())
         if not isinstance(records, (list, tuple)):
@@ -205,6 +226,10 @@ class ControlSignalMapping:
             destination_data = record.get("destination")
             if not isinstance(source_data, Mapping) or not isinstance(destination_data, Mapping):
                 raise TypeError("Control signal binding requires source and destination mappings.")
+            for field_name in ("expected_signal_types", "expected_phases", "accepted_units"):
+                raw_contract = destination_data.get(field_name, ())
+                if not isinstance(raw_contract, (list, tuple)):
+                    raise TypeError(f"destination.{field_name} must be a list or tuple.")
             raw_expected = source_data.get("expected_type")
             if raw_expected is None:
                 expected_type = None
@@ -226,14 +251,29 @@ class ControlSignalMapping:
                     control_id=str(destination_data["control_id"]),
                     component_id=str(destination_data["component_id"]),
                     input_name=str(destination_data["input_name"]),
+                    expected_signal_types=tuple(destination_data.get("expected_signal_types", ())),
+                    expected_phases=tuple(destination_data.get("expected_phases", ())),
+                    accepted_units=tuple(destination_data.get("accepted_units", ())),
                 ),
             ))
         return cls(bindings=tuple(bindings))
 
-    def resolve(self, read_service: ReadService) -> ControlSignalResolution:
+    def resolve(self, read_service: ReadService, *, measurement_read_service: Any | None = None, current_time: float | None = None, timestamp_domain: str | None = None) -> ControlSignalResolution:
         """Resolve every source through Application read models, never Core objects."""
         if not isinstance(read_service, ReadService):
             raise TypeError("read_service must implement ReadService.")
+        if current_time is not None and (
+            isinstance(current_time, bool)
+            or not isinstance(current_time, (int, float))
+            or not math.isfinite(current_time)
+        ):
+            raise ValueError("current_time must be a finite numeric simulation time.")
+        if timestamp_domain is not None and (
+            not isinstance(timestamp_domain, str)
+            or not timestamp_domain.strip()
+            or timestamp_domain != timestamp_domain.strip()
+        ):
+            raise ValueError("timestamp_domain must be a canonical non-empty string when provided.")
 
         external_inputs: dict[str, dict[str, Any]] = {}
         quality: dict[ControlSignalBinding, ControlSignalQuality] = {}
@@ -243,22 +283,62 @@ class ControlSignalMapping:
         for binding in self.bindings:
             source = binding.source
             destination = binding.destination
-            if source.domain != "core":
-                diagnostics.append(
-                    f"Unsupported signal domain '{source.domain}' for "
-                    f"{source.element_type}:{source.object_id}:{source.signal}."
-                )
-                continue
             try:
-                read_model = read_service.element(source.element_type, source.object_id)
-                attributes = getattr(read_model, "attributes", {})
-                if source.signal not in attributes:
-                    diagnostics.append(
-                        f"Signal '{source.signal}' is not available on "
-                        f"{source.element_type}:{source.object_id}."
-                    )
-                    continue
-                value = attributes[source.signal]
+                if source.domain == "measurement":
+                    if measurement_read_service is None or not callable(getattr(measurement_read_service, "channel", None)):
+                        raise RuntimeError("MeasurementChannelReadService is required for measurement-domain bindings.")
+                    channel = measurement_read_service.channel(source.object_id)
+                    if source.signal not in {"value", "engineering_value", channel.signal_type.lower()}:
+                        raise KeyError(
+                            f"MeasurementChannel signal '{source.signal}' is not compatible with "
+                            f"channel type '{channel.signal_type}'."
+                        )
+                    resolved_value = channel.value
+                    value_encoding = "ENGINEERING_VALUE"
+                    if str(channel.signal_type).upper() == "DIGITAL":
+                        if isinstance(resolved_value, bool):
+                            pass
+                        elif (
+                            isinstance(resolved_value, (int, float))
+                            and not isinstance(resolved_value, bool)
+                            and math.isfinite(resolved_value)
+                            and resolved_value in (0, 1)
+                        ):
+                            resolved_value = bool(resolved_value)
+                        else:
+                            diagnostics.append(
+                                f"Digital MeasurementChannel '{source.object_id}' must publish a Boolean "
+                                "sample or an exact finite 0/1 encoding; no truthiness conversion is permitted."
+                            )
+                            continue
+                        value_encoding = "BOOLEAN_OR_EXACT_0_1"
+                    value = {
+                        "value": resolved_value,
+                        "value_encoding": value_encoding,
+                        "unit": channel.unit,
+                        "signal_type": channel.signal_type,
+                        "phase": channel.phase,
+                        "quality": channel.quality,
+                        "available": channel.available,
+                        "timestamp": channel.timestamp,
+                        "timestamp_domain": channel.timestamp_domain,
+                        "sample_sequence": channel.sample_sequence,
+                        "stale_after": channel.stale_after,
+                        "producer_id": channel.producer_id,
+                        "validity": channel.validity,
+                    }
+                elif source.domain == "core":
+                    read_model = read_service.element(source.element_type, source.object_id)
+                    attributes = getattr(read_model, "attributes", {})
+                    if source.signal not in attributes:
+                        diagnostics.append(
+                            f"Signal '{source.signal}' is not available on "
+                            f"{source.element_type}:{source.object_id}."
+                        )
+                        continue
+                    value = attributes[source.signal]
+                else:
+                    raise ValueError(f"Unsupported signal domain '{source.domain}'.")
             except Exception as exc:
                 # Read-model lookup, attribute access, membership checks, and
                 # value retrieval are all part of the resolution boundary.
@@ -277,13 +357,150 @@ class ControlSignalMapping:
                 raw_quality = envelope.get("quality", "missing")
                 if isinstance(raw_quality, Enum):
                     raw_quality = raw_quality.value
-                try:
-                    signal_quality = ControlSignalQuality(str(raw_quality))
-                except (ValueError, TypeError):
+                quality_key = str(raw_quality).strip().lower()
+                quality_aliases = {
+                    "good": ControlSignalQuality.VALID,
+                    "valid": ControlSignalQuality.VALID,
+                    "invalid": ControlSignalQuality.INVALID,
+                    "suspect": ControlSignalQuality.INVALID,
+                    "unknown": ControlSignalQuality.INVALID,
+                    "stale": ControlSignalQuality.STALE,
+                    "unavailable": ControlSignalQuality.UNAVAILABLE,
+                    "wrong_type": ControlSignalQuality.WRONG_TYPE,
+                    "missing": ControlSignalQuality.MISSING,
+                }
+                signal_quality = quality_aliases.get(
+                    quality_key,
+                    ControlSignalQuality.WRONG_TYPE,
+                )
+                raw_validity = envelope.get("validity")
+                if isinstance(raw_validity, Enum):
+                    raw_validity = raw_validity.value
+                if raw_validity is not None and str(raw_validity).strip().upper() != "VALID":
+                    validity_key = str(raw_validity).strip().lower()
+                    signal_quality = (
+                        ControlSignalQuality.UNAVAILABLE
+                        if validity_key == "unavailable"
+                        else ControlSignalQuality.STALE
+                        if validity_key == "stale"
+                        else ControlSignalQuality.INVALID
+                    )
+
+            if envelope is not None and source.domain == "measurement":
+                raw_type = envelope.get("signal_type")
+                raw_phase = envelope.get("phase")
+                actual_type = raw_type.value if isinstance(raw_type, Enum) else str(raw_type or "")
+                actual_phase = raw_phase.value if isinstance(raw_phase, Enum) else str(raw_phase or "")
+                if destination.expected_signal_types and actual_type.upper() not in destination.expected_signal_types:
+                    diagnostics.append(
+                        f"Measurement signal '{source.object_id}' has signal type '{actual_type}', "
+                        f"expected one of {destination.expected_signal_types}."
+                    )
                     signal_quality = ControlSignalQuality.WRONG_TYPE
-                # Keep the complete source envelope for freshness-sensitive gates.
-                interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = dict(envelope)
+                if destination.expected_phases and actual_phase.upper() not in destination.expected_phases:
+                    diagnostics.append(
+                        f"Measurement signal '{source.object_id}' has phase/basis '{actual_phase}', "
+                        f"expected one of {destination.expected_phases}."
+                    )
+                    signal_quality = ControlSignalQuality.WRONG_TYPE
+                actual_unit = str(envelope.get("unit", "")).casefold()
+                if destination.accepted_units and actual_unit not in destination.accepted_units:
+                    diagnostics.append(
+                        f"Measurement signal '{source.object_id}' has unit '{envelope.get('unit', '')}', "
+                        f"accepted units are {destination.accepted_units}; no implicit conversion is performed."
+                    )
+                    signal_quality = ControlSignalQuality.WRONG_TYPE
+
+                # Validate canonical MeasurementChannel snapshots against the
+                # active cycle time. A connected graph edge is not availability.
+                channel_fields = {"signal_type", "phase", "timestamp_domain", "sample_sequence", "stale_after", "available"}
+                is_channel_envelope = bool(channel_fields.intersection(envelope))
+                if is_channel_envelope:
+                    timestamp = envelope.get("timestamp")
+                    domain = envelope.get("timestamp_domain")
+                    if envelope.get("available") is not True:
+                        signal_quality = ControlSignalQuality.UNAVAILABLE
+                    if current_time is None or timestamp is None:
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} requires a cycle time and sample timestamp.")
+                        signal_quality = ControlSignalQuality.STALE
+                    elif isinstance(timestamp, bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} has a non-finite timestamp.")
+                        signal_quality = ControlSignalQuality.STALE
+                    elif timestamp > current_time:
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} is future-dated.")
+                        signal_quality = ControlSignalQuality.STALE
+                    stale_after = envelope.get("stale_after")
+                    if stale_after is None:
+                        diagnostics.append(
+                            f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} "
+                            "has no configured freshness ceiling."
+                        )
+                        signal_quality = ControlSignalQuality.STALE
+                    elif (
+                        isinstance(stale_after, bool)
+                        or not isinstance(stale_after, (int, float))
+                        or not math.isfinite(stale_after)
+                        or stale_after < 0
+                    ):
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} has an invalid stale-after policy.")
+                        signal_quality = ControlSignalQuality.STALE
+                    elif (
+                        current_time is not None
+                        and isinstance(timestamp, (int, float))
+                        and not isinstance(timestamp, bool)
+                        and math.isfinite(timestamp)
+                        and current_time - timestamp > stale_after
+                    ):
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} is stale.")
+                        signal_quality = ControlSignalQuality.STALE
+                    if (
+                        not isinstance(domain, str)
+                        or not domain.strip()
+                        or timestamp_domain is None
+                        or domain != timestamp_domain
+                    ):
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} has an absent or mismatched timestamp domain.")
+                        signal_quality = ControlSignalQuality.STALE
+                    sequence = envelope.get("sample_sequence")
+                    if sequence is None:
+                        diagnostics.append(
+                            f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} "
+                            "has no publication sequence."
+                        )
+                        signal_quality = ControlSignalQuality.INVALID
+                    elif isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 0:
+                        diagnostics.append(f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} has an invalid sample sequence.")
+                        signal_quality = ControlSignalQuality.INVALID
+
+                # Keep the detached source envelope for freshness-sensitive gates.
+                interlock_envelope = dict(envelope)
+                # The resolver has already normalized and validated the source
+                # quality. Preserve the source marker separately for diagnostics.
+                interlock_envelope["source_quality"] = interlock_envelope.get("quality")
+                interlock_envelope["quality"] = signal_quality.value
+                interlock_inputs.setdefault(destination.control_id, {})[destination.input_name] = interlock_envelope
                 value = envelope.get("value")
+                raw_signal_type = envelope.get("signal_type") if envelope is not None else None
+                if isinstance(raw_signal_type, Enum):
+                    raw_signal_type = raw_signal_type.value
+                digital_boolean = str(raw_signal_type).strip().upper() == "DIGITAL" and isinstance(value, bool)
+                if is_channel_envelope and not digital_boolean:
+                    if isinstance(value, bool) or not isinstance(value, (int, float, complex)):
+                        diagnostics.append(
+                            f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} "
+                            f"has non-numeric engineering value type {type(value).__name__}."
+                        )
+                        signal_quality = ControlSignalQuality.WRONG_TYPE
+                    elif not (
+                        math.isfinite(value.real) and math.isfinite(value.imag)
+                        if isinstance(value, complex)
+                        else math.isfinite(value)
+                    ):
+                        diagnostics.append(
+                            f"Measurement signal '{source.signal}' on {source.element_type}:{source.object_id} "
+                            "has a non-finite engineering value."
+                        )
+                        signal_quality = ControlSignalQuality.INVALID
             # Plain values intentionally do not enter interlock_inputs:
             # no quality or timestamp metadata may be manufactured. A required
             # interlock input will therefore fail closed as missing.
