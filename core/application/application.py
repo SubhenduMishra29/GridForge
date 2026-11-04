@@ -38,6 +38,8 @@ from .commands.control_commands import (
     ADD_CONTROL_ACTION_BINDING, REMOVE_CONTROL_ACTION_BINDING, ADD_CONTROL_INTERLOCK, REMOVE_CONTROL_INTERLOCK,
     ADD_DYNAMIC_CONTROL_ASSOCIATION, REMOVE_DYNAMIC_CONTROL_ASSOCIATION,
 )
+from .dynamic_control_cycle import DynamicControlCycleResult, DynamicControlCycleService
+from core.control.dynamic.runtime import DynamicControlRuntime, GlobalStateLayout
 from .control_cycle import ControlCycleResult, ControlCycleService
 from .control_signal_mapping import ControlSignalMapping, ControlSignalResolutionError
 from .control_dispatch import ControlCommandDispatcher
@@ -57,8 +59,8 @@ from .events import (
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .read_models import ElementReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
-from .read_service import ProtectionReadService, ReadService, StudyReadService
+from .read_models import ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
+from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
 from .revision import ProjectRevision
@@ -131,6 +133,13 @@ class Application:
         if control_signal_mapping is not None and control_service is not None:
             self._validate_control_signal_mapping(control_signal_mapping, control_service.configuration)
         self._measurement_channel_service = measurement_channel_service
+        self._measurement_channel_read_service = (
+            MeasurementChannelReadService(measurement_channel_service)
+            if measurement_channel_service is not None else None
+        )
+        self._dynamic_control_signal_mapping: ControlSignalMapping | None = None
+        self._dynamic_control_runtime: DynamicControlRuntime | None = None
+        self._dynamic_control_cycle: DynamicControlCycleService | None = None
         self._sld_activation_diagnostics: tuple[dict[str, Any], ...] = ()
         self._event_bus = event_bus if event_bus is not None else ApplicationEventBus()
         self._project_lifecycle: ProjectLifecycleService | None = None
@@ -174,6 +183,7 @@ class Application:
                 self._control_execution,
                 signal_mapping=self._control_signal_mapping,
                 read_service=read_service,
+                measurement_read_service=self._measurement_channel_read_service,
             )
         self._command_manager.set_pre_commit_hook(self._coordinate_pre_commit)
         if self._sld_service is not None:
@@ -260,8 +270,12 @@ class Application:
         for binding in mapping.bindings:
             source = binding.source
             destination = binding.destination
-            if source.domain != "core":
+            if source.domain not in {"core", "measurement"}:
                 raise ValueError(f"Unsupported signal domain {source.domain!r} for {source.element_type}:{source.object_id}:{source.signal}.")
+            if source.domain == "measurement":
+                if self._measurement_channel_read_service is None:
+                    raise ValueError("MeasurementChannelReadService is required for measurement-domain Control bindings.")
+                self._measurement_channel_read_service.channel(source.object_id)
             component = records.get(destination.component_id)
             if component is None:
                 raise ValueError(f"Signal mapping destination component {destination.component_id!r} does not exist.")
@@ -305,10 +319,143 @@ class Application:
                 self._control_execution,
                 signal_mapping=mapping,
                 read_service=self._read_service,
+                measurement_read_service=self._measurement_channel_read_service,
             )
         self._control_signal_mapping = mapping
         if next_cycle is not None:
             self._control_cycle = next_cycle
+    def configure_dynamic_control_runtime(
+        self,
+        runtime: DynamicControlRuntime | None,
+        mapping: ControlSignalMapping | None = None,
+    ) -> None:
+        """Bind plugin adapters and measurement mappings to active project associations."""
+        if runtime is None:
+            self._dynamic_control_runtime = None
+            self._dynamic_control_signal_mapping = None
+            self._dynamic_control_cycle = None
+            return
+        if not isinstance(runtime, DynamicControlRuntime):
+            raise TypeError("runtime must be a DynamicControlRuntime or None.")
+        if not isinstance(mapping, ControlSignalMapping):
+            raise TypeError("A ControlSignalMapping is required with DynamicControlRuntime.")
+        if not isinstance(self._read_service, ReadService):
+            raise RuntimeError("Application ReadService is required for dynamic Control input resolution.")
+        if self._control_service is None:
+            raise RuntimeError("Application Control service is required for dynamic Control associations.")
+        associations = self._control_service.dynamic_control_associations
+        adapters = runtime.adapters
+        for binding in mapping.bindings:
+            source, destination = binding.source, binding.destination
+            if source.domain not in {"core", "measurement"}:
+                raise ValueError(f"Unsupported dynamic Control source domain {source.domain!r}.")
+            association = next(
+                (item for item in associations if item.association_id == destination.control_id),
+                None,
+            )
+            if association is None or association.controller_id != destination.component_id:
+                raise ValueError(
+                    f"Dynamic Control destination {destination.control_id!r}/"
+                    f"{destination.component_id!r} does not identify an active controller association."
+                )
+            adapter = adapters.get(association.controller_id)
+            if adapter is None:
+                raise KeyError(f"No DynamicControlAdapter is registered for controller {association.controller_id!r}.")
+            if adapter.component_type.casefold() != association.controller_type.casefold():
+                raise TypeError(
+                    f"Dynamic controller adapter type {adapter.component_type!r} does not match "
+                    f"persisted association type {association.controller_type!r}."
+                )
+            if adapter.plugin_id != association.plugin_id:
+                raise TypeError(
+                    f"Dynamic controller adapter plugin {adapter.plugin_id!r} does not match "
+                    f"persisted association plugin {association.plugin_id!r}."
+                )
+            if association.plugin_version is not None and adapter.plugin_version != association.plugin_version:
+                raise TypeError(
+                    f"Dynamic controller adapter version {adapter.plugin_version!r} does not match "
+                    f"persisted association version {association.plugin_version!r}."
+                )
+            input_definition = next(
+                (item for item in adapter.input_definition() if item.name == destination.input_name),
+                None,
+            )
+            if input_definition is None:
+                raise ValueError(
+                    f"Dynamic controller input {destination.component_id}.{destination.input_name} does not exist."
+                )
+            expected = source.expected_type
+            if expected is None:
+                raise TypeError(
+                    f"Dynamic controller source {source.object_id}.{source.signal} must declare expected_type."
+                )
+            accepted = expected if isinstance(expected, tuple) else (expected,)
+            if input_definition.value_type not in accepted:
+                raise TypeError(
+                    f"Dynamic controller input {destination.component_id}.{destination.input_name} "
+                    "is incompatible with its source expected_type."
+                )
+            if source.domain == "measurement":
+                if self._measurement_channel_read_service is None:
+                    raise RuntimeError("MeasurementChannelReadService is required for dynamic measurement bindings.")
+                self._measurement_channel_read_service.channel(source.object_id)
+        cycle = DynamicControlCycleService(
+            runtime,
+            mapping,
+            read_service=self._read_service,
+            measurement_read_service=self._measurement_channel_read_service,
+        )
+        self._dynamic_control_runtime = runtime
+        self._dynamic_control_signal_mapping = mapping
+        self._dynamic_control_cycle = cycle
+
+    def execute_dynamic_control_cycle(
+        self,
+        global_state: Any,
+        layout: GlobalStateLayout,
+        *,
+        simulation_time: float,
+        timestamp_domain: str | None = None,
+    ) -> DynamicControlCycleResult:
+        """Resolve fresh external inputs and evaluate active dynamic controllers."""
+        lifecycle = self.project_lifecycle
+        active_context = lifecycle.context
+        if active_context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Dynamic Control cycle execution requires an active project.")
+        if self._dynamic_control_cycle is None or self._dynamic_control_runtime is None:
+            raise RuntimeError("Dynamic Control runtime and signal mapping are not configured.")
+        configuration = self.control_service.configuration
+        if configuration.project_id != active_context.project_id:
+            raise RuntimeError("Dynamic Control associations do not belong to the active project.")
+        self.configure_dynamic_control_runtime(self._dynamic_control_runtime, self._dynamic_control_signal_mapping)
+        associations = configuration.dynamic_control_associations
+        expected_layout = self._dynamic_control_runtime.layout(layout.machine_slices, associations)
+        if expected_layout != layout:
+            raise ValueError("Dynamic Control state layout is stale or does not match active associations.")
+        return self._dynamic_control_cycle.derivatives(
+            global_state, layout, associations,
+            simulation_time=simulation_time, timestamp_domain=timestamp_domain,
+        )
+
+    def initialize_dynamic_control_state(
+        self, *, simulation_time: float, timestamp_domain: str | None = None,
+    ) -> Mapping[str, tuple[float, ...]]:
+        """Initialize active dynamic controllers from freshness-validated inputs."""
+        lifecycle = self.project_lifecycle
+        active_context = lifecycle.context
+        if active_context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Dynamic Control initialization requires an active project.")
+        if self._dynamic_control_cycle is None or self._dynamic_control_runtime is None:
+            raise RuntimeError("Dynamic Control runtime and signal mapping are not configured.")
+        configuration = self.control_service.configuration
+        if configuration.project_id != active_context.project_id:
+            raise RuntimeError("Dynamic Control associations do not belong to the active project.")
+        self.configure_dynamic_control_runtime(self._dynamic_control_runtime, self._dynamic_control_signal_mapping)
+        return self._dynamic_control_cycle.initial_controller_state(
+            configuration.dynamic_control_associations,
+            simulation_time=simulation_time, timestamp_domain=timestamp_domain,
+        )
+
     @property
     def control_service(self) -> ControlApplicationService:
         if self._control_service is None: raise RuntimeError("Application Control service is not configured.")
@@ -3518,9 +3665,15 @@ class Application:
         simulation_time: float | None = None,
         external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
         context: ControlExecutionContext | None = None,
+        timestamp_domain: str | None = None,
         interlock_inputs: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> ControlCycleResult:
-        """Execute one Control cycle through the canonical Application-owned runtime."""
+        """Execute one Control cycle through the canonical Application-owned runtime.
+
+        When project MeasurementChannels feed Control, the cycle domain is
+        anchored to the configured MeasurementChannelService clock domain.
+        The supplied simulation_time must be expressed in that same domain.
+        """
         lifecycle = self.project_lifecycle
         active_context = lifecycle.context
         if active_context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
@@ -3536,6 +3689,19 @@ class Application:
         if engine.activation_generation != lifecycle.activation_generation:
             raise RuntimeError("ControlEngine activation generation is stale for the active project.")
         t = context.simulation_time if context is not None else simulation_time
+        measurement_bound = (
+            self._control_signal_mapping is not None
+            and any(binding.source.domain == "measurement" for binding in self._control_signal_mapping.bindings)
+        )
+        if measurement_bound:
+            trusted_domain = self.measurement_channel_service.clock_domain
+            if not isinstance(trusted_domain, str) or not trusted_domain.strip():
+                raise RuntimeError("Measurement-backed Control requires a configured trusted MeasurementChannel clock domain.")
+            if timestamp_domain is not None and timestamp_domain != trusted_domain:
+                raise ValueError("Control timestamp_domain does not match the Application MeasurementChannel clock domain.")
+            if t is None:
+                raise ValueError("Measurement-backed Control requires an explicit cycle time in the trusted clock domain.")
+            timestamp_domain = trusted_domain
         scope = self._project_scope_metadata()
         self._event_bus.publish(ControlExecutionStarted(metadata={**scope, "simulation_time": t}))
         try:
@@ -3543,6 +3709,7 @@ class Application:
                 simulation_time=simulation_time,
                 external_inputs=external_inputs,
                 context=context,
+                timestamp_domain=timestamp_domain,
                 interlock_inputs=interlock_inputs,
             )
         except Exception as exc:
@@ -3930,6 +4097,16 @@ class Application:
         """Clear command and revision journals while preserving project revisions."""
         self._command_manager.clear_history()
         self._revision_service.clear_transitions()
+
+    def read_measurement_channels(self) -> tuple[MeasurementChannelReadModel, ...]:
+        """Return immutable snapshots of the active project's MeasurementChannels."""
+        lifecycle = self.project_lifecycle
+        if not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("MeasurementChannel reads require an active project.")
+        service = self._measurement_channel_read_service
+        if service is None:
+            raise RuntimeError("Application MeasurementChannel read service is not configured.")
+        return service.channels()
 
     def read_control(self):
         service = getattr(self, "control_service", None)
