@@ -1424,3 +1424,121 @@ The most consequential V3 UI work is not cosmetic. It is to make the engineering
 The shared interaction contract, structured diagnostics, contextual Inspector and persistence/recovery foundations are prerequisites for reliable discipline-specific workflows. SLD, Control, Protection and Study should then be improved as complete user journeys rather than disconnected panels.
 
 **Next research step:** conduct a requirements challenge/reconciliation pass against the frozen V2 architecture and current V3 research branch, identify duplicate or conflicting requirements, validate the priority/dependency model, and prepare an approval-ready V3 UI/UX specification. No implementation is authorized by this section.
+
+## 8I-7. UI/UX requirements challenge and architecture reconciliation (2026-11-04)
+
+**Purpose:** Challenge section 8I-6 against the frozen V2 architecture baseline and the source findings in 8I–8I-5. Resolve duplicate/overlapping requirements, tighten authority and persistence language, clarify priority and delivery dependencies, and identify decisions that must remain open until runtime/user evidence exists. This is still research/specification; no implementation is authorized.
+
+### A. Architecture compatibility review
+
+The consolidated UI/UX baseline is **architecturally compatible in principle** with the frozen baseline, subject to the clarifications below.
+
+| Frozen architecture invariant | Requirements affected | Reconciliation |
+|---|---|---|
+| Core owns electrical/domain truth; UI is projection and interaction | REQ-001–016, REQ-019 | Retain. UI may display read models and collect typed user intent; no widget/canvas state becomes authoritative equipment, topology, measurement, Control, Protection or Study state. |
+| Application owns commands, services, controlled mutation and orchestration | REQ-004–007, REQ-009–016, REQ-019 | Retain explicit Application command/service boundary for all configuration, draft, commit, execution and recovery mutations. Diagnostics navigation is read-side; correction actions route through Application. |
+| Universal path UI → Controller → Command → Application → Core → Event → Projection → UI | REQ-001, REQ-004–023 | Clarify that this is the engineering mutation/readback path, not a mandatory call stack for every local presentation interaction. Focus, zoom, panel layout and tool hover are UI-local presentation state; engineering changes use the canonical path. |
+| Control and Protection are separate domains and execution authorities | REQ-010, REQ-014, REQ-015 | Preserve. A cross-domain trace may show configured Control/interlock context only where an explicit integration exists. It must not imply Control authorizes, owns, delays or suppresses an independent Protection trip. |
+| Measurement owns typed sample semantics and trusted ingress; Application owns active project and orchestration | REQ-011, REQ-012, REQ-019, REQ-032 | Retain. UI distinguishes configured channel/binding from actual sample availability, timestamp, freshness, quality and trusted-ingress status. UI must not calculate or promote a stale/invalid sample to healthy. |
+| DeviceCommand and DeviceFeedback are distinct from Control intent and ProtectionDecision | REQ-010, REQ-014 | Retain and strengthen. Show decision/intent, command acceptance/dispatch, acknowledgement and physical feedback as separate typed lifecycle states; absence of feedback must never be rendered as successful actuation. |
+| Project is persistence root; canonical project data is engineering truth and SLD layout | REQ-021–023 | Separate persistence classes. User machine preferences remain outside canonical project data. Project-scoped viewport metadata is optional, versioned presentation metadata only if explicitly approved. Draft/recovery content must use existing Application/project persistence contracts and never serialize widget or QGraphicsScene objects as engineering truth. |
+| Plugins extend through public contracts and Application-controlled mutation | REQ-002, REQ-004, REQ-017–020, REQ-026, REQ-033 | Add UI contribution metadata requirements to plugin contracts, but do not let plugin UI bypass Application. Keyboard/accessibility declarations are contribution metadata, not permission to own global shortcuts or global presentation state. |
+| Domain-specific canvas/editor semantics remain distinct | REQ-001, REQ-005, REQ-009, REQ-015, REQ-016 | Clarify shared interaction contract as a minimum common capability/behavior contract with explicit capability declarations and domain-specific extensions, not a single implementation or identical gesture/undo model. |
+
+**Architecture challenge conclusion:** no requirement justifies moving domain truth into UI, merging Control and Protection execution, storing UI runtime objects in the project, or making Core depend on Qt/plugins. Those would be rejected as V2-boundary violations and V3 design regressions.
+
+### B. Duplicate and overlapping requirement reconciliation
+
+The 33 requirements are retained as traceable IDs, but several are parent/child or cross-cutting requirements rather than independent implementation work items. Avoid building duplicate subsystems for each row.
+
+| Overlap group | Existing requirements | Consolidated interpretation |
+|---|---|---|
+| Shared interaction and tool lifecycle | REQ-001, REQ-002, REQ-017, REQ-018 | One Interaction Contract. It owns active-tool lifecycle, context/focus precedence, shortcut resolution, keyboard access, selection and cancellation. Tool catalogues provide metadata; editors declare capabilities/extensions. |
+| Inspector and engineering diagnostics | REQ-004, REQ-007, REQ-008, REQ-019, REQ-020 | One read-side Diagnostic/Validation presentation model with distinct typed categories and lifecycles. Inspector presents object-local details; Diagnostics Centre presents cross-project/history views; transient status/dialogs are delivery channels, not separate diagnostic stores. |
+| Operational state and status | REQ-010, REQ-012, REQ-014, REQ-032 | Domain read models own their execution state. A contextual status summary may link to the detailed Control/Protection/measurement trace but must not duplicate or reinterpret domain state. |
+| Workspace and view persistence | REQ-003, REQ-021, REQ-022, REQ-023, REQ-028, REQ-029 | Separate startup/navigation, user preferences, optional portable view metadata and engineering-project recovery. Do not make a monolithic session blob the owner of all four. |
+| Visual accessibility and display | REQ-024, REQ-025, REQ-026, REQ-027 | One design-token/accessibility system. High contrast, color independence, focus and text scaling are baseline requirements; light/dark choice, density and DPI adaptation are presentation-profile features verified against the same tokens. |
+| Workflow-specific editors | REQ-005–006, REQ-009–016 | Keep SLD, Control, Protection and Study as separate journey specifications consuming shared contracts. Do not duplicate the common shell, diagnostics or Inspector infrastructure in each discipline. |
+
+**Requirement catalogue disposition:** keep IDs REQ-001–033 stable for traceability, but implement parent capabilities once and map each discipline-specific requirement to those capabilities. Do not interpret every requirement row as a separate service, package or plugin.
+
+### C. Specific wording corrections and constraints
+
+1. **REQ-001 shared interaction contract:** replace any interpretation of uniform undo/redo, gestures or canvas behavior with a capability contract. Each editor declares supported history scope and domain-specific navigation; common keyboard/focus/feedback semantics remain consistent.
+2. **REQ-003 first-use workspace:** SLD-first remains the default engineering entry point, consistent with the established product direction. It must not prevent a user from opening a recent project directly into a supported discipline workspace where saved project context and authorization permit.
+3. **REQ-006 connection authoring:** duplicate/crossing/snap behavior is interaction feedback; electrical validity remains Core/Application policy. Do not introduce new endpoint restrictions or shift validation timing without an approved engineering workflow decision.
+4. **REQ-007/008/019/020 diagnostics:** distinguish validation result, application event, operational alarm, data-quality condition, study execution outcome and user-action feedback as typed categories. They may share presentation infrastructure but must retain category-specific severity, acknowledgement, retention and navigation rules. An operational alarm lifecycle must not be inferred from generic validation severity.
+5. **REQ-010 Control monitor:** display evaluated logic, Control decisions, blocked intent and issued commands as separate states. Device feedback must come from the device/adapter feedback path, not be inferred from a successful Control cycle.
+6. **REQ-011/012 Protection channels:** eligible channel discovery and provenance are read-side presentation over Measurement/Application contracts. UI selection must not create an untrusted channel or bypass measurement authorization/quality policy.
+7. **REQ-014 Protection/Control trace:** make Control/interlock context conditional and optional. The canonical trace is Protection decision → Application output handling → DeviceCommand/dispatch result → DeviceFeedback where available. A Control association is included only when an explicit configured integration and provenance exist.
+8. **REQ-016 Study:** study setup and result navigation must use immutable study input/result read models and preserve source revision/provenance; the UI does not become an alternate result archive.
+9. **REQ-021/022 persistence:** distinguish (a) machine/user preferences, (b) workspace layout preferences, (c) per-document viewport metadata, (d) engineering project/draft data and (e) transient interaction state. Each has separate owner, schema, retention, migration and restore policy. A portable viewport inside a project is a product decision, not implied by the current .gridforge engineering schema.
+10. **REQ-023 recovery:** this requirement does not itself authorize continuous autosave or a new journal. First inventory existing draft/project persistence and define recovery-point, retention, corruption and user-consent policies. Never silently commit a draft or restore an in-progress pointer gesture.
+11. **REQ-024/025 accessibility:** keyboard reachability, visible focus, accessible names/descriptions and non-color state indicators are design-time requirements from Stage 1. High-contrast and font-scale profiles are not postponed until Stage 7; Stage 7 is their integrated verification.
+12. **REQ-027 DPI:** avoid promising 100–200% or mixed-monitor support as a proven capability until supported platforms, Qt version and asset policy are confirmed. Treat the range as a proposed verification matrix pending product approval.
+13. **REQ-033 personalization:** expert customization is optional and subordinate to safe canonical defaults. User-customized shortcuts must not override safety-critical command confirmation or platform-reserved keys.
+
+### D. Priority and dependency corrections
+
+**Priority review:**
+- P1 remains appropriate for the core engineering workflow, clear state/authority presentation, actionable diagnostics, safe project transitions, keyboard operation for critical tasks and non-color status communication.
+- P1 for full screen-reader semantic navigation of every complex canvas (REQ-018) is too broad to accept without platform/accessibility feasibility research. Keep the outcome mandatory for critical controls and object inspection; define canvas semantic navigation capability-by-capability with an accessibility design and verification plan.
+- P1 for a complete crash recovery journal (REQ-023) is premature. P1 is safe recovery of already-persisted project/draft state and explicit unsaved-change handling; automatic journaling, retention policy and crash-recovery UX require a separate approved product/security decision.
+- P1 for a user-selectable high-contrast profile (REQ-025) is retained as a V3 accessibility target, but acceptance depends on supported platform/Qt behavior and verified contrast rather than the existence of a theme name.
+- P2 remains appropriate for configurable toolbar layouts, start/recent/sample onboarding, broad density choices and performance enhancements until user evidence establishes release-critical need.
+- P3 remains appropriate for arbitrary user-defined workspace/shortcut profiles.
+
+**Dependency corrections:**
+- Accessibility and keyboard operation are cross-cutting constraints in Stage 1–6, not a final Stage 7 retrofit. Stage 7 is formal integrated verification.
+- Typed diagnostics and domain status read models are shared foundations. Control and Protection UI work cannot complete independently of trustworthy Measurement/Signal and command/feedback read models.
+- Project recovery depends on project/draft persistence integrity and Application lifecycle; it must not be delivered as a UI-only session feature.
+- Study result navigation depends on stable study input/result provenance and source identity, not only a redesigned form.
+- Status summaries depend on the relevant domain read models; do not add status fields before their authoritative source and staleness semantics are defined.
+- Stage 2 workspace preference persistence may proceed independently of optional project-portable viewport metadata. The latter remains a decision gate.
+- Stage 4 and Stage 5 can proceed in parallel only after shared contracts and Signal/Measurement read models are stable; Protection-to-Control trace integration needs its own explicit end-to-end acceptance scenario.
+
+### E. Open decisions — do not silently resolve
+
+| Decision ID | Decision required | Why evidence/approval is needed | Safe interim rule |
+|---|---|---|---|
+| UI-DEC-01 | Should recent projects reopen into their last discipline workspace or always start in SLD? | First-use simplicity vs expert continuity | New projects open SLD; preserve current explicit navigation for existing projects until approved |
+| UI-DEC-02 | Should viewport state be machine-local, project-portable or both? | Portability, collaboration, display geometry and project schema implications | Keep user-machine viewport preferences separate; no project schema change |
+| UI-DEC-03 | Which diagnostic categories require acknowledgement and retention? | Validation, alarms, events and quality warnings have different lifecycles | Do not add universal acknowledgement semantics |
+| UI-DEC-04 | What crash-recovery/autosave guarantees and retention are required? | Data integrity, storage, security and operator expectations | Preserve explicit save/close behavior and existing persisted drafts; no implied silent autosave |
+| UI-DEC-05 | What native accessibility target and platform matrix are supported? | Qt/platform assistive-technology support and complex canvas semantics | Apply keyboard, focus, naming and non-color principles immediately; claim no conformance until verified |
+| UI-DEC-06 | What screen/DPI/monitor envelope is a supported product target? | Hardware, Qt version and icon/rendering resource constraints | Avoid compatibility claims until measured on approved matrix |
+| UI-DEC-07 | Which user roles and novice/expert scenarios define the first release? | Acceptance thresholds depend on context of use | Use J01–J10 as candidate scenarios, not final personas or performance thresholds |
+| UI-DEC-08 | What are the explicit Control/Protection integration trace points? | Avoid implying Control participation in every Protection output | Show only configured, provenance-backed relationships |
+
+### F. Corrected implementation dependency graph
+
+Corrected dependency order:
+1. Stage 0: user/task requirements, runtime evidence and decision closure.
+2. Stage 1: shared interaction, Inspector, diagnostics and accessibility contracts.
+3. Stage 2: shell/workspace preferences and project lifecycle, alongside shared Signal/Measurement and domain-status read models.
+4. Stage 3: SLD workflow.
+5. Stages 4 and 5: Control and Protection after shared contracts and trusted Signal/Measurement read models; they may proceed in parallel where integration dependencies are met.
+6. Stage 6: Study when immutable study input/result provenance contracts are stable.
+7. Stage 7: integrated accessibility, DPI, recovery and usability evidence; accessibility remains a continuous constraint throughout implementation.
+8. Stage 8: release decision and residual-risk acceptance.
+
+This is a dependency view, not a mandatory single-thread schedule. Study may be parallelized when immutable result/provenance contracts are ready. Protection/Control integration must be validated across the actual configured signal/command/feedback path.
+
+### G. Updated acceptance rules
+
+- A shared contract is accepted only when each editor declares its supported capabilities, deviations and domain-specific extensions.
+- A diagnostic presentation is accepted only when typed source data, lifecycle, timestamp, object identity and navigation target are preserved; rendering strings is insufficient.
+- A status indicator is accepted only when its authoritative source, freshness/quality semantics and unavailable state are defined.
+- A recovery feature is accepted only when it distinguishes persisted engineering draft from transient UI interaction and cannot silently convert one into the other.
+- A cross-domain trace is accepted only when each stage is independently sourced and timestamped; missing stages remain explicitly unknown/unavailable, never inferred successful.
+- Accessibility acceptance requires task-specific keyboard and assistive-technology evidence; source-level accessibleName calls or focus QSS alone are insufficient.
+- Persistence acceptance requires restart/upgrade/invalid-state fallback evidence and proof that user preferences cannot mutate canonical project engineering data.
+- No numeric task-time, completion-rate, contrast or DPI threshold is declared here without an approved baseline and target matrix.
+
+### H. Reconciliation outcome and next action
+
+**Outcome:** The 33 requirement IDs remain as the stable traceability catalogue, but their ownership is consolidated into shared capability groups. The baseline is compatible with the frozen architecture after the explicit clarifications in this section. No new Core authority, UI-owned domain state, plugin bypass, or Control/Protection authority merger is permitted.
+
+**Not approved yet:** final personas, measurable usability thresholds, project-portable viewport policy, diagnostic acknowledgement semantics, autosave/crash-recovery guarantee, screen/DPI support envelope, accessibility conformance claim and final release priority of the broad canvas screen-reader requirement.
+
+**Next:** produce the approval-ready V3 UI/UX specification package: normalized requirement catalogue, shared UI contract definitions, discipline-specific acceptance scenarios, decision log and verification matrix. It remains a proposed specification pending explicit review/approval; do not implement.
