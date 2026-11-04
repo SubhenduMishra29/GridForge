@@ -652,7 +652,6 @@ def build_protection_dependency_registry(
         descriptors[element_id] = descriptor
         for dependency in dependencies:
             consumer_sets.setdefault((dependency.kind, dependency.identity), set()).add(element_id)
-        diagnostics.extend(element_diagnostics)
 
     consumers = {
         key: tuple(sorted(element_ids))
