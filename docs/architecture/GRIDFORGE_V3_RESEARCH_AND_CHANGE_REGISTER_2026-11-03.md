@@ -11371,3 +11371,321 @@ This tranche audits ToolDefinition, ToolManager, ToolShelf, ToolSettingsPanel, a
 - keyboard-only/accessibility user evaluation.
 
 **Disposition:** Research/reference audit only. No production source changed. No implementation, tests, CI, benchmarks, runtime validation or user study performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A designated V3 implementation ref is required before these findings can be promoted to V3 implementation defects.
+
+
+## 8I-47. V2 UI source-reference audit: Inspector, engineering properties, multi-selection and Project Explorer (2026-11-04)
+
+**Audit purpose:** Inspect the V2 presentation path from selection to engineering-property display/editing and project navigation. Define V3 requirements for a domain-aware Inspector, safe staged editing, multi-object workflows and a semantic Project Explorer. This is a source-reference audit of V2 main, not a V3 implementation review.
+
+### 8I-47.1. Scope and inspected source
+
+The following V2 main files were inspected directly:
+
+- \`ui/panels/default_panels.py\`: \`ProjectPanelWidget\`, Properties panel presentation, parameter controls, annotation controls and project hierarchy rendering.
+- \`ui/projection/projection_state.py\`: immutable \`EngineeringParameterState\` and \`ProjectionState\`.
+- \`ui/projection/selection_projection_coordinator.py\`: selected-object read-model projection and event refresh.
+- \`ui/projection/ui_projection_coordinator.py\`: Application event fan-out to registered projections.
+- \`ui/panels/engineering_parameter_editor.py\`: typed edit intent adapter and Application command submission.
+- \`ui/core/selection_manager.py\`: transient selection IDs and graphics selection synchronization.
+- \`ui/plugins/panels_plugin.py\`, \`ui/editors/common/editor_host.py\`, and \`ui/editors/sld/sld_editor.py\`: panel hosting and editor-region integration.
+
+The issue records for #992, #1003, #1004, #821, #883 and #994 were read to reconcile reported gaps against current source. Issue descriptions are not treated as proof of current defects. No V3 implementation branch/ref is established in this audit.
+
+### 8I-47.2. Existing strengths to preserve
+
+1. \`ProjectionState\` is immutable and framework-neutral. It is a view-facing snapshot rather than an alternative electrical model.
+2. \`EngineeringParameterState\` carries typed values, units, choices, editability, derived state, validation metadata, coupling and impact indicators, display labels, required/default metadata and numeric bounds.
+3. \`SelectionProjectionCoordinator\` reads selected data through Application read methods and adapts it into detached presentation state.
+4. \`EngineeringParameterEditor\` constructs a typed immutable intent and submits through Application preparation/execution methods. It does not build equipment-specific Core mutations.
+5. \`UIProjectionCoordinator\` routes Application events to interested projections and isolates a projection failure from sibling projections.
+6. \`SelectionManager\` explicitly treats selection as transient UI interaction state, separate from Core engineering truth.
+7. The SLD editor already accepts an Inspector region as part of its composition; retain the ability to place the same Inspector service in different workspace layouts.
+
+### 8I-47.3. Source-confirmed finding — Project Explorer is a limited tree projection
+
+\`ProjectPanelWidget\` currently realizes a \`QTreeWidget\` with a project root, grouped network elements, documents and study cases. Network elements are grouped by type and carry object IDs in item data. The current document entries are labels only; the inspected path does not assign stable document identity or a navigation target. Study cases are represented by a workspace ID label rather than a navigable study hierarchy.
+
+The current structure is useful as a simple browser but is not yet a complete engineering object navigator. It does not establish a semantic hierarchy for systems, substations, areas, SLD documents, equipment, terminals, connections, measurement channels, protection configurations, control schemes, studies, results, reports and evidence.
+
+**V3 recommendation:** Build Project Explorer over an Application-owned, typed project-navigation read model. The UI should not reconstruct hierarchy by guessing from display labels or directly traversing Core aggregates.
+
+### 8I-47.4. Source-confirmed finding — Project Explorer selection is effectively single-item
+
+The tree selection handler reads the first selected item and calls \`select_single\`. The reverse synchronization clears tree selection, then finds and selects the first item matching a selected ID. This is a single-selection synchronization path, not a deliberate multi-selection contract.
+
+**V3 recommendation:** Support explicit single, additive, range and subtractive selection semantics. Define an active/primary object separately from the selected set. Keep selection identity typed as project object reference (project/document/domain/object ID), not a bare string that may collide across documents or domains.
+
+### 8I-47.5. Source-confirmed finding — V2 selection identity is under-qualified for multi-document navigation
+
+\`SelectionManager\` stores IDs in per-domain lists and graphics items are matched by their \`object_id\`. The current API can distinguish a presentation domain, but the inspected contract does not make project ID, document ID, object kind and domain part of a canonical selection reference.
+
+This matters for projects with multiple SLD documents and repeated local identifiers, and is relevant to the issue-reported cross-document identity risk in #883. The issue's exact clipboard failure was not reproduced in this audit.
+
+**V3 recommendation:** Use a stable \`ObjectReference\` with project scope, document/sheet scope where applicable, domain, object kind and canonical object ID. Selection synchronization must never resolve an object by an ambiguous bare ID.
+
+### 8I-47.6. Source-confirmed finding — Inspector projection is detached from Core but currently centered on one target
+
+The selection projection coordinator reads a selected object, creates a \`ProjectionState\`, and sends it to the Properties panel. The panel API exposes one target projection. This is a good safety boundary for single-object editing but does not define a selection-set read model or mixed-type selection summary.
+
+**V3 recommendation:** Preserve a single-object detail view and add a multi-selection projection contract. It should report common properties, mixed values, per-object applicability, unavailable fields and aggregate selection counts without fabricating a single synthetic equipment object.
+
+### 8I-47.7. Source-confirmed finding — property metadata has improved since the older #992 report
+
+The current V2 main \`EngineeringParameterState\` already contains display name, required-before-create, default value, minimum, maximum and inspectability fields. The current committed-element projection also resolves creation-catalogue metadata and adds unavailable catalogue parameters as explicitly non-inspectable entries. The panel labels fields using display names, units, required/read-only/derived markers, and the current parameter-control implementation uses minimum/maximum bounds for numeric validators.
+
+Therefore, the older #992 issue statement that these metadata fields are absent is not fully current against the inspected source snapshot. This is a reconciliation finding, not a claim that the issue is fully closed: committed read-model completeness, catalogue-wide parameter disposition, actual editor behavior and acceptance evidence still require review.
+
+**V3 recommendation:** Reconcile #992 against the present main source and close only the exact requirements demonstrably satisfied. Keep a machine-checkable parameter coverage report so future schema/read-model divergence cannot silently recur.
+
+### 8I-47.8. Source-confirmed finding — Inspector edits are staged before Application submission
+
+The generic editor builds changes by comparing controls with the selected projection, creates a typed \`EngineeringConfigurationIntent\`, prepares the Application update command and executes it. This staged edit flow is preferable to immediate widget-to-Core mutation.
+
+V3 should make the lifecycle more explicit: clean → dirty → validating → submitting → accepted/rejected → refreshed. It must retain the original read-model revision and detect stale edits before submitting or reconciling a server-side conflict.
+
+### 8I-47.9. Source-confirmed finding — transient widget constraints are not the authority
+
+The Inspector uses typed controls and metadata-derived constraints, but \`EngineeringParameterEditor\` primarily performs datatype coercion and coupling checks before passing intent to Application. The Core/Application validation boundary remains authoritative, as intended.
+
+**V3 recommendation:** UI constraints improve usability only. Application/Core validation must independently enforce numeric bounds, enum membership, engineering relationships, required values, operating limits and domain invariants. A forged or stale UI payload must not bypass them.
+
+### 8I-47.10. Source-confirmed finding — one generic Apply action is overloaded
+
+The Properties panel presents an Apply / Commit action for committed-object edits and a draft-specific apply action in creation mode; it also has a separate Commit Network action. These are distinct lifecycle operations and should not be conflated in the Inspector's user mental model.
+
+**V3 recommendation:** Use explicit action labels and state transitions: Apply Changes (submit configuration edits), Revert Changes (discard local staged edits), Place Draft (create a draft presentation/domain candidate), and Commit Network (validate and commit the engineering network). The Inspector must not imply that applying a property edit commits an entire network.
+
+### 8I-47.11. Source-confirmed finding — Protection relay configuration is not represented in the generic selected relay projection
+
+Issue #1003 reports that the selected relay read model currently projects identity and runtime attributes while setting engineering parameters to an empty tuple. The generic panel enables Apply only when editable non-derived parameters exist. The issue's source description identifies a genuine contract gap in the selected relay path; it has not been independently re-opened at every source line in this tranche.
+
+**V3 recommendation:** Define a typed Protection configuration read model and a discoverable configuration workflow. Configuration fields must be sourced only from supported Protection/Application contracts. Runtime telemetry (enabled, blocked, pickup, trip, in-service state, measured values and decision state) must be separate from editable settings. Do not invent plugin defaults or expose runtime state as editable configuration.
+
+### 8I-47.12. Source-confirmed finding — Protection configuration refresh route is incomplete per #1004
+
+Issue #1004 reports that Application publishes \`ProtectionChanged\` for configuration lifecycle operations but the selected projection's event interests do not include it. If the current source remains as described, accepted configuration changes can leave the selected relay projection stale.
+
+**V3 recommendation:** Add a dedicated Protection configuration projection or declare the relevant event interest. Re-read the authoritative Application read model after configuration create/update/delete and measurement bind/unbind, preserve selection identity, and refresh on undo/redo. A configuration event is not evidence of pickup, trip or field acknowledgement.
+
+### 8I-47.13. Source-confirmed finding — multi-selection editing is not defined by the generic editor contract
+
+The current editor intent identifies one element type and one element ID. It accepts a mapping of parameter IDs to values for that object. It does not define batch targets, mixed values, per-target outcomes, partial applicability or atomicity across multiple objects.
+
+**V3 recommendation:** Provide a dedicated batch-edit intent with an explicit target set and property ID. Before submission, compute eligible targets, excluded targets and reasons. The user must choose whether the operation is all-or-nothing or explicitly partial where the domain/Application contract permits it. Never silently skip ineligible objects or claim a global atomic transaction if the Application cannot provide one.
+
+### 8I-47.14. Engineering spreadsheet / batch editing
+
+Issue #821 describes repetitive edits across many assets and requests spreadsheet-like keyboard navigation. V3 should provide a dedicated engineering table editor, not turn the Inspector into an unrestricted spreadsheet.
+
+The table should support:
+- user-selected object sets and saved filters;
+- typed columns, units, precision, engineering bounds and editability;
+- keyboard traversal, copy/paste of values and controlled fill operations;
+- mixed-value display and explicit bulk-apply preview;
+- row-level validation and per-object rejection reasons;
+- provenance, dirty-state and undo/redo integration;
+- clear distinction between local draft edits and accepted Application commands.
+
+Paste/fill operations must use typed import semantics and Application validation. They must not write directly to Core or silently coerce incompatible units.
+
+### 8I-47.15. V3 Inspector information architecture
+
+Recommended Inspector sections, shown only when relevant:
+1. **Identity:** canonical tag/name, object type, project/document path and stable identity.
+2. **Engineering configuration:** typed nameplate/design/configuration properties.
+3. **Connections:** terminal/port references and authoritative topology summary; navigation only, no direct topology mutation.
+4. **Signals and measurements:** associated channels, measurement quality, units, timestamps and binding navigation.
+5. **Protection / Control:** domain-specific configuration and execution status, separated into distinct sections and read models.
+6. **Operating state:** read-only live/simulated state with timestamp and source provenance.
+7. **Validation and diagnostics:** structured findings, severity, source and navigation to affected field/object.
+8. **Studies and results:** references to studies that consume the object and result provenance.
+9. **Documents and evidence:** drawings, datasheets, calculations, approvals and traceable attachments.
+10. **History:** accepted changes, actor, timestamp, command/revision and undo/redo availability where applicable.
+
+The Inspector must remain domain-aware. A transformer, relay, cable, logic block, measurement channel and study case should not all receive the same untyped property form.
+
+### 8I-47.16. Property schema and editor registry
+
+V3 should introduce a versioned property descriptor/read-model contract with:
+- stable property ID and localized display label;
+- owning domain/object kind and schema version;
+- datatype, cardinality, unit and display precision;
+- choices, numeric bounds, nullability and default provenance;
+- required/optional/derived/computed/read-only classification;
+- edit policy, permissions and applicable lifecycle stage;
+- validation metadata and authoritative validator identity;
+- coupling/dependency groups and impact classification;
+- source/provenance, revision and freshness metadata;
+- editor hint selected from a controlled editor registry.
+
+The UI editor registry may select a numeric, enum, boolean, text, complex, curve, table, reference-picker or domain-specific editor. The registry is a presentation facility only; it must not own domain semantics or validators.
+
+### 8I-47.17. Units, dimensions and value presentation
+
+Engineering values must carry a unit/dimension contract, not just a suffix string. Display units may be user-selectable while stored values remain canonical. Conversion must be explicit and dimensionally checked. Copy/paste between cells must preserve source units or request a clear conversion; it must never silently interpret a value in the target unit.
+
+For complex quantities, phasors, curves, time constants, sequence impedances and protection settings, provide domain-appropriate editors and clear magnitude/angle or real/imaginary conventions. Do not flatten structured engineering data into free text.
+
+### 8I-47.18. Multi-selection semantics
+
+Define selection state as:
+- selected set: zero or more typed ObjectReferences;
+- active object: one member used for context and detail display;
+- anchor object: used for range selection;
+- selection source: editor canvas, Project Explorer, table, search result or relationship navigation;
+- selection scope: project, document, editor instance and domain;
+- selection policy: replace, add, toggle, range-add, subtract and clear.
+
+Selection sync between canvas, Explorer, tables and Inspector should be bidirectional but must suppress feedback loops and stale references. A pinned Inspector may remain on a chosen object while active selection changes; pinning is an explicit user preference and must show that the panel is no longer following selection.
+
+### 8I-47.19. Project Explorer semantic model
+
+Recommended hierarchy is a set of switchable views over the same typed project-navigation read model, not one rigid tree:
+- Project / plant / system / area / location;
+- engineering documents and SLD sheets;
+- equipment and assemblies;
+- terminals, connections and topology references;
+- measurement devices, channels and signal routes;
+- Protection configurations and zones;
+- Control schemes, logic diagrams and I/O;
+- study cases, scenarios, runs and results;
+- reports, drawings, vendor documents and evidence;
+- issues, validation findings and change records.
+
+The hierarchy must respect domain ownership. A relay may appear in the equipment hierarchy and Protection configuration view as two references to one canonical object, not as duplicated domain entities.
+
+### 8I-47.20. Explorer filters, search and navigation
+
+Project Explorer should support name/tag/ID search, object-type and domain filters, document/sheet filters, status filters, saved views, favorites and recent objects. Search results should reveal the canonical object in its owning editor and optionally focus the Inspector. A property result should navigate to the property section without applying a change.
+
+Large projects require lazy expansion, incremental filtering, stable item identity and bounded refresh. The tree must not rebuild every row on every unrelated Application event.
+
+### 8I-47.21. Relationship navigation and traceability
+
+Inspector and Explorer should expose typed relationship links: equipment → terminals → connections; CT/PT/CVT → measurement channels → relay inputs; relay → protection functions → trip target; Control block → signal ports → device command; equipment → studies → results; object → documents/evidence/change history.
+
+Following a relationship navigates to the target object and preserves a back/forward navigation history. It must not mutate the relationship or infer one from visual proximity. Each link should disclose relationship type, direction, source and availability.
+
+### 8I-47.22. Concurrency, stale data and conflict handling
+
+Every editable projection must carry an authoritative revision or concurrency token. On Apply:
+1. validate local syntax and type;
+2. verify the target still exists and remains editable;
+3. compare the submitted base revision with current authoritative state;
+4. execute through the Application command/transaction boundary;
+5. present accepted state from a fresh read model;
+6. on conflict, preserve the user's local draft and show the current authoritative value and conflict reason.
+
+Do not silently overwrite newer changes or automatically merge coupled engineering properties without a domain-specific merge policy.
+
+### 8I-47.23. Undo/redo and edit transaction semantics
+
+One Apply operation should map to a well-defined Application command or transaction. Multi-field coupled changes must be validated as a unit. Batch operations need explicit transaction guarantees and per-target outcome reporting. Undo/redo must refresh all affected projections while preserving relevant selection and navigation state. A failed command must not produce a success notification or fabricated read-model update.
+
+### 8I-47.24. Accessibility and expert workflow
+
+Support keyboard-only selection, tree navigation, focus transfer, property search, tab-order editing, apply/revert, table traversal and accessible validation announcements. Do not require pointer movement from canvas to Inspector for each asset. Maintain visible focus, clear units and labels, high-contrast read-only/derived states, screen-reader descriptions and configurable density.
+
+Expert accelerators should be consistent across Explorer, canvas, Inspector and engineering tables. Avoid modal dialog chains for routine configuration, but retain dedicated focused editors for complex structures such as transformer winding data, relay curves, logic diagrams and study setup.
+
+### 8I-47.25. V3 architecture proposal
+
+1. **Project Navigation Read Service:** Application-owned, typed hierarchy and relationship snapshots.
+2. **Object Reference Contract:** project/document/domain/object-kind/object-ID identity.
+3. **Selection Service:** per-editor-instance selection set, active object, anchor and source.
+4. **Selection Synchronizer:** adapters for canvas, Explorer, tables, search and relationship navigation.
+5. **Property Schema Registry:** versioned descriptors sourced from authoritative domain/application contracts.
+6. **Inspector Projection Service:** immutable single/multi-selection read models.
+7. **Property Editor Registry:** typed UI editors and unit-aware formatting.
+8. **Edit Session:** staged values, base revision, dirty state, validation and conflict lifecycle.
+9. **Application Edit Gateway:** typed command preparation, authorization, validation, transaction and result.
+10. **Batch Edit Service:** explicit target eligibility, atomicity contract and per-target outcomes.
+11. **Relationship Navigator:** typed trace links and back/forward history.
+12. **Engineering Table Editor:** large-set editing, controlled paste/fill and keyboard workflow.
+13. **Domain Inspector extensions:** Protection, Control, Signals, Studies and equipment-specific editors through public contracts.
+
+Core remains independent of Qt and UI plugins. The Inspector never mutates Core directly. Project navigation is a read projection, not a second project repository.
+
+### 8I-47.26. Issue reconciliation register
+
+| Issue | Audit disposition in this tranche | Required next action |
+|---|---|---|
+| #992 — parameter metadata and constraints | Older description is partly stale: current main has display name, bounds, required/default and inspectability metadata and uses numeric validators. | Reconcile remaining committed read-model coverage and catalogue completeness; do not close solely on this source check. |
+| #1003 — relay configuration Inspector | Reported missing typed committed-relay configuration path remains a distinct gap. | Decide generic Inspector versus dedicated Protection configuration surface; expose only authoritative typed settings. |
+| #1004 — ProtectionChanged refresh | Reported event-interest gap is separate from #1003. | Verify current event route and implement/retain targeted refresh including undo/redo. |
+| #821 — batch property editing | User-task gap: repetitive multi-object editing and keyboard traversal. | Specify Engineering Table Editor and safe batch semantics. |
+| #883 — multi-SLD identity | Issue-reported cross-document clipboard identity risk not reproduced here. | Inspect clipboard, document scope and canonical identity before disposition. |
+| #994 — creation command-field coverage | Related but separate from Inspector metadata and post-creation configuration. | Preserve command-field disposition matrix; do not push every optional field into placement UI. |
+
+No issue is closed by this research entry. Source/implementation reconciliation and acceptance evidence are required before any issue disposition.
+
+### 8I-47.27. Implementation package sequence
+
+- **UI-V3-INSPECT-01 — ObjectReference and selection contract:** project/document/domain-qualified stable identity.
+- **UI-V3-INSPECT-02 — Multi-selection service:** selected set, active object, anchor, scope and source.
+- **UI-V3-INSPECT-03 — Project navigation read model:** typed hierarchy, lazy expansion and relationships.
+- **UI-V3-INSPECT-04 — Explorer model/view:** filterable tree/table views over Application read snapshots.
+- **UI-V3-INSPECT-05 — Property schema registry:** versioned metadata, units, bounds, choices and lifecycle.
+- **UI-V3-INSPECT-06 — Single/multi Inspector projections:** common properties, mixed values and applicability.
+- **UI-V3-INSPECT-07 — Typed editor registry:** engineering-unit-aware editors and structured editors.
+- **UI-V3-INSPECT-08 — Edit session and concurrency:** dirty state, base revision, stale detection and conflict recovery.
+- **UI-V3-INSPECT-09 — Application edit gateway:** typed commands, authorization, validation and result projection.
+- **UI-V3-INSPECT-10 — Batch engineering table:** keyboard-first edit, copy/paste, fill and per-target result.
+- **UI-V3-INSPECT-11 — Protection Inspector workflow:** configuration read model separated from runtime telemetry.
+- **UI-V3-INSPECT-12 — Relationship navigator:** topology, signals, Protection, Control, studies and evidence trace.
+- **UI-V3-INSPECT-13 — Undo/redo projection refresh:** refresh all affected views without losing selection.
+- **UI-V3-INSPECT-14 — Issue reconciliation:** #992, #1003, #1004, #821, #883 and #994.
+- **UI-V3-INSPECT-15 — Accessibility and scale:** keyboard-only, large project, high-density and assistive technology workflows.
+
+### 8I-47.28. Candidate acceptance scenarios
+
+- UI-ACC-INSPECT-01: Select an equipment object in the canvas and show the same canonical object in Explorer and Inspector.
+- UI-ACC-INSPECT-02: Select an object in Explorer and focus its owning document/editor without changing engineering data.
+- UI-ACC-INSPECT-03: Navigate multiple SLD documents containing overlapping local IDs without cross-document selection.
+- UI-ACC-INSPECT-04: Distinguish selected set, active object and range-selection anchor.
+- UI-ACC-INSPECT-05: Add, toggle, range-select and subtract objects consistently across Explorer and canvas.
+- UI-ACC-INSPECT-06: Pin the Inspector to one object while active selection changes and clearly indicate pinned state.
+- UI-ACC-INSPECT-07: Render display name, unit, datatype, precision, choices, bounds and read-only/derived status from metadata.
+- UI-ACC-INSPECT-08: Identify every canonical engineering parameter as inspectable, intentionally unavailable or explicitly non-applicable.
+- UI-ACC-INSPECT-09: Stage several property edits, apply them through one defined Application transaction and refresh from accepted state.
+- UI-ACC-INSPECT-10: Revert a dirty edit session without mutating the authoritative object.
+- UI-ACC-INSPECT-11: Reject a stale edit and preserve the user's draft while showing the latest authoritative value.
+- UI-ACC-INSPECT-12: Reject out-of-range, incompatible-unit and invalid-enum input at the authoritative Application/Core boundary.
+- UI-ACC-INSPECT-13: Show mixed values for a multi-selection without inventing a common value.
+- UI-ACC-INSPECT-14: Apply a shared property to eligible objects and disclose excluded objects with reasons.
+- UI-ACC-INSPECT-15: Execute a batch edit with the declared all-or-nothing or partial-success contract and accurate per-target results.
+- UI-ACC-INSPECT-16: Navigate an Explorer document item using a stable document reference.
+- UI-ACC-INSPECT-17: Search a tag, equipment type, ID, property or diagnostic and reveal the canonical target.
+- UI-ACC-INSPECT-18: Navigate equipment → terminal → connection → measurement channel → Protection input using typed links.
+- UI-ACC-INSPECT-19: Distinguish relay configuration settings from pickup, trip, blocked and live operating telemetry.
+- UI-ACC-INSPECT-20: Refresh selected relay configuration after Protection create/update/delete and measurement bind/unbind events.
+- UI-ACC-INSPECT-21: Undo and redo an accepted property update and refresh Inspector, Explorer and canvas consistently.
+- UI-ACC-INSPECT-22: Paste engineering table values with explicit unit handling and per-cell validation feedback.
+- UI-ACC-INSPECT-23: Complete a 30-object property update using keyboard-only navigation without repeated pointer travel.
+- UI-ACC-INSPECT-24: Load a large project hierarchy using lazy expansion and bounded incremental refresh.
+- UI-ACC-INSPECT-25: Close/switch project or document and clear only invalid scoped selection/edit state.
+- UI-ACC-INSPECT-26: Confirm the Inspector, Explorer and table cannot mutate Core objects outside Application commands.
+- UI-ACC-INSPECT-27: Expose validation severity, source, affected field and navigation target accessibly.
+- UI-ACC-INSPECT-28: Preserve selection and edit draft when a non-conflicting unrelated Application event arrives.
+
+### 8I-47.29. Official interface and framework references
+
+- Qt 6.12 Model/View Programming: https://doc.qt.io/qt-6.12/model-view-programming.html — separates data from views, supports list/table/tree presentations, shared selection models and delegates.
+- Qt Model/View Tutorial: https://doc.qt.io/qt-6/modelview.html — demonstrates model/view separation, selection, tree views and delegate editing.
+- Qt QTreeView: https://doc.qt.io/qt-6/qtreeview.html — hierarchical navigation, keyboard expansion/collapse and editable view behavior.
+- Qt QAbstractItemView: https://doc.qt.io/qt-6/qabstractitemview.html — editing lifecycle and current-index behavior.
+- Blender Outliner developer documentation: https://developer.blender.org/docs/features/interface/outliner/ — selection synchronization and separate active/selected semantics.
+- Blender Outliner selection manual: https://docs.staging.blender.org/manual/en/latest/editors/outliner/selecting.html — range selection, keyboard navigation and Properties synchronization.
+- Blender Properties Editor: https://projects.staging.blender.org/blender/blender-manual/src/commit/7627bd6fe7c099e3c4c5d271061069c51bdd080a/manual/editors/properties_editor.rst — property search, data-context path, pinning and sync policy.
+
+Qt's model/view architecture is a strong basis for a scalable Explorer and engineering table because multiple views can share a model and selection model without duplicating underlying data. Blender's Outliner/Properties interaction provides useful interaction conventions—synchronized selection, active item and pinning—but GridForge must adapt these to engineering document identity, domain ownership and Application-authoritative edits.
+
+### 8I-47.30. Audit disposition and remaining scope
+
+**Source-confirmed:** V2 main has an immutable projection contract, a typed Application edit adapter, metadata-backed property controls, a basic project hierarchy tree and a transient selection manager. The Explorer's inspected hierarchy is limited; its selection path is single-item; the generic edit intent is single-object; and the current project navigation model does not expose stable document references in the rendered document rows.
+
+**Issue-reported / reconciliation required:** #1003 relay configuration projection, #1004 ProtectionChanged refresh, #821 batch editing and #883 multi-document clipboard identity. #992 is partly stale against current source and needs exact remaining acceptance reconciliation. #994 remains a separate creation-contract coverage issue.
+
+**Not established:** Runtime reproduction, full Application read-model completeness, all domain-specific property schemas, clipboard identity behavior, multi-selection behavior across every editor, large-project performance, user evaluation and V3 implementation defects.
+
+**Disposition:** Research/reference audit only. No production source changed. No implementation, tests, CI, benchmarks, runtime validation or user study performed. V2 main remains unchanged. UI-GATE-01 through UI-GATE-07 remain open. A designated V3 implementation ref is required before these findings can be promoted to V3 implementation defects.
