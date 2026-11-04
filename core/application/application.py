@@ -2654,13 +2654,25 @@ class Application:
         revision_state = self._revision_service.snapshot_state()
         context = self._command_manager.context
         network = getattr(context, "network", None)
+        draft_equipment_types = {
+            str(item.get("element_type", "")).strip().lower()
+            for item in result.metadata.get("created_elements", ())
+            if isinstance(item, dict)
+        } if command.command_type == "network.commit_draft" else set()
         if command.command_type.startswith("sld."):
             self._revision_service.record_presentation_change(command)
         else:
             topology_revision = None
             if self._revision_service.is_topology_command(command) and network is not None:
                 topology_revision = int(network.state.topology_revision)
-            self._revision_service.record_command_success(command, topology_revision=topology_revision)
+            if command.command_type == "network.commit_draft":
+                self._revision_service.record_draft_commit(
+                    command,
+                    tuple(result.metadata.get("created_elements", ())),
+                    topology_revision=topology_revision,
+                )
+            else:
+                self._revision_service.record_command_success(command, topology_revision=topology_revision)
         # Committed history inverses execute after Transaction.commit().
         # Transaction.COMMITTED is not an undo-validity guard.
         transaction.record_undo(
