@@ -9358,3 +9358,297 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - V2 main remains unchanged. V3 proposals require review and approval before implementation.
 
 **Scope boundary:** research register only. No authentication provider, authorization engine, policy service, plugin sandbox, project-signing system, secure communications adapter, SBOM pipeline, vulnerability scanner, incident-response service, safety lifecycle engine, SIL calculator, security UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. This entry performed targeted source checks for selected IEC, ISA and NIST publications but did not complete BIS catalogue verification, a deployment threat assessment, a functional safety assessment, an IEC 62443 gap assessment or any certification/conformity assessment. V2 main remains unchanged.
+
+
+## 8I-40. Proposed V3 engineering data architecture, canonical schemas, semantic versioning, units, provenance and compatibility (2026-11-04)
+
+### A. Research objective and governing principles
+
+V3 requires a coherent engineering-data architecture so every domain, plugin, solver, report, exchange adapter and UI interprets the same engineering fact with the same type, identity, unit, semantics, provenance and revision context. A numerically valid value with the wrong physical dimension, reference frame, phase basis, operating condition, source or validity interval is not a valid engineering input.
+
+The architecture should establish canonical domain-owned data contracts; stable object identity separate from tags and reference designations; typed quantities with dimensions, units, scale/basis and uncertainty; explicit topology, terminal, phase, polarity, direction and coordinate-frame semantics; versioned schemas and controlled migrations; provenance and lineage; separation of canonical internal models from external exchange formats; reproducible historical interpretation; validation at trust and domain boundaries; and controlled extension without allowing plugins to redefine shared semantics.
+
+The canonical model is not one universal JSON document, global schema, database layout or exchange standard. It is a governed family of domain schemas with shared identity, quantity, time, provenance, validation, versioning and reference conventions. Domain owners retain authority over their facts; shared infrastructure supplies reusable primitives and policy.
+
+### B. Data ownership and bounded contexts
+
+Data ownership follows the frozen architecture:
+- Core owns canonical engineering/domain facts: equipment, terminals, topology, signal semantics, Protection/Control domain facts, validation, study abstractions and engineering results.
+- Application owns controlled mutation, commands, transactions, revision management, migration orchestration, event publication, project lifecycle and cross-domain coordination.
+- UI owns interaction state, layout/projection and presentation formatting, not engineering truth.
+- Plugins own extension-specific models through public contracts and declared namespaces; they cannot redefine or directly mutate Core-owned facts.
+- Exchange adapters map external data to/from canonical contracts and report fidelity, losses, assumptions and unsupported constructs.
+- Persistence owns durable serialization and recovery mechanics without becoming a second domain authority.
+- Reporting consumes immutable revision-bound data packages and does not silently change canonical source data.
+
+Each bounded context should publish a contract catalog: concepts, identifiers, schema namespace, owners, invariants, commands/events, read models, extension points, version policy, migration policy and external mappings. Cross-domain references use stable identifiers and typed relationships, not display labels or copied mutable records.
+
+Avoid a shared mutable object model that causes unrelated domains to depend on each other's internals. Shared primitives must be small, semantically precise and versioned. A physical quantity is reusable; a protection pickup setting, motor thermal parameter and cable ampacity remain domain-specific concepts even if all serialize as numeric quantities.
+
+### C. Canonical identity, references and designation
+
+Every persistent engineering entity needs a stable, globally unique identity within a documented namespace strategy. A UUID/URI-like identifier is a candidate implementation, but the contract must specify scope, generation, collision handling, import behavior, merge behavior and identity preservation.
+
+Keep separate:
+- Internal stable object ID.
+- Human-readable tag or equipment designation.
+- Structured reference designation (e.g. IEC 81346 aspects).
+- Manufacturer/model/serial identifiers.
+- External system identifiers (ERP/EAM/CMMS/SCADA/IED).
+- Display name and localized label.
+- Functional location and installation position.
+- Historical aliases and retired identifiers.
+
+A tag is not a primary key. Tags may be renamed, reused under controlled rules or duplicated in different scopes. External IDs are not automatically globally unique. Import mapping records source system, source key, mapping decision, confidence and provenance.
+
+Reference designation should be structured and aspect-aware, not one opaque string. IEC 81346 supports structuring principles and unambiguous reference designation across technical domains; ISO/TS 81346-101:2025 gives power-supply-system application guidance. Preserve user-defined designation schemes and map them explicitly; do not force one project convention into Core identity.
+
+### D. Schema organization and canonical contract registry
+
+Define schemas by domain and contract purpose, with stable namespace and schema identifier. A schema record should include namespace and canonical schema ID; name and definition; version and compatibility declaration; owner and approval status; effective date and deprecation/sunset status; dependencies; validation rules and semantic constraints; serialization profile and canonicalization rules; migration path and supported source versions; standards/term mappings and licensing constraints; examples/conformance fixtures; and change history/approval evidence.
+
+A registry distinguishes draft, proposed, approved, deprecated, withdrawn and unsupported schemas. Published schemas are immutable; a changed contract receives a new version or identifier. Do not mutate a released schema in place if it changes interpretation or validation.
+
+Schema definition language and runtime model are separate decisions. JSON Schema 2020-12 is a candidate for structural validation of JSON serialization; it does not by itself express all electrical, temporal, dimensional, topology or safety invariants. Domain validation remains owned by domain validators and explicit semantic constraints. A JSON Schema format annotation must not be assumed to enforce a domain rule unless validator configuration explicitly asserts it.
+
+### E. Data types and semantic precision
+
+Use explicit types rather than primitive strings/numbers for engineering meaning. Candidate shared types include EntityId, ProjectId, RevisionId, SchemaId, ExternalReference; Quantity, UnitCode, DimensionVector, Scale/Basis and QuantityKind; EngineeringValue with status/source/uncertainty/conditions; Timestamp, TimeInterval, ClockQuality and ValidityInterval; Phase, PhaseSet, SequenceComponent, Polarity and Direction; Coordinate, CoordinateFrame, ReferenceFrame and Orientation; TerminalId, ConnectionId and TopologyRevision; Measurement, QualityState and CalibrationReference; stable-code Enumeration; ProvenanceReference and EvidenceReference; SourceRevision; Diagnostic and ValidationFinding; Approval and ChangeRecord.
+
+Do not use one generic numeric value contract for all engineering quantities. Complex impedance, phasor, vector, matrix, curve, waveform, state, categorical rating and scalar measurement are different types. Nullable fields must distinguish absent, unknown, not applicable, not measured, invalid, withheld and intentionally cleared where those states matter.
+
+Enumerations need stable machine codes and human-readable labels. Never persist localized display strings as canonical enum values. Unknown future enum values require explicit compatibility behavior; silently mapping an unknown protection mode or phase state to a default is unsafe.
+
+### F. Quantity, dimension and unit model
+
+Every physical quantity should carry or reference quantity kind/semantic definition; numerical magnitude and representation (integer, decimal, rational, floating, complex, vector, matrix or time series); unit code and unit definition/version; dimension vector or equivalent semantics; scale, prefix and conversion policy; reference conditions where relevant; sign convention, orientation or reference frame where relevant; precision, resolution and rounding policy; and uncertainty/quality/provenance where applicable.
+
+Store a canonical value using a documented canonical-unit policy per quantity kind, or preserve source value with explicit unit and reproducible conversion. Do not mix approaches without an explicit field contract. Preserve original source magnitude/unit and conversion provenance where source fidelity matters.
+
+Dimensional analysis must reject incompatible operations: adding voltage to current, comparing absolute temperature with temperature difference without correct semantics, combining values with incompatible reference frames, or using hertz as radians per second without conversion. Dimensional correctness is necessary but insufficient: torque and energy share dimensions but have different quantity kinds; active and apparent power are not interchangeable.
+
+Support affine units and offsets correctly. Celsius/Fahrenheit absolute temperature is not interchangeable with temperature interval/difference. Gauge and absolute pressure require explicit reference. Logarithmic quantities (dB, dBm, dBµV) require reference quantity, impedance/reference and operation semantics. Per-unit values require base quantities and base context; 1.05 pu is incomplete without applicable voltage/power base and phase/line convention.
+
+### G. Electrical engineering quantity semantics
+
+Electrical domains require more than SI dimension:
+- Voltage/current: RMS/peak/instantaneous, phase-to-neutral/phase-to-phase, line/phase, AC/DC, polarity and direction.
+- Power: active/reactive/apparent, sign convention, import/export, phase basis and measurement interval.
+- Frequency/angle: hertz vs angular frequency, electrical vs mechanical angle, degrees/radians, phase reference and wrap convention.
+- Impedance/admittance: complex representation, frequency, sequence, phase-domain or equivalent basis.
+- Energy: integration interval, meter direction, import/export and reset/rollover behavior.
+- Temperature: sensor type, location, compensation, ambient/reference conditions and calibration.
+- Pressure/flow/level: absolute/gauge, mass/volume, reference density/conditions and direction.
+- Mechanical rotation: speed, torque, inertia, shaft reference and sign.
+- Thermal quantities: heat flow, thermal resistance/capacitance, temperature difference and boundary conditions.
+
+Three-phase quantities need explicit phase set, phase order, neutral/earth reference, symmetrical-component sequence, vector group, connection type and line/phase convention. Phasors should carry complex value, frequency, reference time, phase reference, RMS/peak convention and quality. A magnitude without its phase/basis is insufficient to reproduce a study input.
+
+Per-unit data must carry explicit base context: Sbase, Vbase, derived Ibase/Zbase, phase/line basis, frequency and transformer-side/base conversion. A per-unit value without base reference is incomplete for calculations. Transformer ratio/vector-group mapping cannot be inferred from a display string.
+
+### H. Precision, numeric representation and numerical stability
+
+Choose numeric representation by domain need. Decimal/fixed-point may suit exact decimal nameplate/settings and commercial values; binary floating point suits many numerical solvers; rational representation may suit exact ratios/unit definitions; complex and array types are required for network studies. Contracts state accepted ranges, precision, rounding, overflow and NaN/infinity handling.
+
+Do not silently round a protection setting, CT ratio, instrument scaling, equipment rating or accepted nameplate value to fit a UI widget. Distinguish display precision from stored precision and solver precision. Preserve source resolution and uncertainty. Avoid binary floating-point equality for identity or engineering acceptance decisions; use domain-specific tolerance and comparison rules with units and rationale.
+
+Numerical solver outputs include solver/model version, input snapshot identity, numerical options, convergence status, residual/quality indicators, precision mode, execution backend and warnings. GPU/NPU/CPU execution differences must not change result semantic type or provenance. A display-rounded result must not be reused as solver input.
+
+### I. Engineering value status, provenance and confidence
+
+A value is not fully described by magnitude. Model status explicitly: design/specified; calculated/derived; manufacturer guaranteed; manufacturer published/catalog; nameplate/as-built; factory test; site test/field measured; commissioned/accepted; calibrated measurement; estimated/assumed; inferred/model-generated; maintenance observed; imported/externally supplied; unknown/not available/not applicable/invalid.
+
+Record source identity, source document/revision, author or instrument identity, observation/creation time, received time, approval, transformation, calibration, uncertainty and applicable operating conditions. Confidence/quality is not a substitute for provenance. A model-generated estimate must never silently overwrite measured or nameplate data.
+
+When sources conflict, preserve competing assertions and record resolution decision, authority, rationale, reviewer and effective scope. Do not silently select the newest timestamp or highest numerical precision. Source precedence is domain-specific and documented.
+
+### J. Provenance, derivation and data lineage
+
+A derived value identifies inputs, transformation/activity, model or formula version, parameters, execution context, actor/service, time, source revision and output. A provenance graph links source entities/documents/measurements; import/conversion/calibration activities; engineering agents/tools; canonical facts; study snapshots and solver runs; Protection/Control evaluation inputs and decisions; report data packages/rendered artifacts; and export mappings/recipients.
+
+W3C PROV-DM/PROV-O are candidate conceptual models for entity/activity/agent and derivation relationships. GridForge should adopt only concepts needed for engineering provenance and keep domain semantics explicit. A generic RDF graph or ontology must not become a required runtime dependency merely because it offers a provenance vocabulary.
+
+Lineage is revision-aware and immutable for accepted results. A source change identifies affected descendants but does not mutate historical results/reports. Provenance distinguishes derivation, reference, correlation, validation, approval and supersession; these are not interchangeable edges.
+
+### K. Time semantics and temporal validity
+
+Engineering data needs distinct temporal concepts: valid time (when a fact is true in the represented system); transaction/recorded time (when GridForge learned/stored it); measurement/sample time; receive time; processing time; approval/effective time; simulation time (separate from wall clock); and expiry/validity interval.
+
+Use explicit timezone/offset policy and preserve source time and clock quality. Never assume local machine time is authoritative. Time intervals define inclusive/exclusive boundary semantics and behavior for unknown endpoints. Historical values/configuration should be queryable “as known at” and “valid at” distinct instants where bitemporal semantics are needed.
+
+Calibration validity, maintenance state, relay configuration effective period and measurement freshness are domain-defined validity concepts, not generic timestamps.
+
+### L. Relationships, graph identity and reference integrity
+
+Represent relationships as typed entities or typed links with stable IDs when they have lifecycle, attributes, provenance, direction, validity, approval or external mapping. Examples include electrical connection, containment, installation, measurement association, control dependency, Protection zone membership, ownership, derived-from, calibrated-by and referenced-by.
+
+A generic parent ID is insufficient to represent multiple independent structures. Electrical topology, functional hierarchy, physical installation, instrumentation loop, signal routing, Control dependency, Protection zone, asset hierarchy, document structure and project ownership remain distinct graphs. A node may participate in several graphs without merging their semantics.
+
+References declare expected target type and cardinality. Referential integrity identifies missing, ambiguous, dangling, cross-project, wrong-type, stale or unauthorized references. Import/merge preserves graph identity and avoids accidental duplication. Relationship deletion has explicit semantics for dependent objects and evidence.
+
+### M. Schema evolution and semantic versioning
+
+Schema versioning communicates structural and semantic change. Candidate policy:
+- Major: incompatible meaning, required field change, identifier semantics change, unit/dimension interpretation change, invariant change or removal of supported behavior.
+- Minor: backward-compatible addition with defined defaults/unknown handling and no reinterpretation of existing values.
+- Patch: correction that does not alter data interpretation or validation semantics; otherwise it is not patch-only.
+
+Version numbers alone are insufficient. Every schema release declares compatibility direction/scope: reader compatibility, writer compatibility, round-trip preservation, forward-field handling, downgrade loss and migration availability. Define whether unknown fields are preserved, rejected or quarantined; do not discard silently where round-trip fidelity matters.
+
+Avoid implicit “latest schema” interpretation. Persist schema ID/version with project or object payload as required. Project manifest version is not a substitute for individual domain contract versions. Plugin contract version, API version, event version, serialized schema version, domain model version and external standard edition are distinct.
+
+### N. Migration, downgrade and compatibility strategy
+
+Migrations are explicit, deterministic, ordered and versioned. A migration package identifies source/target schema, migration implementation/version, preconditions, transformations, loss policy, validation results, provenance and rollback/backup requirement.
+
+Separate lossless structural migration; semantic migration requiring assumptions/user decisions; external format conversion; project package migration; domain model migration; API/command/event migration; report/template migration; and plugin compatibility migration.
+
+Never invent engineering values to satisfy a new required field. If a value cannot be established, preserve unknown/needs-review and produce a diagnostic. If a model changes units or semantics, require explicit conversion with source/target dimensions, bases, reference conditions and provenance.
+
+Downgrade is potentially lossy export, not reverse migration. Produce a loss report identifying unsupported fields, relationships, precision, semantics, evidence and extension payloads. Never claim round-trip equivalence unless verified for the defined profile.
+
+### O. Unknown fields, extension namespaces and forward compatibility
+
+Unknown data handling is context-specific. For read-only viewers, safe preservation of unknown extension fields may be preferable to rejection; for high-consequence commands and solver inputs, unknown semantics must be rejected or quarantined rather than guessed. A project editor must not discard unknown fields merely because its version does not understand them.
+
+Use namespaced extension payloads with publisher/owner, schema ID/version, declared capabilities, validation rules and migration policy. Extension data cannot shadow/override canonical Core fields. A plugin may add an extension through an explicit contract, but cannot redefine rated voltage, terminal, phase or ProtectionDecision semantics.
+
+Provide round-trip preservation acceptance scenarios for unknown fields at persistence/exchange boundaries. Arbitrary extension blobs must not bypass schema validation or unbounded storage limits.
+
+### P. Canonical serialization, persistence and deterministic representation
+
+The frozen .gridforge ZIP structure remains manifest.json plus canonical project.json for canonical project facts and saved scope. This section does not authorize a new package root or competing database truth. The manifest identifies package format version and project identity; project/domain objects identify schema contracts as required.
+
+Canonical serialization rules specify encoding, key/array ordering where semantically relevant, numeric encoding, Unicode normalization, null/absent semantics, date-time representation, enum codes, unit codes, stable reference format, extension handling and hash scope. Canonicalization for hashing/signing is explicit and versioned; ordinary JSON byte equality is not semantic equality.
+
+Do not use serialization hash as sole identity of an engineering entity. Hashes identify content under a canonicalization algorithm; stable IDs identify entities across revisions. Content-addressed blobs may optimize storage but do not replace project/entity identity or provenance.
+
+Atomic save, recovery, migration, signature and package-integrity requirements from 8I-23 and 8I-39 remain applicable. Serializer must not serialize UI scene objects, live Qt objects, caches, transient handles, open file descriptors or process-specific runtime state as canonical engineering facts.
+
+### Q. API, event and command contract evolution
+
+Commands, domain events, read models and integration APIs need separately versioned contracts. Event schemas are immutable once published; corrections use new events or explicit amendment/supersession records. Consumers declare supported event versions and unknown-event behavior.
+
+A command should include command ID/type, target identity, actor/service identity, requested operation, source revision, expected version/ETag, idempotency key, correlation/causation IDs, authorization context, reason and expiry where applicable. These are not interchangeable with serialized entity fields. Command versioning preserves authorization and domain validation boundaries.
+
+API evolution should prefer additive fields and new endpoints/operations where semantics change. Breaking changes require explicit version/deprecation policy and supported overlap period. UI clients/plugins must not infer contract semantics from internal class names or Python import paths.
+
+### R. External standards, dictionaries and interoperability mappings
+
+External standards are semantic authorities only within defined scope and edition. Mapping to an external schema does not make it the canonical GridForge model. Maintain mapping profiles with source/target schema versions, rules, code lists, units, reference designation, cardinality, loss report and limitations.
+
+Candidate references:
+- IEC 61360 / IEC CDD for common data element definitions, classifications and units for product/component data.
+- IEC 81346-1 and IEC 81346-2 for structuring principles/reference designation; ISO/TS 81346-101:2025 for power supply system application.
+- IEC 61970-301 CIM for power-system semantics and application-independent exchange.
+- IEC 61850-6 SCL for substation IED/system configuration exchange; IEC TS 61850-6-3:2025 for machine-processable SCL validation rules; IEC TR 61850-90-30:2025 for function modelling in SCL.
+- ISO 10303 STEP for product data representation/exchange and application protocols.
+- ISO 80000 series and BIPM SI Brochure for quantities and units.
+- UCUM for machine-readable unit codes where suitable.
+- W3C PROV-DM/PROV-O for provenance concepts.
+- JSON Schema 2020-12 for structural JSON schema validation.
+
+Each mapping identifies normative vs informative use, edition/status, licence, applicable domain, mandatory/optional fields and extension policy. Standards-based dictionaries may contain overlapping terms; local definitions preserve source term, identifier, edition and mapping rationale. Do not copy licensed dictionaries into the repository or ship their content without confirming rights.
+
+### S. Standards source check and edition/status observations
+
+Targeted official-source checks were performed on 2026-11-04. These are candidate reference findings, not a complete standards catalogue or BIS verification.
+
+1. BIPM SI Brochure, 9th edition, current page lists Version 4.01 revised June 2026 and Version 3.02 revised August 2025; use the current maintained brochure, not an assumed frozen 2019 PDF. Source: https://www.bipm.org/en/publications/si-brochure/
+2. ISO 80000-1:2022, Edition 2, provides general concepts for quantities, systems of quantities, units, symbols and coherent unit systems. Source: https://www.iso.org/standard/76921.html
+3. UCUM specification version 2.2 is dated 2024-06-17 and describes a code system for units used in science, engineering and business. Source: https://ucum.org/ucum
+4. IEC 61360-2:2012 corrected version 2025-03 provides an EXPRESS dictionary schema and computer-sensible representation/exchange of data element types; IEC 61360-7:2024 provides a cross-domain dictionary of generic concepts. Sources: https://webstore.iec.ch/en/publication/5381 and https://webstore.iec.ch/en/publication/72956
+5. IEC 81346-1:2022 establishes structuring principles and unambiguous reference designation rules across technical areas; it adds a type aspect and information models. Source: https://webstore.iec.ch/en/publication/64021
+6. ISO/TS 81346-101:2025 gives guidelines and requirements for applying the 81346 series to power supply systems. Source: https://www.iso.org/standard/81285.html
+7. IEC 61970-301:2020 Edition 7.0 describes CIM semantics for application-independent exchange between energy management systems; source page lists model content IEC61970CIM17v38. Verify later lifecycle updates and national adoption before selecting a profile. Source: https://webstore.iec.ch/en/publication/62698
+8. IEC 61850-6 consolidated version IEC 61850-6:2009+AMD1:2018+AMD2:2024 CSV is Edition 2.2 and specifies SCL for IED capabilities/configurations, communication system configuration, substation/function structures and relationships. Source: https://webstore.iec.ch/en/publication/103863
+9. IEC TS 61850-6-3:2025 defines machine-processable OCL rules for validating IEC 61850 XML-based files at engineering stages. Source: https://webstore.iec.ch/en/publication/79695
+10. IEC TR 61850-90-30:2025 describes function modelling in SCL, including function decomposition/classification, links to logical nodes/IEDs and information flows. Source: https://webstore.iec.ch/en/publication/94414
+11. ISO 10303-1:2024 Edition 3 defines STEP series architecture and product information representation/exchange principles, including EXPRESS and application protocols. Source: https://www.iso.org/standard/83105.html
+12. W3C PROV-O is a W3C Recommendation (2013) expressing the PROV data model using OWL and supporting interoperable provenance descriptions across systems. Source: https://www.w3.org/TR/prov-o/
+13. JSON Schema official specification page identifies 2020-12 as the current published specification at the time of source check. An October 2026 Internet-Draft for a subsequent JSON Schema specification exists but is not a final standard and must not be treated as published normative version. Sources: https://json-schema.org/specification and https://datatracker.ietf.org/doc/draft-ietf-jsonschema-json-schema/
+
+### T. Validation architecture and data quality
+
+Validation is layered:
+1. Serialization/parse: encoding, syntax, archive safety and resource bounds.
+2. Schema: required fields, primitive types, enum codes, cardinality and structure.
+3. Semantic: quantity kind, dimensions, unit, reference frame, phase/basis and temporal meaning.
+4. Referential: IDs, relationship target types, project scope and graph consistency.
+5. Domain invariants: electrical topology, Protection/Control constraints, equipment rules and study compatibility.
+6. Revision/provenance: source revision, approval, validity, stale dependencies and migration lineage.
+7. Operational/security authorization: actor, policy and permitted action, separate from data validity.
+
+Validation results are typed and machine-readable, with code, severity, object/field path, violated rule, expected/actual context, source revision, remediation guidance and whether the finding blocks a particular operation. A project can be structurally loadable but not engineering-valid; a value can be semantically valid but stale; a result can be valid for an old revision but not current; a user can be authorized to inspect but not modify its source.
+
+### U. Data lineage, selective invalidation and reproducibility
+
+Derived data declares dependencies at the smallest meaningful semantic granularity. A change to one CT calibration or one relay element setting should invalidate dependent values/decisions, not every project calculation. Dependency records identify source object/field/revision, transformation/model version, output, evaluation time and dependency scope.
+
+A result binds to an immutable input snapshot and relevant schema/model/solver versions. Reproducibility requires canonical values, units, bases, time context, assumptions, environment/backend details and transformation provenance. A result is not reproducible merely because the project file is available.
+
+Schema migration can itself change interpretation and therefore creates a provenance activity and new revision. Historical outputs remain bound to the schema/model under which they were created. Re-evaluation under a new schema or solver creates a new result, not an overwrite of historical evidence.
+
+### V. UI/UX requirements for engineering data
+
+The Inspector and data editors should show engineering value, unit, quantity kind, source/status, uncertainty/quality, reference conditions, effective date, revision and validation state in context. Avoid presenting a bare number without unit and source. Distinguish source value from converted/display value and show conversion details when relevant.
+
+Editors provide dimension-aware unit selection, valid range and domain-specific constraints, explicit phase/basis/reference context, and clear handling of unknown/not-applicable values. Pasting/importing a value with incompatible unit is rejected or staged for explicit conversion; never silently strip unit suffixes.
+
+Schema/version warnings identify affected objects, migration path, unsupported extensions and possible data loss. Users can inspect field definition, source and lineage without navigating arbitrary JSON. Advanced users may access structured payload views, but raw JSON is not the primary engineering UX.
+
+### W. Candidate acceptance and usability scenarios
+
+1. **UI-ACC-DATA-01** — Renaming an equipment tag does not change stable entity ID or break references.
+2. **UI-ACC-DATA-02** — A project retains multiple structured IEC 81346 reference-designation aspects without conflating them with identity.
+3. **UI-ACC-DATA-03** — A quantity editor rejects incompatible dimensions and preserves source unit, converted value and conversion provenance.
+4. **UI-ACC-DATA-04** — Absolute temperature and temperature difference use distinct semantics and correct conversion.
+5. **UI-ACC-DATA-05** — A per-unit value without explicit applicable base context is rejected for study calculation.
+6. **UI-ACC-DATA-06** — A voltage/phasor value records RMS/peak convention, phase reference, frequency, phase set and quality where applicable.
+7. **UI-ACC-DATA-07** — Unknown, absent, not applicable, invalid and intentionally cleared values remain distinguishable through save/load/export.
+8. **UI-ACC-DATA-08** — Manufacturer, nameplate, field-measured, calculated and estimated values retain distinct provenance and conflict-resolution history.
+9. **UI-ACC-DATA-09** — A schema registry shows owner, version, status, dependencies, effective date and migration policy.
+10. **UI-ACC-DATA-10** — A breaking semantic schema change receives a major version and cannot silently reinterpret existing project data.
+11. **UI-ACC-DATA-11** — A lossless migration preserves IDs, units, provenance, extension payloads and relationships.
+12. **UI-ACC-DATA-12** — A migration requiring engineering assumptions pauses for explicit review and records the chosen decision.
+13. **UI-ACC-DATA-13** — Downgrade/export reports unsupported fields, semantics, precision and evidence rather than claiming full equivalence.
+14. **UI-ACC-DATA-14** — Unknown extension fields survive a read-only round trip or are explicitly quarantined; they are never silently dropped.
+15. **UI-ACC-DATA-15** — A plugin extension cannot shadow or override a canonical Core field or quantity definition.
+16. **UI-ACC-DATA-16** — A derived study result exposes input snapshot, schema versions, units/bases, solver/model version and provenance lineage.
+17. **UI-ACC-DATA-17** — Changing one source field identifies affected derived descendants without invalidating unrelated results.
+18. **UI-ACC-DATA-18** — Valid time and recorded time can be queried independently for historical engineering facts where bitemporal semantics apply.
+19. **UI-ACC-DATA-19** — A reference link to the wrong object type, missing entity or different project is reported precisely.
+20. **UI-ACC-DATA-20** — A schema or standard edition mapping records exact source/target versions and known mapping loss.
+21. **UI-ACC-DATA-21** — A CIM/SCL/STEP import stages mappings and diagnostics before mutating canonical project state.
+22. **UI-ACC-DATA-22** — Canonical serialization produces deterministic content under a declared canonicalization version without using content hash as entity identity.
+23. **UI-ACC-DATA-23** — A localized UI label change does not alter persisted enum codes or canonical engineering meaning.
+24. **UI-ACC-DATA-24** — Historical reports and calculations remain interpretable under original schema/model versions after a later migration.
+
+### X. Open decisions, dependencies and gates
+
+Open decisions include stable ID format/namespace scope; identity merge/import collision policy; designation-aspect model; schema registry ownership/governance; schema language and validation runtime; canonical quantity storage policy; unit code system/licensed dictionary strategy; quantity-kind ontology and dimension vectors; affine/logarithmic/per-unit semantics; decimal/floating/complex numeric policy by domain; precision/tolerance policy; phase/reference-frame conventions; null/unknown/not-applicable semantics; provenance graph storage/query model; bitemporal scope; event/command/API versioning; schema compatibility matrix; unknown-field preservation; migration signing/rollback; extension namespace governance; canonical JSON normalization/hash profile; CIM/SCL/STEP exchange profiles; standards licensing; BIS adoption and Indian terminology; validation severity/blocking rules; and historical result reproducibility guarantees.
+
+Dependencies: 8I-12 cross-domain traceability; 8I-20 Inspector/property editing; 8I-21 diagnostics/events; 8I-22 collaboration/change control; 8I-23 persistence/recovery; 8I-24 exchange/interoperability; 8I-25 standards traceability; 8I-26 solver governance; 8I-28 through 8I-32 equipment/network/model/calibration architecture; 8I-33 signal/measurement infrastructure; 8I-34 Protection/Control signal consumers; 8I-35 operational lifecycle; 8I-36 event/alarm/SOE/historian/audit; 8I-37 reporting/evidence; 8I-38 asset lifecycle; and 8I-39 cybersecurity/functional safety.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. This entry closes no gate. Data ownership, schema governance, units, compatibility, migration, standards mappings and reproducibility require review by Core/domain architects, electrical engineers, metrology/measurement specialists, numerical solver owners, plugin maintainers, data-exchange specialists and project governance before approval.
+
+### Y. Frozen invariants and research boundary
+
+- Domain-owned canonical schemas remain authoritative; there is no universal untyped engineering property bag.
+- Stable entity identity is distinct from tag, name, reference designation, serial number and external system key.
+- Engineering quantities require explicit semantic kind, dimension, unit and applicable basis/reference context.
+- Electrical phase, sequence, RMS/peak, sign, vector group, reference frame and per-unit bases are explicit where relevant.
+- Source value, converted value, display value, calculated value and estimated value are distinct.
+- Provenance and lineage are revision-aware; historical results are immutable and reproducible against original inputs/contracts.
+- Schema version, project package version, API version, event version, plugin contract version and external standards edition are separate.
+- Published schemas are immutable; incompatible semantic changes require explicit versioning and migration.
+- Migrations do not invent engineering values or silently discard unknown data.
+- Downgrade is potentially lossy and must disclose loss.
+- Canonical serialization and content hashing do not replace stable entity identity.
+- External standards/dictionaries inform mappings but do not automatically replace GridForge canonical domain models.
+- JSON Schema provides structural validation, not complete engineering semantic validation.
+- Core/Application/UI/plugin ownership boundaries remain frozen.
+- The .gridforge package root remains manifest.json plus canonical project.json; this section does not authorize a competing persistence root.
+- V2 main remains unchanged. V3 proposals require review and approval before implementation.
+
+**Scope boundary:** research register only. No schema registry, canonical data model implementation, unit engine, dimensional-analysis runtime, migration framework, provenance database, semantic versioning service, CIM/SCL/STEP adapter, validator, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. Targeted official-source checks were performed for selected publications and specifications; no complete BIS catalogue verification, standards licensing review, conformance assessment or project-wide schema inventory was completed. V2 main remains unchanged.
