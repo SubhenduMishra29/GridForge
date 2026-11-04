@@ -9067,3 +9067,294 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - V2 main remains unchanged. V3 proposals require review and approval before implementation.
 
 **Scope boundary:** research register only. No asset register, lifecycle state machine, CMMS/EAM connector, condition-monitoring engine, degradation model, reliability/FMEA solver, maintenance scheduler, work-order system, safety permit system, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. No standards catalogue or BIS edition verification was performed in this entry. V2 main remains unchanged.
+
+
+## 8I-39. Proposed V3 cybersecurity, functional safety, access governance and secure-by-design architecture (2026-11-04)
+
+### A. Research objective and assurance boundaries
+
+V3 must treat cybersecurity, functional safety, electrical Protection, process safety, operational authorization, engineering quality and availability as related but distinct assurance disciplines. Their evidence and interfaces must be coordinated, but one discipline must never be used as a substitute for another. Authentication does not prove an operation is safe; a valid safety function does not prove its configuration is cyber-secure; an electrical Protection trip does not establish that a process Safety Instrumented Function (SIF) has achieved its required Safety Integrity Level (SIL); and a successful command acknowledgement does not prove physical actuation or safe process state.
+
+GridForge is an engineering design, modelling, configuration, simulation and evidence platform. It may model safety-related systems, document safety requirements, assess engineering interfaces and preserve assurance evidence. Unless a separately approved product scope and safety case establish otherwise, GridForge must not claim to be a certified safety-related system, a Safety Instrumented System (SIS), a safety PLC, a protective relay, an industrial firewall, a privileged-access management appliance or an operational security monitoring service.
+
+The architecture should distinguish:
+- Cybersecurity governance and risk management.
+- Product/software secure development lifecycle.
+- Deployment/system cybersecurity architecture.
+- Identity, authentication, authorization and privileged access.
+- Engineering project, configuration and software supply-chain integrity.
+- Functional safety lifecycle and safety requirements.
+- Electrical Protection engineering and execution.
+- Process safety / SIS engineering and lifecycle.
+- Operational command authorization and safety permits.
+- Security monitoring, incident response and recovery.
+- Assurance evidence, assessment, approval and independent review.
+
+The application architecture should enforce the distinction in contracts, data types, permissions, workflows, UI language and audit evidence. Generic flags such as safe=true, trusted=true, authenticated=true or protected=true are insufficient representations of any of these assurance outcomes.
+
+### B. Threat model and system context
+
+V3 should establish a documented threat-model boundary for the GridForge engineering workstation/application, project files, plugin ecosystem, build/release pipeline, simulation runtime, external connectors, report/archive services and any deployed engineering/operational integration. A deployment that is strictly offline and a deployment connected to enterprise IT, cloud services, plant OT or remote vendors have different attack surfaces and must not share an assumed risk rating.
+
+Threat actors and failure sources to consider include malicious external actors, compromised vendor or dependency packages, malicious/compromised plugins, compromised user credentials, insider misuse, accidental operator/engineer error, compromised engineering workstation, removable media, supply-chain compromise, ransomware, data corruption, network disruption, clock manipulation, denial of service, unauthorized configuration change, malicious project files and unintended privilege escalation.
+
+Threat modelling should identify assets, trust boundaries, entry points, data flows, privileged operations, adversary capabilities, safety/availability consequences, mitigations, residual risk, assumptions and owner. It should consider confidentiality, integrity, availability, authenticity, accountability and safety impact, but not assume equal weighting: OT availability, deterministic timing and physical safety can outweigh conventional IT confidentiality goals in specific contexts.
+
+The threat model must be deployment-specific and revisioned. A security architecture diagram is not an approved risk assessment until scope, assumptions, risk criteria, zones/conduits, evidence and accountable approval are recorded. Threats and mitigations must be traceable to product requirements, tests/assessments, deployment controls and residual-risk decisions.
+
+### C. Security zones, conduits and trust boundaries
+
+Use IEC 62443 concepts as a candidate basis for defining a System Under Consideration (SUC), zones and conduits. Zones group assets with comparable security requirements; conduits govern communication between zones. The correct partition is determined by deployment risk, function, required communication, criticality and feasible countermeasures—not by UI modules or software package names alone.
+
+Potential logical zones in a GridForge deployment include:
+- Engineering workstation / authoring environment.
+- Project and engineering-data repository.
+- Plugin and extension execution environment.
+- Build, signing and release infrastructure.
+- Simulation and numerical-compute workers.
+- Reporting and evidence archive.
+- Enterprise identity and directory services.
+- External EAM/CMMS/ERP and document systems.
+- Read-only operational data integration.
+- OT integration gateway / DMZ.
+- Control-system engineering access boundary.
+- Electrical Protection and process Safety system boundaries, when represented in a deployment architecture.
+
+These are candidate logical zones, not a universal prescribed network topology. A desktop-only product may not need separate network zones for every component; process-control deployments may require stricter segregation and independent gateways. A plugin sandbox is a software trust boundary but is not automatically an IEC 62443 network zone.
+
+Every inter-zone conduit should specify initiator, receiver, protocol, ports, direction, identity, authentication, authorization, encryption/integrity, allowed message types, data classification, rate/resource limits, monitoring, failure behavior and owner. Default-deny is the baseline for new conduits. Broad bidirectional trust, unrestricted network access from plugins, direct database access across zones and implicit trust based on IP address are prohibited design assumptions.
+
+### D. Identity, authentication and authorization
+
+V3 should separate human identity, service identity, device identity, plugin identity, signing identity and external-system identity. Each identity has issuer, subject, scope, validity, credential lifecycle, revocation state and audit provenance. Authentication establishes control of an identity credential; authorization determines whether that identity may perform a particular action on a particular resource in a specific context.
+
+Authorization should combine role-based access control with resource, project, domain, attribute and context constraints where necessary. A permission decision should consider actor, role, project, asset/domain scope, action, target, lifecycle state, risk classification, approval status, session assurance and relevant separation-of-duty rules. Avoid one global administrator role being required for normal engineering work.
+
+Permissions should be distinct for read, create, edit, validate, calculate, approve, issue, export, sign, administer, deploy, connect, configure and execute high-impact actions. Access to view a protection setting does not imply permission to change it. Permission to edit a draft does not imply permission to accept a project revision. Permission to approve a report does not imply permission to alter its source data.
+
+Support least privilege, time-bounded elevation, just-in-time privileged access, multi-factor authentication for high-risk or remote operations, session expiry, credential rotation, account disablement, revocation and auditable emergency access. Break-glass access must have a stated emergency purpose, limited duration, explicit alerting and retrospective review. Do not store passwords, tokens, private keys or recovery secrets in .gridforge project files, source repositories, templates or plain audit payloads.
+
+### E. Authorization decision and command boundary
+
+Every high-impact action must be authorized at the Application command boundary, not only by hiding or disabling a UI control. The command must re-evaluate authorization at execution time against the current project revision, actor/session, target resource, lifecycle state and applicable policy. A stale UI permission decision cannot authorize a later mutation.
+
+Authorization, validation, interlock evaluation, safety permit checks and physical command execution are separate decisions. They should produce typed outcomes and traceable reasons. An authenticated operator may lack authorization for a command; an authorized operator may be blocked by a Protection/Control interlock; a command may be authorized and dispatched but have an unknown physical outcome. These outcomes must not collapse into one success/failure field.
+
+A security policy must not bypass engineering-domain rules. A project administrator cannot force a failed Protection validation to pass. A plugin cannot invoke Core mutation directly because its publisher is trusted. A safety engineer's approval cannot substitute for a required independent operations permit. A command that affects a physical plant must be subject to the deployment's actual operational authority and approved gateway design; the desktop engineering tool is not itself the safety interlock.
+
+### F. Functional safety lifecycle and safety requirements
+
+Functional safety must be represented through a traceable lifecycle: hazard identification and risk assessment; allocation of safety functions; safety requirements specification; architecture and design; implementation/configuration; verification; validation; installation and commissioning; operation and maintenance; modification management; proof testing; periodic assessment; decommissioning.
+
+A safety requirement should identify hazard, hazardous event, safe state, initiating conditions, required response, process safety time where applicable, required risk reduction/SIL allocation where justified, sensor subsystem, logic solver, final element, interfaces, diagnostics, proof-test interval, failure assumptions, independence/common-cause assumptions, environmental constraints, bypass/override conditions and verification evidence.
+
+Safety Integrity Level is a property of a defined safety function and its assessed architecture/evidence under the applicable standard and operating mode. It is not a property that can be assigned casually to a device, software module, project, relay or GridForge itself. A device certificate or SIL capability claim does not by itself establish that the integrated SIF achieves the required SIL.
+
+GridForge may provide safety lifecycle records, traceability matrices, cause-and-effect models, SIF allocation records, verification calculations and evidence references where scope is validated. It must not infer SIL compliance from a component list or a template. The system should identify the boundary between electrical Protection functions, process SIS functions, basic process control and operator action. Their independence and interaction require explicit safety engineering analysis.
+
+### G. Safety/security coordination
+
+IEC TR 63069 provides a framework for coordinated application of IEC 61508 and IEC 62443 in industrial-process measurement, control and automation. V3 should use this coordination concept to identify interactions and conflicts, while preserving each discipline's separate objectives and acceptance criteria.
+
+Cybersecurity threats can cause or defeat hazardous conditions: unauthorized setpoint changes, compromised logic, malicious firmware, denial of communication, time-source manipulation, false sensor values, disabled alarms, unauthorized bypass, or compromised engineering workstations. Conversely, security controls can affect safety: authentication outages, certificate expiry, patching, network segmentation, endpoint protection load, encryption latency, account lockout and emergency access restrictions.
+
+For every security control that affects a safety function or time-critical operational path, record the safety impact, performance constraints, degraded mode, compensating control, validation evidence and approval. Security hardening must not introduce unanalysed unsafe failure modes. Safety requirements must not be used as a blanket exemption from cybersecurity controls; any exception requires risk analysis, compensating controls, owner and review date.
+
+### H. Electrical Protection, process SIS and Control separation
+
+GridForge must retain distinct domain authorities:
+- Electrical Protection evaluates measurements and protection elements, creates ProtectionDecision records and follows the approved trip/command path.
+- Process SIS evaluates defined safety functions through its own certified/validated logic solver and lifecycle evidence.
+- Basic Process Control / PLC / DCS performs normal process control under its own control strategy.
+- GridForge Control modelling and simulation represents control logic and behavior but is not automatically a certified deployed controller.
+- Operational command services authorize and dispatch permitted commands through approved interfaces.
+- Cybersecurity services govern identity, policy, integrity and security monitoring; they do not decide electrical faults or process trips.
+
+A Protection trip, SIS trip, BPCS action, operator action and cybersecurity containment action must have different event types and causal semantics. They may interact through documented interfaces and shared signals, but must not be conflated. A security incident response that isolates a communication path must assess the resulting loss of visibility/control and invoke an approved operational contingency; it must not silently suppress trips or interlocks.
+
+### I. Secure engineering project and configuration integrity
+
+Project files are untrusted input at the file boundary, even when received from a known colleague or repository. V3 should validate archive structure, manifest and schema, path traversal, duplicate entries, decompression limits, file count/size, unexpected executable content, resource exhaustion, external references and parser behavior before accepting a .gridforge package.
+
+The canonical project remains the frozen ZIP package with manifest.json and canonical project.json; security metadata must not introduce a competing project truth or store secrets in the package. A project signature or integrity manifest can establish origin/integrity under a defined key trust policy, but does not prove engineering correctness, safety or compliance. Signature verification failure, unknown signer, expired/revoked key and unsigned project must have explicit states and policy-controlled handling.
+
+Configuration integrity should cover accepted project revisions, equipment parameters, topology, protection settings, Control logic/configuration, instrument/channel mappings, plugin manifests, templates, calculation inputs, generated artifacts and deployment configuration. Use immutable revision references, cryptographic hashes, provenance and controlled approval for high-impact changes. A hash detects change relative to a trusted digest; it does not establish who approved the change or whether the content is correct.
+
+Import, merge, migration and restore must preserve security labels, signatures, provenance and audit history where supported. Untrusted imported values must enter a staging/review boundary before they become accepted engineering facts. Never execute project-supplied scripts or macros during open, preview or import.
+
+### J. Plugin and extension security architecture
+
+The consolidated plugin architecture must treat every plugin as a separate trust principal with declared identity, publisher, version, capabilities, dependencies, permissions, data access, network access, file access, native-code requirements, supported contracts and lifecycle status.
+
+Plugin discovery and installation must not imply execution trust. Require provenance and signature verification according to deployment policy; maintain an allowlist or approval workflow for trusted plugin publishers; support version pinning, revocation, quarantine, disablement and removal. A plugin update must not silently elevate permissions or alter an approved engineering result.
+
+Run untrusted or third-party plugin code in a constrained process or equivalent isolation boundary where practical. Apply least-privilege filesystem access, no network by default, bounded CPU/memory/time, controlled IPC, validated inputs/outputs and explicit capability grants. Python import isolation alone is not a security sandbox. Native extensions and GPU kernels require a stronger trust assessment because they can execute outside language-level restrictions.
+
+Plugins must use public Application contracts and approved read models. They cannot directly mutate Core, access private persistence internals, obtain arbitrary user credentials, register hidden privileged commands, bypass authorization or intercept/alter Protection decisions. A plugin's display name, icon, manifest or claimed certification is untrusted metadata until verified. Plugin failure must not corrupt the project or destabilize the host process.
+
+### K. Secure development lifecycle and software supply chain
+
+GridForge V3 development should adopt a documented secure development lifecycle aligned with the relevant IEC 62443-4-1 principles: security requirements, secure design, implementation practices, verification/validation, defect management, patch management and end-of-life. This is a product-development process, not a claim that GridForge is certified.
+
+Maintain a software bill of materials (SBOM) for releases and relevant build artifacts. Record direct/transitive dependencies, package source, version, license, integrity digest, build provenance and known vulnerability status. Pin dependencies, verify package hashes/signatures where supported, restrict untrusted package sources, protect build credentials and isolate build agents. Release artifacts should be signed through a controlled signing service with key custody separated from routine developer access.
+
+Use code review, static analysis, dependency scanning, secret scanning, threat modelling, secure coding standards, fuzzing of untrusted parsers, security-focused tests, reproducible or attestable builds where feasible and vulnerability triage. These are proposed V3 security engineering controls; they do not override the user's separate acceptance rule that ordinary feature acceptance must not be made dependent on tests or CI unless explicitly requested. Security assurance activities must be separately scoped, risk-based and approved rather than silently imposed as generic feature gates.
+
+Vulnerability records should include affected versions/components, exploitability, deployment exposure, safety/availability impact, mitigation, workaround, fixed version, disclosure status, owner and target date. A CVSS score alone is insufficient for OT risk; consider exploit path, reachability, operational consequence, compensating controls and safety impact. Patch decisions must consider vendor support, compatibility, maintenance windows, backup/rollback, regression/validation evidence and operational approval.
+
+### L. Secure update, configuration and firmware governance
+
+Software, plugin, device configuration, relay settings, PLC logic, IED firmware and model/library updates are different change classes with different owners and acceptance evidence. Each update package should identify publisher, target product/device, version, compatibility, dependencies, cryptographic integrity, signature, release notes, known issues, rollback path and security advisories.
+
+A verified signature proves the package was signed by a key trusted under the configured policy; it does not prove that the update is suitable for a particular plant or that it preserves safety. Before deployment, validate target identity, approved change request, backup, maintenance window, compatibility, safety/security impact and required independent authorization.
+
+GridForge may generate and compare engineering configuration packages and preserve deployment evidence. It must not silently push firmware or settings to physical Protection/SIS/PLC devices outside a specifically approved deployment integration and authorization boundary. A configuration comparison should identify exact changed fields and their effect on engineering models, protection functions, safety requirements, Control logic, commissioning status and reports.
+
+### M. Secure communications and industrial protocol integration
+
+Communication adapters should declare protocol, role, endpoint, security profile, authentication, encryption, integrity, certificate/key policy, replay protection, timeouts, resource limits, logging and supported failure behavior. Do not assume that a protocol is secure merely because it is widely used in industrial systems.
+
+For power-system protocols, IEC 62351 provides security specifications for relevant communications and associated information exchange. IEC 62351-3:2023 specifies confidentiality, integrity protection and message-level authentication profiles for TCP/IP-based protocols using TLS, including TLS 1.2 and TLS 1.3 profile constraints and security events. The exact part depends on the underlying protocol and use case; the series is not one universal switch that secures every protocol.
+
+Legacy Modbus, serial links, proprietary vendor protocols and unauthenticated field protocols may require protected conduits, gateways, allowlisting, physical controls, read-only mediation or compensating measures. A gateway must preserve source identity, timestamp/quality, command authorization and audit semantics. Protocol translation must not silently weaken authentication or convert a read-only path into a command path.
+
+Certificate lifecycle includes issuance, trust anchors, rotation, expiration, revocation, renewal, key storage, clock dependency and recovery. A certificate outage or clock failure must have a declared degraded mode. Do not use hard-coded shared passwords or long-lived static credentials embedded in adapters or project files.
+
+### N. Time, logs, monitoring and security event handling
+
+Security event records should integrate with the event/audit architecture from 8I-36 while remaining distinct from alarms, SOE, Protection operations and process events. Security events include authentication failures, privilege elevation, denied commands, policy changes, plugin installation/update, signature failures, project import anomalies, configuration drift, certificate expiry, suspicious network activity, backup/restore, software update and security incident response.
+
+Record actor/service identity, source device, target resource, action, decision, policy version, event time, receive time, time quality, correlation ID, result and relevant evidence. Logs should be tamper-evident and access-controlled. High-volume telemetry must be rate-limited and retained under policy; audit-critical events must not be silently dropped under backpressure.
+
+Time synchronization is a security dependency. Record source and clock quality; detect large offsets, rollback, unexpected source change and loss of trusted time. Do not use a single wall-clock timestamp to prove event order when clock quality is unknown. Security monitoring should not inject unbounded load into deterministic Protection/Control execution paths.
+
+V3 may provide local security diagnostics and audit views. It should not claim to be a full SIEM, SOC, network intrusion detection system or endpoint detection/response platform unless those are separately designed, validated and supported. Integrations should preserve event provenance and declare latency, coverage and loss limitations.
+
+### O. Backup, recovery, resilience and incident response
+
+Security resilience requires protected backups of project data, configuration, plugin manifests, templates, signing metadata and required evidence. Backups should be encrypted where appropriate, access-controlled, integrity-verified, versioned and protected against ransomware or unauthorized deletion. Recovery must be tested under an approved operational process; a backup existing does not prove it is restorable.
+
+Define recovery point and recovery time objectives by data class and deployment context. Distinguish project revision recovery, evidence archive recovery, identity service recovery, plugin/build recovery and external connector recovery. The portable .gridforge package should remain recoverable without a live external service, subject to declared external evidence availability.
+
+Incident response should include preparation, detection, analysis, containment, eradication, recovery and lessons learned. Containment actions must consider OT safety and availability. Isolating a gateway, disabling a plugin, revoking a credential or disconnecting a historian may affect plant visibility or engineering workflows; operational impact and compensating measures must be approved. Security incident handling must never automatically disable Protection, bypass interlocks or issue plant commands.
+
+### P. Safety and security case evidence
+
+V3 should support distinct but linked assurance cases:
+- Cybersecurity risk assessment and security requirements.
+- Functional safety hazard/risk assessment and safety requirements.
+- Electrical Protection design/validation evidence.
+- Process SIS lifecycle and verification evidence.
+- Operational authorization and permit evidence.
+- Software/product security lifecycle evidence.
+- Project configuration integrity and change approval evidence.
+
+Each claim must link to argument, assumptions, context, supporting evidence, evidence revision/hash, responsible author, independent reviewer, status and residual issue. A traceability graph can link a threat to a security requirement, control, verification result and residual risk; separately, a hazard can link to a safety function, SIL allocation, design, verification and validation. Cross-links show interaction but do not merge the two assurance claims.
+
+Evidence status should distinguish planned, not assessed, partial, verified, failed, accepted with deviation, waived and superseded. A green dashboard or generated compliance matrix must not imply a certification. Independent assessment/functional safety assessment and competent-person approval remain external governance requirements where the applicable standard or regulation requires them.
+
+### Q. Security and safety change management
+
+Changes to software, dependencies, plugins, project files, topology, Protection settings, Control logic, SIS models, network conduits, identity policies, certificates, firmware, time sources and backup policies can affect security and safety differently. Change requests should identify change class, affected assets, threats, hazards, safety functions, security zones, operational dependencies, approvals, rollback and verification evidence.
+
+A change to a security policy can lock out authorized operators or disable required monitoring. A patch can alter timing or resource use. A plugin can add a new network path. A relay setting change can affect fault clearing. A certificate rollover can interrupt communications. A time-source change can alter SOE correlation. Each change requires an impact assessment appropriate to its consequences.
+
+Emergency changes require a controlled expedited path with scope, authorizer, rationale, compensating controls, expiry/review and retrospective review. Emergency status must not be a permanent bypass. Accepted baselines and issued evidence remain immutable; changed configurations create new revisions and linked supersession/impact records.
+
+### R. Data classification, privacy and secure evidence exchange
+
+Classify project and operational data by sensitivity and consequence: public, internal, confidential, restricted or a deployment-defined scheme. Classification should cover plant topology, equipment vulnerabilities, relay/PLC settings, network diagrams, credentials, supplier information, personnel identity, maintenance records, operational logs, incident reports and safety documentation.
+
+Apply encryption in transit and at rest where appropriate, secure key management, least-privilege access, redaction, controlled export, recipient validation and retention/disposal policy. Metadata, thumbnails, logs, spreadsheet hidden sheets, embedded attachments and document properties can leak restricted information. Export should include a reviewable manifest of redactions and transformations.
+
+The project package must not contain credentials, private keys, session tokens or unencrypted secrets. External evidence references must specify availability, access policy, integrity digest and whether the referenced content is embedded, cached or remote. A report or project export must not imply that a restricted external document is included when it is not accessible to the recipient.
+
+### S. UI and human-factors requirements
+
+Security and safety status must be explicit without creating alarm fatigue or implying false assurance. The UI should distinguish authenticated identity, active role, project scope, privilege elevation, authorization denial, pending approval, expired credential, untrusted signature, stale certificate, security warning, safety lifecycle status, Protection state and operational interlock status.
+
+High-impact operations should show target, exact change, source revision, consequences, required approvals and recovery path before confirmation. Confirmation dialogs are not substitutes for authorization, technical validation or safety assessment. The UI must not use colour alone for security/safety state and must provide accessible descriptions, keyboard operation and clear focus.
+
+Security settings should not be scattered across plugins or individual domain panels. Provide centralized policy and identity administration with domain-aware views. Show why an action is denied and the required approval path without disclosing sensitive policy internals to unauthorized users. Avoid exposing secrets in diagnostic messages or copied support bundles.
+
+### T. Failure and degraded-mode semantics
+
+Security infrastructure can fail: identity provider unavailable, certificate expired, signing service unavailable, trusted clock lost, policy service unreachable, plugin sandbox failure, backup unavailable, audit store full, external gateway disconnected or malware scanner unavailable. Each function must declare its fail-safe/fail-secure/fail-operational behavior according to the consequence and approved deployment policy; there is no universal fail-closed answer for every OT function.
+
+For example, a report preview may be unavailable if authorization cannot be checked; an offline engineering project may remain readable under a documented local policy; a privileged configuration mutation may be blocked if identity assurance is unavailable; an already-running independent Protection relay must not depend on GridForge identity services to trip. The correct behavior is function-specific and must be documented in the deployment safety/security analysis.
+
+Degraded modes must preserve evidence, identify unavailable controls and prohibit silent privilege escalation. Recovery after identity, clock, policy or audit outage should reconcile queued events and authorization state before resuming high-risk actions. Unknown command outcome remains unknown; security outage must not convert it into success or failure without feedback.
+
+### U. Candidate standards and current-source findings
+
+The following source checks were performed against official IEC, ISA and NIST publication pages on 2026-11-04. This is a research-level candidate map, not a BIS catalogue verification or conformance assessment.
+
+1. IEC 62443-3-2:2020 defines the IACS System Under Consideration, zones/conduits, risk assessment, target security levels and documented security requirements. Official source: https://webstore.iec.ch/en/publication/30727
+2. IEC 62443-3-3:2013 addresses system security requirements and security levels, organized around identification/authentication, use control, system integrity, data confidentiality, restricted data flow, timely response to events and resource availability. Official source: https://webstore.iec.ch/en/publication/7033
+3. IEC 62443-4-1:2018 covers secure product development lifecycle requirements including security requirements, secure design/implementation, verification/validation, defect management, patch management and end-of-life. IEC currently lists Edition 2.0 under development with forecast publication in 2028; do not treat the future edition as published. Official source: https://webstore.iec.ch/en/publication/33615
+4. IEC 62443-4-2:2019 provides technical security requirements for IACS components. Official source: https://webstore.iec.ch/en/publication/34421
+5. ISA identifies ANSI/ISA-62443-2-1-2024 as the updated asset-owner security-program requirements, replacing the 2009 edition; verify corresponding IEC edition and national adoption separately. Source: https://www.isa.org/standards-and-publications/isa-standards/isa-iec-62443-series-of-standards
+6. IEC TR 63069:2019 provides guidance for common application of IEC 61508 and IEC 62443 in industrial-process measurement, control and automation. Official source: https://webstore.iec.ch/en/publication/31421
+7. IEC 61511-1:2016+AMD1:2017 is the current consolidated IEC publication identified in the source check for process-industry SIS lifecycle requirements. Official source: https://webstore.iec.ch/en/publication/61289
+8. IEC 61508 Edition 3 parts appeared as 2026 pre-release/FDIS publications during the current research window, with voting period 2026-10-02 to 2026-11-13 and forecast publication 2027-01-22. They are not to be treated as final published editions as of this research date. The IEC page explicitly distinguishes functional safety scope from malicious-action cybersecurity requirements and points to IEC 62443 / ISO/IEC 27000 and IEC TR 63069 for coordination. Official source: https://webstore.iec.ch/en/publication/117296
+9. IEC 62351-3:2023 specifies TCP/IP security profiles using TLS, including TLS 1.2 and TLS 1.3 profiles, and security event handling. Official source: https://webstore.iec.ch/en/publication/68410
+10. IEC 62351:2026 SER is a series pack published 2026-07-30 and includes multiple parts with differing editions/years, including IEC 62351-8:2026 and IEC 62351-7:2025. A series pack is not a claim that every part has the same edition or scope. Official source: https://webstore.iec.ch/en/publication/6912
+11. NIST SP 800-82 Rev. 3 is the final OT security guide published September 2023. NIST published an initial public draft of Rev. 4 on 2026-09-21, with comments due 2026-11-30. Rev. 4 is a draft, not a final replacement at this research date; its stated updates include CSF 2.0 alignment, broader OT sectors, asset management, network monitoring and zero-trust-oriented system-management protection. Official sources: https://csrc.nist.gov/pubs/sp/800/82/r3/final and https://csrc.nist.gov/pubs/sp/800/82/r4/ipd
+12. IEC 61508-7:2026 PRV text notes that IEC 61508 does not itself provide normative requirements for malevolent action arising from security risk, and refers to IEC 62443 / ISO/IEC 27000 and IEC TR 63069 for coordination. Official source: https://webstore.iec.ch/en/publication/117302
+
+Standards editions and status are time-sensitive. Before a V3 compliance baseline is approved, verify the official IEC/ISA catalogue, BIS adoption and amendments, licensing, applicable Indian legal/CEA requirements, contractual obligations and project-specific scope. No certification, SIL achievement, security level, BIS conformity or legal conclusion is claimed here.
+
+### V. Candidate acceptance and usability scenarios
+
+1. **UI-ACC-SEC-01** — A deployment threat model identifies assets, trust boundaries, entry points, threat actors, consequences, mitigations and residual-risk owners.
+2. **UI-ACC-SEC-02** — Zones and conduits are defined for a selected system boundary with explicit permitted flows, protocols, identities and risk rationale.
+3. **UI-ACC-SEC-03** — A plugin has a separate identity and declared capability set; installation does not silently authorize execution or network access.
+4. **UI-ACC-SEC-04** — A plugin cannot mutate Core, access private persistence, read secrets or bypass Application authorization.
+5. **UI-ACC-SEC-05** — A high-impact command is authorized at execution time against current actor, scope, target, project revision and policy.
+6. **UI-ACC-SEC-06** — Authentication, authorization, engineering validation, Protection interlock, safety permit and command acknowledgement remain separate typed outcomes.
+7. **UI-ACC-SEC-07** — An expired/revoked credential or unavailable identity provider blocks privileged changes according to the approved degraded-mode policy without disabling independent Protection operation.
+8. **UI-ACC-SEC-08** — Break-glass access is time-bounded, purpose-bound, alerted and subject to retrospective review.
+9. **UI-ACC-SEC-09** — A malicious or malformed .gridforge archive is rejected safely before project state changes or script execution.
+10. **UI-ACC-SEC-10** — Project signature verification distinguishes valid, unknown signer, invalid, expired, revoked and unsigned states without implying engineering correctness.
+11. **UI-ACC-SEC-11** — Configuration hashes and revision history detect changes and identify the approval record separately from integrity verification.
+12. **UI-ACC-SEC-12** — A security policy or plugin update triggers an impact assessment for safety, timing, availability and engineering behavior.
+13. **UI-ACC-SEC-13** — IEC 62351-capable communication adapter declares exact part/profile, TLS settings, identity, certificate lifecycle and failure behavior.
+14. **UI-ACC-SEC-14** — A legacy unauthenticated protocol is confined to an explicitly assessed conduit with compensating controls and no implied end-to-end security.
+15. **UI-ACC-SEC-15** — Security event records preserve source time, receive time, clock quality, actor, policy decision and tamper-evident audit provenance.
+16. **UI-ACC-SEC-16** — Security monitoring or audit backpressure cannot silently overload or alter deterministic Protection/Control execution.
+17. **UI-ACC-SEC-17** — A safety requirement and a cybersecurity requirement are separately traceable while their interaction and conflicting controls are linked.
+18. **UI-ACC-SEC-18** — A dashboard cannot claim SIL achievement, IEC 62443 security level or certification from component presence or a completed template.
+19. **UI-ACC-SEC-19** — A signed software/plugin/configuration update is checked for target, compatibility, approval, backup and rollback before deployment.
+20. **UI-ACC-SEC-20** — A backup restore preserves project revision, evidence, signatures, security metadata and audit history or declares precisely what cannot be restored.
+21. **UI-ACC-SEC-21** — A security incident containment action exposes operational impact and cannot automatically disable Protection, bypass interlocks or issue plant commands.
+22. **UI-ACC-SEC-22** — A certificate, time-source or identity outage produces the declared function-specific degraded mode and an auditable recovery path.
+23. **UI-ACC-SEC-23** — A controlled export redacts restricted data, secrets and sensitive metadata and records recipient, policy and transformation.
+24. **UI-ACC-SEC-24** — Security, functional safety, Protection and operational authorization evidence can be reviewed independently and linked through a common assurance trace without being conflated.
+
+### W. Open decisions, dependencies and gates
+
+Open decisions include: supported deployment profiles and threat-model boundaries; security-zone reference architectures; target security-level methodology and ownership; identity provider and offline identity policy; role/attribute model; privileged access and break-glass governance; project signing and key trust model; plugin signing, sandbox and capability policy; software supply-chain and SBOM format; vulnerability disclosure and patch SLA; build/release signing and provenance; device configuration/firmware deployment boundary; protocol security profiles; certificate and trusted-time lifecycle; security event retention and tamper evidence; backup encryption and immutable storage; incident response and OT contingency ownership; data classification and redaction; functional safety scope and safety lifecycle support; SIL evidence model; independent assessment and competence requirements; safety/security coordination process; Indian legal/CEA/BIS applicability; and criteria for any future certification claim.
+
+Dependencies: 8I-10 UI/UX gates; 8I-12 cross-domain traceability; 8I-21 diagnostics/events; 8I-22 collaboration/change control; 8I-23 persistence/recovery; 8I-24 data exchange; 8I-25 standards/compliance traceability; 8I-26 solver governance; 8I-27 simulation runtime; 8I-28 through 8I-31 equipment/network architecture; 8I-32 calibration/uncertainty; 8I-33 signal/measurement infrastructure; 8I-34 Protection/Control signal consumers; 8I-35 operational lifecycle; 8I-36 event/alarm/SOE/historian/audit; 8I-37 reporting/evidence; and 8I-38 asset lifecycle/maintenance/condition monitoring.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. This entry closes no gate. Security architecture, functional safety scope, deployment boundaries, legal obligations and assurance claims require independent review by cybersecurity, functional safety, Protection, Control, operations, quality and legal specialists before approval.
+
+### X. Frozen invariants and research boundary
+
+- Cybersecurity, functional safety, electrical Protection, process SIS, Control, operational authorization and safety permits are related but distinct assurance disciplines.
+- GridForge is not presumed to be a certified safety system, safety PLC, protective relay, industrial firewall or security monitoring appliance.
+- Core remains authoritative for engineering/domain facts and Protection/Control semantics; security policy cannot rewrite domain truth or bypass engineering validation.
+- Authorization is enforced at the Application command boundary at execution time; UI visibility is not an authorization control.
+- Authentication, authorization, validation, interlock, permit, dispatch, acknowledgement and physical feedback remain distinct outcomes.
+- Plugins are separate trust principals, constrained by declared capabilities and isolation; plugin code cannot directly mutate Core or access secrets.
+- Project files and external inputs are untrusted at import boundaries; no project-supplied scripts/macros execute on open.
+- Configuration integrity, provenance, approval and engineering correctness are separate claims.
+- Security controls must be assessed for effects on safety, deterministic timing and OT availability; safety concerns do not create blanket cybersecurity exemptions.
+- Protection and process SIS execution remain independent of GridForge identity, reporting, plugin, historian or cloud services.
+- IEC 62443, IEC 61508, IEC 61511, IEC 62351, IEC TR 63069 and NIST OT guidance are candidate references subject to edition, applicability and national-adoption verification.
+- Draft/pre-release standards are clearly labelled and are not treated as final published requirements.
+- Security event monitoring and audit do not become a competing alarm/SOE/Protection execution engine.
+- High-impact changes, updates, emergency access and incident containment require explicit authority, traceability and recovery planning.
+- V2 main remains unchanged. V3 proposals require review and approval before implementation.
+
+**Scope boundary:** research register only. No authentication provider, authorization engine, policy service, plugin sandbox, project-signing system, secure communications adapter, SBOM pipeline, vulnerability scanner, incident-response service, safety lifecycle engine, SIL calculator, security UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. This entry performed targeted source checks for selected IEC, ISA and NIST publications but did not complete BIS catalogue verification, a deployment threat assessment, a functional safety assessment, an IEC 62443 gap assessment or any certification/conformity assessment. V2 main remains unchanged.
