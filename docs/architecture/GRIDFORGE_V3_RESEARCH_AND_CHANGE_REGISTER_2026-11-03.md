@@ -1542,3 +1542,143 @@ This is a dependency view, not a mandatory single-thread schedule. Study may be 
 **Not approved yet:** final personas, measurable usability thresholds, project-portable viewport policy, diagnostic acknowledgement semantics, autosave/crash-recovery guarantee, screen/DPI support envelope, accessibility conformance claim and final release priority of the broad canvas screen-reader requirement.
 
 **Next:** produce the approval-ready V3 UI/UX specification package: normalized requirement catalogue, shared UI contract definitions, discipline-specific acceptance scenarios, decision log and verification matrix. It remains a proposed specification pending explicit review/approval; do not implement.
+
+
+## 8I-8. Proposed V3 UI/UX specification package — normalized contracts and verification matrix (2026-11-04)
+
+**Status:** Proposed for review; not approved implementation scope. This section operationalizes 8I-6 and 8I-7. It does not authorize changes to V2 `main`, a project schema change, a new persistence mechanism, or tests/CI as acceptance gates.
+
+### A. Normalized capability catalogue
+
+Keep V3-UI-REQ-001 through V3-UI-REQ-033 stable for traceability. Consolidate ownership into eight capability groups; these are capability boundaries, not a mandate to create eight packages/services/plugins.
+
+| Capability | Scope | Requirement mapping |
+|---|---|---|
+| UI-CAP-01 Editor interaction | Tool lifecycle, selection, focus, navigation, shortcuts, keyboard access | REQ-001, 002, 017, 018 |
+| UI-CAP-02 Contextual Inspector | Typed configuration intent, read-only values, units, provenance, validation | REQ-004, 013 |
+| UI-CAP-03 Diagnostics and feedback | Typed validation/events/alarms/quality/study outcomes, lifecycle and navigation | REQ-007, 008, 019, 020 |
+| UI-CAP-04 Application shell | Startup, workspace taxonomy, user preferences and customization | REQ-003, 021, 028, 029, 033 |
+| UI-CAP-05 Document state and recovery | SLD lifecycle, connection authoring, viewport and safe draft recovery | REQ-005, 006, 022, 023 |
+| UI-CAP-06 Domain workflow presentation | Control, Protection and Study journeys and execution/result traceability | REQ-009–016 |
+| UI-CAP-07 Accessible visual system | Color-independent status, high contrast, typography, DPI and layout | REQ-024–027 |
+| UI-CAP-08 Status, guidance and scale | Contextual status, task help and large-project responsiveness | REQ-030–032 |
+
+**Ownership rule:** UI capability code coordinates presentation and typed user intent only. Existing Core/Application/domain owners remain authoritative for engineering validation, measurement quality, Control evaluation, Protection decisions, study results, command dispatch and device feedback. Reuse existing contracts; do not create duplicate backend services merely to match this catalogue.
+
+### B. Shared editor interaction contract
+
+Each editor publishes a versioned capability declaration. Each item is supported, unsupported or explicitly extended; unsupported behavior must not be represented by a misleading affordance.
+
+| Contract area | Required behavior | Required editor declaration |
+|---|---|---|
+| Context | Identify project/document, workspace, discipline, selection and active tool | Available identity/read-model references |
+| Tool lifecycle | Define activate, preview/target, apply/place, configure, validate/commit, complete and cancel as applicable | Supported states and Escape semantics |
+| Selection | Deterministic single/multi-select, deselect, Inspector target and keyboard access | Selection model and unsupported operations |
+| Navigation | Document pan/zoom/fit, grid/snap and coordinate behavior where meaningful | Gestures and domain-specific navigation |
+| Editing | Distinguish editable, calculated, observed and historical values; route engineering edits through Application | Command route, validation owner and apply/reject behavior |
+| History | Show availability and scope of undo/redo | History owner and transaction boundaries |
+| Feedback | Visible outcome, failure reason and recovery route | Transient vs persistent vs blocking outcomes |
+| Accessibility | Keyboard reachability, visible/restorable focus, semantic names and non-color status | Canvas/object navigation support and known limits |
+| Persistence | Separate project data, persisted draft, user preference, viewport metadata and transient gesture state | Save/restore owner, schema and fallback |
+| Extension | Plugin tools/panels declare identity, shortcut and accessibility metadata | Public contribution contract/version |
+
+The contract standardizes user expectations, not rendering technology, electrical semantics, gestures or history implementation. SLD, Ladder, Protection and Study surfaces remain distinct domain editors.
+
+### C. Inspector, diagnostics and status contracts
+
+**Inspector**
+- Show object identity/type, then task-oriented editable configuration.
+- Derive units, bases, ranges and enumerations from authoritative metadata.
+- Visually distinguish editable configuration, calculated values, live measurements and historical values.
+- Show source/provenance for linked measurements and runtime observations.
+- Route edits through typed Application commands; distinguish pending, accepted, rejected and unapplied states.
+- Do not represent a widget value as committed engineering state before the owning command/application confirms it.
+
+**Diagnostics**
+- Preserve category, stable code/identity where available, severity, source/domain, timestamp, project/session context, affected object/channel, explanation and navigation target.
+- Keep validation, application events, operational alarms, data-quality conditions, study outcomes and user-action feedback semantically distinct, even if one centre renders them.
+- Acknowledgement, shelving, clearing and retention are category-specific. Do not add a universal acknowledgement action until policy is approved.
+- Grouping/filtering must not erase individual source identity or lifecycle.
+- Correction is an Application command; opening a diagnostic is read-side navigation.
+- Modal dialogs are for explicit decisions/blocking conditions, not the default error transport.
+
+**Status**
+- Every status has an authoritative source, timestamp/freshness rule and explicit unknown/unavailable state.
+- Status is a summary/navigation affordance, not a duplicate execution-state store.
+- Configuration is not sample health; cycle completion is not actuation; command dispatch is not feedback; absence of an error is not proof of success.
+- Measurement quality, Protection decision, Control intent, DeviceCommand dispatch/acknowledgement and DeviceFeedback remain separate typed states.
+
+### D. Persistence and recovery classification
+
+| State class | Examples | Owner / restore rule |
+|---|---|---|
+| Canonical engineering project | Equipment, terminals, topology, committed configuration and approved SLD layout | Existing project/Core persistence; restore as engineering truth only through validated loading |
+| Persisted engineering draft | Explicitly persisted uncommitted draft | Existing Application/project draft contract; restore as draft, never silently commit |
+| User/machine preferences | Window geometry, theme, font scale, panel sizes, shortcuts | User settings; restore locally with safe defaults |
+| Workspace presentation | Active workspace, visible panels, splitter arrangement | User settings unless a future project policy is approved |
+| Per-document viewport | Centre, zoom, rotation, grid/snap visibility | Policy unresolved; machine-local interim behavior; no canonical project schema change |
+| Transient interaction | Pointer drag, hover, preview and in-progress connector gesture | Editor runtime only; cancel on shutdown/restart, never restore as engineering truth |
+
+Recovery acceptance must prove these classes remain separate, malformed/obsolete preferences fall back safely, and existing Save/Discard/Cancel safeguards remain intact. This specification does not mandate autosave, journaling, recovery intervals or retention periods.
+
+### E. Discipline-specific candidate acceptance scenarios
+
+| Scenario | Action | Required observable result | Authority invariant |
+|---|---|---|---|
+| UI-ACC-SLD-01 | Place multiple equipment items, select/configure each, connect and commit | Earlier items remain visible; selection target is clear; preview/draft/commit are distinct | Only successful Application/Core commit changes authoritative network |
+| UI-ACC-SLD-02 | Attempt invalid/incomplete connection or commit | Affected object/terminal, typed reason and correction route are shown; valid draft remains recoverable | UI does not invent compatibility or bypass validation |
+| UI-ACC-SLD-03 | Save/reopen project with committed network and persisted draft | Both restore separately; transient gesture/preview does not | Draft is never silently promoted to topology |
+| UI-ACC-CTL-01 | Discover/bind a signal, configure logic/interlock/action and inspect cycle | Direction/type/provenance, evaluated logic, blocked intent and command are distinguishable | Cycle completion is not physical actuation |
+| UI-ACC-CTL-02 | Block action or delay/omit device feedback | Block reason, dispatch and feedback states are separately visible; absent feedback remains unknown | No inferred successful operation |
+| UI-ACC-PROT-01 | Discover CT/PT/CVT channels and bind relay inputs | Source instrument/terminal, quantity/unit, timestamp/freshness and quality are inspectable | UI cannot manufacture trusted samples or bypass ingress policy |
+| UI-ACC-PROT-02 | Evaluate with stale/invalid/unavailable measurement | Fail-closed reason and affected input are explicit | Protection authority remains domain-owned and independent of UI/Control |
+| UI-ACC-PROT-03 | Trace decision through output handling, command and feedback | Each stage is independently sourced/timestamped; missing stage is unknown | No fabricated acknowledgement/actuation; Control context only when explicitly configured |
+| UI-ACC-STUDY-01 | Configure/run study, inspect result and navigate to source | Relevant inputs, run state, immutable input/result identity and source revision are visible | UI does not become alternate StudyResult authority |
+| UI-ACC-DIAG-01 | Open diagnostics from supported categories and navigate to source | Category lifecycle and severity survive filtering/navigation | No universal acknowledgement semantics |
+| UI-ACC-KEY-01 | Complete nominated critical tasks by keyboard | Focus, shortcut precedence, cancellation and text-entry behavior are deterministic | Canvas shortcuts do not steal text input or platform-reserved keys |
+| UI-ACC-REC-01 | Restart with valid/missing/malformed preferences and persisted draft | Safe fallback; project remains intact; draft remains draft | Preferences cannot mutate canonical project data |
+
+These are candidate cases, not release gates until roles, project fixtures, platform matrix and critical-task subset are approved.
+
+### F. Verification and evidence matrix
+
+| ID | Evidence method | Required evidence | Pass condition |
+|---|---|---|---|
+| UI-VER-01 | Source/architecture inspection | Ownership/dependency map | No Core→Qt/UI/plugin dependency; engineering mutations use Application-owned routes |
+| UI-VER-02 | Runtime walkthrough | Approved journey recordings/screenshots and observations | Observed workflow matches scenario; deviations recorded |
+| UI-VER-03 | State-transition inspection | SLD, Control, Protection and Study state traces | Draft/commit, intent/decision/command/feedback and study input/result are not conflated |
+| UI-VER-04 | Diagnostic inspection | Representative typed records and navigation | Provenance/lifecycle fields survive presentation |
+| UI-VER-05 | Persistence/restart walkthrough | Project/preference fixtures and migration/fallback notes | Correct state class restores; invalid settings fail safely |
+| UI-VER-06 | Keyboard/accessibility walkthrough | Task scripts, focus maps and assistive-technology observations | Approved critical tasks do not rely solely on pointer/color; limits documented |
+| UI-VER-07 | Display walkthrough | Approved OS/Qt/DPI/monitor matrix | No clipped critical controls or unreadable annotations within approved envelope |
+| UI-VER-08 | Performance observation | Representative project sizes and latency/render traces | Responsive against baseline-derived, approved targets |
+| UI-VER-09 | Domain trace inspection | Signal, Protection/Control, command/feedback and study provenance | Every displayed state has authoritative source; missing data explicit |
+| UI-VER-10 | User evaluation | Role-based task completion, error/recovery observations | Approved usability targets met; thresholds derived from baseline |
+
+No numeric latency, task-time, completion-rate, contrast, DPI or conformance claim is set here without an approved baseline and target matrix. These are source/runtime/design/user-evaluation evidence methods, not a request to add tests or CI as acceptance gates.
+
+### G. Approval gates and unresolved decisions
+
+| Gate | Approval required | Decision references | Interim constraint |
+|---|---|---|---|
+| UI-GATE-01 Context of use | Roles, novice/expert balance, critical tasks, representative project sizes | UI-DEC-07 | J01–J10 remain candidate journeys |
+| UI-GATE-02 Project/session | Recent-project workspace, viewport portability, autosave/recovery guarantees | UI-DEC-01, 02, 04 | New projects open SLD; no schema change or new autosave guarantee |
+| UI-GATE-03 Diagnostics | Category-specific acknowledgement, retention and clearing | UI-DEC-03 | No universal acknowledgement |
+| UI-GATE-04 Accessibility/platform | OS/Qt matrix, native accessibility target, complex-canvas strategy | UI-DEC-05 | Apply foundational practices; make no conformance claim |
+| UI-GATE-05 Display/performance | DPI/monitor envelope and representative performance targets | UI-DEC-06 | No unverified compatibility/performance claim |
+| UI-GATE-06 Cross-domain trace | Explicit Protection/Control integration and feedback contracts | UI-DEC-08 | Show configured, provenance-backed relationships only |
+| UI-GATE-07 Scope/priority | Final P1/P2/P3 release scope and acceptance subset | All gates | No implementation authorization until approved |
+
+### H. Review checklist and disposition
+
+Reviewers should mark each item **Approve**, **Revise** or **Defer**, with rationale:
+1. Does capability ownership preserve Core/Application/domain boundaries?
+2. Does the shared editor contract preserve distinct canvas semantics?
+3. Do Inspector/diagnostics/status prevent configuration, measurement, decision, command and feedback from being conflated?
+4. Are persistence classes and restore rules correct?
+5. Do candidate scenarios cover critical engineering workflows and failure paths?
+6. Are evidence methods feasible on the intended V3 branch/platforms?
+7. Are decisions assigned to accountable owners and closure points?
+8. Is the proposed priority/scope appropriate for the first V3 delivery?
+
+**Disposition:** The normalized catalogue, interaction contract, Inspector/diagnostics/status contracts, persistence classification, candidate scenarios and evidence model are proposed and ready for review. Personas, numeric thresholds, autosave/recovery guarantees, viewport portability, diagnostic acknowledgement, platform/DPI envelope, accessibility conformance and final release scope remain unapproved. No source change, migration, redesign, schema change, persistence mechanism or test/CI gate is authorized. Next step is focused review and closure/assignment of the approval gates, followed by a specification freeze before implementation work packages are created.
