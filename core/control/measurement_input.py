@@ -105,9 +105,29 @@ class ControlInput:
             return False
         if isinstance(current_time, bool) or not isinstance(current_time, (int, float)) or not math.isfinite(current_time):
             raise ValueError("current_time must be finite.")
-        if timestamp_domain is not None and self.timestamp_domain != timestamp_domain:
-            return False
-        if require_freshness and self.timestamp is None:
+        if require_freshness:
+            if (
+                not isinstance(timestamp_domain, str)
+                or not timestamp_domain.strip()
+                or self.timestamp_domain != timestamp_domain
+            ):
+                return False
+            if self.timestamp is None:
+                return False
+            if (
+                isinstance(self.sample_sequence, bool)
+                or not isinstance(self.sample_sequence, int)
+                or self.sample_sequence < 0
+            ):
+                return False
+            if (
+                isinstance(self.stale_after, bool)
+                or not isinstance(self.stale_after, (int, float))
+                or not math.isfinite(self.stale_after)
+                or self.stale_after < 0
+            ):
+                return False
+        elif timestamp_domain is not None and self.timestamp_domain != timestamp_domain:
             return False
         if self.timestamp is None:
             return not require_freshness and self.stale_after is None
