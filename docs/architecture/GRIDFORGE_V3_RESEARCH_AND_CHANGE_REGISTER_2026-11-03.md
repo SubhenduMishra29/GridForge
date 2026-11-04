@@ -4743,3 +4743,203 @@ Frozen invariants:
 - No save, recovery, restore or migration may fabricate measurements, Protection decisions, Control execution, acknowledgements, actuation or feedback.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, package schema, serializer, migration, autosave, recovery, backup, archive parser, tests or CI were changed or run.
+
+
+## 8I-24. Proposed V3 engineering data exchange and interoperability architecture (2026-11-04)
+
+**Disposition:** Research proposal; not an approved implementation or a claim of standards conformance. This section defines candidate architecture for importing, exporting and exchanging engineering data while preserving GridForge domain authority, provenance and project integrity.
+
+### A. Objectives and boundaries
+
+V3 interoperability should support controlled exchange with electrical CAD, power-system analysis, protection engineering, automation/control engineering, asset-management, commissioning and operational systems. External formats are boundary representations; they must not become competing canonical project models, persistence roots or runtime domain authorities.
+
+The Project remains the persistence root. Core and owning domains remain authoritative for engineering meaning. Format adapters parse and serialize; they do not directly mutate Core. Import produces a typed proposal/staged change set; Application coordinates validation, preview, authorization and acceptance through domain services. Export reads an immutable, consistent project snapshot.
+
+### B. Consolidated architecture
+
+Proposed logical modules, subject to V3 repository-layout approval:
+- **Interoperability Core:** format-neutral exchange contracts, schema identities, typed records, mapping results, loss classifications, provenance and validation outcomes.
+- **Format Adapters:** isolated adapter packages grouped in one discoverable interoperability area, one per format or tightly related family.
+- **Mapping Registry:** versioned mappings for concepts, units, enumerations, terminal semantics and identity.
+- **Import Staging:** immutable source snapshot, parsed exchange model, mapping proposal, validation report, conflicts and acceptance request.
+- **Export Pipeline:** revision-bound snapshot, selected scope, adapter serialization, conformance checks, manifest and report.
+- **Application Integration:** preview, validate, accept, export and compare commands/services.
+- **UI Integration:** format/profile selection, scope, mapping review, diagnostics, preview and conflict resolution.
+
+Plugins may contribute adapters only through a public extension contract. They must not register arbitrary mutation hooks or gain direct Core access. Do not introduce duplicate command buses, event buses, transaction managers, project repositories or domain models.
+
+### C. Canonical exchange model and ownership
+
+The format-neutral exchange model should be typed, versioned and deliberately narrower than the full internal model. Candidate entities include:
+- project identity, source revision and provenance;
+- site/plant/area/voltage-level containment;
+- equipment identity, type, ratings and nameplate attributes;
+- terminals, connectivity nodes, conductors, buses and topology relationships;
+- line/cable, transformer, switchgear and breaker parameters;
+- CT/PT/CVT, measurement points, signal/channel identity and unit metadata;
+- Protection functions/settings and Control/automation configuration only where semantic equivalence is established;
+- Study cases, assumptions and result provenance where representable;
+- SLD layout as a separate presentation payload;
+- source document, external object IDs, timestamps and record paths.
+
+Each imported concept maps to an explicit owner domain. A source record may map to multiple GridForge objects, or multiple source records to one canonical concept. Mapping outcomes must distinguish one-to-one, one-to-many, many-to-one, derived, ignored, unsupported and ambiguous. Similar names are not proof of identity or semantic equivalence. Unsupported content must be preserved as an explicit opaque/unmapped record where safe, or rejected; never guessed into a superficially similar type.
+
+### D. Electrical topology and SLD semantics
+
+The exchange model must distinguish equipment from graphical symbols; terminals from connectivity nodes; physical conductors from schematic geometry; busbar sections from bus representations; containment from electrical connectivity; and topology from layout.
+
+GridForge topology remains terminal/connectivity based. External bus/node/container concepts require explicit mapping. Do not fabricate terminals or collapse distinct nodes to make a diagram appear connected. SLD layout is optional presentation data with explicit coordinate system, units, orientation, sheet/layer identity and annotation mapping. If layout cannot be preserved, report the loss and allow network-only import only with clear user acknowledgement. A rendered diagram image is never canonical network data.
+
+Validate open terminals, duplicate/conflicting terminal assignments, orphan conductors, disconnected islands, invalid terminal counts, ambiguous node mappings and conversion-induced topology changes. Preserve direct equipment attachment versus explicit conductor semantics when the source distinguishes them.
+
+### E. Units, parameters and numerical fidelity
+
+Every engineering quantity must carry or resolve numeric value, unit, dimension, quantity meaning, precision/resolution and per-unit base/reference context where applicable. Unit conversion must be dimensionally valid and explicit. Never infer a unit from an undefined bare number or silently interchange line/phase voltage, primary/secondary current, RMS/peak, degrees/radians, absolute/per-unit or temperature/temperature-difference values.
+
+Base quantities, frequency, phase sequence, winding connection, grounding and sequence-network parameters require explicit mappings. Similar parameter labels may encode different definitions, bases or test conditions. Do not map by label alone. Rounding, clipping, defaulting, unit substitution and unsupported numeric representations must appear in the conversion report. Imported solver results remain imported results with source software/version, assumptions and input revision; they are not GridForge-calculated results.
+
+### F. Protection, instrumentation and Control semantics
+
+Instrumentation: CT/PT/CVT ratios, polarity, class, burden, secondary grounding, terminal wiring and measurement-channel association remain distinct. Physical instruments, channels, typed signals and measured samples are separate entities. Never fabricate samples, calibration status, quality or associations.
+
+Protection: relay identity, function identity/code, setting group, pickup, time dial/curve, directional quantities, CT/VT sources and trip-target mapping may be mapped only where source semantics are known. ANSI/IEC labels alone do not prove equivalent algorithms. Curve family, operating quantities, tolerance, reset behavior and logic conditions require compatibility evidence. Imported settings are configuration, not ProtectionDecision, trip event or operational authorization.
+
+Control: function blocks, I/O, signal types, execution order, task period, scan semantics, retentive behavior, interlocks and fail-safe states must not be mapped by graphical resemblance. PLC vendor runtime/library semantics require explicit mapping. Imported logic is configuration under review, not an executed cycle or authorization to actuate.
+
+No import may create a Protection trip, Control dispatch, DeviceCommand, acknowledgement or feedback.
+
+### G. Candidate format families
+
+These are research candidates, not claims of current support:
+1. **IEC CIM (IEC 61970/61968):** specify exact profile/edition, serialization, topology semantics and extension handling.
+2. **IEC 61850 SCL:** investigate ICD, IID, CID and SCD; distinguish IED capability, instantiated configuration, communication configuration and GridForge domain models.
+3. **Protection relay settings/test ecosystems:** vendor/tool-specific formats require documented public schemas and explicit semantic coverage; do not assume a universal settings file.
+4. **Power-system analysis formats:** investigate load-flow, short-circuit, dynamic and EMT exchange with study assumptions, bases, model and solver provenance.
+5. **Electrical CAD/SLD:** investigate DXF/DWG and structured diagram formats subject to licensing; separate geometry from electrical topology.
+6. **Automation:** investigate PLCopen XML and vendor-supported project exports; preserve task, function-block, datatype, I/O and runtime semantics.
+7. **Equipment catalogues and schedules:** structured catalogues, CSV and XLSX with versioned templates, units, stable external IDs and validation.
+8. **GIS/BIM:** consider only where physical location, plant hierarchy or routing materially benefits workflows.
+9. **Reports/evidence:** PDF, CSV and structured handover packages are derived artifacts, not canonical editable engineering state.
+
+For each format, record authoritative specification and edition, profile/schema version, licensing, representative samples, parser/writer options, semantic coverage, loss modes and acceptance evidence before implementation approval.
+
+### H. Import lifecycle
+
+1. Select source, target project and intended scope.
+2. Identify format/version without executing embedded code or external references.
+3. Preserve source file and digest; parse into immutable source representation.
+4. Validate syntax, schema/profile and resource limits.
+5. Map into typed canonical exchange entities.
+6. Resolve units, IDs, references, containment and topology through explicit rules.
+7. Preview additions, updates, removals, conflicts, unsupported content and inferred values.
+8. Validate against target project revisions and owning-domain constraints.
+9. Resolve conflicts and material losses with the user.
+10. Create a staged change set containing provenance, mapping version, target base revisions and conversion report.
+11. Revalidate at acceptance and apply through Application/domain commands.
+12. Record resulting project revision and import evidence.
+
+Parsing and preview never mutate the active project. Acceptance detects stale target revisions. Cancellation leaves no partial domain mutation. Absence from an incoming file is not automatically a deletion request. Merge, update, replace and synchronize are distinct policies; destructive synchronization requires preview and explicit authorization. Partial acceptance is allowed only if dependency closure and domain consistency remain valid.
+
+### I. Export lifecycle and revision binding
+
+Export selects target format/profile, exact immutable project revision, scope and options. It validates required fields, mappings, units and target constraints; serializes from domain snapshots; runs schema/profile checks where available; and produces a manifest plus loss/coverage report. Output publication is atomic and verified.
+
+The export declares inclusion/omission of topology, equipment, instrumentation, Protection, Control, Studies, SLD presentation, asset metadata and provenance. Never label a partial or lossy export complete. Repeated export of the same revision, scope, adapter version and options should be semantically reproducible; byte identity is promised only where target format permits deterministic serialization.
+
+### J. Identity and provenance
+
+Maintain explicit links among GridForge project/object IDs, source system/document identity, external ID and namespace, source revision, adapter/mapping version, operation ID, source digest and record path, mapping confidence/user resolution, actor and resulting target revision.
+
+External IDs may be absent, duplicated, reused or document-scoped. Detect collisions; do not rely on name similarity. Record user-confirmed matches separately from deterministic stable-ID matches. Preserve whether values are native, imported, user-mapped, defaulted, derived or calculated through subsequent edits and exports.
+
+### K. Fidelity and loss classification
+
+Round-trip fidelity is assessed per format, profile, domain and feature subset; import followed by export does not itself prove semantic equivalence.
+
+- **R0 — Exact structural:** supported records and required semantics preserved without material transformation.
+- **R1 — Semantically equivalent:** representation changes but defined engineering meaning is preserved within declared precision/tolerance.
+- **R2 — Declared loss:** non-critical fields/presentation omitted and itemized.
+- **R3 — Partial interpretation:** documented subset mapped; unsupported records retained explicitly or rejected.
+- **R4 — Unsafe/ambiguous:** critical topology, units, Protection/Control semantics or identity cannot be trusted; affected scope is blocked.
+
+Loss categories include unsupported entities/attributes, defaulting, precision reduction, unit conversion, topology normalization, layout loss, ID remapping, semantic approximation and vendor-specific behavior. Critical electrical or safety-related loss cannot be waived by a generic continue confirmation.
+
+### L. Security, validation and licensing
+
+External files are untrusted. Apply archive safety controls from 8I-23 and format-specific limits for file size, nesting, XML entity expansion, recursion, rows/columns, object count and memory. Disable unsolicited external entity resolution/network retrieval. Never execute macros, scripts, embedded code, vendor hooks or binaries; never auto-install plugins or dependencies. Hyperlinks and external references remain inert metadata unless explicitly opened by the user.
+
+Record copyright, licensing, patent, SDK redistribution and vendor-term constraints before choosing parser/writer dependencies. Public documentation does not automatically authorize bundling proprietary libraries.
+
+Validation layers remain distinct: byte/container safety; syntax/encoding; schema/profile; canonical exchange model; mapping/reference resolution; domain engineering validation; cross-domain consistency; export conformance. Successful parsing is not a valid network, accepted project or proof of engineering equivalence.
+
+### M. UI and diagnostics
+
+Import/export are explicit engineering workflows, not hidden side effects of opening a file. UI exposes format/profile, source/target revision, scope/merge policy, mapping coverage, unresolved IDs, unit conversions, defaults, topology preview, SLD loss, Protection/Control compatibility, changes/conflicts, validation severity, fidelity report, cancellation and publication status.
+
+Diagnostics identify source record, target object, format/profile, adapter version and validation stage. Distinguish syntax failure, unsupported version, schema violation, ambiguous mapping, unit mismatch, topology conflict, domain validation failure, licensing limitation and output publication failure.
+
+### N. Candidate acceptance scenarios
+
+Proposed scenarios, not tests executed or approved:
+- **UI-ACC-EXCH-01:** Parse/preview does not mutate the active project.
+- **UI-ACC-EXCH-02:** Accepted import uses Application/domain commands and creates traceable project revision.
+- **UI-ACC-EXCH-03:** Stale target revision between preview and acceptance is detected.
+- **UI-ACC-EXCH-04:** Equipment, terminals, nodes, conductors and graphics remain distinct.
+- **UI-ACC-EXCH-05:** Ambiguous bus/node/terminal mapping never silently collapses topology.
+- **UI-ACC-EXCH-06:** Units, per-unit bases, phase conventions and precision are validated.
+- **UI-ACC-EXCH-07:** CT/PT/CVT and channel provenance remain distinct; no samples or quality are fabricated.
+- **UI-ACC-EXCH-08:** Protection function/curve mappings require semantic compatibility evidence.
+- **UI-ACC-EXCH-09:** Imported relay settings cannot create trips or dispatch.
+- **UI-ACC-EXCH-10:** Imported Control logic cannot execute or actuate devices.
+- **UI-ACC-EXCH-11:** Source IDs, GridForge IDs, mapping version and digest remain traceable.
+- **UI-ACC-EXCH-12:** Merge/update/replace/synchronize have distinct deletion semantics.
+- **UI-ACC-EXCH-13:** Export binds to one immutable project revision and declares scope.
+- **UI-ACC-EXCH-14:** Export reports fidelity and never labels lossy subset complete.
+- **UI-ACC-EXCH-15:** Supported round-trip meets declared R0/R1 contract.
+- **UI-ACC-EXCH-16:** Critical topology/unit/Protection/Control loss blocks unsafe conversion.
+- **UI-ACC-EXCH-17:** Malformed, oversized and malicious inputs are rejected within limits.
+- **UI-ACC-EXCH-18:** Missing plugins/extensions do not erase unrelated project data.
+- **UI-ACC-EXCH-19:** Same revision/scope/adapter/options yields semantically reproducible export.
+- **UI-ACC-EXCH-20:** Cancellation/publication failure leaves source and target project state intact.
+
+### O. Open decisions and evidence
+
+1. Approve interoperability package location and public extension contract.
+2. Define canonical exchange-model scope/versioning without duplicating Core models.
+3. Prioritize exact format families, editions and profiles; obtain authoritative specifications and samples.
+4. Resolve licensing and parser/writer dependency constraints.
+5. Define CIM/network topology mapping, including busbar sections and connectivity nodes.
+6. Define unit, per-unit base, phase convention, precision and tolerance policy.
+7. Define initial Protection, CT/PT/CVT, relay curve and PLC semantic coverage.
+8. Define external identity matching, conflict resolution and mapping persistence.
+9. Define partial import/acceptance, synchronize and deletion policy.
+10. Approve fidelity classes and critical-loss rules per format/domain.
+11. Define export reproducibility, manifests and signature requirements.
+12. Set parser limits and security review requirements.
+13. Select representative real-world network, SLD, Protection, Control and Study datasets.
+14. Decide built-in versus optional plugin adapters without scattering adapter code.
+
+### P. Gate impact and frozen invariants
+
+Relevant gates remain open:
+- **UI-GATE-02:** import staging, target revisions, cancellation and accepted project changes.
+- **UI-GATE-03:** typed parser, mapping, fidelity, validation and export diagnostics.
+- **UI-GATE-04:** accessible mapping, preview and conflict resolution.
+- **UI-GATE-06:** provenance across topology, instrumentation, Protection, Control and Studies.
+- **UI-GATE-07:** prioritized format families, adapter ownership and delivery stages.
+
+Frozen invariants:
+- Project remains the sole engineering persistence root; external formats are boundary inputs/outputs.
+- Core and owning domains remain authoritative; adapters never directly mutate Core.
+- Imports are staged, validated and reviewed before controlled Application acceptance.
+- Exports use immutable, revision-bound snapshots.
+- Equipment, terminals, topology, conductors and SLD graphics remain distinct.
+- Units, bases, precision and provenance are explicit; no silent engineering assumptions.
+- Protection configuration is not a ProtectionDecision; Control logic is not an executed cycle or DeviceCommand.
+- Import/export never fabricates measurements, quality, trips, commands, acknowledgements, actuation or feedback.
+- Critical unsupported semantics are reported or blocked, not guessed.
+- Lossless round-trip is claimed only for evidenced format/profile/domain subsets.
+- Adapters are consolidated behind public contracts; plugins cannot bypass Application or mutate Core.
+- External input is untrusted; parsing never executes embedded code or installs dependencies.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, adapter, parser/writer, mapping registry, standards catalogue, sample dataset, tests or CI were changed or run.
