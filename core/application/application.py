@@ -2712,6 +2712,7 @@ class Application:
             "protection.delete_configuration",
             "protection.bind_measurement",
             "protection.unbind_measurement",
+            "protection.set_synchronism_check_configuration",
             "model.create_current_transformer",
             "model.update_current_transformer",
             "model.delete_current_transformer",
