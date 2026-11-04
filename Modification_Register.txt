@@ -21213,3 +21213,47 @@ Verification boundary:
 - Keep issue #1069 open until this branch is integrated into canonical main.
 
 ======================================================================
+
+======================================================================
+GF-AUD-147 — DIFFERENTIAL SCHEME MUTATIONS REQUIRE CANONICAL COMMANDS
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService exposed transactional create/delete
+  differential-scheme methods, but the Application command module and
+  ProtectionConfigurationHandlers did not expose canonical command
+  identities for those operations.
+- No update method existed at the service boundary.
+- Consequently these configuration mutations could bypass the canonical
+  CommandManager pre-commit revision publication and runtime recomposition
+  contract when invoked through the service directly.
+
+Correction on fix/protection-differential-scheme-commands:
+- Added immutable create/update/delete differential-scheme command
+  contracts with typed DifferentialProtectionSchemeConfiguration payloads
+  and stable scheme_id validation for deletion.
+- Added corresponding ProtectionConfigurationHandlers registrations.
+- Added transactional update_differential_scheme() with existing aggregate
+  replacement validation, active protected-object identity/type validation,
+  and rollback restoration of the previous immutable scheme.
+- Added all three command identities to the exact Protection configuration
+  revision classifier and Application ProtectionRuntime recomposition set.
+- Exported the command contracts through core.application.commands.
+
+Scope boundary:
+- This closes the missing canonical command/API coverage only.
+- DifferentialProtectionSchemeConfiguration still lacks an explicit
+  protection_element_id owner. No owner is inferred from binding order,
+  naming, or protected-object identity.
+- Topology-derived CT association still lacks a distinct per-association
+  revision identity, and selective per-element stale decision/dispatch
+  isolation is not implemented. Project-wide fail-closed behavior remains.
+- Issue #1070 therefore remains open after this correction.
+
+Verification boundary:
+- Source-level inspection of command constants/classes, handler mapping,
+  service transaction inverses, revision classification and runtime
+  recomposition call set. No tests, CI, syntax/import checks, or runtime
+  command execution were performed.
+
+======================================================================
