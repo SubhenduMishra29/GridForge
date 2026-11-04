@@ -35,6 +35,12 @@ from .protection_execution import (
     ProtectionTargetUnavailableError,
     StaleProtectionExecutionError,
 )
+from .protection_dependency import (
+    ProtectionDependency,
+    ProtectionElementDependencyDescriptor,
+    ProtectionDependencyRegistry,
+    build_protection_dependency_registry,
+)
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .project_presentation import ProjectPresentationCollection
 from .read_models import (
@@ -99,6 +105,10 @@ __all__ = [
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
+    "ProtectionDependency",
+    "ProtectionElementDependencyDescriptor",
+    "ProtectionDependencyRegistry",
+    "build_protection_dependency_registry",
     "ProjectTransitionDecision",
     "ProjectTransitionRequired",
     "ProjectPresentationCollection",
