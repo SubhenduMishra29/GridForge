@@ -601,6 +601,74 @@ class Application:
                 diagnostics=(f"Measurement-triggered protection cycle failed: {type(exc).__name__}: {exc}",)
             )
 
+    @staticmethod
+    def _protection_measurement_source_diagnostic(
+        network: Any,
+        channel: Any,
+        prefix: str,
+    ) -> str | None:
+        """Fail closed when a physical CT/PT/CVT source is stale or unavailable."""
+        source = getattr(channel, "source", None)
+        if source is None:
+            return None
+
+        source_type = getattr(source, "element_type", None)
+        source_type = getattr(source_type, "value", source_type)
+        if not isinstance(source_type, str) or not source_type.strip():
+            source_type = type(source).__name__
+        source_type = source_type.strip().lower()
+        source_type = {
+            "currenttransformer": "current_transformer",
+            "capacitivevoltagetransformer": "capacitive_voltage_transformer",
+            "potentialtransformer": "potential_transformer",
+        }.get(source_type, source_type)
+        if source_type not in {
+            "ct",
+            "cvt",
+            "pt",
+            "current_transformer",
+            "capacitive_voltage_transformer",
+            "potential_transformer",
+        }:
+            return None
+
+        source_id = getattr(source, "id", None)
+        if not isinstance(source_id, str) or not source_id.strip():
+            return f"{prefix}: configured CT/PT/CVT source has no canonical equipment identity."
+        try:
+            active_source = network.get_by_identity(source_id)
+        except (KeyError, TypeError, ValueError):
+            return f"{prefix}: configured CT/PT/CVT source is absent from the active canonical Network."
+        if active_source is not source:
+            return f"{prefix}: MeasurementChannel does not reference the active canonical CT/PT/CVT object."
+
+        source_terminal = getattr(channel, "source_terminal", None)
+        if (
+            source_terminal is None
+            or getattr(source_terminal, "equipment_id", None) != source_id
+        ):
+            return f"{prefix}: MeasurementChannel source terminal does not match its canonical instrument identity."
+
+        # Protection measurements must originate from the instrument's
+        # secondary winding. Matching only equipment_id would also accept a
+        # primary terminal descriptor for the same CT/PT/CVT.
+        terminal_role = getattr(source_terminal, "terminal_role", None)
+        normalized_role = terminal_role.strip().upper() if isinstance(terminal_role, str) else ""
+        allowed_secondary_roles = {
+            "ct": frozenset({"S1", "S2"}),
+            "current_transformer": frozenset({"S1", "S2"}),
+            "cvt": frozenset({"X1", "X2"}),
+            "capacitive_voltage_transformer": frozenset({"X1", "X2"}),
+            "pt": frozenset({"SECONDARY_A", "SECONDARY_B"}),
+            "potential_transformer": frozenset({"SECONDARY_A", "SECONDARY_B"}),
+        }[source_type]
+        if normalized_role not in allowed_secondary_roles:
+            expected = ", ".join(sorted(allowed_secondary_roles))
+            return f"{prefix}: CT/PT/CVT measurement source must use a secondary terminal ({expected}); received {terminal_role!r}."
+        if getattr(source, "in_service", None) is not True:
+            return f"{prefix}: configured CT/PT/CVT source is out of service or unavailable."
+        return None
+
     def _evaluate_protection_cycle_unlocked(
         self,
         evaluation_time: float,
@@ -650,10 +718,10 @@ class Application:
             raise RuntimeError(
                 "Protection runtime configuration is not the exact active Application configuration."
             )
-        if not runtime.configuration_matches_composition:
+        if not runtime.configuration_matches_composition or not runtime.equipment_state_matches_composition:
             return ProtectionExecutionResult(
                 diagnostics=(
-                    f"project={project.project_id!r}: protection configuration changed after runtime "
+                    f"project={project.project_id!r}: protection configuration or CT/CVT/PT/Relay equipment state changed after runtime "
                     "composition; runtime is stale and evaluation was refused.",
                 )
             )
@@ -690,6 +758,61 @@ class Application:
         captured_configuration_service = configuration
         captured_configuration = active_configuration
         captured_channel_service = service
+        captured_revision = self.revision
+
+        def relay_state_fingerprint(network: Any) -> tuple[tuple[Any, ...], ...]:
+            """Capture mutable Relay equipment state without treating it as topology."""
+            relays = getattr(network, "relays", ())
+            return tuple(sorted((
+                (
+                    str(getattr(relay, "id", "")),
+                    str(getattr(relay, "relay_type", "")),
+                    getattr(relay, "plugin_id", None),
+                    repr(getattr(relay, "settings", {})),
+                    bool(getattr(relay, "in_service", False)),
+                    bool(getattr(relay, "enabled", False)),
+                    bool(getattr(relay, "blocked", False)),
+                )
+                for relay in relays
+            ), key=lambda item: item[0]))
+
+        captured_relay_state = relay_state_fingerprint(captured_network)
+
+        def instrumentation_state_fingerprint(network: Any) -> tuple[tuple[Any, ...], ...]:
+            """Capture CT/CVT/PT state independently from physical topology."""
+            specifications = (
+                (
+                    "ct", getattr(network, "current_transformers", ()),
+                    ("name", "primary_rated_current_a", "secondary_rated_current_a", "burden_va", "accuracy_class", "frequency_hz", "polarity", "in_service"),
+                    ("p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint"),
+                ),
+                (
+                    "cvt", getattr(network, "capacitive_voltage_transformers", ()),
+                    ("name", "rated_primary_voltage_kv", "rated_secondary_voltage_v", "accuracy_class", "rated_burden_va", "polarity", "frequency_hz", "in_service"),
+                    ("h1_endpoint", "h2_endpoint", "x1_endpoint", "x2_endpoint"),
+                ),
+                (
+                    "pt", getattr(network, "potential_transformers", ()),
+                    ("name", "primary_voltage_kv", "secondary_voltage_v", "accuracy_class", "burden_va", "phase_displacement_deg", "in_service"),
+                    ("primary_a_endpoint", "primary_b_endpoint", "secondary_a_endpoint", "secondary_b_endpoint"),
+                ),
+            )
+            captured: list[tuple[Any, ...]] = []
+            for kind, equipment, fields, endpoint_fields in specifications:
+                for item in equipment:
+                    values = tuple((field, repr(getattr(item, field, None))) for field in fields)
+                    endpoints = tuple(
+                        (
+                            field,
+                            None if (endpoint := getattr(item, field, None)) is None
+                            else (type(endpoint).__name__, getattr(endpoint, "id", None), id(endpoint)),
+                        )
+                        for field in endpoint_fields
+                    )
+                    captured.append((kind, str(getattr(item, "id", "")), values, endpoints))
+            return tuple(sorted(captured, key=lambda item: (item[0], item[1])))
+
+        captured_instrumentation_state = instrumentation_state_fingerprint(captured_network)
 
         def ensure_current_protection_provenance() -> None:
             current_lifecycle = self.project_lifecycle
@@ -714,15 +837,22 @@ class Application:
                 or current_runtime.activation_generation != captured_generation
                 or current_runtime.configuration is not captured_configuration
                 or not current_runtime.configuration_matches_composition
+                or not current_runtime.equipment_state_matches_composition
                 or current_channels is not captured_channel_service
                 or current_channels.project_id != captured_project.project_id
                 or current_channels.activation_generation != captured_generation
                 or current_channels.network is not captured_network
                 or not runtime_uses_active_channel_objects(current_runtime, current_channels.channels)
+                or relay_state_fingerprint(captured_network) != captured_relay_state
+                or instrumentation_state_fingerprint(captured_network) != captured_instrumentation_state
+                or self.revision.instrumentation_revision != captured_revision.instrumentation_revision
+                or self.revision.protection_equipment_revision != captured_revision.protection_equipment_revision
+                or self.revision.protection_configuration_revision != captured_revision.protection_configuration_revision
             ):
                 raise StaleProtectionExecutionError(
                     "active project, network, activation generation, protection runtime/configuration, "
-                    "or measurement-channel authority changed after evaluation."
+                    "measurement-channel authority, instrumentation equipment state, Relay equipment state, "
+                    "or Protection configuration/revision changed after evaluation."
                 )
 
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
@@ -748,6 +878,12 @@ class Application:
                     continue
                 if getattr(channel, "id", None) != channel_id:
                     diagnostics.append(f"{prefix}: channel identity does not match its registry key.")
+                    continue
+                source_diagnostic = self._protection_measurement_source_diagnostic(
+                    captured_network, channel, prefix
+                )
+                if source_diagnostic is not None:
+                    diagnostics.append(source_diagnostic)
                     continue
                 # Read the sample sequence around the complete validation
                 # window. When a producer supplies a sequence, any change means
@@ -1182,6 +1318,7 @@ class Application:
             or runtime.project_id != project.project_id
             or runtime.activation_generation != lifecycle.activation_generation
             or not runtime.configuration_matches_composition
+            or not runtime.equipment_state_matches_composition
         ):
             raise RuntimeError("Scenario protection runtime/configuration provenance is stale.")
         if (
@@ -1195,6 +1332,7 @@ class Application:
 
         channels = service.channels
         runtime_channels = runtime.channels
+        captured_scenario_revision = self.revision
         if runtime_channels.keys() != channels.keys() or any(
             runtime_channels[channel_id] is not channel for channel_id, channel in channels.items()
         ):
@@ -1243,6 +1381,12 @@ class Application:
                 channel = channels.get(channel_id)
                 if channel is None or runtime_channels.get(channel_id) is not channel:
                     diagnostics.append(f"{prefix}, channel={channel_id!r}: authoritative runtime channel is unavailable.")
+                    continue
+                source_diagnostic = self._protection_measurement_source_diagnostic(
+                    lifecycle.network, channel, prefix
+                )
+                if source_diagnostic is not None:
+                    diagnostics.append(source_diagnostic)
                     continue
                 if (
                     sample.scenario_id != scenario_id
@@ -1619,6 +1763,8 @@ class Application:
         )
         decisions = runtime.system.evaluate(context)
         current_lifecycle = self.project_lifecycle
+        current_channels = self.measurement_channel_service
+        current_channel_mapping = current_channels.channels
         if (
             current_lifecycle.state != "ACTIVE"
             or current_lifecycle.context is not project
@@ -1628,10 +1774,20 @@ class Application:
             or (protection_runtime is None and active_runtime is not runtime)
             or configuration_service.configuration is not configuration
             or not runtime.configuration_matches_composition
-            or self.measurement_channel_service is not service
+            or not runtime.equipment_state_matches_composition
+            or current_channels is not service
+            or current_channels.project_id != project.project_id
+            or current_channels.activation_generation != current_lifecycle.activation_generation
+            or current_channels.network is not current_lifecycle.network
+            or current_channel_mapping.keys() != channels.keys()
+            or any(current_channel_mapping[channel_id] is not channel for channel_id, channel in channels.items())
+            or self.revision.instrumentation_revision != captured_scenario_revision.instrumentation_revision
+            or self.revision.protection_equipment_revision != captured_scenario_revision.protection_equipment_revision
+            or self.revision.protection_configuration_revision != captured_scenario_revision.protection_configuration_revision
+            or network_state.topology_revision != current_lifecycle.network.state.topology_revision
         ):
             raise StaleProtectionExecutionError(
-                "Project, topology, protection runtime/configuration or measurement authority changed during scenario evaluation."
+                "Project, topology, protection runtime/configuration, equipment revisions or measurement authority changed during scenario evaluation."
             )
         return ProtectionExecutionResult(decisions=decisions)
 
@@ -2511,27 +2667,73 @@ class Application:
         revision_state = self._revision_service.snapshot_state()
         context = self._command_manager.context
         network = getattr(context, "network", None)
+        draft_equipment_types = {
+            str(item.get("element_type", "")).strip().lower()
+            for item in result.metadata.get("created_elements", ())
+            if isinstance(item, dict)
+        } if command.command_type == "network.commit_draft" else set()
         if command.command_type.startswith("sld."):
             self._revision_service.record_presentation_change(command)
         else:
             topology_revision = None
             if self._revision_service.is_topology_command(command) and network is not None:
                 topology_revision = int(network.state.topology_revision)
-            self._revision_service.record_command_success(command, topology_revision=topology_revision)
-        # Committed history inverses execute after Transaction.commit().
-        # Transaction.COMMITTED is not an undo-validity guard.
-        transaction.record_undo(
+            if command.command_type == "network.commit_draft":
+                self._revision_service.record_draft_commit(
+                    command,
+                    tuple(result.metadata.get("created_elements", ())),
+                    topology_revision=topology_revision,
+                )
+            else:
+                self._revision_service.record_command_success(command, topology_revision=topology_revision)
+        # Revision snapshots are transaction-local bookkeeping. Restore the
+        # exact snapshot only when pre-commit rollback succeeds; committed user
+        # undo must retain the revision transition so Application.undo() can
+        # advance freshness dimensions monotonically.
+        transaction.record_rollback_finalizer(
             lambda state=revision_state: self._revision_service.restore_state(state)
         )
 
         command_type = command.command_type
+        draft_protection_equipment_changed = bool(
+            draft_equipment_types
+            & {
+                "current_transformer",
+                "cvt",
+                "capacitive_voltage_transformer",
+                "pt",
+                "potential_transformer",
+                "relay",
+            }
+        )
         if command_type in {
             "protection.create_configuration",
             "protection.update_configuration",
             "protection.delete_configuration",
             "protection.bind_measurement",
             "protection.unbind_measurement",
-        }:
+            "protection.set_synchronism_check_configuration",
+            "model.create_current_transformer",
+            "model.update_current_transformer",
+            "model.delete_current_transformer",
+            "model.put_current_transformer_in_service",
+            "model.take_current_transformer_out_of_service",
+            "model.create_capacitive_voltage_transformer",
+            "model.update_capacitive_voltage_transformer",
+            "model.delete_capacitive_voltage_transformer",
+            "model.put_capacitive_voltage_transformer_in_service",
+            "model.take_capacitive_voltage_transformer_out_of_service",
+            "model.create_potential_transformer",
+            "model.update_potential_transformer",
+            "model.delete_potential_transformer",
+            "model.put_potential_transformer_in_service",
+            "model.take_potential_transformer_out_of_service",
+            "model.create_relay",
+            "model.update_relay",
+            "model.delete_relay",
+            "model.put_relay_in_service",
+            "model.take_relay_out_of_service",
+        } or (command_type == "network.commit_draft" and draft_protection_equipment_changed):
             configuration_service = getattr(self, "protection_configuration_service", None)
             channel_service = self._measurement_channel_service
             if configuration_service is None or configuration_service.configuration is None:
