@@ -2874,7 +2874,21 @@ class Application:
                 "relay",
             }
         )
-        if command_type in {
+        in_place_protection_equipment_commands = {
+            "model.update_current_transformer",
+            "model.put_current_transformer_in_service",
+            "model.take_current_transformer_out_of_service",
+            "model.update_capacitive_voltage_transformer",
+            "model.put_capacitive_voltage_transformer_in_service",
+            "model.take_capacitive_voltage_transformer_out_of_service",
+            "model.update_potential_transformer",
+            "model.put_potential_transformer_in_service",
+            "model.take_potential_transformer_out_of_service",
+            "model.update_relay",
+            "model.put_relay_in_service",
+            "model.take_relay_out_of_service",
+        }
+        protection_runtime_recomposition_commands = {
             "protection.create_configuration",
             "protection.update_configuration",
             "protection.delete_configuration",
@@ -2887,26 +2901,43 @@ class Application:
             "protection.update_differential_scheme",
             "protection.delete_differential_scheme",
             "model.create_current_transformer",
-            "model.update_current_transformer",
             "model.delete_current_transformer",
-            "model.put_current_transformer_in_service",
-            "model.take_current_transformer_out_of_service",
             "model.create_capacitive_voltage_transformer",
-            "model.update_capacitive_voltage_transformer",
             "model.delete_capacitive_voltage_transformer",
-            "model.put_capacitive_voltage_transformer_in_service",
-            "model.take_capacitive_voltage_transformer_out_of_service",
             "model.create_potential_transformer",
-            "model.update_potential_transformer",
             "model.delete_potential_transformer",
-            "model.put_potential_transformer_in_service",
-            "model.take_potential_transformer_out_of_service",
             "model.create_relay",
-            "model.update_relay",
             "model.delete_relay",
-            "model.put_relay_in_service",
-            "model.take_relay_out_of_service",
-        } or (command_type == "network.commit_draft" and draft_protection_equipment_changed):
+        }
+        if command_type in in_place_protection_equipment_commands:
+            configuration_service = getattr(self, "protection_configuration_service", None)
+            previous_runtime = getattr(self, "protection_runtime", None)
+            if (
+                configuration_service is None
+                or configuration_service.configuration is None
+                or network is None
+                or previous_runtime is None
+                or previous_runtime.network is not network
+                or previous_runtime.configuration is not configuration_service.configuration
+                or previous_runtime.activation_generation != self.project_lifecycle.activation_generation
+            ):
+                raise RuntimeError(
+                    "An in-place Protection equipment mutation requires the active composed runtime and configuration."
+                )
+            previous_equipment_snapshot = previous_runtime.equipment_state_snapshot
+            if previous_equipment_snapshot is None:
+                raise RuntimeError(
+                    "Active Protection runtime has no equipment-state baseline for an in-place mutation."
+                )
+            previous_runtime.refresh_equipment_state_snapshot()
+            transaction.record_rollback_finalizer(
+                lambda runtime=previous_runtime, snapshot=previous_equipment_snapshot:
+                    runtime.restore_equipment_state_snapshot(snapshot)
+            )
+        elif (
+            command_type in protection_runtime_recomposition_commands
+            or (command_type == "network.commit_draft" and draft_protection_equipment_changed)
+        ):
             configuration_service = getattr(self, "protection_configuration_service", None)
             channel_service = self._measurement_channel_service
             if configuration_service is None or configuration_service.configuration is None:
