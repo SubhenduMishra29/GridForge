@@ -706,6 +706,50 @@ class ProtectionConfigurationService:
             },
         )
 
+    def update_differential_scheme(
+        self,
+        *,
+        scheme: DifferentialProtectionSchemeConfiguration,
+        transaction: Transaction,
+    ) -> ApplicationResult[DifferentialProtectionSchemeConfiguration]:
+        """Replace one differential scheme transactionally without changing its CT bindings."""
+        self._require_transaction(transaction)
+        if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
+            raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
+        active = self._require_configuration()
+        try:
+            previous = active.get_differential_scheme(scheme.scheme_id)
+        except KeyError as exc:
+            raise ResourceError(
+                code="PROTECTION_DIFFERENTIAL_SCHEME_NOT_FOUND",
+                message=f"Differential protection scheme not found: {scheme.scheme_id}",
+                details={"scheme_id": scheme.scheme_id},
+            ) from exc
+        network = self._network_provider() if self._network_provider is not None else None
+        if network is not None:
+            try:
+                protected_object = network.get_by_id(scheme.protected_object_type, scheme.protected_object_id)
+            except (KeyError, LookupError) as exc:
+                raise ResourceError(
+                    code="PROTECTION_DIFFERENTIAL_TARGET_NOT_FOUND",
+                    message="Differential scheme protected object is not present in the active Core Network.",
+                    details={"object_type": scheme.protected_object_type, "object_id": scheme.protected_object_id},
+                ) from exc
+            actual_type = str(getattr(protected_object, "TYPE", scheme.protected_object_type)).strip().lower()
+            if actual_type != scheme.protected_object_type:
+                raise DomainError(
+                    code="PROTECTION_DIFFERENTIAL_TARGET_TYPE_MISMATCH",
+                    message="Differential scheme protected-object type does not match the authoritative Core object.",
+                    details={"expected_type": scheme.protected_object_type, "actual_type": actual_type, "object_id": scheme.protected_object_id},
+                )
+        active.replace_differential_scheme(scheme)
+        transaction.record_undo(lambda previous=previous: active.replace_differential_scheme(previous))
+        return ApplicationResult.success_result(
+            value=scheme,
+            message=f"Differential protection scheme updated: {scheme.scheme_id}",
+            metadata={"object_type": "differential_protection_scheme", "object_id": scheme.scheme_id},
+        )
+
     def delete_differential_scheme(
         self,
         *,
