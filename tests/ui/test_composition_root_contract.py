@@ -162,14 +162,15 @@ class _ProtectionSceneProbe:
 
 
 class _ProtectionSurfaceProbe:
-    def __init__(self, configurations):
+    def __init__(self, configurations, decisions=()):
         self._scene = _ProtectionSceneProbe()
         self._nodes = {}
         self._preview_line = None
         self._application = SimpleNamespace(
             read_protection=lambda: SimpleNamespace(
                 relays=(SimpleNamespace(
-                    object_id="R1", name="Relay 1", function_type="50/51"
+                    object_id="R1", name="Relay 1", function_type="50/51",
+                    element_decisions=tuple(decisions), decision=None,
                 ),)
             ),
             read_protection_configuration=lambda: tuple(configurations),
@@ -181,7 +182,15 @@ class _ProtectionSurfaceProbe:
         self.message = message
 
     def _add_node(self, object_id, title, x, y, width=150.0, **metadata):
-        node = SimpleNamespace(object_id=object_id, title=title, kind=metadata.get("kind"))
+        node = SimpleNamespace(
+            object_id=object_id,
+            title=title,
+            kind=metadata.get("kind"),
+            element_id=metadata.get("element_id"),
+            relay_id=metadata.get("relay_id"),
+            input_name=metadata.get("input_name"),
+            channel_id=metadata.get("channel_id"),
+        )
         self.created.append(node)
         self._nodes[object_id] = node
         return node
@@ -189,9 +198,7 @@ class _ProtectionSurfaceProbe:
     def _link(self, source, target, *, connection_id):
         self.links.append(connection_id)
 
-    @staticmethod
-    def _decision_text(_relay):
-        return "NO OPERATION"
+    _decision_text = staticmethod(ProtectionGraphicsSurface._decision_text)
 
 
 def test_uncommissioned_relay_does_not_project_function_decision_or_trip():
@@ -223,3 +230,78 @@ def test_commissioned_relay_projects_the_configured_function_code():
     assert not any(node.kind == "configuration_status" for node in surface.created)
     assert any(node.kind == "decision" for node in surface.created)
     assert any(node.kind == "trip_output" for node in surface.created)
+
+
+from core.protection.decision import ProtectionDecision
+from ui.protection.protection_tools import ProtectionInteractionController
+
+
+def test_multifunction_relay_projects_each_function_inputs_and_decision_by_element_id():
+    configurations = (
+        SimpleNamespace(
+            element_id="E51", relay_id="R1", function_code="51",
+            input_channel_ids={"Ia": "CH_I"}, settings={}, enabled=True, blocked=False,
+        ),
+        SimpleNamespace(
+            element_id="E67", relay_id="R1", function_code="67",
+            input_channel_ids={"Ia": "CH_I", "Va": "CH_V"},
+            settings={}, enabled=True, blocked=False,
+        ),
+    )
+    decisions = (
+        ProtectionDecision.no_operation(
+            relay_id="R1", element_id="E51", function_code="51"
+        ),
+        ProtectionDecision.blocked_decision(
+            relay_id="R1", element_id="E67", function_code="67"
+        ),
+    )
+    surface = _ProtectionSurfaceProbe(configurations, decisions)
+
+    ProtectionGraphicsSurface.refresh(surface)
+
+    by_id = {node.object_id: node for node in surface.created}
+    assert "R1:element:E51:function" in by_id
+    assert "R1:element:E67:function" in by_id
+    assert "R1:element:E51:decision" in by_id
+    assert "R1:element:E67:decision" in by_id
+    assert "R1:element:E51:trip" in by_id
+    assert "R1:element:E67:trip" in by_id
+    assert by_id["R1:element:E51:function"].element_id == "E51"
+    assert "51" in by_id["R1:element:E51:function"].title
+    assert "67" in by_id["R1:element:E67:function"].title
+    assert "NO OPERATION" in by_id["R1:element:E51:decision"].title
+    assert "BLOCKED" in by_id["R1:element:E67:decision"].title
+    assert "R1:element:E51:input:Ia" in by_id
+    assert "R1:element:E67:input:Ia" in by_id
+    assert "CH_I->R1:element:E51:Ia" in surface.links
+    assert "CH_I->R1:element:E67:Ia" in surface.links
+    assert "R1:element:E51:Ia->R1" in surface.links
+    assert "R1:element:E67:Ia->R1" in surface.links
+    assert "R1:function" not in by_id
+
+
+def test_measurement_binding_uses_the_selected_protection_element_identity():
+    configurations = (
+        SimpleNamespace(
+            element_id="E51", relay_id="R1", function_code="51",
+            input_channel_ids={"Ia": "CH_I"},
+        ),
+        SimpleNamespace(
+            element_id="E67", relay_id="R1", function_code="67",
+            input_channel_ids={"Ia": "CH_I"},
+        ),
+    )
+    controller = object.__new__(ProtectionInteractionController)
+    controller._application = SimpleNamespace(
+        read_protection_configuration=lambda: configurations
+    )
+
+    command = controller._build_binding_command(
+        SimpleNamespace(relay_id="R1", element_id="E67", input_name="Ia"),
+        "CH_NEW",
+    )
+
+    assert command.payload["element_id"] == "E67"
+    assert command.payload["input_name"] == "Ia"
+    assert command.payload["channel_id"] == "CH_NEW"
