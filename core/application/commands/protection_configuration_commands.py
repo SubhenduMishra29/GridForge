@@ -10,6 +10,7 @@ from core.protection.project_configuration import (
     DifferentialProtectionSchemeConfiguration,
     ProtectionFunctionConfiguration,
 )
+from core.protection.protection_measurement_binding import ProtectionMeasurementBinding
 
 from ..command import Command
 
@@ -18,6 +19,7 @@ UPDATE_PROTECTION_CONFIGURATION = "protection.update_configuration"
 DELETE_PROTECTION_CONFIGURATION = "protection.delete_configuration"
 BIND_PROTECTION_MEASUREMENT = "protection.bind_measurement"
 UNBIND_PROTECTION_MEASUREMENT = "protection.unbind_measurement"
+REBIND_PROTECTION_MEASUREMENT_BINDING = "protection.rebind_measurement_binding"
 SET_SYNCHRONISM_CHECK_CONFIGURATION = "protection.set_synchronism_check_configuration"
 CREATE_DIFFERENTIAL_SCHEME = "protection.create_differential_scheme"
 UPDATE_DIFFERENTIAL_SCHEME = "protection.update_differential_scheme"
@@ -80,6 +82,37 @@ class UnbindProtectionMeasurementCommand(Command):
             {"element_id": element_id.strip(), "input_name": input_name.strip()},
             command_id=command_id, correlation_id=correlation_id, causation_id=causation_id,
         ))
+
+class RebindProtectionMeasurementBindingCommand(Command):
+    """Explicitly re-resolve one persisted CT primary-side association."""
+
+    def __init__(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(binding, ProtectionMeasurementBinding):
+            raise TypeError("binding must be ProtectionMeasurementBinding.")
+        if (
+            binding.instrument_primary_side is not None
+            or binding.instrument_primary_component_fingerprint is not None
+        ):
+            raise ValueError("Rebind command requires an unassociated candidate binding.")
+        super().__init__(**_command(
+            REBIND_PROTECTION_MEASUREMENT_BINDING,
+            {
+                "binding": binding,
+                "binding_id": binding.binding_id,
+                "protection_element_id": binding.protection_element_id,
+            },
+            command_id=command_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        ))
+
 
 class DeleteProtectionConfigurationCommand(Command):
     def __init__(self, *, element_id: str,
@@ -152,6 +185,7 @@ class SetSynchronismCheckConfigurationCommand(Command):
 __all__ = [
     "CREATE_PROTECTION_CONFIGURATION", "UPDATE_PROTECTION_CONFIGURATION", "DELETE_PROTECTION_CONFIGURATION", "BIND_PROTECTION_MEASUREMENT", "UNBIND_PROTECTION_MEASUREMENT", "SET_SYNCHRONISM_CHECK_CONFIGURATION",
     "CREATE_DIFFERENTIAL_SCHEME", "UPDATE_DIFFERENTIAL_SCHEME", "DELETE_DIFFERENTIAL_SCHEME",
+    "REBIND_PROTECTION_MEASUREMENT_BINDING", "RebindProtectionMeasurementBindingCommand",
     "CreateDifferentialSchemeCommand", "UpdateDifferentialSchemeCommand", "DeleteDifferentialSchemeCommand",
     "CreateProtectionConfigurationCommand", "UpdateProtectionConfigurationCommand",
     "DeleteProtectionConfigurationCommand", "BindProtectionMeasurementCommand", "UnbindProtectionMeasurementCommand",
