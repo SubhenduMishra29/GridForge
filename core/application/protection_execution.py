@@ -31,6 +31,10 @@ class ProtectionTargetUnavailableError(ValueError):
     """Explicit action target is absent from the active Core network."""
 
 
+class StaleProtectionDecisionError(RuntimeError):
+    """One decision's dependency token is stale or incomplete; peers may remain valid."""
+
+
 class PostconditionStatus(str, Enum):
     MATCHED = "matched"
     MISMATCHED = "mismatched"
@@ -222,7 +226,7 @@ class ProtectionExecutionService:
             if self._decision_guard is not None:
                 try:
                     self._decision_guard(protection_decision)
-                except Exception as exc:
+                except StaleProtectionDecisionError as exc:
                     message = (
                         f"Protection decision rejected for '{protection_decision.element_id}' "
                         f"because its dependency token is stale or unavailable: {exc}"
@@ -233,6 +237,18 @@ class ProtectionExecutionService:
                         "stale_dependency_rejected", message
                     ))
                     continue
+                except StaleProtectionExecutionError as exc:
+                    append_batch_rejection(
+                        index,
+                        f"Protection batch aborted because dependency provenance is unclassifiable: {exc}",
+                    )
+                    break
+                except Exception as exc:
+                    append_batch_rejection(
+                        index,
+                        f"Protection batch aborted because the decision guard failed unexpectedly: {type(exc).__name__}: {exc}",
+                    )
+                    break
 
             try:
                 control_decision = self._action_resolver(protection_decision)
@@ -276,7 +292,7 @@ class ProtectionExecutionService:
             if self._decision_guard is not None:
                 try:
                     self._decision_guard(protection_decision)
-                except Exception as exc:
+                except StaleProtectionDecisionError as exc:
                     message = (
                         f"Protection decision rejected after action resolution for "
                         f"'{protection_decision.element_id}': {exc}"
@@ -287,6 +303,20 @@ class ProtectionExecutionService:
                         "stale_dependency_rejected", message
                     ))
                     continue
+                except StaleProtectionExecutionError as exc:
+                    append_batch_rejection(
+                        index,
+                        f"Protection batch aborted after action resolution: {exc}",
+                        current_control_decision=control_decision,
+                    )
+                    break
+                except Exception as exc:
+                    append_batch_rejection(
+                        index,
+                        f"Protection batch aborted because the post-resolution decision guard failed unexpectedly: {type(exc).__name__}: {exc}",
+                        current_control_decision=control_decision,
+                    )
+                    break
 
             target_key = (
                 str(control_decision.target_equipment_type).strip().lower(),
@@ -333,7 +363,7 @@ class ProtectionExecutionService:
             if self._decision_guard is not None:
                 try:
                     self._decision_guard(protection_decision)
-                except Exception as exc:
+                except StaleProtectionDecisionError as exc:
                     message = (
                         f"Protection decision rejected immediately before dispatch for "
                         f"'{protection_decision.element_id}': {exc}"
@@ -344,6 +374,22 @@ class ProtectionExecutionService:
                         "stale_dependency_rejected", message
                     ))
                     continue
+                except StaleProtectionExecutionError as exc:
+                    append_batch_rejection(
+                        index,
+                        f"Protection batch aborted immediately before dispatch: {exc}",
+                        current_control_decision=control_decision,
+                        current_command=command,
+                    )
+                    break
+                except Exception as exc:
+                    append_batch_rejection(
+                        index,
+                        f"Protection batch aborted because the pre-dispatch decision guard failed unexpectedly: {type(exc).__name__}: {exc}",
+                        current_control_decision=control_decision,
+                        current_command=command,
+                    )
+                    break
 
             if self._pre_dispatch_guard is not None:
                 try:
@@ -467,10 +513,15 @@ class ProtectionExecutionService:
             if self._decision_guard is not None:
                 try:
                     self._decision_guard(protection_decision)
-                except Exception as exc:
+                except (StaleProtectionDecisionError, StaleProtectionExecutionError) as exc:
                     diagnostics.append(
                         f"Post-dispatch dependency changed for element "
                         f"'{protection_decision.element_id}': {exc}"
+                    )
+                except Exception as exc:
+                    diagnostics.append(
+                        f"Post-dispatch dependency guard failed for element "
+                        f"'{protection_decision.element_id}': {type(exc).__name__}: {exc}"
                     )
 
             outcomes.append(ProtectionActionOutcome(
