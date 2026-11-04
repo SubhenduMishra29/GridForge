@@ -21442,3 +21442,61 @@ Verification boundary:
   differential evaluation/dispatch were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-152 — ANSI 87 HAS NO CANONICAL PROTECTION RUNTIME OR SAMPLE CONTRACT
+======================================================================
+
+Audit finding:
+- The canonical Protection function catalog lists ANSI 87 as
+  NOT_IMPLEMENTED with no implementation or input contract.
+- ProtectionRuntime.compose() constructs configured elements exclusively
+  through ProtectionFactory.create_element(). The factory rejects catalog
+  entries that are not IMPLEMENTED and constructs RelayBase implementations
+  wrapped by ProtectionElement.
+- The standalone differential numerical kernel is neither a RelayBase nor
+  a ProtectionElement implementation and does not produce ProtectionDecision.
+  It therefore cannot enter ProtectionSystem.evaluate() or the canonical
+  ProtectionExecutionService decision/action path.
+- DifferentialCurrentSample currently carries binding_id,
+  reference_basis_id and three phase phasors only. It does not carry sample
+  timestamp, quality, producer sequence, channel/source/instrument identity,
+  instrument/configuration revision, or topology/CT-association provenance.
+  The kernel verifies exact binding membership and a common reference basis,
+  but cannot independently establish sample freshness, quality or physical
+  source provenance.
+
+Required integration contract:
+- Application-owned input preparation must resolve configured binding IDs to
+  trusted MeasurementChannel/sample snapshots and validate source instrument
+  identity, service state, ratio/configuration, channel quality/freshness and
+  topology-derived CT association.
+- CT currents must be normalized to an explicit common relay reference basis,
+  including equipment-specific ratio and phase compensation. Unsupported
+  transformer/vector-group compensation must fail closed, not be ignored.
+- A canonical ANSI 87 ProtectionElement must bind to the explicit persisted
+  Protection element owner, consume the prepared coherent input snapshot and
+  emit the standard ProtectionDecision.
+- The decision must retain evaluation provenance and use the existing
+  Application revision guards, explicit action mapping and Protection
+  dispatch path. A raw kernel result or result.operates boolean is not an
+  actionable ProtectionDecision.
+
+Scope boundary:
+- No direct differential-kernel-to-dispatch bridge is permitted.
+- The numerical kernel remains pure and non-actuating. No runtime adapter,
+  ANSI 87 catalog implementation, owner field or persistence migration was
+  added by this audit entry.
+- GF-AUD-151 defines the scheme-owner migration contract. CT association
+  local identity/rebind and per-element stale-decision isolation remain
+  separate dependencies under #1070/GF-AUD-148/GF-AUD-145.
+
+Verification boundary:
+- Inspected Protection function catalog, ProtectionRuntime.compose(),
+  ProtectionFactory.create_element(), DifferentialCurrentSample and
+  evaluate_differential_scheme(), and canonical ProtectionExecutionService.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  differential evaluation/dispatch were performed.
+
+======================================================================
