@@ -8722,3 +8722,348 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - V2 main remains unchanged. V3 proposals require review and approval before implementation.
 
 **Scope boundary:** research register only. No reporting service, report schema, template engine, renderer, PDF/DOCX/XLSX exporter, compliance engine, signature workflow, archive, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. No standards catalogue or BIS edition verification was performed in this entry. V2 main remains unchanged.
+
+
+## 8I-38. Proposed V3 engineering asset lifecycle, maintenance, condition monitoring and reliability architecture (2026-11-04)
+
+### A. Research objective and architectural position
+
+V3 should connect engineering design data to the complete physical asset lifecycle: specification, procurement, manufacture, inspection, installation, commissioning, operation, condition assessment, maintenance, refurbishment, replacement and retirement. This is not a proposal to turn GridForge into a generic enterprise asset-management or computerized maintenance-management system. The objective is an engineering-grade asset context that preserves electrical/domain authority and supplies trustworthy lifecycle evidence to engineering studies, Protection, Control, operations, maintenance and reporting.
+
+The central distinction is between an **engineering equipment definition/model** and an **installed physical asset instance**. A design object may describe a transformer type, motor model, breaker function or cable family. A physical asset instance is the actual serial-numbered device installed at a specific site, in a particular location and with a traceable history. A project design object can be replaced, split, revised or reused without rewriting the historical identity of the physical asset. Conversely, an installed asset can be relocated or refurbished while retaining its identity and its historical record.
+
+The proposed lifecycle context includes related but separate records:
+
+- Engineering equipment definition and model.
+- Physical asset identity and instance.
+- Functional location and installation position.
+- Project/design allocation and as-designed configuration.
+- As-manufactured, as-installed, as-commissioned and as-operated configurations.
+- Nameplate, datasheet, manufacturer and procurement evidence.
+- Inspection, test, commissioning and acceptance records.
+- Operational measurements and condition indicators.
+- Defect, anomaly, failure and work-order records.
+- Maintenance strategy, plan, task and execution records.
+- Reliability, availability, risk and criticality assessments.
+- Refurbishment, replacement, relocation and retirement records.
+- Evidence, approvals, provenance and audit history.
+
+The asset lifecycle service should be an Application-level orchestration and evidence capability over domain-owned engineering facts and lifecycle records. Core remains the authority for equipment semantics, electrical terminals, connectivity, topology, operating models, Protection and Control behavior, validation and calculation results. Asset-management records must not become a second authority for electrical topology or equipment physics.
+
+### B. Identity model: definition, instance, location and function
+
+V3 should avoid a single ambiguous equipment identifier being used for every lifecycle purpose. At minimum distinguish:
+
+1. **Equipment type/family** — category such as transformer, induction motor, circuit breaker, CT, PT/CVT, cable, busbar, relay, PLC or instrument.
+2. **Engineering definition** — reusable design/model identity with ratings, parameters, terminals, constraints and validated model versions.
+3. **Functional asset** — the role or required function at a defined plant/system position, such as a 6.6 kV pump motor feeder or transformer T-01.
+4. **Physical asset instance** — the actual manufactured/installed item, with durable asset ID, manufacturer, model, serial number and lifecycle state.
+5. **Functional location** — plant hierarchy and physical/electrical location, such as plant, unit, area, substation, switchgear lineup, panel, bay, skid or machine train.
+6. **Installation position** — a time-bounded relationship between physical asset and functional location/function.
+7. **Engineering project object** — the revisioned design representation in a project and its topology/SLD context.
+8. **Asset-to-design realization link** — explicit mapping between a physical instance and the engineering object/configuration it realizes.
+9. **Component/subassembly identity** — separately traceable parts such as breaker mechanism, trip coil, motor bearing, transformer bushing, cooling fan, CT core or relay module where the maintenance and engineering boundary requires it.
+
+An asset ID must be stable and not derived solely from a mutable tag, location, serial number or SLD label. Plant tag, equipment number, SAP/ERP code, manufacturer serial, QR/RFID identifier and legacy IDs should be modeled as typed identifiers with issuer, scope, validity interval and uniqueness policy. Tag changes and location changes must not destroy identity history. Duplicate serial numbers across manufacturers or product families must be handled by scoped identity rules.
+
+Functional location and physical asset are not interchangeable. A motor may be removed from one pump position and installed at another; the functional location remains while the physical asset relationship changes. A functional position may receive a replacement asset; the old and new instances remain distinguishable. The design object should retain the design requirement and identify which asset instance realizes it at each relevant time.
+
+### C. Lifecycle states and transition governance
+
+Lifecycle state should be explicit and typed, not inferred from whether a record exists or appears in the SLD. A proposed physical-asset lifecycle includes:
+
+- Planned / specified.
+- Approved for procurement.
+- Ordered.
+- Manufactured.
+- Factory inspected / FAT completed.
+- Delivered / received.
+- Stored / preserved.
+- Installed.
+- Pre-commissioning.
+- Commissioning in progress.
+- Commissioned / accepted.
+- In service.
+- Out of service / isolated.
+- Under inspection or maintenance.
+- Temporarily unavailable.
+- Refurbishment / overhaul.
+- Returned to service.
+- Decommissioning.
+- Retired / disposed.
+
+Not every asset follows every state, and transitions require asset-class-specific rules. A motor does not have the same FAT evidence as a protection relay or a transformer. Lifecycle transitions should be guarded by prerequisites, authorized roles, evidence requirements, safety permits and approval rules. A state change must be an explicit command with actor, timestamp/time source, reason, evidence references and before/after state.
+
+The system must distinguish lifecycle state from operational state, availability state, condition state and maintenance state. For example, an asset can be lifecycle-commissioned, operationally stopped, available, condition-degraded and maintenance-due at the same time. A single status enum cannot represent these orthogonal dimensions without information loss.
+
+### D. As-designed, as-manufactured, as-installed, as-commissioned and as-operated baselines
+
+GridForge should represent configuration baselines as time- and revision-bound evidence rather than mutate a single current equipment record to represent every lifecycle stage.
+
+- **As-designed** records the accepted engineering requirement, design parameters, topology and model assumptions.
+- **As-procured** records the selected vendor, order/specification deviation and procurement acceptance.
+- **As-manufactured** records serial-specific nameplate data, factory configuration, test results and manufacturer deviations.
+- **As-installed** records actual location, connections, cable/termination details, accessories and installation inspection.
+- **As-commissioned** records verified settings, test results, functional checks, calibration, interlocks and acceptance status.
+- **As-operated** records approved operational configuration and relevant setting/firmware/model changes over time.
+
+Differences between baselines must be explicit and classified: approved deviation, engineering change, vendor substitution, field modification, verified correction, temporary bypass or unresolved discrepancy. The system must not silently overwrite as-designed values with as-found measurements. A deviation that affects ratings, protection coordination, thermal capability, fault duty, control logic or study assumptions must create a review/invalidation workflow for affected engineering artifacts.
+
+A baseline snapshot should identify its scope, source revisions, approval, effective time and evidence package. It should be possible to reconstruct the configuration that was in force at a historical event or failure time.
+
+### E. Equipment and asset technical data governance
+
+Technical data should retain provenance and value class. At minimum distinguish design requirement, calculated value, manufacturer guaranteed value, nameplate value, factory-tested value, field-measured value, calibrated value, estimated value, inferred value and maintenance-observed value. Each value should carry source, unit, reference condition, method, uncertainty/accuracy where applicable, timestamp, valid interval, reviewer and status.
+
+Examples of asset-class data include:
+
+- Transformer: rated power, voltage ratio, vector group, impedance, losses, tap range, cooling class, insulation level, winding temperature, oil/DGA indicators, bushing data and test results.
+- Motor/generator: rated output, voltage, current, speed, efficiency, power factor, starting/stall data, thermal class, insulation, bearing data, vibration, winding temperature and operating duty.
+- Circuit breaker: rated voltage/current, breaking/making capacity, operating mechanism, trip/close coil, timing, contact resistance, operation count, gas/vacuum condition where applicable and maintenance limits.
+- Cable: type, conductor, cross-section, insulation, installation route, length, termination/joint records, thermal environment, sheath/earthing arrangement and test history.
+- CT/PT/CVT: ratios, class, burden, polarity, core/winding assignment, accuracy, saturation/excitation and calibration/test evidence.
+- Relay/IED/PLC/instrument: manufacturer/model, firmware, configuration revision, function/logic version, settings checksum, I/O/channel mapping, protocol identity, calibration and cybersecurity-relevant configuration evidence.
+
+The data model must not confuse a manufacturer rating with a field observation or a calculated capability. A measured temperature is not automatically a corrected thermal rating. A nameplate value must not be silently replaced by a calibrated or inferred value. Conflicting values should remain visible with provenance and an explicit adjudication decision.
+
+### F. Functional hierarchy and asset relationships
+
+The asset hierarchy should support plant/site, process unit, area, system, subsystem, functional location, equipment and maintainable component. It must also support non-tree relationships such as motor-to-driven-machine, transformer-to-bay, relay-to-protected zone, CT-to-measurement channel, instrument-to-loop, breaker-to-switchgear cell and cable-to-route/termination.
+
+Do not force every engineering relationship into a single parent-child tree. Functional hierarchy, electrical topology, mechanical train, instrumentation loop, control dependency, protection zone and physical installation are different relationship graphs. They may intersect but retain distinct semantics and revision rules.
+
+A relationship record should identify relation type, source/target identities, effective interval, directionality, authority, evidence and provenance. A transformer may be electrically connected in one topology revision and physically located in a different plant area. A protection relay can protect a zone that is not equivalent to its physical panel location. A motor can be mechanically coupled to a pump while its electrical feeder is represented elsewhere in the SLD.
+
+### G. Maintenance strategy and work execution boundary
+
+GridForge may provide engineering-aware maintenance planning and evidence integration, but should not duplicate a full ERP/CMMS work-management system without an explicit product decision. Separate the following:
+
+- Maintenance strategy and policy.
+- Maintenance plan and task definition.
+- Maintenance interval/trigger rule.
+- Work request and work order reference.
+- Work execution and labour/material record (owned by CMMS/ERP when integrated).
+- Inspection/test procedure and measured result.
+- Defect/failure notification.
+- Isolation/permit-to-work reference and authorization evidence.
+- Return-to-service inspection and approval.
+- Engineering disposition and model/configuration update.
+
+Maintenance strategies may be time-based, usage-based, condition-based, risk-based or corrective. The trigger rule should identify the source counter/measurement, threshold, persistence, operating context, reset policy and owner. A runtime-hours counter, breaker operation counter, motor starts counter or transformer thermal-aging estimate must have an identified source and quality. The system must not generate a maintenance-due condition from missing or untrusted measurements without declaring the uncertainty.
+
+A work order completion does not itself prove the equipment is technically fit for service. Return-to-service requires the applicable inspection, test, isolation removal and authorization contracts. A maintenance action that changes protection settings, relay firmware, motor parameters, CT wiring, breaker trip mechanism, cable termination or instrument calibration must create a configuration-change and engineering-impact review as required.
+
+For enterprise deployments, GridForge should integrate with external CMMS/EAM/ERP systems through adapters and stable external references. It should not assume one vendor or make a connector's work-order status the authority for Core electrical state.
+
+### H. Condition monitoring and measurement integration
+
+Condition monitoring should consume the shared Signal and Measurement Infrastructure established in 8I-33. Asset condition services must subscribe to typed measurements and evidence rather than build a parallel acquisition system.
+
+Supported input classes may include:
+
+- Electrical: current, voltage, power, energy, unbalance, harmonics, partial discharge and insulation measurements where validated.
+- Thermal: winding, bearing, oil, ambient, hotspot and temperature-rise measurements.
+- Mechanical: vibration, displacement, speed, torque, bearing condition, shaft alignment and lubrication indicators.
+- Chemical/material: dissolved gas analysis, oil moisture, acidity, dielectric strength, insulation resistance and material degradation indicators.
+- Operational: starts, stops, run hours, load cycles, switching operations, trips, fault duty, overload duration and process duty.
+- Environmental: ambient temperature, humidity, dust, corrosive exposure, ingress and cooling conditions.
+- Digital diagnostics: relay/IED self-supervision, breaker mechanism monitoring, drive diagnostics, PLC/device health and communication quality.
+
+Each input must retain measurement identity, source/channel, unit, calibration, timestamp and clock quality, sample interval, quality state, operating condition, location, processing chain and provenance. Derived condition indicators must identify algorithm/version, source measurements, window, filtering, missing-data handling, threshold policy, confidence/uncertainty and validity period.
+
+Historian aggregation, compression or UI decimation must not alter raw evidence or become an unacknowledged input to safety-relevant Protection decisions. Condition monitoring can inform maintenance and engineering assessment, but it does not directly authorize switching, trip suppression or interlock bypass. Any operational action follows the separate Protection/Control command and authorization contracts.
+
+### I. Condition indicators, degradation and remaining useful life
+
+Condition assessment should separate raw measurements, derived features, diagnostic findings, health indicators, failure-mode assessments and maintenance recommendations.
+
+A proposed evidence chain is:
+
+source measurement → quality/validity assessment → feature extraction → condition indicator → diagnostic hypothesis → failure-mode/risk assessment → maintenance recommendation → authorized work/inspection → observed outcome → model review.
+
+Each derived indicator must state its physical meaning and domain applicability. Thresholds should be configurable only through governed, revisioned policies. A threshold breach should not automatically be labelled a failure unless the applicable rule defines that conclusion and required evidence is present.
+
+Degradation models may include thermal aging, insulation deterioration, bearing wear, contact erosion, switching mechanism wear, corrosion, fatigue and cable/accessory aging. Model inputs, calibration basis, operating duty, environmental assumptions and uncertainty must be visible. Remaining useful life (RUL) is an estimate with a model and uncertainty interval, not a guaranteed replacement date. The system should distinguish a deterministic maintenance limit, probabilistic failure forecast and data-driven anomaly score.
+
+AI/ML condition models must record training-data scope, asset population, labels, feature definitions, model version, validation cohort, false-positive/false-negative performance, drift monitoring, calibration and uncertainty. Out-of-distribution conditions and missing sensors must be visible. An anomaly score must not be presented as a diagnosis or as a deterministic failure probability without validation. NPU acceleration may support inference, but must not bypass engineering review or domain safety constraints.
+
+### J. Reliability, availability and maintainability (RAM)
+
+Reliability calculations require explicit asset boundaries, operating states, duty, exposure, failure definitions, repair assumptions and data-quality rules. V3 should support the distinction between:
+
+- Reliability: probability of performing the required function without failure over a stated interval and conditions.
+- Availability: proportion of time a function/system is capable of service under a defined availability model.
+- Maintainability: probability or distribution of restoring the function within a stated time under stated resources/procedures.
+- Failure rate and hazard: time-/duty-dependent event rates, not universal constants.
+- MTBF/MTTF/MTTR: defined statistics with population, censoring, repairability and observation-window semantics.
+- Forced outage, planned outage, derating and standby exposure.
+- Redundancy, common-cause failure, dependent failures and repair-resource constraints.
+
+A single equipment downtime number must not be treated as all of these measures. The model must define whether standby time counts, how partial capacity is represented, what constitutes a failure, how multiple failure modes are counted and whether maintenance downtime is included.
+
+Reliability methods may include block diagrams, fault trees, event trees, Markov/state models, Weibull and other lifetime distributions, FMEA/FMECA, RCM and probabilistic risk methods where their assumptions are supported. These methods should be domain-specific services over canonical asset and event data, not a generic solver that silently imposes a single reliability model.
+
+### K. Failure mode, effects and criticality analysis
+
+FMEA/FMECA records should identify asset/component, function, failure mode, mechanism/cause, local/system effect, detection method, safeguards, consequence category, likelihood/frequency basis, severity, detectability where used, risk ranking method, recommended action, owner and review status.
+
+Risk priority numbers are method-specific and can conceal different risk profiles when multiplied into one score. V3 should preserve the component scores and consequence narrative and identify the selected method. Criticality should account for safety, environment, production, asset replacement cost, power-system stability, regulatory obligation and redundancy/contingency context. Criticality is not simply equipment cost or a single AI-generated score.
+
+Failure and defect taxonomies should be versioned and mapped to external CMMS/ERP taxonomies where needed. Root-cause analysis must distinguish observed failure facts, suspected cause, confirmed cause and corrective action. An investigation hypothesis must not be written back as a confirmed equipment property.
+
+### L. Lifecycle event, maintenance and operational trace integration
+
+Asset lifecycle events should integrate with the event/diagnostic/audit architecture in 8I-36 while preserving record semantics. Distinct records include lifecycle state transitions, condition observations, alarms, SOE events, work orders, maintenance executions, inspections, failures, Protection operations, Control actions, configuration changes and audit records.
+
+Each event should reference the relevant physical asset instance, functional location, engineering object and applicable configuration baseline when known. Effective time and recorded time must remain distinct. Historical reconstruction must resolve the asset-to-location and asset-to-design relationships that were valid at the event time, rather than use only the current mapping.
+
+Causal attribution requires evidence. A breaker trip followed by a motor outage does not by itself prove breaker failure caused the outage. A vibration rise before a bearing failure is temporal correlation until supported by diagnosis. Trace links should distinguish caused-by, contributed-to, detected-by, maintained-by, configured-by, installed-at, protects, measures and merely-correlated-with relationships.
+
+### M. Engineering impact analysis and selective invalidation
+
+Asset lifecycle changes can affect engineering validity, but not every maintenance event requires recalculation. V3 should maintain a dependency map from asset identity/configuration and change type to affected engineering models and evidence.
+
+Examples:
+- A motor replacement may affect load flow, motor starting, protection settings, transient dynamics, cable sizing and mechanical/process duty.
+- A transformer replacement or tap/impedance change may affect short-circuit, load flow, protection coordination, voltage regulation and earthing assumptions.
+- A CT ratio, class, polarity, core or wiring change may affect measurement scaling, relay inputs, protection sensitivity and coordination.
+- A breaker replacement may affect interrupting duty, operating times, trip/close circuit design, protection clearing assumptions and maintenance baselines.
+- A cable replacement or route/installation change may affect ampacity, voltage drop, short-circuit withstand, impedance, earthing and protection reach.
+- A relay firmware/settings/configuration change may affect protection behavior, functional evidence, settings reports and commissioning status.
+- A calibration update may affect measurement confidence and condition indicators; it should not rewrite historical raw samples.
+- A bearing replacement may change component maintenance history and condition baseline without automatically changing the electrical motor model.
+
+Impact analysis should classify changes as informational, asset-record-only, condition-model-impacting, engineering-model-impacting, topology-impacting, protection/control-impacting, safety-critical or requiring formal design change. It should identify affected project revisions, study results, reports, compliance evidence and operational procedures. No asset maintenance record should silently mutate the accepted engineering project.
+
+### N. Inspection, test and commissioning evidence
+
+Inspection and test records should be typed by equipment class and lifecycle stage. Examples include factory acceptance tests, routine/type/special tests, installation checks, insulation resistance, winding resistance, transformer ratio/vector group, oil tests, breaker timing/contact resistance, CT/PT ratio/polarity/excitation, relay secondary injection, primary injection, trip circuit checks, motor vibration/alignment, thermography, cable tests, loop checks, instrument calibration, interlock functional tests and end-to-end trip tests.
+
+Each test record should identify procedure/method and revision, acceptance criteria and source, instrument identity/calibration status, test conditions, raw observations, derived results, uncertainty, witness, performer, reviewer, date/time, deviations and disposition. A pass/fail label alone is insufficient for traceability. Acceptance limits must be tied to the applicable standard, manufacturer instruction, project specification or approved engineering decision.
+
+Test evidence should distinguish factory, site, commissioning, periodic maintenance and post-repair results. Trend comparisons require comparable test method, conditions, instrumentation and calibration; differences must be disclosed. A test report must not imply a test was performed merely because a commissioning checklist item was marked complete.
+
+### O. Safety, isolation, permits and return-to-service boundary
+
+GridForge may reference permits, isolations, lockout/tagout, earthing, discharge, gas-free status and safety approvals, but it must not claim to replace an authorized site safety-management or permit-to-work system without a separately approved scope and safety case.
+
+Safety records should be time-bounded and linked to the exact asset, work scope, isolation points, responsible persons, permit authority, hazard controls, verification and release. A maintenance work order marked complete must not automatically clear an electrical isolation, close a breaker, remove an earth, reset a relay or return equipment to service.
+
+Return-to-service is a controlled operational transition requiring the appropriate independent evidence and authorization. Protection/Control interlocks and operating commands remain under their respective domain authorities. Asset-management recommendations cannot override Protection trips, safety interlocks or command authorization.
+
+### P. External EAM/CMMS/ERP and enterprise interoperability
+
+V3 should provide integration contracts for external systems such as EAM/CMMS, ERP, document management, procurement, inventory, laboratory systems, calibration systems and enterprise historian platforms. No particular vendor is assumed.
+
+Adapters should map stable GridForge asset identities to external identifiers and preserve source ownership, timestamps, revision, transaction identity and synchronization status. They should support idempotency, duplicate detection, retries, conflict handling, offline operation and explicit reconciliation. External work-order state, inventory receipt or purchase order must not directly mutate electrical topology or equipment model parameters without an authorized engineering change command.
+
+Integration patterns may include REST APIs, message/event adapters, batch exchange and industrial protocols where appropriate. The data contract must identify system-of-record ownership for each field and process. Bidirectional synchronization must not be treated as unrestricted last-write-wins. Conflicts in ratings, serial numbers, functional location, status, configuration or maintenance findings require field-level ownership and reconciliation policy.
+
+### Q. Asset documents, digital thread and evidence retention
+
+The asset digital thread should link design requirements, equipment datasheets, vendor submittals, purchase orders, factory records, delivery inspections, installation records, drawings, commissioning sheets, firmware/settings backups, calibration certificates, maintenance history, defect investigations, failure analysis and retirement/disposal evidence.
+
+A document link must identify document identity, revision, issuer, date, classification, storage reference, integrity digest and applicable asset/configuration. A document attachment does not automatically validate its contents. OCR/extracted data should retain source-page and extraction provenance and require verification before becoming authoritative engineering data.
+
+The canonical .gridforge package remains the portable engineering project package, not a complete enterprise asset archive, CMMS database or historian. The project may retain essential engineering baselines and references/evidence needed for portability, but large maintenance attachments, waveforms and enterprise records may reside in governed external stores with durable identifiers, checksums and offline availability declarations.
+
+Retention policies should distinguish statutory/contractual records, design baselines, commissioning evidence, maintenance history, raw measurements, derived indicators, failure investigations and superseded documents. Legal hold and disposal require explicit governance. Deleting a physical asset from current service must not erase its engineering or failure history.
+
+### R. Asset lifecycle UI and engineer/maintainer workflows
+
+The UI should present asset context as a coherent engineering view without conflating it with the SLD. A proposed asset workspace includes:
+
+- Asset register and searchable identity/tag/serial index.
+- Functional-location hierarchy and relationship graph.
+- Asset overview with lifecycle, operational, availability, condition and maintenance dimensions shown separately.
+- Engineering configuration and as-designed/as-installed/as-operated comparison.
+- Datasheet/nameplate and parameter provenance.
+- Inspection, test and commissioning evidence.
+- Signal/channel and condition-monitoring trends with quality/provenance.
+- Defect, failure, FMEA/FMECA and risk context.
+- Maintenance plan/work-order references and external-system status.
+- Engineering impact assessment and pending approvals.
+- Document/evidence register and revision history.
+- Lifecycle timeline and operational causal trace.
+
+An SLD selection should navigate to the related asset context and show the mapped physical instance, but a symbol or design object must not be assumed to be a physical asset without an explicit realization link. A missing mapping should be visible. Multiple physical instances may realize a design family; one functional position may have sequential asset instances over time.
+
+The engineer workflow should compare actual nameplate/field values against design assumptions, evaluate deviation, approve model/configuration changes and trigger affected study review. The maintainer workflow should review condition evidence, inspect asset history, record findings and work execution, and submit engineering-impact changes. The operator workflow should see operational availability and authorized work/isolation status without gaining authority to alter engineering definitions. The project owner/reviewer should trace asset evidence and lifecycle approvals.
+
+### S. Security, authorization and audit
+
+Asset records may contain sensitive plant configuration, equipment vulnerabilities, protection settings, serial numbers, supplier information, personnel records and security-relevant device configurations. Apply role- and scope-based access to view, edit, approve, export, issue work references, modify configuration mappings and retire assets.
+
+High-impact transitions—commissioning acceptance, return to service, protection configuration change, safety-related bypass, asset relocation affecting topology, retirement and evidence disposition—require explicit authorization and audit. Preserve actor, role, purpose, timestamp/time source, before/after values, evidence, approval and source-system identity.
+
+External integrations must use managed credentials and scoped service identities. Secrets must not be stored in project files, asset documents, templates or ordinary audit payloads. Data export and bulk asset reports must apply classification, redaction and distribution controls. Audit corrections should be append-only linked amendments, consistent with 8I-36.
+
+### T. Candidate standards and evidence limits
+
+Potential standards and guidance families for later verification include:
+- ISO 55000 series for asset-management vocabulary, principles and management systems.
+- IEC 60300 series for dependability management.
+- IEC 60812 for FMEA/FMECA methodology.
+- IEC 61025 for fault-tree analysis.
+- IEC 61882 for hazard and operability studies.
+- ISO 14224 for reliability and maintenance data collection/exchange in applicable industries.
+- IEC 60076, IEC 60034, IEC 60255, IEC 61869 and relevant cable/equipment standards for asset-class technical data and test evidence.
+- IEC 61850 and IEC 62351 where operational automation and cybersecurity evidence intersects asset configuration.
+- Applicable Indian statutory requirements, CEA regulations, BIS-adopted standards and site-specific contractual/quality requirements.
+
+This list is a candidate research map, not a verified current catalogue or assertion that each standard applies to every GridForge asset class. Edition, amendment, national adoption, BIS designation, licensing, clause-level applicability and jurisdictional obligations must be checked against authoritative sources. The outstanding BIS catalogue verification for Protection, Automation and Control remains separate. This entry makes no compliance or certification claim.
+
+### U. Candidate acceptance and usability scenarios
+
+1. **UI-ACC-ASSET-01** — A design equipment definition and a serial-numbered physical asset instance have separate stable identities and explicit realization mapping.
+2. **UI-ACC-ASSET-02** — Changing a tag or functional location preserves the asset's identity and historical location intervals.
+3. **UI-ACC-ASSET-03** — Replacing a motor at a functional position retains both old and new physical asset histories and their effective dates.
+4. **UI-ACC-ASSET-04** — As-designed, as-manufactured, as-installed, as-commissioned and as-operated baselines remain separately reconstructable.
+5. **UI-ACC-ASSET-05** — Manufacturer, nameplate, field-measured, calibrated, estimated and inferred values remain distinguishable with provenance and units.
+6. **UI-ACC-ASSET-06** — Lifecycle, operational, availability, condition and maintenance states can coexist without being collapsed into one status.
+7. **UI-ACC-ASSET-07** — Lifecycle transition is rejected or held pending when mandatory evidence, authority or prerequisite checks are missing.
+8. **UI-ACC-ASSET-08** — A condition indicator exposes source measurements, quality, algorithm version, time window and uncertainty.
+9. **UI-ACC-ASSET-09** — Missing, stale or bad-quality sensor data cannot silently produce a healthy condition assessment.
+10. **UI-ACC-ASSET-10** — An AI anomaly score is distinguished from a confirmed diagnosis and a validated failure probability.
+11. **UI-ACC-ASSET-11** — A maintenance recommendation cannot directly issue a Protection trip, bypass an interlock or mutate Core topology.
+12. **UI-ACC-ASSET-12** — A completed work order does not automatically establish return-to-service authorization.
+13. **UI-ACC-ASSET-13** — A CT ratio/core/wiring change identifies affected measurement channels, relay inputs, Protection functions and reports.
+14. **UI-ACC-ASSET-14** — A transformer or motor replacement identifies dependent studies and marks only affected results/reports stale.
+15. **UI-ACC-ASSET-15** — Historical failure reconstruction resolves the asset's location and configuration at the event time, not merely its current location.
+16. **UI-ACC-ASSET-16** — FMEA/FMECA preserves failure mode, cause certainty, consequence, method and component scores rather than only a composite risk number.
+17. **UI-ACC-ASSET-17** — Reliability metrics disclose population, exposure, censoring, repairability, downtime and calculation assumptions.
+18. **UI-ACC-ASSET-18** — CMMS/ERP synchronization is idempotent, source-owned and conflict-aware; external state cannot silently mutate electrical design.
+19. **UI-ACC-ASSET-19** — A document/test record retains issuer, revision, method, instrument calibration, raw evidence, acceptance basis and integrity reference.
+20. **UI-ACC-ASSET-20** — Asset retirement preserves design, operational, maintenance, failure and audit history while removing the instance from current-service views.
+21. **UI-ACC-ASSET-21** — The SLD-to-asset navigation shows missing or ambiguous physical realization mappings rather than assuming symbol identity.
+22. **UI-ACC-ASSET-22** — A maintenance change affecting equipment parameters requires engineering review and explicit acceptance before updating an approved baseline.
+23. **UI-ACC-ASSET-23** — Asset lifecycle and work evidence can be exported with stable identifiers, time semantics, provenance and controlled redaction.
+24. **UI-ACC-ASSET-24** — Offline or unavailable external EAM/CMMS evidence is declared explicitly and does not corrupt the canonical project or create false completion status.
+
+### V. Open decisions, dependencies and gates
+
+Open decisions include: initial asset-class scope; asset ID issuance and external identifier mapping; functional-location ontology; component/subassembly boundary; lifecycle state machine by asset class; effective-time and history model; baseline and deviation approval rules; asset record versus project object ownership; maintenance integration boundary; CMMS/EAM system-of-record matrix; condition indicator catalogue; sensor data retention and historian boundary; calibration and measurement-quality policies; degradation model qualification; AI model governance and drift monitoring; reliability population and exposure definitions; FMEA/FMECA risk methodology; criticality criteria; work/permit/isolation integration; return-to-service authority; test procedure and acceptance-criteria library; document retention/legal hold; offline synchronization/conflict policy; and cybersecurity classification.
+
+Dependencies: 8I-10 UI/UX gates; 8I-12 operational traceability; 8I-21 diagnostics/events; 8I-22 collaboration/change control; 8I-23 persistence/recovery; 8I-24 data exchange; 8I-25 standards/compliance; 8I-26 solver governance; 8I-27 simulation runtime; 8I-28 through 8I-31 equipment/model/network architecture; 8I-32 calibration/uncertainty; 8I-33 signals/measurements; 8I-34 Protection/Control signal consumers; 8I-35 operational lifecycle; 8I-36 event/alarm/SOE/historian/audit; and 8I-37 reporting/evidence pipeline.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. This entry closes no gate. Asset lifecycle, reliability, safety, maintenance and external-system boundaries require engineering, operations, maintenance, cybersecurity, quality and legal review before approval.
+
+### W. Frozen invariants and research boundary
+
+- Engineering equipment definitions/models and installed physical asset instances are distinct identities connected by explicit, revisioned realization relationships.
+- Functional location, physical installation, electrical topology, mechanical train, protection zone and instrumentation/control relationships remain distinct graphs.
+- Core remains authoritative for electrical equipment semantics, terminals, topology, models, Protection, Control, validation and calculation results.
+- Asset lifecycle records do not silently mutate accepted engineering project state or electrical connectivity.
+- As-designed, as-manufactured, as-installed, as-commissioned and as-operated baselines remain separately traceable.
+- Design, nameplate, manufacturer, field-measured, calibrated, estimated, inferred and maintenance-observed values preserve their provenance and quality.
+- Lifecycle, operational, availability, condition and maintenance states remain separate dimensions.
+- Condition monitoring consumes shared typed Signal and Measurement Infrastructure; it does not create a competing acquisition system or bypass Protection/Control authority.
+- AI/ML condition outputs are estimates with scope, validation and uncertainty; they are not automatically diagnoses or operational commands.
+- Maintenance completion does not by itself authorize return to service or override isolation, Protection, Control or safety governance.
+- Reliability and risk measures retain their definitions, population, assumptions, uncertainty and evidence; no universal metric or opaque risk score is accepted.
+- External EAM/CMMS/ERP adapters use explicit source ownership, stable identities, idempotency and conflict reconciliation.
+- Asset retirement preserves historical engineering and operational evidence.
+- The canonical .gridforge project remains a portable engineering project, not a complete enterprise CMMS, EAM or historian archive.
+- V2 main remains unchanged. V3 proposals require review and approval before implementation.
+
+**Scope boundary:** research register only. No asset register, lifecycle state machine, CMMS/EAM connector, condition-monitoring engine, degradation model, reliability/FMEA solver, maintenance scheduler, work-order system, safety permit system, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. No standards catalogue or BIS edition verification was performed in this entry. V2 main remains unchanged.
