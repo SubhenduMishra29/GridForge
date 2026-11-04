@@ -78,12 +78,19 @@ class UndervoltageComparator(LogicControlComponent):
             },
         )
 
-    def evaluate_input(self, control_input: ControlInput, *, simulation_time: float) -> LogicControlResult:
+    def evaluate_input(
+        self,
+        control_input: ControlInput,
+        *,
+        simulation_time: float,
+        timestamp_domain: str | None = None,
+    ) -> LogicControlResult:
         """Evaluate one canonical, detached Measurement-to-Control input."""
         if not isinstance(control_input, ControlInput):
             raise TypeError("control_input must be a ControlInput.")
         if not control_input.is_usable_at(
             simulation_time,
+            timestamp_domain=timestamp_domain,
             require_freshness=True,
         ):
             raise ValueError(
