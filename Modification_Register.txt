@@ -21985,9 +21985,10 @@ Source findings on main:
   relationship.
 
 Correction prepared on branch fix/sld-validation-orphan-integrity-2026-11-04:
-- SLD endpoint conversion now resolves the actual unique presentation node
-  for the Core endpoint object; unsupported Core endpoint kinds and missing/
-  ambiguous SLD nodes fail with explicit diagnostics.
+- SLD endpoint conversion now unwraps the canonical nested
+  TopologyEndpointReference envelope, then resolves the actual unique
+  presentation node for the Core endpoint object. Unsupported Core endpoint
+  kinds and missing/ambiguous SLD nodes fail with explicit diagnostics.
 - The read-only Simple-Wire audit reports unresolved endpoint-to-node mapping
   as a diagnostic rather than aborting the entire audit.
 - Application.validate_project() now includes the active SLDService audit in
@@ -22013,7 +22014,8 @@ Architecture boundary:
 
 Verification boundary:
 - Inspected current main SLDService audit/reconciliation, DraftNetwork commit
-  projection identity path, SLD endpoint schema, Core EndpointReference and
+  projection identity path, SLD endpoint schema, nested
+  TopologyEndpointReference.to_mapping() envelope, Core EndpointReference and
   ConnectivityStore validation, ValidationService and Application project
   validation flow.
 - Static Python AST parsing completed for the edited ValidationService,
