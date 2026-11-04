@@ -101,23 +101,40 @@ class ProtectionInteractionController:
         configurations = self._application.read_protection_configuration()
         relay_id = str(node.relay_id)
         input_name = str(node.input_name)
-        configuration = next(
-            (
-                item for item in configurations
-                if str(item.relay_id) == relay_id
-                and input_name in tuple(item.input_channel_ids.keys())
-            ),
-            None,
-        )
-        if configuration is None:
-            # A configured function may not have a previous binding. Resolve the
-            # single function configuration for the relay when possible.
-            candidates = [item for item in configurations if str(item.relay_id) == relay_id]
-            if len(candidates) != 1:
+        selected_element_id = getattr(node, "element_id", None)
+        if selected_element_id is not None:
+            configuration = next(
+                (
+                    item for item in configurations
+                    if str(item.relay_id) == relay_id
+                    and str(item.element_id) == str(selected_element_id)
+                ),
+                None,
+            )
+            if configuration is None:
                 raise ValueError(
-                    f"No unique ProtectionFunctionConfiguration resolves relay input {relay_id}:{input_name}."
+                    f"Protection element {selected_element_id!r} is not configured for Relay {relay_id!r}."
                 )
-            configuration = candidates[0]
+            if input_name not in configuration.input_channel_ids:
+                raise ValueError(
+                    f"Input {input_name!r} is not configured for protection element {selected_element_id!r}."
+                )
+        else:
+            configuration = next(
+                (
+                    item for item in configurations
+                    if str(item.relay_id) == relay_id
+                    and input_name in tuple(item.input_channel_ids.keys())
+                ),
+                None,
+            )
+            if configuration is None:
+                candidates = [item for item in configurations if str(item.relay_id) == relay_id]
+                if len(candidates) != 1:
+                    raise ValueError(
+                        f"No unique ProtectionFunctionConfiguration resolves relay input {relay_id}:{input_name}."
+                    )
+                configuration = candidates[0]
         return BindProtectionMeasurementCommand(
             element_id=str(configuration.element_id),
             input_name=input_name,
