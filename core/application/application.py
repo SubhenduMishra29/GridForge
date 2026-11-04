@@ -1088,6 +1088,7 @@ class Application:
             runtime.configuration,
             channels,
             activation_generation=captured_generation,
+            runtime=runtime,
             runtime_channels=runtime.channels,
         )
 
@@ -1151,6 +1152,7 @@ class Application:
                 current_configuration_service.configuration,
                 current_channel_service.channels,
                 activation_generation=current_lifecycle.activation_generation,
+                runtime=current_runtime,
                 runtime_channels=current_runtime.channels,
             )
             if current_registry.diagnostics:
