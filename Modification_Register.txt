@@ -21547,3 +21547,310 @@ Verification boundary:
   topology-rebind scenarios were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-154 — LIVE ANSI 50N/51N RESIDUAL-SOURCE SAMPLE PROVENANCE
+======================================================================
+
+Audit finding:
+- The canonical Protection function catalog marks ANSI 50N and 51N as
+  IMPLEMENTED and declares a derived residual_current RelayInput.
+- The live Application evaluator validates ordinary input_channel_ids and
+  captures their coherent sample snapshots. ANSI 50N/51N intentionally
+  forbid ordinary physical input_channel_ids and instead depend on
+  persisted residual-current CT measurement bindings.
+- The live evaluator does not yet capture those residual-source channels
+  into an Application-authorized per-element sample snapshot or derive the
+  live residual-current phasor. The scenario evaluator has a separate
+  residual-current derivation path; that path does not establish live
+  telemetry provenance.
+- ProtectionElement requires an Application-authorized snapshot for every
+  RelayInput, including the derived residual_current input. Consequently,
+  live 50N/51N evaluation must fail closed rather than dispatch from an
+  absent or caller-supplied residual value.
+- The dependency registry previously classified the persisted CT bindings
+  but could still mark the live 50N/51N descriptor complete. That could
+  incorrectly authorize selective invalidation for a live path whose
+  sample dependencies were not actually captured.
+
+Required correction contract:
+- Capture every configured residual-source MeasurementChannel under its
+  owning Protection element, using coherent sample value, timestamp,
+  quality, availability, usability, validity and producer sequence.
+- Revalidate the complete sample set before resolution, after resolution,
+  immediately before dispatch and after post-dispatch observation.
+- Verify binding ownership, CT/channel identity, CT service state and ratio,
+  source terminal, persisted P1/P2 primary association, component fingerprint,
+  polarity, measurement point, source mode and topology provenance.
+- Derive the residual-current phasor only from the exact configured source
+  set: A/B/C three-phase sum, explicit Neutral CT, or explicit CBCT window.
+  Do not infer a residual source or combine unrelated channels.
+- Keep live sample progression separate from equipment/configuration
+  fingerprints and revisions. A changed sample invalidates only its
+  consuming Protection element.
+- Until the live derived-input snapshot path is implemented, mark live
+  50N/51N dependency descriptors incomplete so they cannot authorize
+  selective dispatch. Preserve fail-closed execution.
+- Keep scenario evaluation under its existing detached-snapshot and
+  conservative provenance fences; scenario-specific selective invalidation
+  is not claimed by this entry.
+
+Implementation status:
+- PR #1076 now adds an explicit incomplete-descriptor diagnostic for live
+  50N/51N because residual-source sample snapshots are not yet produced by
+  the live evaluator.
+- The ANSI catalog status is unchanged. This is a dispatch-authorization
+  safeguard, not a claim that live residual-current evaluation is complete.
+- Full live residual-current sample capture and derivation remain OPEN.
+
+Verification boundary:
+- Inspected the canonical function catalog and input contracts, live
+  Application sample-capture and decision-guard paths, ProtectionElement
+  snapshot installation contract, runtime DerivedRelayMeasurement
+  composition, residual-current resolver, and separate scenario derivation.
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
+- ANSI 87 remains NOT_IMPLEMENTED and outside live differential execution.
+======================================================================
+
+
+======================================================================
+GF-AUD-155 — LIVE RESIDUAL-SOURCE SAMPLE PUBLICATION DOES NOT TRIGGER PROTECTION
+======================================================================
+
+Audit finding:
+- Application._on_measurement_sample_published() starts a Protection cycle
+  only when the published channel ID appears in an enabled element's
+  input_channel_ids.
+- ANSI 50N/51N explicitly forbid physical input_channel_ids. Their source
+  channels are reached through the element-owned persisted
+  ProtectionMeasurementBinding records selected by residual_current_input.
+- Consequently, publication of a new A/B/C, Neutral CT or CBCT residual
+  source sample does not trigger the owning 50N/51N Protection element.
+- This trigger gap is independent of the live derived residual snapshot gap
+  in GF-AUD-154. Correcting only the evaluator would leave sample-driven
+  live operation dormant.
+
+Required correction contract:
+- Resolve the exact source binding IDs from each enabled 50N/51N element's
+  persisted residual_current_input: A/B/C phase_binding_ids for
+  THREE_PHASE_SUM, or direct_binding_id for NEUTRAL_CT/CBCT.
+- Match only bindings owned by that same element with relay_input_id
+  residual_current and a channel_id equal to the newly published channel.
+- Trigger the owning Protection cycle using the trusted Application clock
+  supplied by MeasurementChannelService, never the source sample timestamp
+  as evaluation time.
+- Preserve fail-closed behavior until GF-AUD-154's live derived snapshot
+  and provenance validation are complete. Do not allow sample publication
+  alone to authorize a decision or dispatch.
+- Ensure a source channel shared by multiple configured elements triggers
+  evaluation for each relevant consumer without cross-element sample
+  attribution.
+- Keep scenario-derived samples separate; they are not live channel events.
+
+Additional live sample contract:
+- MeasurementChannel.engineering_value is raw_value * scale * polarity.
+  The residual normalization path must select one representation and apply
+  channel scale/polarity exactly once. Reusing engineering_value and then
+  applying normalization scale/polarity again would double-apply conversion.
+- Preserve timestamp_domain, timestamp, quality, availability, usability,
+  validity and producer sequence for every physical residual source.
+- Require source sample clock-domain compatibility with the trusted
+  Application evaluation clock. A/B/C samples must satisfy an explicit
+  coherent-acquisition policy before their phasors are summed.
+- Recheck each exact source channel identity and sample snapshot at the
+  same evaluation/dispatch boundaries as other validated inputs.
+
+Implementation status:
+- Audit only. The sample-publication trigger has not yet been changed.
+- Live residual-source evaluation and automatic cycle triggering remain
+  blocked pending the complete GF-AUD-154/GF-AUD-155 contract.
+
+Verification boundary:
+- Inspected Application._on_measurement_sample_published(), the
+  MeasurementChannelService trusted clock/attestation path, MeasurementChannel
+  raw/engineering value semantics, and persisted residual binding contracts.
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
+- Depends on GF-AUD-154 for live residual-source sample snapshot support.
+======================================================================
+
+
+======================================================================
+GF-AUD-156 — ONE INCOMPLETE ELEMENT DISABLES SELECTIVE INVALIDATION FOR ALL
+======================================================================
+
+Audit finding:
+- build_protection_dependency_registry() correctly records completeness
+  and diagnostics per ProtectionElementDependencyDescriptor.
+- The registry-level complete flag is also defined as requiring every
+  element descriptor to be complete.
+- Application.evaluate_protection() uses this all-elements registry
+  complete flag as a batch-wide switch in ensure_current_protection_provenance()
+  and ensure_current_protection_topology().
+- If any enabled element has an incomplete descriptor, the Application
+  re-enables global Relay/instrumentation equipment-state and revision
+  comparisons and a global topology-revision fence for every decision.
+- The canonical function catalog contains PARTIAL functions 46, 49, 67
+  and 21. The live 50N/51N descriptors are explicitly incomplete under
+  GF-AUD-154. Therefore one such element can disable selective invalidation
+  for otherwise complete, dispatchable 50/51/27/59 elements in the same
+  project batch.
+- The incomplete element itself is correctly rejected by the per-element
+  decision guard. The additional batch-wide fallback is broader than that
+  element's missing dependency coverage.
+
+Required correction contract:
+- Separate registry-wide capture integrity from per-element descriptor
+  completeness. Duplicate/unclassifiable shared identities, incoherent
+  capture, project/runtime ownership changes and other registry-wide
+  corruption remain batch-wide fail-closed conditions.
+- Keep incomplete or unsupported element descriptors non-dispatchable.
+  Do not let one incomplete descriptor alone downgrade complete sibling
+  descriptors to global invalidation.
+- For a decision with a complete descriptor, compare its captured dependency
+  fingerprints with the current descriptor and invalidate only that element
+  when its dependencies change.
+- For a decision with an incomplete descriptor, reject that decision before
+  dispatch. Preserve a conservative fallback for any decision whose own
+  dependency coverage cannot be proven.
+- Apply the same per-decision scope to topology and equipment-state checks.
+  Do not remove project identity, activation generation, runtime ownership,
+  configuration integrity, channel-service ownership or capture-coherence
+  fences.
+- Ensure batch dispatch order cannot allow a later incomplete/stale decision
+  to invalidate or suppress unrelated complete decisions except where a
+  true shared dependency or batch-wide integrity failure exists.
+- Reconcile callback contracts so pre-dispatch checks receive enough
+  decision context to apply per-element guards without weakening the
+  batch-wide fences.
+
+Implementation status:
+- Corrected in the Application live-evaluation provenance and topology
+  fences. They now distinguish registry-level capture diagnostics from
+  per-element descriptor completeness. A single incomplete descriptor no
+  longer re-enables batch-wide equipment/revision/topology fallback for
+  complete siblings.
+- Each incomplete decision remains rejected by its own decision guard;
+  complete decisions continue to compare their own captured and current
+  dependency fingerprints, including topology-component and conductive
+  equipment state. Registry diagnostics, scenario snapshots and project /
+  runtime / configuration / channel ownership fences remain batch-wide.
+- No Protection function status was promoted, and no incomplete descriptor
+  is authorized to dispatch.
+- This is a scope correction to the selective-invalidation contract, not
+  permission to dispatch any PARTIAL/NOT_IMPLEMENTED Protection function.
+
+Verification boundary:
+- Inspected ProtectionFunctionStatus catalog classification,
+  build_protection_dependency_registry() descriptor and registry complete
+  semantics, and Application.ensure_current_protection_provenance(),
+  ensure_current_protection_topology() and
+  ensure_current_protection_decision_dependency().
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — per-element dependency and stale-decision isolation.
+- Depends on GF-AUD-145 and the incomplete live residual-source safeguards
+  GF-AUD-154/GF-AUD-155.
+======================================================================
+
+
+Implementation follow-up — GF-AUD-156:
+- Updated Application.evaluate_protection() so live selective invalidation
+  is gated by registry-level diagnostics, not the aggregate all-descriptors
+  complete flag.
+- Kept scenario evaluations with a detached network_state on the
+  conservative global equipment/revision/topology path.
+- The per-decision guard continues to reject incomplete descriptors and
+  compare complete current descriptors before resolution, after resolution,
+  immediately before dispatch and after observation.
+- The execution service already distinguishes StaleProtectionDecisionError
+  (reject this decision and continue with peers) from
+  StaleProtectionExecutionError (abort the remaining batch); no callback
+  signature change was required because the per-decision guard carries the
+  decision context at each authorization boundary.
+
+Verification boundary:
+- Static source inspection of the changed Application guards, dependency
+  registry descriptor/registry semantics and ProtectionExecutionService
+  decision-versus-batch rejection flow.
+- No tests or CI were run.
+
+
+======================================================================
+GF-AUD-157 — LIVE RESIDUAL CT SAMPLE LACKS ATTESTED CURRENT REFERENCE DIRECTION
+======================================================================
+
+Audit finding:
+- The offline/scenario residual-current path requires explicit source
+  provenance including terminal_current_reference_direction,
+  ct_primary_side, ct_positive_current_direction, CT identity/ratio,
+  topology revision and measurement-point identity before normalizing and
+  summing source currents.
+- The live MeasurementSampleAttestation authenticates producer/project/
+  activation/channel identity, timestamp domain, sequence, quality and
+  availability, and the verifier authenticates the sample value. It does
+  not carry a typed current-reference direction or CT-secondary positive
+  direction contract.
+- MeasurementChannel stores source CT identity, source terminal identity,
+  engineering unit, scale and polarity. Its positive/negative channel
+  polarity is a scalar conversion factor; it does not declare whether the
+  producer's positive raw current means current into or out of S1/S2.
+- ProtectionMeasurementBinding persists the CT primary-side association
+  (P1/P2), but that alone does not prove the sign convention of the
+  producer's CT-secondary sample. A source-terminal identity alone also
+  does not establish the producer's signed current reference.
+- Consequently, live A/B/C residual phasors cannot yet be proven to share
+  one physical current reference direction. Applying CT ratio, channel
+  scale and polarity without that proof could produce a numerically valid
+  but electrically reversed or inconsistent residual sum. The same issue
+  applies to direct Neutral CT/CBCT source samples.
+
+Required correction contract:
+- Add a typed, persisted measurement-channel/producer contract for the
+  positive current reference at the CT secondary interface (including the
+  declared S1/S2 terminal and whether positive current is into or out of
+  that terminal).
+- Bind the attested sample to that exact source-reference contract; the
+  producer signature must cover the value and the relevant sample identity,
+  while Application verifies the reference contract against the active CT,
+  configured secondary terminal, CT polarity, persisted P1/P2 association,
+  source equipment terminal and measurement binding.
+- Derive one canonical monitored-equipment current direction and reject
+  any source whose sign cannot be proven. Do not infer sign from channel
+  polarity alone or from an unverified producer label.
+- Preserve raw CT-secondary amperes as the normalization input and apply
+  channel scale/polarity and CT ratio exactly once. Keep sample timestamp,
+  timestamp domain, quality, availability, usability, validity and producer
+  sequence in the sealed per-element snapshot.
+- For THREE_PHASE_SUM, require A/B/C source timestamps in one trusted clock
+  domain and an explicit coherent-acquisition policy; exact timestamp
+  equality may be used as the conservative initial policy. Require all
+  three normalized phasors to share the same canonical reference direction.
+- Keep 50N/51N descriptors incomplete and non-dispatchable until this
+  physical reference-direction and live-sample snapshot contract is
+  implemented end-to-end.
+
+Implementation status:
+- Audit only. No source code change made for this finding.
+- Existing live 50N/51N incomplete-descriptor safeguard from GF-AUD-154
+  remains active; no residual-current dispatch is authorized.
+
+Verification boundary:
+- Inspected MeasurementSampleAttestation and MeasurementChannelService
+  publication/verification, MeasurementChannel raw/engineering value and
+  source-terminal semantics, ProtectionMeasurementBinding CT primary-side
+  identity, CTPolarity definitions, and the scenario residual-current
+  provenance/normalization requirements.
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — live residual-current sample provenance.
+- Blocks completion of GF-AUD-154 and live 50N/51N dispatch.
+======================================================================

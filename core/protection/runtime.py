@@ -104,11 +104,34 @@ class ProtectionRuntime:
                 captured.append((kind, str(getattr(item, "id", "")), values, endpoints))
         for relay in getattr(network, "relays", ()):
             values = tuple((field, repr(getattr(relay, field, default))) for field, default in (
-                ("relay_type", ""), ("plugin_id", None), ("settings", {}),
+                ("relay_type", ""), ("type", ""), ("function_type", ""),
+                ("plugin_id", None), ("settings", {}),
                 ("in_service", False), ("enabled", False), ("blocked", False),
+                ("picked_up", False), ("tripped", False),
             ))
             captured.append(("relay", str(getattr(relay, "id", "")), values, ()))
         return tuple(sorted(captured, key=lambda item: (item[0], item[1])))
+
+    @property
+    def equipment_state_snapshot(self) -> tuple[Any, ...] | None:
+        """Return the immutable equipment-state baseline for transactional refresh/restore."""
+        return self._composed_equipment_state_snapshot
+
+    def refresh_equipment_state_snapshot(self) -> tuple[Any, ...]:
+        """Advance the equipment-state baseline after an in-place Application mutation.
+
+        Application may use this only when a complete per-element dependency
+        registry will independently guard every pending Protection decision.
+        """
+        snapshot = self._equipment_state_fingerprint(self._network)
+        self._composed_equipment_state_snapshot = snapshot
+        return snapshot
+
+    def restore_equipment_state_snapshot(self, snapshot: tuple[Any, ...] | None) -> None:
+        """Restore a prior equipment-state baseline after transaction rollback."""
+        if snapshot is not None and not isinstance(snapshot, tuple):
+            raise TypeError("equipment state snapshot must be a tuple or None.")
+        self._composed_equipment_state_snapshot = snapshot
 
     @property
     def equipment_state_matches_composition(self) -> bool:
