@@ -3763,7 +3763,7 @@ class Application:
             "model.create_capacitive_voltage_transformer",
             "model.delete_capacitive_voltage_transformer",
             "model.create_potential_transformer",
-            "model.delete_potential_voltage_transformer",
+            "model.delete_potential_transformer",
             "model.create_relay",
             "model.delete_relay",
             "network.commit_draft",
@@ -3787,6 +3787,7 @@ class Application:
                 and runtime is not None
                 and runtime.network is network
                 and runtime.configuration is configuration_service.configuration
+                and runtime.configuration_matches_composition
                 and runtime.activation_generation == self.project_lifecycle.activation_generation
             ):
                 runtime.refresh_equipment_state_snapshot()
