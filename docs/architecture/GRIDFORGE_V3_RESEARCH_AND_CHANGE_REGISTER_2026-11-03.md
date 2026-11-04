@@ -1236,3 +1236,191 @@ These references establish available Qt mechanisms, not evidence that GridForge 
 **Verification limits:** Source-only selective review on the V3 research branch. No GUI launch, keyboard interaction, assistive-technology session, contrast measurement, multi-monitor/DPI run, settings restart test, crash simulation or recovery exercise was performed. Search for settings and shortcut installation was scoped to the active main.py and inspected UI modules. No tests, CI, V2 source edits or implementation were performed.
 
 **Next:** 8I-6 — consolidate all 8I UI/UX findings into a prioritized V3 requirements baseline, map user journeys to requirements and acceptance evidence, identify dependencies and sequencing, and distinguish required V3 capabilities from optional enhancements. This is a research/specification consolidation only; do not implement until explicitly approved.
+
+## 8I-6. Consolidated GridForge V3 UI/UX requirements baseline and delivery sequence (2026-11-04)
+
+**Purpose:** Convert the source-backed UI findings V3-UI-F01 through V3-UI-F54 (sections 8I through 8I-5) into a traceable V3 requirements baseline. This is a research/specification consolidation, not implementation authorization and not a change to the frozen V2 architecture.
+
+### A. Consolidated design position
+
+GridForge V3 shall present one coherent engineering application across SLD, Control, Protection and Study, with consistent interaction conventions and distinct domain-specific task models. Consistency means predictable focus, selection, navigation, editing, validation, feedback, undo/redo, cancellation and recovery; it does not mean forcing electrical schematics, ladder logic, protection signal-flow diagrams and numerical study views into one canvas implementation.
+
+The UI is an interaction and projection layer. It must not become an alternative authority for equipment, topology, measurement, Control execution, Protection decisions, studies or project persistence. All engineering mutations continue through UI intent → Controller → Command → Application → Core, with events and read-side projections returning to the UI. V3 usability work must preserve the frozen Core/Application/UI boundary, plugin contracts and separate Control/Protection execution authorities.
+
+**Evidence classification:** the requirements below are derived from selective source inspection. A source gap is not automatically a reproduced runtime defect. Requirements become release acceptance criteria only after their scope, measurable threshold and verification environment are approved.
+
+### B. V3 requirements catalogue
+
+Priority meaning:
+- **P1 — baseline:** required to deliver a coherent, safe and usable engineering workflow; must be specified and verified before the corresponding V3 capability is declared production-ready.
+- **P2 — important enhancement:** should be planned in the V3 delivery sequence; release inclusion depends on scope and measured user value.
+- **P3 — optional/personalization:** valuable where validated by user research, but not a prerequisite for core engineering correctness.
+
+| Requirement ID | Priority | Requirement statement | Source findings |
+|---|---|---|---|
+| V3-UI-REQ-001 | P1 | Define a shared cross-editor interaction contract for active tool, selection, focus, pan/zoom, fit-to-content, snap, Escape/cancel, status feedback, context menus and undo/redo. Discipline editors may provide explicit extensions. | F01, F03, F31 |
+| V3-UI-REQ-002 | P1 | Provide consistent tool discovery and lifecycle: clear labels/icons, active/disabled states, shortcut hints, disabled reasons, preview/placement/commit distinction, cancel/exit affordance and accessible descriptions. | F07, F21, F23, F32 |
+| V3-UI-REQ-003 | P1 | Provide a discoverable first-use workspace with SLD as the initial engineering entry point, visible project context, obvious Explorer/Inspector/Diagnostics access and a reliable restore-layout action. | F02, F11–F15, F29 |
+| V3-UI-REQ-004 | P1 | Establish a unified contextual Inspector contract separating identity, editable configuration, read-only calculated values, units/bases, provenance, validation, related-object links and Apply/Reset behavior. All edits use Application commands. | F04, F23, F33, F38 |
+| V3-UI-REQ-005 | P1 | Define an explicit SLD lifecycle for preview, draft, engineering configuration, connection, validation, commit, post-commit selection and recovery; show which state is transient, persisted draft or committed network. | F21–F30 |
+| V3-UI-REQ-006 | P1 | Make SLD connection authoring predictable and recoverable: endpoint/snap feedback, compatible-terminal guidance, wire routing, duplicate/crossing feedback, undo/cancel and precise commit diagnostics. Validation timing must follow the approved engineer workflow. | F24–F26, F30 |
+| V3-UI-REQ-007 | P1 | Provide structured, object-linked validation results with severity, code, source, affected object/terminal, explanation, correction guidance and navigation. Do not collapse multiple findings into an opaque exception string. | F05, F26, F37, F46, F54 |
+| V3-UI-REQ-008 | P1 | Separate validation findings, application events, operational alarms, study execution messages and data-quality diagnostics as distinct types with appropriate lifecycle and acknowledgement semantics. | F05, F19, F34, F37, F46 |
+| V3-UI-REQ-009 | P1 | Provide a Control canvas workflow for placing, connecting, configuring and validating logic with clear signal direction/type, rung/component context, interlock/action binding and cycle outcome explanation. | F31–F34 |
+| V3-UI-REQ-010 | P1 | Provide a Control cycle monitor showing evaluated logic, decisions, blocked actions, diagnostics and output intent; distinguish execution completion from actual device actuation/feedback. | F34, F40 |
+| V3-UI-REQ-011 | P1 | Provide Protection channel discovery and binding from all eligible project measurement channels, not only channels already represented as canvas nodes. | F35 |
+| V3-UI-REQ-012 | P1 | Expose Protection measurement provenance and runtime quality: instrument/source terminal, channel identity, engineering quantity/unit, timestamp/freshness, quality/availability and fail-closed reason. | F36, F39, F45 |
+| V3-UI-REQ-013 | P1 | Make Protection inspection and configuration modes explicit; support controlled editing of relay elements, function settings, channel bindings and typed output targets without bypassing Application commands. | F38 |
+| V3-UI-REQ-014 | P1 | Provide a traceable but authority-preserving view of Protection decision → output command → configured Control/interlock context → device feedback. Never imply that Control owns or can suppress independent Protection trip authority. | F40 |
+| V3-UI-REQ-015 | P1 | Define end-to-end Protection journeys for function selection, relay configuration, measurement mapping, coordination, validation, commissioning and event review, preserving object context across ANSI catalogue, relay, TCC and study views. | F37–F41 |
+| V3-UI-REQ-016 | P1 | Define study-specific progressive disclosure for Power Flow, Short Circuit and Transient Stability, with contextual input validation, explicit run state, result provenance and result-to-source navigation. | F08, F14 |
+| V3-UI-REQ-017 | P1 | Establish a single focus-aware keyboard routing contract and authoritative shortcut catalogue, with context precedence, collision detection, visible shortcut hints and keyboard alternatives for all critical tasks. | F07, F16, F43, F44 |
+| V3-UI-REQ-018 | P1 | Ensure keyboard focus order, focus visibility/restoration, accessible names/descriptions and semantic access to custom controls, panels and engineering canvas objects. | F06, F43, F44, F50 |
+| V3-UI-REQ-019 | P1 | Provide a structured persistent Diagnostics Centre with severity, timestamp, source/domain, object/channel identity, project/session context, filtering, acknowledgement where appropriate, correction guidance and navigation. | F05, F19, F37, F46, F54 |
+| V3-UI-REQ-020 | P1 | Define consistent feedback modality: transient status for low-impact acknowledgement, persistent diagnostics for recoverable findings, and modal decisions only for explicit blocking/irreversible choices. | F19, F26, F37, F46, F54 |
+| V3-UI-REQ-021 | P1 | Persist user preferences separately from engineering project truth, including window geometry/state, active workspace, region visibility/sizes, appearance and keyboard preferences, with schema versioning and safe migration. | F02, F20, F47, F49 |
+| V3-UI-REQ-022 | P1 | Persist per-project/per-document viewport state (centre, zoom, rotation, grid and snap visibility) using stable document identity and bounded/safe restoration. | F03, F48 |
+| V3-UI-REQ-023 | P1 | Provide project draft recovery and safe session restoration without reviving transient pointer gestures or treating an uncommitted preview as committed engineering data. Preserve Save/Discard/Cancel safeguards. | F27, F28, F53 |
+| V3-UI-REQ-024 | P1 | Ensure engineering state is never communicated by color alone; define semantic colors plus text, shape, line pattern, icon or explicit state label. Validate contrast on canvas and panels. | F06, F39, F51 |
+| V3-UI-REQ-025 | P1 | Provide a user-selectable high-contrast/accessibility presentation profile and scalable typography with visible focus and readable engineering annotations. | F06, F49, F50, F51 |
+| V3-UI-REQ-026 | P2 | Provide coherent light/dark themes, adjustable density and consistent icon/label systems across tool shelves, palettes, menus and toolbars. | F06, F07, F17, F32, F49 |
+| V3-UI-REQ-027 | P2 | Validate window resizing, splitter behavior, minimum useful panel dimensions, 100/125/150/200% DPI, mixed-DPI monitors, monitor transitions and icon asset quality. | F17, F52 |
+| V3-UI-REQ-028 | P2 | Provide a contextual start/recent-project/recovery entry surface and optional sample projects/onboarding, without obstructing expert users who prefer direct workspace startup. | F15 |
+| V3-UI-REQ-029 | P2 | Provide a user-configurable toolbar/panel arrangement and clear navigation taxonomy distinguishing canonical workspaces, editor surfaces and auxiliary views. | F12–F14, F17, F20 |
+| V3-UI-REQ-030 | P2 | Provide consolidated task-oriented help and contextual guidance for complex Protection, Control and Study workflows, with references to applicable engineering concepts rather than generic widget instructions. | F08, F09, F10, F41 |
+| V3-UI-REQ-031 | P2 | Provide scalable navigation and rendering feedback for large diagrams, dense projects and long-running study views; measure performance and avoid blocking UI interaction. | F03, F10, F31 |
+| V3-UI-REQ-032 | P2 | Provide a configurable status-bar field policy that prioritizes current workspace context and relevant channel/Control/Protection execution state without duplicating the Diagnostics Centre. | F34, F39, F45 |
+| V3-UI-REQ-033 | P3 | Allow optional expert shortcut customization, user-defined workspace presets and per-role/personal layout profiles after the canonical interaction contract is stable. | F17, F20, F43, F47 |
+
+### C. Engineering user journeys and traceability
+
+| Journey | Primary user goal | Required UI capabilities | Minimum acceptance evidence |
+|---|---|---|---|
+| J01 — First launch / project entry | Start a new or existing engineering project and reach the correct work surface | Start/recent/recovery entry, clear project identity, SLD-first navigation, discoverable panels, safe defaults | First-time engineer can identify project state, open/create a project and reach SLD without hidden prerequisite knowledge; expert can bypass onboarding |
+| J02 — SLD build and commit | Build an electrical network and commit valid engineering objects | Tool discovery, live preview, equipment configuration, terminal-aware connection, draft state, validation, commit, diagnostics and undo/recovery | Engineer can place multiple equipment objects without earlier objects disappearing; can configure each item, connect required terminals, understand validation, commit and inspect the resulting network |
+| J03 — SLD inspect/edit/reopen | Review an existing network, change a property, save and reopen | Contextual Inspector, typed edits, selection persistence, project save/close, viewport and draft persistence | Selection and edit target remain unambiguous; saved engineering state is restored independently of machine-specific preferences; unsaved changes trigger explicit decision |
+| J04 — Control logic engineering | Build logic, bind signals/actions/interlocks and understand execution | Ladder canvas, palette, signal browser, typed connection feedback, Inspector, cycle monitor and diagnostics | Engineer can identify eligible signals, connect only valid directions/types, configure timer/action/interlock, run or inspect a cycle and distinguish blocked intent from physical actuation |
+| J05 — Protection configuration | Configure relay functions and measurement channels | Channel browser, provenance inspector, relay configure mode, ANSI function catalogue, typed target mapping, validation | Engineer can discover eligible CT/PT/CVT channels, inspect source and quality, configure function settings and output target, and see why unavailable/stale inputs fail closed |
+| J06 — Protection coordination and event trace | Coordinate protection and investigate a decision/trip | TCC/coordination workflow, Analysis Coverage, diagnostics, decision-command-feedback trace | Engineer can navigate from relay/function to coordination evidence and from a Protection decision to its command and device feedback without conflating Protection and Control authority |
+| J07 — Study setup and interpretation | Configure and run an engineering study and inspect results | Study-specific forms, input validation, execution state, results and source navigation | User sees only relevant inputs, understands required/invalid values, sees run outcome and can navigate from a result to its source project objects and study configuration |
+| J08 — Diagnose/recover | Correct an error or recover after interruption | Persistent diagnostic centre, object navigation, recovery candidates, safe save/restore, undo/redo | User can identify severity/source/object, apply a correction or navigate to it, preserve diagnostic history, and recover saved drafts without silently committing transient state |
+| J09 — Keyboard/accessibility operation | Complete core workflows without relying exclusively on pointer/color cues | Focus-aware shortcuts, logical focus order, accessible names, semantic canvas navigation, high contrast and scalable text | A keyboard-only walkthrough completes defined critical tasks; assistive technology can identify custom controls and current selection/state; non-color cues communicate engineering status |
+| J10 — Workspace/session adaptation | Adapt workspace to role, screen and task, then return later | Workspace presets, persistent geometry/region state, per-document viewport, density/theme preferences | Workspace and view restore predictably after restart and monitor change; invalid or stale settings fall back safely without affecting project engineering data |
+
+### D. Shared UI interaction contract
+
+Every editor/canvas shall implement or explicitly declare support for the following contract:
+
+1. **Identity and context:** active project/document, workspace, discipline, current selection and current tool are visible and queryable.
+2. **Tool lifecycle:** idle → activate → preview/target → apply/place → configure → validate/commit as applicable → return to selection/idle. Escape behavior is defined at each state.
+3. **Selection:** consistent single/multi-selection semantics, selection feedback, keyboard access, focus restoration and deterministic property target.
+4. **Navigation:** pan, zoom, fit, zoom-to-selection, grid/snap controls and coordinate feedback; domain-specific gestures must not silently override common navigation.
+5. **Editing:** inspector changes are typed intent through Application commands; calculated/read-only values are visually distinct from editable values.
+6. **History:** undo/redo availability and scope are visible; draft and committed changes have defined transaction boundaries.
+7. **Feedback:** every user action has a visible outcome, failure reason and recovery path; transient feedback does not replace persistent diagnostics.
+8. **Accessibility:** focus, accessible naming, keyboard alternatives, readable status and color-independent visual encoding.
+9. **Persistence:** project engineering data, user preferences and transient interaction state are separate persistence classes with explicit restore policy.
+10. **Extensibility:** plugin-contributed tools/panels use public UI contracts, route mutations through Application and declare keyboard, accessibility and lifecycle metadata.
+
+### E. Cross-cutting data and authority rules for UI
+
+- UI projections may display Core/Application read models but must not infer or manufacture domain truth from widget state.
+- Equipment identity, terminal identity, topology, measurement quality, ProtectionDecision, Control intent, DeviceCommand, DeviceFeedback and StudyResult remain distinct typed concepts.
+- A configured measurement channel is not proof of a fresh/valid sample. Display configuration status separately from runtime sample quality and freshness.
+- A Protection decision is not proof of command delivery; a command is not proof of physical actuation. Each stage must be traceable with its own state and timestamp.
+- Control interlock context may be shown alongside a Protection output trace where configured, but the UI must preserve separate execution authorities and the independent fail-safe Protection path.
+- Canvas symbols, ladder contacts/coils, signal-flow nodes and study charts are projections/interaction affordances, not domain entities or execution authorities.
+- User workspace/theme/keyboard settings are not canonical electrical project data. Per-document viewport settings may be stored in a project only if explicitly approved as portable view metadata, versioned and separated from engineering truth.
+- No plugin is allowed to bypass Application commands or write Core state through UI callbacks.
+
+### F. Dependencies and recommended delivery sequence
+
+**Stage 0 — Requirements and evidence baseline**
+- Approve user roles, task scenarios, terminology, UI requirements and measurable acceptance thresholds.
+- Capture current application runtime/screenshots for the active composition, first-use state and representative workflows.
+- Confirm which source-observed gaps remain present in the intended V3 branch.
+- Deliverable: reviewed UX requirements specification and traceability matrix.
+
+**Stage 1 — Shared interaction foundations**
+- Establish action/shortcut catalogue and focus-aware routing.
+- Establish shared editor/canvas interaction contract and active-tool lifecycle.
+- Establish common Inspector contract and typed diagnostic record model.
+- Establish accessibility metadata conventions and semantic status vocabulary.
+- Dependencies: V3-UI-REQ-001, 002, 004, 007, 017–020, 024–025.
+- Deliverable: public UI contracts and design-system specification, not four separate canvas rewrites.
+
+**Stage 2 — Project shell, navigation and persistence**
+- Improve first-use/start/recent/recovery entry and workspace navigation taxonomy.
+- Persist user preferences, workspace layout and window state; persist per-document viewport independently.
+- Establish session recovery policy and migration/fallback rules.
+- Dependencies: V3-UI-REQ-003, 021–023, 028–029.
+- Deliverable: predictable application entry and restorable work context.
+
+**Stage 3 — SLD workflow**
+- Define preview/draft/configure/connect/validate/commit state transitions and selection invariants.
+- Implement consistent connection feedback, typed validation and diagnostic navigation.
+- Preserve project persistence and undo/redo transaction boundaries.
+- Dependencies: Stage 1 contracts, Stage 2 project/session lifecycle, V3-UI-REQ-005–008.
+- Deliverable: complete SLD engineer journey J02/J03.
+
+**Stage 4 — Control workflow**
+- Apply shared contracts to Ladder canvas without flattening ladder-specific semantics.
+- Add signal discovery, contextual Inspector, cycle monitor and diagnostics.
+- Expose intent, blocked action, command and feedback as separate states.
+- Dependencies: Stage 1 contracts; Measurement/Signal read models; Control Application service contracts; V3-UI-REQ-009–010.
+- Deliverable: complete Control journey J04.
+
+**Stage 5 — Protection workflow**
+- Add eligible channel discovery, provenance/quality inspection, explicit configuration workflow and diagnostics.
+- Build task flow across ANSI catalogue, relay details, TCC, analysis coverage and coordination.
+- Add decision-command-Control-context-device-feedback trace while preserving separate authorities.
+- Dependencies: Stage 1 diagnostic/Inspector contracts; Signal/Measurement read models; Protection and Control/Application integration contracts; V3-UI-REQ-011–015.
+- Deliverable: complete Protection journeys J05/J06.
+
+**Stage 6 — Study workflow**
+- Introduce study-specific progressive disclosure, input validation, run state and result provenance/navigation.
+- Dependencies: shared Inspector/diagnostics; Study Application read models and immutable result provenance; V3-UI-REQ-016.
+- Deliverable: complete Study journey J07.
+
+**Stage 7 — Accessibility, visual profiles and display adaptation**
+- Validate high contrast, color independence, scalable typography, density, icons, DPI/mixed-monitor and resizing.
+- Dependencies: shared design tokens and interaction contract; V3-UI-REQ-024–027.
+- Deliverable: accessibility and display-support evidence across all primary editors.
+
+**Stage 8 — Integrated usability evaluation and release evidence**
+- Run scenario-based evaluations across J01–J10 with novice and expert users.
+- Measure completion, critical errors, time, recovery, unnecessary actions, task workload and accessibility barriers.
+- Prioritize corrective work from observed evidence; do not set arbitrary numeric thresholds before a baseline.
+- Deliverable: traceable acceptance evidence and approved residual-risk register.
+
+**Critical path:** Stage 0 → Stage 1 → Stage 2 → Stage 3. Control, Protection and Study can proceed in parallel after the shared contracts and relevant domain read models are stable, but their integration journeys require cross-domain review. Accessibility is a continuous design constraint from Stage 1, not a final-stage retrofit; Stage 7 is formal verification and profile completion.
+
+### G. Requirement acceptance evidence model
+
+For every P1 requirement, the V3 implementation plan must define:
+- **Scenario:** named user journey and preconditions.
+- **Observable outcome:** what the user can see, select, edit, navigate to or recover.
+- **Engineering correctness:** proof that the UI invokes the correct Application command/read model and does not own domain truth.
+- **Failure behavior:** invalid, unavailable, stale, conflicting and interrupted states; expected fail-closed or recoverable behavior.
+- **Accessibility:** keyboard reachability, focus order, accessible name/description and color-independent state.
+- **Persistence:** what is saved, where it is saved, schema/version, migration and restore fallback.
+- **Evidence artifact:** source trace, interaction recording/screenshots, structured diagnostic trace, accessibility inspection or user-study observation as appropriate.
+- **Traceability:** requirement ID → finding ID → workflow ID → implementation component/contract → evidence artifact → residual risk.
+
+A requirement is not accepted solely because a widget/class exists or a screenshot looks correct. Conversely, the absence of a runtime evaluation in this research pass does not prove a runtime failure. Source review, runtime verification and user evaluation are distinct evidence classes.
+
+### H. Scope boundaries and decisions reserved for approval
+
+**Included in the V3 baseline:** coherent multi-editor interaction, SLD/Control/Protection/Study workflows, contextual engineering Inspector, structured diagnostics, keyboard/focus/accessibility, preference and viewport persistence, safe recovery, visual profiles and DPI adaptation.
+
+**Not authorized by this consolidation:** V2 source changes; changes to frozen Core/Application/domain ownership; replacement of domain-specific canvases merely for visual uniformity; redesign of electrical/protection/control semantics; changing engineering validation policy; changing Protection/Control execution authority; adding test/CI acceptance gates contrary to the user's stated governance; or claiming runtime behavior without reproducing it.
+
+**Decisions still requiring product/engineering approval:** exact role/persona scope; first-launch experience vs direct SLD startup; which viewport metadata is portable with project files; whether diagnostic acknowledgement is needed for each diagnostic class; supported screen-size/DPI envelope; exact keyboard shortcut customization scope; autosave/recovery retention policy; measurable usability thresholds and accessibility conformance target.
+
+### I. Consolidation conclusion
+
+The most consequential V3 UI work is not cosmetic. It is to make the engineering workflow state explicit and recoverable: what is selected, which tool is active, whether an object is preview/draft/committed, what data is configured versus measured, whether a signal is fresh and valid, what Protection decided, what Control requested, what command was issued, and whether the device responded.
+
+The shared interaction contract, structured diagnostics, contextual Inspector and persistence/recovery foundations are prerequisites for reliable discipline-specific workflows. SLD, Control, Protection and Study should then be improved as complete user journeys rather than disconnected panels.
+
+**Next research step:** conduct a requirements challenge/reconciliation pass against the frozen V2 architecture and current V3 research branch, identify duplicate or conflicting requirements, validate the priority/dependency model, and prepare an approval-ready V3 UI/UX specification. No implementation is authorized by this section.
