@@ -21731,7 +21731,18 @@ Required correction contract:
   batch-wide fences.
 
 Implementation status:
-- Audit only. No code change made for this finding.
+- Corrected in the Application live-evaluation provenance and topology
+  fences. They now distinguish registry-level capture diagnostics from
+  per-element descriptor completeness. A single incomplete descriptor no
+  longer re-enables batch-wide equipment/revision/topology fallback for
+  complete siblings.
+- Each incomplete decision remains rejected by its own decision guard;
+  complete decisions continue to compare their own captured and current
+  dependency fingerprints, including topology-component and conductive
+  equipment state. Registry diagnostics, scenario snapshots and project /
+  runtime / configuration / channel ownership fences remain batch-wide.
+- No Protection function status was promoted, and no incomplete descriptor
+  is authorized to dispatch.
 - This is a scope correction to the selective-invalidation contract, not
   permission to dispatch any PARTIAL/NOT_IMPLEMENTED Protection function.
 
@@ -21748,3 +21759,25 @@ Scope:
 - Depends on GF-AUD-145 and the incomplete live residual-source safeguards
   GF-AUD-154/GF-AUD-155.
 ======================================================================
+
+
+Implementation follow-up — GF-AUD-156:
+- Updated Application.evaluate_protection() so live selective invalidation
+  is gated by registry-level diagnostics, not the aggregate all-descriptors
+  complete flag.
+- Kept scenario evaluations with a detached network_state on the
+  conservative global equipment/revision/topology path.
+- The per-decision guard continues to reject incomplete descriptors and
+  compare complete current descriptors before resolution, after resolution,
+  immediately before dispatch and after observation.
+- The execution service already distinguishes StaleProtectionDecisionError
+  (reject this decision and continue with peers) from
+  StaleProtectionExecutionError (abort the remaining batch); no callback
+  signature change was required because the per-decision guard carries the
+  decision context at each authorization boundary.
+
+Verification boundary:
+- Static source inspection of the changed Application guards, dependency
+  registry descriptor/registry semantics and ProtectionExecutionService
+  decision-versus-batch rejection flow.
+- No tests or CI were run.
