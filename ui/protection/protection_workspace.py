@@ -105,16 +105,19 @@ class ProtectionGraphicsSurface(QGraphicsView):
         for configuration in configurations:
             configuration_by_relay.setdefault(str(configuration.relay_id), []).append(configuration)
 
-        for relay_index, relay in enumerate(protection.relays):
+        next_relay_y = 30.0
+        for relay in protection.relays:
             relay_id = str(relay.object_id)
             relay_configs = tuple(sorted(
                 configuration_by_relay.get(relay_id, ()),
                 key=lambda item: str(item.element_id),
             ))
-            base_y = 30.0 + relay_index * max(
-                210.0,
-                sum(max(145.0, 80.0 + len(item.input_channel_ids) * 62.0) for item in relay_configs) + 80.0,
-            )
+            base_y = next_relay_y
+            relay_block_height = sum(
+                max(145.0, 80.0 + len(item.input_channel_ids) * 62.0)
+                for item in relay_configs
+            ) if relay_configs else 145.0
+            next_relay_y = base_y + relay_block_height + 80.0
             if not relay_configs:
                 relay_node = self._add_node(
                     relay_id,
@@ -492,7 +495,7 @@ class ProtectionInspector(QGroupBox):
                 lines.append("  Decision: No evaluated ProtectionDecision is available for this element.")
             else:
                 lines.extend([
-                    f"  Decision: {self._decision_text(decision)}",
+                    f"  Decision: {ProtectionGraphicsSurface._decision_text(decision)}",
                     f"  Pickup: {decision.pickup}",
                     f"  Operate: {decision.operate}",
                     f"  Trip Request: {decision.trip_request}",
