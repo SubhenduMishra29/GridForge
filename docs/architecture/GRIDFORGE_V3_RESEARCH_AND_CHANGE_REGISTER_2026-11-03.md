@@ -669,3 +669,105 @@ The CERC current-regulations register identifies the Indian Electricity Grid Cod
 - CERC draft regulations — https://cercind.gov.in/Draft_reg.html
 
 **Verification limits:** BIS ETD 34 Program of Work and catalogue discovery were inspected; every IS detail was not independently opened in the Know Your Standard record. The ETD 42 protection adoption references are from a draft document and remain unconfirmed. The CEA Safety amendment was checked against its original eGazette PDF. The 2026 Construction amendment's existence and commencement were cross-checked against the CEA official listing and a Gazette transcript, but the original eGazette PDF was not retrieved in this pass; its detailed clauses remain provisional until verified. Rajasthan state-specific rules, licence/connection arrangements and Electrical Inspector requirements have not yet been audited. No compliance conclusion is made.
+
+
+## 8H. BIS catalogue verification — Protection, automation, control and OT cybersecurity (2026-11-04)
+
+**Research boundary:** This pass checked publicly indexed BIS Know Your Standard records, official BIS standards publications/compendia and BIS committee/draft documents. It establishes a confirmed subset, not a complete export of every relevant IS record. A search result or a BIS compendium entry is not a substitute for opening the individual current standard record and checking amendments, reaffirmation, withdrawal and supersession. Where an individual current record was not verified, the status is explicitly limited.
+
+### A. Protection relays and protection equipment
+
+**Confirmed current catalogue evidence in the inspected BIS search results:**
+- **IS/IEC 60255 (Part 27):2013** — *Measuring Relays and Protection Equipment — Part 27: Product Safety Requirements*. BIS search result identifies the corresponding international document as **IEC 60255-27:2013** and shows “Reviewed In: 2025”. This is an individual part adoption, not adoption of all IEC 60255 parts.
+- **IS/IEC 60255 (Part 22/Sec 1):2007** — *Measuring relays and protection equipment — electrical disturbance tests*, corresponding to **IEC 60255-22-1:2007**. The indexed BIS standard-details result lists this exact Indian designation and IEC edition.
+- **IS/IEC 61810 (Part 7):2006** — *Electromechanical elementary relays — Part 7: Test and measurement procedures*, corresponding to IEC 61810-7:2006. This is an electromechanical relay test standard, not a substitute for numerical protection relay functional standards.
+- **IS/IEC 61812-1:2023 (First Revision)** was found in an ETD 35 January 2025 document, but the document is explicitly **Draft for Comments Only** and states it is to be adopted following committee/division approval. It is not counted as a published Indian Standard in this audit.
+
+**Not confirmed as currently published in this pass:**
+- ETD 42's September 2023 draft lists proposed Indian counterparts for IEC 60255-121:2014, IEC 60255-127:2010, IEC 60255-151:2009 and IEC 60255-181:2019. Those remain draft-derived leads until each exact IS number is found in the current BIS catalogue.
+- No current catalogue evidence was established here for a complete set of protection function standards covering distance, over/under-voltage, over/under-frequency, thermal overload, differential, directional, earth-fault, motor protection and synchro-check. Do not infer their absence from this limited indexed search.
+- Do not map an ANSI/IEEE relay function to a specific Indian Standard solely from the function number. Functional application, performance, testing and product safety are distinct standard scopes.
+
+**V3 implication:** Maintain a part-level protection standards matrix. Each relay function/equipment profile should link to the exact applicable published IS record (if any), corresponding IEC/IEEE source and edition, standard scope (common requirements, functional performance, EMC/disturbance, product safety, communication), adoption equivalence, amendments and review status. Keep “published IS”, “draft IS”, “IEC reference only” and “not yet verified” as separate states.
+
+### B. Automation and programmable controllers
+
+**Confirmed published Indian Standards from BIS official publication:**
+- **IS 14254 (Part 1):2006** — *Programmable Controllers: Part 1 — General Information*, corresponding to **IEC 61131-1:2003**.
+- **IS 14254 (Part 2):2021** — *Industrial-Process Measurement and Control — Programmable Controllers — Part 2: Equipment Requirements and Tests*, corresponding to **IEC 61131-2:2017**. BIS indexed catalogue result reports “Reviewed In: 2026”.
+- The BIS 2023 “Science and Technology” standards publication lists both Part 1 and Part 2 under published programmable-controller standards.
+- The same BIS publication lists **IS 17885 (Parts 1–4):2022**, adopting ISO 23247-1:2021 through ISO 23247-4:2021 for manufacturing digital-twin framework. This is useful for manufacturing digital-twin architecture but is not a PLC language or power-system automation protocol standard.
+
+**Not confirmed:**
+- **IEC 61131-3:2025** (programming languages) was not found as a published IS adoption in the inspected BIS catalogue evidence. IS 14254 Parts 1 and 2 do not establish adoption of Part 3. IEC 61131-3 must therefore remain an international reference unless a current BIS record is separately verified.
+- BIS's 2023 publication lists OPC UA parts 1–10 and 100 under “Areas Identified for Standardization in Future”, not “Standards Published” in that document. Treat this as a historical standardization gap indicator only; it is not proof of the 2026 current status.
+- This pass did not establish current published IS adoption of IEC 61850 (including SCL/IEC 61850-6, logical-node/data-model parts or communication service mappings). Keep IEC 61850 as an international reference pending an exact BIS catalogue record. Do not conflate the published instrument-transformer digital-interface adoption **IS 16227 (Part 9):2018 / IEC 61869-9:2016** with IEC 61850.
+
+**V3 implication:** Represent PLC language support, controller hardware/environmental requirements, device interoperability, substation automation and engineering configuration as separate standards domains. A published IS for PLC equipment requirements does not certify the controller's IEC 61131-3 language implementation, IEC 61850 interoperability or a complete PLC runtime.
+
+### C. OT cybersecurity and power-system communications security
+
+**Confirmed BIS publication evidence:**
+- The BIS official 2023 Science and Technology standards publication lists:
+  - **IS/IEC 62443-1-1:2009** — terminology, concepts and models;
+  - **IS/IEC 62443-2-4:2017** — security programme requirements for IACS service providers;
+  - **IS/IEC 62443-3-3:2013** — system security requirements and security levels;
+  - **IS/IEC 62443-4-1:2018** — secure product development lifecycle requirements;
+  - **IS/IEC 62443-4-2:2019** — technical security requirements for IACS components.
+- An official BIS ETD 18 synopsis for **IS/IEC 62443-3-3:2013** confirms its focus on IACS system security requirements, foundational requirements and capability security levels. This is direct evidence that the Indian document is not merely a generic IT security checklist.
+- The BIS 2025 cybersecurity compendium identifies the **IS/IEC 62351 series** for power-system management and associated information exchange data/communications security, and the **IS/IEC 62443 series** for IACS/OT cybersecurity. However, the compendium's series-level summary does not identify every published part, edition, reaffirmation or amendment.
+
+**Status caution:**
+- For **IS/IEC 62351**, this pass confirms BIS recognition/publication of the series at a high level and an individual indexed reference to **IS/IEC/TS 62351 (Part 2):2008** (glossary). It does not establish the current catalogue status of every IEC 62351 part or the equivalence of each Indian edition to current IEC editions.
+- The 2025 BIS compendium is a discovery/overview source. Before a part is used as a project compliance requirement, retrieve its individual Know Your Standard record and validate edition, status and amendments.
+- Do not treat IEC 62443 certification or a target security level as automatically conferred by GridForge. V3 may support asset inventory, zones/conduits, risk assessment, requirement traceability and evidence management; conformance assessment remains a separate process.
+
+**V3 implication:** Build an OT cybersecurity profile that distinguishes power-system protocol security (IEC 62351 family), industrial control-system security (IEC 62443 family), product development/security requirements, component capability, service-provider obligations and organizational ISMS. Model zones, conduits, trust boundaries, roles, secure engineering lifecycle, access control, audit trails, time synchronization and availability/safety constraints. Do not reduce OT security to generic IT controls.
+
+### D. Alarm management and operator-interface standards
+
+- The search did not establish a current published BIS adoption record for **IEC 62682** (alarm management) or **ISA-18.2** in this pass.
+- Do not mark either as an Indian Standard on this evidence. Retain IEC 62682 / ISA-18.2 as international engineering references pending a specific BIS record.
+- This is a significant distinction for V3: alarm lifecycle, rationalization, priority, shelving, suppression, flood analysis, operator response and audit history can be supported as engineering capabilities, but a product feature does not establish compliance with a standard.
+
+### E. Consolidated adoption-status matrix
+
+| Domain | Indian adoption evidence established in this pass | International reference / unresolved boundary | Catalogue status for V3 |
+|---|---|---|---|
+| Protection relay product safety | IS/IEC 60255 (Part 27):2013; IEC 60255-27:2013; BIS result says reviewed 2025 | Does not establish functional coverage of all IEC 60255 parts | Published IS evidence; verify current individual record before compliance use |
+| Protection disturbance immunity | IS/IEC 60255 (Part 22/Sec 1):2007; IEC 60255-22-1:2007 | One disturbance-test part only | Published IS evidence; edition-specific |
+| Electromechanical relay testing | IS/IEC 61810 (Part 7):2006; IEC 61810-7:2006 | Does not cover all numerical protection relay functions | Published IS evidence; scope-limited |
+| Time relays | IS/IEC 61812-1:2023 appears in January 2025 ETD 35 draft | Draft for comments only in inspected source | Draft lead; not counted as published |
+| PLC general information | IS 14254 (Part 1):2006; IEC 61131-1:2003 | Older edition; check current record/status | Published IS evidence |
+| PLC equipment requirements/tests | IS 14254 (Part 2):2021; IEC 61131-2:2017; catalogue search reports review 2026 | Does not cover IEC 61131-3 programming languages | Published IS evidence; review metadata noted |
+| PLC programming languages | No published IS adoption verified | IEC 61131-3:2025 | IEC reference only / adoption unverified |
+| Substation automation / SCL | No current IS adoption verified | IEC 61850 family; IEC 61850-6 edition 2.2 (2024 consolidated text) | IEC reference only / adoption unverified |
+| OT cybersecurity | IS/IEC 62443-1-1:2009, 2-4:2017, 3-3:2013, 4-1:2018, 4-2:2019 listed in BIS publication | Current IEC revisions may differ; part-level current catalogue check still required | Published IS evidence for listed parts; edition-specific |
+| Power-system communication security | IS/IEC 62351 series identified in BIS compendium; IS/IEC/TS 62351 (Part 2):2008 appears in BIS indexed result | Every part/current edition not verified | Series-level evidence; part-level verification pending |
+| Alarm management | No current IS adoption verified | IEC 62682 / ISA-18.2 | International reference only / adoption unverified |
+| Manufacturing digital twin | IS 17885 (Parts 1–4):2022 / ISO 23247-1 to -4:2021 listed by BIS | Manufacturing scope; not power-system digital twin standard by itself | Published IS evidence; scope-limited |
+
+### F. Refined findings
+
+| Finding ID | Priority | Evidence | Proposed V3 action |
+|---|---|---|---|
+| V3-ARCH-F36 | P1 | BIS evidence confirms only selected IEC 60255 parts and older edition-specific protection relay standards; ETD 42 functional standards leads remain draft-derived | Implement part-level protection-standard catalogue; separate functional, common, EMC/disturbance and product-safety coverage; require exact current IS record before compliance claims |
+| V3-ARCH-F37 | P1 | IS 14254 Parts 1 and 2 are published, but no IEC 61131-3:2025 IS adoption was established | Separate PLC equipment conformance from language/runtime support; record IEC 61131-3 as international reference until verified |
+| V3-ARCH-F38 | P1 | No current BIS adoption record for IEC 61850/SCL was established in this pass; IS 16227 Part 9 is IEC 61869-9, not IEC 61850 | Keep IEC 61850 profile distinct from instrument-transformer digital interface; add SCL import/export/interoperability requirements as reference-driven, not falsely IS-certified |
+| V3-ARCH-F39 | P1 | BIS publication lists selected IS/IEC 62443 parts and BIS compendium identifies IS/IEC 62351 series | Add OT cybersecurity and power-system communications security as distinct but integrated profiles with edition-aware evidence and zone/conduit traceability |
+| V3-ARCH-F40 | P2 | No current BIS adoption of IEC 62682 / ISA-18.2 was established; OPC UA was historically listed as future standardization subject in BIS 2023 publication | Keep alarm management and OPC UA as international reference/watch items until exact current BIS records are verified |
+| V3-ARCH-F41 | P1 | BIS catalogue records expose review/reaffirmation/amendment metadata; series-level compendia do not supply complete lifecycle detail | Standards registry must ingest individual Know Your Standard records and preserve source date, publication, amendment, reaffirmation, withdrawal/supersession and degree of equivalence |
+
+### Official source register — BIS verification batch
+
+- BIS Know Your Standard portal and record capabilities — https://www.bis.gov.in/know-your-standard/?lang=en
+- BIS indexed standard details: IS/IEC 60255 (Part 27):2013 and IS/IEC 60255 (Part 22/Sec 1):2007 — https://standards.bis.gov.in/website/standard-details?encryptedId=eyJpdiI6ImpvbGo4cVFET2VSWTgwVnlBU3JkY1E9PSIsInZhbHVlIjoiQytmWjVqR3I5VXJZaTRwY2R0d0Fhdz09IiwibWFjIjoiYzg5NzdhMWE0MWQ5NzBiZDMyYmEzYzRjNjNmMzU0NGU3MDU3YWEzOWJhMDY4N2FkZTUwOWFhNjcyZGRjNTAyZCIsInRhZyI6IiJ9
+- BIS indexed standard details: IS/IEC 60255 (Part 27):2013 and related listed standards — https://standards.bis.gov.in/website/standard-details?encryptedId=eyJpdiI6InI1Wkc0Sk1WZWVIL0Fzc3oraTNweXc9PSIsInZhbHVlIjoiWlU3RmlPTEdjUzhlUGx3T0E2WlVVUT09IiwibWFjIjoiNTUzNDg1NjhhODcxZjk2OTE3N2ZlMTI3MzQyNDIxNmEyZjFjYTg2ODUwMTIxNTc0ODdiMjFmYzM1ZTNhMWFkZiIsInRhZyI6IiJ9
+- BIS official “Science and Technology” standards publication (IS 14254 Parts 1/2; IS 17885 Parts 1–4; IS/IEC 62443 listed parts) — https://www.bis.gov.in/wp-content/uploads/2023/11/Book-21-Science-and-Technology.pmd_.pdf
+- BIS ETD 18 synopsis for IS/IEC 62443-3-3:2013 — https://www.services.bis.gov.in/tmp/SRIE62443_3_3.pdf
+- BIS cybersecurity compendium (IS/IEC 62351 and 62443 series overview) — https://www.services.bis.gov.in/tmp/compendium_2025-06-09-10-54-04.pdf
+- BIS ETD 35 January 2025 draft IS/IEC 61812-1:2023 (draft for comments only) — https://services.bis.gov.in/tmp/WCETD26826305_20012025_1.pdf
+- BIS ETD 42 September 2023 draft for comments (older IEC 60255 functional standard leads) — https://www.services.bis.gov.in/tmp/WCETD32523628_21092023_1.pdf
+- BIS current catalogue landing page — https://standards.bis.gov.in/
+
+**Verification limits:** The BIS indexed results and official publication sources were inspected. Individual current standard records were not all opened; exact amendment/reaffirmation/withdrawal status for every listed part remains to be checked before any compliance determination. BIS's 2023 publication and 2025 compendium are official discovery evidence but are not a live, exhaustive catalogue export. No current IS adoption was established for IEC 61850, IEC 61131-3:2025 or IEC 62682 in this pass; this is “not verified”, not proof of non-adoption. No licensed normative text was reviewed and no clause-level compliance assessment was performed. No V2 source, tests, CI or implementation were changed.
