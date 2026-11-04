@@ -542,6 +542,7 @@ class ProtectionExecutionService:
 
 __all__ = [
     "StaleProtectionExecutionError",
+    "StaleProtectionDecisionError",
     "ProtectionTargetUnavailableError",
     "PostconditionStatus",
     "ProtectionPostconditionVerification",
