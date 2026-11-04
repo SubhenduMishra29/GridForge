@@ -213,7 +213,6 @@ class MeasurementChannelService:
                     channel.id,
                     float(attestation.timestamp),
                     float(trusted_now),
-                    self._clock_domain,
                 )
             return None
 
