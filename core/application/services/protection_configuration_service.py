@@ -492,7 +492,32 @@ class ProtectionConfigurationService:
         binding: ProtectionMeasurementBinding,
         transaction: Transaction,
     ) -> ApplicationResult[ProtectionMeasurementBinding]:
-        """Persist one element/input-scoped source binding transactionally."""
+        """Create one new element/input-scoped source binding transactionally."""
+        self._require_transaction(transaction)
+        return self._persist_measurement_binding(
+            binding=binding, transaction=transaction, replace_existing=False
+        )
+
+    def rebind_measurement_binding(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        transaction: Transaction,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Explicitly re-resolve and transactionally replace one existing source association."""
+        self._require_transaction(transaction)
+        return self._persist_measurement_binding(
+            binding=binding, transaction=transaction, replace_existing=True
+        )
+
+    def _persist_measurement_binding(
+        self,
+        *,
+        binding: ProtectionMeasurementBinding,
+        transaction: Transaction,
+        replace_existing: bool,
+    ) -> ApplicationResult[ProtectionMeasurementBinding]:
+        """Validate a candidate binding and atomically create or replace its persisted value."""
         self._require_transaction(transaction)
         if not isinstance(binding, ProtectionMeasurementBinding):
             raise TypeError("binding must be ProtectionMeasurementBinding.")
@@ -844,16 +869,58 @@ class ProtectionConfigurationService:
                     "channel_id": binding.channel_id,
                 },
             )
-        active.add_measurement_binding(binding)
-        transaction.record_undo(lambda: active.remove_measurement_binding(binding.binding_id))
+        previous_binding = None
+        if replace_existing:
+            try:
+                previous_binding = active.get_measurement_binding(binding.binding_id)
+            except KeyError as exc:
+                raise ResourceError(
+                    code="PROTECTION_MEASUREMENT_BINDING_NOT_FOUND",
+                    message=f"Protection measurement binding not found: {binding.binding_id}",
+                    details={"binding_id": binding.binding_id},
+                ) from exc
+            if (
+                previous_binding.protection_element_id != binding.protection_element_id
+                or previous_binding.relay_input_id != binding.relay_input_id
+                or previous_binding.channel_id != binding.channel_id
+                or previous_binding.instrument_id != binding.instrument_id
+            ):
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_REBIND_IDENTITY_MISMATCH",
+                    message="Explicit rebind must preserve the owning element, relay input, channel and physical instrument identities.",
+                    details={"binding_id": binding.binding_id},
+                )
+            if (
+                binding.instrument_primary_side is not None
+                or binding.instrument_primary_component_fingerprint is not None
+            ):
+                raise DomainError(
+                    code="PROTECTION_MEASUREMENT_REBIND_MUST_RESOLVE",
+                    message="Explicit rebind must submit an unassociated immutable binding candidate so the active topology is resolved afresh.",
+                    details={"binding_id": binding.binding_id},
+                )
+            active.replace_measurement_binding(binding)
+            transaction.record_undo(
+                lambda previous=previous_binding: active.replace_measurement_binding(previous)
+            )
+        else:
+            active.add_measurement_binding(binding)
+            transaction.record_undo(lambda: active.remove_measurement_binding(binding.binding_id))
         return ApplicationResult.success_result(
             value=binding,
-            message=f"Protection source binding created: {binding.binding_id}",
+            message=(
+                f"Protection source binding rebound: {binding.binding_id}"
+                if replace_existing
+                else f"Protection source binding created: {binding.binding_id}"
+            ),
             metadata={
                 "object_type": "protection_measurement_binding",
                 "object_id": binding.binding_id,
                 "element_id": binding.protection_element_id,
                 "input_name": binding.relay_input_id,
+                "instrument_primary_side": binding.instrument_primary_side,
+                "instrument_primary_component_fingerprint": binding.instrument_primary_component_fingerprint,
+                "rebound": replace_existing,
             },
         )
 
