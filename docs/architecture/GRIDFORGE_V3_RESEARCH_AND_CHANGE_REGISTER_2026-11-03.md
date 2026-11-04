@@ -7339,3 +7339,325 @@ All affected gates remain open. This entry does not approve an estimation algori
 - Project persistence remains within the frozen .gridforge package contract.
 
 **Scope boundary:** research register only. No calibration engine, estimator, model fitter, data importer, parameter schema, execution sandbox, UI, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+
+## 8I-33. Proposed V3 engineering signal acquisition, measurement quality and time-synchronization architecture (2026-11-04)
+
+### A. Purpose and governing architecture
+
+V3 should establish a shared Signal and Measurement Infrastructure for physical and simulated instrumentation. It provides a canonical path from source and sensor through acquisition, conditioning, timestamping, quality evaluation, calibration, processing, routing and subscription to Protection, Control, Studies, simulation, diagnostics and historian consumers.
+
+The infrastructure is shared; domain execution authority is not. Protection and Control consume the same governed signal contracts through separate evaluation and execution systems. A signal value is evidence about a measured or simulated quantity, not a command, ProtectionDecision, DeviceCommand, physical state transition or proof of actuation.
+
+The end-to-end conceptual path is:
+
+1. Physical or simulated source and sensor.
+2. Sensor/transducer interface and signal conditioning.
+3. Acquisition channel and sampling contract.
+4. Timestamp and synchronization-quality assignment.
+5. Raw sample preservation and source-quality evaluation.
+6. Calibration and engineering-unit conversion.
+7. Signal processing and derived measurement publication.
+8. Typed routing/subscription with explicit delivery semantics.
+9. Domain-specific consumer evaluation and dependency tracking.
+10. Historian, event, audit and operational trace publication.
+
+Each stage must retain stable identity, provenance, revision and lineage. The system must not collapse raw samples, filtered values, engineering measurements, derived features and domain decisions into one mutable value field.
+
+### B. Canonical signal, channel and measurement identities
+
+Distinguish the following entities:
+
+- **Signal definition:** stable semantic identity for a quantity or state, such as phase-A current, winding temperature, breaker auxiliary contact or motor speed.
+- **Source:** physical sensor, instrument transformer, IED, PLC, remote I/O, communication endpoint, simulation model or imported dataset.
+- **Sensor/transducer:** physical measurement element and its calibration, range, accuracy and response characteristics.
+- **Acquisition channel:** configured hardware/software path, including input type, address, sampling, scaling and channel revision.
+- **Raw sample:** immutable source observation with original representation, timestamp, quality and provenance.
+- **Measurement:** typed engineering value with quantity kind, unit, reference, phase, quality, time and derivation lineage.
+- **Derived signal:** calculated/filter/aggregated output whose algorithm, window, input samples and revision are explicit.
+- **Subscription/route:** governed delivery relationship from a signal or measurement stream to a consumer.
+- **Consumer binding:** domain-owned mapping from signal identity to a Protection input, Control input, study variable, alarm condition or historian tag.
+
+Signal identity must survive channel remapping, sensor replacement, tag changes and presentation changes where the semantic quantity remains the same. Source identity and channel identity are not signal identity. Replacing a CT, RTD or IED creates new source/instrument provenance and a new relevant configuration revision; it must not silently rewrite historical samples.
+
+Signal names and display tags are aliases, not canonical identifiers. Namespaces and uniqueness scopes must be explicit for plant, project, device, protocol and imported data. Duplicate or ambiguous mappings must be diagnosed rather than silently merged.
+
+### C. Typed quantity and measurement contract
+
+A measurement record should carry, as applicable:
+- stable measurement and signal IDs;
+- source, sensor, channel and consumer binding IDs;
+- equipment identity and terminal/phase association;
+- typed quantity definition and dimension;
+- value representation and canonical engineering unit;
+- phase, polarity, reference direction and measurement location;
+- RMS/peak/instantaneous/phasor convention;
+- sample timestamp, receive timestamp and time-quality metadata;
+- source quality and processing quality;
+- calibration and scaling revision;
+- acquisition/configuration revision;
+- raw/derived classification and derivation lineage;
+- validity interval, freshness policy and uncertainty;
+- sequence number, source clock identity and ordering metadata.
+
+Do not use a generic float or Boolean as the entire measurement contract. A scalar current, phasor voltage, frequency, energy counter, temperature, breaker position, quality state and event pulse have different semantics. Phasors require magnitude/angle, phase reference, frequency, time reference and sequence/phase identity. Counters require rollover, reset and monotonicity semantics. Discrete values require state enumeration and transition/event semantics.
+
+Engineering-unit conversion must be dimensionally valid and traceable. CT/PT ratios, polarity, burden, phase displacement, transducer scaling, sensor linearization and channel offsets must be explicit transforms. No hidden scaling or silent default is permitted. Raw source representation should be retained when lawful and technically feasible, separate from normalized values.
+
+### D. Acquisition source classes and interface boundaries
+
+The initial architecture should cover:
+
+- CT/PT/CVT and other electrical instrument transformers;
+- direct current/voltage sensors and transducers;
+- RTD, thermocouple and temperature transmitters;
+- bearing, winding, ambient and process temperature sensors;
+- vibration, speed, torque, pressure, flow and other plant instrumentation where the supported simulation/process scope requires them;
+- breaker auxiliary contacts, trip/close coil feedback, switch position and equipment status;
+- PLC, IED, RTU, remote I/O and gateway data;
+- analog inputs/outputs, digital inputs/outputs, pulse and counter channels;
+- communication-derived measurements and status;
+- simulated equipment model outputs;
+- replayed disturbance, COMTRADE-like or historian datasets where format and licensing are supported.
+
+Hardware-specific drivers and protocol stacks belong behind acquisition/provider contracts, not in Core. Candidate interface families include local DAQ APIs, vendor SDK adapters, IEC 61850 services, IEC 60870-5-104, Modbus, OPC UA, DNP3 and file/replay adapters where required. Protocol support is a separately governed capability: a listed protocol is not a claim that every profile, service, security mode or conformance requirement is implemented.
+
+A driver or adapter must expose source identity, connection/session state, protocol quality, timestamps, sequence information, diagnostics and supported data types. It must not mutate Core equipment/topology or issue Protection/Control decisions. Device discovery and imported point lists are proposals requiring controlled mapping and review.
+
+### E. Sampling, acquisition and buffering semantics
+
+Acquisition contracts must declare:
+- sampling mode (periodic, event-driven, polled, report-by-exception, waveform capture);
+- nominal rate, minimum/maximum rate and actual observed interval;
+- sample aperture/integration time and anti-alias filtering where applicable;
+- channel range, resolution, quantization and saturation behaviour;
+- deadband, compression and report-by-exception rules;
+- buffering, queue depth, backpressure and overflow policy;
+- sequence numbering, loss detection and duplicate detection;
+- source-side versus gateway-side timestamp assignment;
+- batching and transport delay characteristics.
+
+A requested sampling rate is not proof of actual sample cadence. The runtime should report measured interval, jitter, dropped samples and queue overflow. Event-driven data must not be fabricated into periodic samples without a declared resampling/interpolation policy.
+
+Backpressure and overload policies must be explicit per consumer class. Protection-relevant streams require bounded latency and a defined stale/loss response; display trends may tolerate decimation or aggregation; historian ingestion may use durable buffering and replay. Lossy presentation optimization must never alter the source stream or the value used by a safety-relevant consumer.
+
+### F. Time model and synchronization
+
+The architecture must distinguish:
+- source/sample time: when the measurement was acquired;
+- event occurrence time: when a state transition occurred at the source;
+- receive/ingest time: when GridForge received the record;
+- processing time: when a transformation or consumer evaluated it;
+- publication time: when a derived signal became available;
+- simulation time: logical time in a simulation run;
+- wall-clock time: system clock time;
+- monotonic clock: local elapsed-time basis for timeout and scheduling.
+
+Every timestamp should identify clock domain, time scale/epoch, resolution and synchronization quality where known. UTC representation does not prove clock synchronization. Time-zone conversion is presentation metadata and must not alter event ordering or raw timestamps.
+
+Candidate synchronization methods include PTP/IEEE 1588 profiles, GNSS-disciplined clocks, NTP, IRIG-B and source-local clocks. Their accuracy and trust differ. The system must record grandmaster/source identity, clock state, offset/uncertainty, holdover state, path/asymmetry limitations and loss-of-sync transitions when exposed by the source. Do not claim microsecond or sub-microsecond accuracy merely because a protocol is configured.
+
+For synchrophasor or time-aligned waveform use, the required time accuracy, phase reference and measurement standard/profile must be explicit. A timestamped phasor with poor or unknown synchronization quality must not be treated as equivalent to a synchronized measurement.
+
+Out-of-order arrival must be handled without rewriting source event time. Reordering windows, late-data policy, watermarking and event-time versus processing-time semantics must be explicit for each processing pipeline. A late sample may update historical analytics but must not retroactively authorize a Protection or Control action.
+
+### G. Quality, validity and freshness model
+
+Quality must be typed, multi-dimensional and preserved end-to-end. Avoid a single Boolean valid flag or one overloaded Good/Bad/Uncertain status that loses the cause.
+
+Candidate quality dimensions include:
+- source-reported quality (validity, detail, overflow, operator-blocked/test/substituted states where applicable);
+- acquisition quality (channel fault, range overflow, under-range, communication loss, buffer overflow);
+- time quality (synchronized, holdover, unsynchronized, clock failure, uncertain accuracy, out-of-order);
+- calibration quality (valid, due, expired, failed, out-of-tolerance, unknown);
+- processing quality (filter settling, interpolation, stale input, algorithm fault, clipping, estimated output);
+- data completeness (complete, missing, duplicated, partial, delayed);
+- provenance/trust (authenticated source, unknown source, replay, simulation, manually entered);
+- application validity (within permitted range, engineering plausibility, context compatibility).
+
+Quality dimensions should not be collapsed irreversibly. A derived value must carry the worst relevant input quality or a documented transformation rule. A filter cannot silently turn a bad source sample into a good measurement. A substituted or simulated value must remain visibly marked and must not masquerade as physical acquisition.
+
+Freshness is consumer- and quantity-specific. Each consumer binding declares maximum age, time-quality requirement, permitted interpolation/hold-last-value behaviour, required source class and failure action. A universal global timeout is inappropriate. For Protection, stale/invalid required measurements must block the affected element's decision or dispatch according to its fail-closed contract; no stale last-good value may silently sustain a current authorization. Control may have distinct permissive/degraded policies, but it must preserve interlock and action safety.
+
+### H. Calibration, scaling and measurement uncertainty
+
+Calibration and scaling use the governed evidence and revision contract in 8I-32. Signal processing must reference exact sensor, instrument-transformer, channel and calibration revisions.
+
+For CT/PT/CVT and sensors, retain nominal ratio/range, actual calibration, accuracy class, burden, polarity, phase displacement, saturation or response characteristics, frequency range and test evidence as applicable. Calibration expiry or out-of-tolerance status propagates to dependent measurements and consumers.
+
+Measurement uncertainty should account for sensor accuracy, calibration, quantization, sampling, synchronization, scaling, filtering and derived calculations where material. A measurement may have an engineering value and an uncertainty descriptor; uncertainty is not a quality flag and should not be substituted for validity. A high-quality measurement may still have significant uncertainty, and a precise digital value may still be invalid.
+
+For instrument transformers, distinguish primary measured quantity, secondary acquired quantity and transformed engineering measurement. CT saturation and transient response can distort fault measurements; a nominal ratio alone does not establish protection-grade measurement fidelity. PT/CVT transient and frequency response limits must be respected by applicable functions.
+
+### I. Signal processing and derived measurement pipeline
+
+Signal processing should be a set of typed, versioned transformations, not arbitrary mutation of a shared measurement object. Candidate stages include:
+- engineering scaling and sensor linearization;
+- RMS, average, peak, min/max and demand calculations;
+- phasor extraction, frequency and rate-of-change estimation;
+- filtering, anti-aliasing, decimation and resampling;
+- harmonics/FFT and spectral features;
+- sequence-component and symmetrical-component derivation;
+- event detection, thresholding and debounce;
+- plausibility, range and rate-of-change checks;
+- sensor fusion and redundant measurement comparison;
+- calibration correction and uncertainty propagation;
+- derived features for simulation, condition monitoring or advisory analytics.
+
+Each transformation declares input signal types, output type, units, algorithm/version, parameter set, window/latency, statefulness, initialization, quality propagation, time semantics, uncertainty behaviour and deterministic/replay requirements.
+
+A stateful filter or estimator must have explicit state lifecycle and reset/reinitialization policy. It must not carry hidden state across project revisions, simulation runs or source replacement. Processing graphs must be acyclic unless a domain-approved feedback algorithm defines the loop semantics. Derived signal lineage must permit reconstruction of inputs and transformation versions.
+
+Do not apply smoothing or interpolation to Protection-critical signals unless the relevant Protection function explicitly supports the method and its latency/phase error is quantified. Display smoothing must be a separate presentation stream.
+
+### J. Routing, subscriptions and delivery semantics
+
+The shared infrastructure should provide one governed routing/subscription service rather than separate ad hoc signal buses in Protection, Control, Studies and plugins. It should support typed filters, access policy, consumer identity, subscription lifecycle, versioned bindings, bounded queues, delivery acknowledgements where meaningful and observable lag.
+
+Delivery semantics must be explicit:
+- latest-value state update;
+- ordered event stream;
+- sampled time series;
+- waveform/block stream;
+- durable historian delivery;
+- best-effort presentation update.
+
+Exactly-once delivery must not be claimed unless the end-to-end persistence and deduplication contract proves it. At-least-once delivery requires stable event/sample identity and idempotent consumers. Latest-value subscriptions must expose skipped sequence ranges and age; they are unsuitable for consumers that require every transition or waveform sample.
+
+A routing failure is a typed diagnostic with source, consumer, subscription, sequence range and time context. A disconnected UI subscriber must not block acquisition or domain execution. Protection and Control consumers must have explicit isolation, bounded latency and loss behaviour; plugin subscribers cannot starve critical consumers.
+
+### K. Protection, Control, Studies and simulation integration
+
+**Protection**
+- Protection subscribes to typed measurement snapshots/streams through its own input-binding contract.
+- Each Protection element declares required signals, source and calibration revisions, freshness, quality and time requirements.
+- Signal, calibration or channel changes invalidate only dependent elements; physical topology revision remains separate unless connectivity changes.
+- A stale, missing, substituted, simulated or poor-quality input is handled by the configured fail-closed function policy; no shared signal service may bypass it.
+- ProtectionDecision remains a distinct output with exact measurement snapshot and dependency vector.
+
+**Control and automation**
+- Control consumes typed process measurements, digital states, quality and event streams.
+- Control execution, interlocks, action binding, command issue, acknowledgement and physical feedback remain separate stages.
+- A measurement update is not an action or proof of output state.
+- Control-specific scan/cycle semantics, task scheduling and event handling remain owned by Control.
+
+**Studies and co-simulation**
+- Studies consume immutable, time-consistent measurement/configuration snapshots where their method requires field data or initial conditions.
+- Simulation outputs use the same measurement contracts but carry simulation-run identity and logical simulation time.
+- Physical, replayed and simulated signals remain distinct source classes and cannot be silently substituted for each other.
+- Time coordination across electrical, mechanical, thermal and process participants must preserve timestamp and causality contracts.
+
+**Historian and operational trace**
+- Historian records raw or explicitly selected derived streams with source, quality, time and lineage.
+- Alarms, SOE, disturbance records, Protection decisions, Control actions and device feedback are correlated but remain distinct record types.
+- Historian ingestion failure, retention expiry or data correction must not rewrite a live Protection input or historical decision evidence.
+- Time-series compression and retention preserve the evidence needed for disturbance analysis and engineering replay.
+
+### L. Redundancy, failover and source conflict
+
+Redundant sensors and channels require an explicit voting/fusion policy owned by the relevant domain or measurement configuration. Do not average conflicting sources by default. Source priority, discrepancy thresholds, switchover, failover delay, stale-source handling and common-mode failure assumptions must be visible.
+
+A source change or failover creates a provenance transition. The system should record active source, standby source, transition time, reason and quality. Bumpless transfer may be a Control/measurement requirement, but must not conceal discontinuity or uncertainty. Protection functions must use only approved redundant measurement selection and retain the selected source identity in the decision trace.
+
+Conflicting physical and simulated values must never be blended into one apparently physical signal. Replay mode, test injection and simulation mode require explicit mode identity, permissions and visible source labels.
+
+### M. Security, trust and operational separation
+
+Acquisition drivers, protocol stacks, imported datasets and plugin providers are untrusted boundaries. Apply least privilege, authenticated endpoints where supported, secure transport, credential isolation, input validation, resource limits, replay protection, audit and explicit network segmentation policy.
+
+Do not treat protocol connectivity as source authenticity. Record authentication/session state and trust policy separately from measurement quality. A compromised or unauthenticated source must not become trusted solely because its values are in range.
+
+Test/substitution/replay and manual override modes must be explicit, authorized, time-bounded where appropriate and audited. A test injection must not reach live Protection/Control execution unless a separately authorized test configuration makes that route intentional and safe. Simulation and historian replay are read-only to physical actuation by default.
+
+### N. Diagnostics, retention and observability
+
+Diagnostics should identify the failing stage and affected source/signal/channel/consumer:
+- source disconnected or session degraded;
+- channel disabled, saturated or out of range;
+- sample loss, duplication, sequence gap or overflow;
+- time synchronization degraded or lost;
+- stale or out-of-order sample;
+- calibration expired or out of tolerance;
+- quality propagation or transformation failure;
+- filter/estimator initialization or execution failure;
+- subscription lag, queue overflow or delivery failure;
+- source conflict or failover;
+- provenance/authentication failure.
+
+Track latency distributions, sample age, jitter, throughput, loss, queue depth, processing duration, clock offset/quality and consumer lag. Observability must not require logging every high-rate sample into application logs. High-rate waveform and time-series storage must use appropriate bounded/streaming paths.
+
+Retention policies distinguish raw waveform, sampled time series, derived measurements, event/SOE, alarm, audit and simulation data. Preserve legally/contractually required source evidence and exact records referenced by Protection or Control decisions. Any aggregation/downsampling must retain its method and must not replace original evidence when original data is required.
+
+### O. Candidate standards and protocol reference map
+
+The standards catalogue in 8I-25 remains the authority for edition, jurisdiction, applicability, licensing and clause verification. Candidate references for a formal evidence review include:
+- IEC 61850 series: communication networks and systems for power utility automation; data models, services, engineering and sampled-value-related parts must be mapped by exact part and edition.
+- IEC 61850-7-2 and IEC 61850-7-3: abstract communication service interface and common data classes; candidate sources for typed data/quality semantics, not a generic GridForge object schema.
+- IEC 61850-9-2 and IEC 61869-9: sampled values and digital interface aspects for instrument transformers; applicability and exact editions require catalogue verification.
+- IEEE 1588 / IEC 61588: precision clock synchronization protocol; profile, edition and deployed topology determine achievable timing.
+- IEC/IEEE 60255-118-1: synchrophasor measurement for power systems; relevant where phasor measurement support is in scope.
+- IEC 60870-5-104, OPC UA, Modbus and DNP3: candidate communication protocols, each requiring profile/service/security and conformance scope.
+- IEC 61000 series: EMC and power-quality measurement context, with exact part selection based on measured phenomenon and instrument class.
+- IEC 61869 series: instrument transformer requirements and measurement performance.
+- COMTRADE (IEC 60255-24): disturbance data exchange and replay use cases.
+
+This list is a research map, not a verified BIS/IEC catalogue, conformance declaration or implementation claim. Do not infer current edition, national adoption or legal applicability from this list. Clause-level mapping and source verification are separate work items.
+
+### P. Candidate acceptance scenarios
+
+- UI-ACC-SIG-01: preserve signal identity when an acquisition channel or sensor is replaced.
+- UI-ACC-SIG-02: distinguish signal definition, physical source, sensor, channel, raw sample and derived measurement.
+- UI-ACC-SIG-03: reject dimensionally invalid scaling or unit conversion.
+- UI-ACC-SIG-04: preserve primary and secondary CT/PT values with ratio, polarity and calibration provenance.
+- UI-ACC-SIG-05: represent phasor magnitude, angle, phase reference, frequency and synchronization quality.
+- UI-ACC-SIG-06: distinguish sample time, receive time, processing time and publication time.
+- UI-ACC-SIG-07: expose clock source, synchronization state, holdover and time uncertainty.
+- UI-ACC-SIG-08: detect out-of-order, duplicated, missing and delayed samples without rewriting source timestamps.
+- UI-ACC-SIG-09: propagate source, acquisition, time, calibration and processing quality independently.
+- UI-ACC-SIG-10: prevent a substituted or replayed sample from being presented as a physical live measurement.
+- UI-ACC-SIG-11: enforce consumer-specific freshness and quality requirements.
+- UI-ACC-SIG-12: block affected Protection evaluation/dispatch on stale or invalid required inputs while isolating unaffected elements.
+- UI-ACC-SIG-13: ensure display smoothing does not alter Protection or Control source data.
+- UI-ACC-SIG-14: preserve raw sample lineage through filtering, resampling and derived-feature calculation.
+- UI-ACC-SIG-15: report actual sampling interval, jitter, sample loss and buffer overflow.
+- UI-ACC-SIG-16: distinguish latest-value, ordered-event, waveform and durable historian delivery semantics.
+- UI-ACC-SIG-17: prevent a slow or disconnected UI subscriber from starving acquisition or critical domain consumers.
+- UI-ACC-SIG-18: record source failover and sensor disagreement with explicit voting/fusion policy.
+- UI-ACC-SIG-19: replay a historical dataset with original event time and explicit replay/simulation identity.
+- UI-ACC-SIG-20: correlate measurements with Protection decisions, Control actions and device feedback without conflating them.
+
+### Q. Open decisions and research tasks
+
+1. Define the canonical signal, raw-sample and measurement schemas and their identity/lifecycle rules.
+2. Specify initial supported acquisition sources, driver contracts and communication protocol profiles.
+3. Establish timestamp/time-quality representation, clock trust and synchronization requirements by use case.
+4. Define sampling, buffering, loss and backpressure policies for Protection, Control, historian and UI consumers.
+5. Specify quality dimensions, propagation rules and consumer-specific freshness policies.
+6. Define phasor, waveform, event, counter and process-value measurement types.
+7. Reconcile CT/PT/CVT secondary modelling, calibration and channel association with Protection element dependency invalidation.
+8. Select initial signal-processing algorithms and quantify latency, phase error and uncertainty for Protection-relevant uses.
+9. Define redundant source voting/failover policy and common-mode failure treatment.
+10. Specify secure driver/plugin isolation, credential management, test injection and replay boundaries.
+11. Verify exact BIS adoptions and editions for Protection, Automation and Control measurement/communication standards.
+12. Define historian retention and disturbance-record evidence requirements without duplicating operational state authority.
+
+### R. Gate and scope disposition
+
+This section informs UI-GATE-02 (signal/configuration persistence and revision), UI-GATE-03 (quality, time and acquisition diagnostics), UI-GATE-04 (accessible signal quality/trend/status presentation), UI-GATE-05 (high-rate acquisition and rendering performance), UI-GATE-06 (measurement-to-decision/action traceability) and UI-GATE-07 (initial acquisition and protocol scope).
+
+All affected gates remain open. This entry does not approve a signal schema, driver, protocol profile, synchronization accuracy, quality policy, sampling rate, signal-processing algorithm, historian technology or Protection setting.
+
+### S. Frozen invariants and scope boundary
+
+- Core owns canonical signal/measurement definitions and typed engineering data; Application governs acquisition orchestration, routing lifecycle, controlled configuration changes and publication.
+- Physical source, simulated source, replay source, sensor, acquisition channel, raw sample, derived measurement and consumer binding remain distinct.
+- Signal identity and provenance survive channel replacement, calibration change and presentation changes.
+- Timestamp, clock domain, time quality, measurement quality, calibration state and uncertainty are explicit and distinct.
+- Protection and Control consume shared measurement contracts but retain separate domain execution authorities.
+- Stale or invalid Protection dependencies remain fail-closed; selective per-element invalidation is required.
+- DeviceCommand, acknowledgement, physical actuation and DeviceFeedback remain distinct from measurements and ProtectionDecision.
+- UI display smoothing, decimation and trend aggregation cannot modify domain input streams.
+- Acquisition drivers and protocol adapters use consolidated public extension contracts; Core does not depend on vendor SDKs or UI plugins.
+- Project persistence remains within the frozen .gridforge package contract.
+
+**Scope boundary:** research register only. No acquisition driver, signal bus, measurement schema, time-synchronization service, protocol stack, signal processor, historian, UI, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
