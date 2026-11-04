@@ -228,8 +228,17 @@ class DistanceProtectionSettings:
     zone1_time: float = 0.0
     zone2_time: float = 0.3
     zone3_time: float = 1.0
+    impedance_unit: str | None = None
+    measurement_reference_basis: str | None = None
+    voltage_current_pairing: str | None = None
 
     def __post_init__(self) -> None:
+        if self.impedance_unit != "ohm":
+            raise ValueError("ANSI 21 impedance_unit must be explicitly 'ohm'.")
+        if self.measurement_reference_basis != "PRIMARY":
+            raise ValueError("ANSI 21 measurement_reference_basis must be explicitly 'PRIMARY'.")
+        if self.voltage_current_pairing != "SAME_PHASE_TO_NEUTRAL":
+            raise ValueError("ANSI 21 voltage_current_pairing must be explicitly 'SAME_PHASE_TO_NEUTRAL'.")
         try:
             zone1 = complex(self.zone1_reach)
             zone2 = complex(self.zone2_reach)
@@ -429,6 +438,9 @@ class DistanceRelay(RelayBase):
                 "zone1_time": settings.zone1_time,
                 "zone2_time": settings.zone2_time,
                 "zone3_time": settings.zone3_time,
+                "impedance_unit": settings.impedance_unit,
+                "measurement_reference_basis": settings.measurement_reference_basis,
+                "voltage_current_pairing": settings.voltage_current_pairing,
             },
             enabled=enabled,
             blocked=blocked,
