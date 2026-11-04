@@ -759,6 +759,7 @@ class Application:
         captured_configuration = active_configuration
         captured_channel_service = service
         captured_revision = self.revision
+        captured_topology_revision = int(captured_network.state.topology_revision)
 
         def relay_state_fingerprint(network: Any) -> tuple[tuple[Any, ...], ...]:
             """Capture mutable Relay equipment state without treating it as topology."""
@@ -854,6 +855,21 @@ class Application:
                     "measurement-channel authority, instrumentation equipment state, Relay equipment state, "
                     "or Protection configuration/revision changed after evaluation."
                 )
+
+        def ensure_current_protection_topology() -> None:
+            """Reject an action based on a topology snapshot changed during evaluation."""
+            current_state = getattr(captured_network, "state", None)
+            current_revision = getattr(current_state, "topology_revision", None)
+            if current_revision != captured_topology_revision:
+                raise StaleProtectionExecutionError(
+                    "electrical topology changed after Protection evaluation; "
+                    "the pending Protection action was rejected before dispatch."
+                )
+
+        def ensure_current_protection_dispatch_provenance() -> None:
+            """Apply both equipment/configuration and topology fences before dispatch."""
+            ensure_current_protection_provenance()
+            ensure_current_protection_topology()
 
         if evaluation_metadata is not None and not isinstance(evaluation_metadata, Mapping):
             raise TypeError("evaluation_metadata must be a mapping of explicit protection evaluation inputs.")
@@ -1224,9 +1240,9 @@ class Application:
             Persisted mappings are resolved by protection-function identity;
             targets are never inferred from relay identity or presentation.
             """
-            ensure_current_protection_provenance()
+            ensure_current_protection_dispatch_provenance()
             resolved = action_resolver(decision)
-            ensure_current_protection_provenance()
+            ensure_current_protection_dispatch_provenance()
             if resolved is None:
                 return None
             if not hasattr(resolved, "target_equipment_type") or not hasattr(resolved, "target_equipment_id") or not hasattr(resolved, "action_type"):
@@ -1249,7 +1265,7 @@ class Application:
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
             action_resolver=resolve_explicit_protection_action,
-            pre_dispatch_guard=ensure_current_protection_provenance,
+            pre_dispatch_guard=ensure_current_protection_dispatch_provenance,
             state_observer=observe_protection_command_state,
         )
         return execution.execute(decisions)
