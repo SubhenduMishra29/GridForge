@@ -432,6 +432,23 @@ def build_protection_dependency_registry(
                         f"{prefix}: composed RelayBase implementation does not match the configured Protection function."
                     )
                 else:
+                    if (
+                        getattr(runtime_element, "enabled", None) is not element.enabled
+                        or getattr(function, "enabled", None) is not element.enabled
+                        or getattr(function, "blocked", None) is not element.blocked
+                    ):
+                        element_diagnostics.append(
+                            f"{prefix}: composed ProtectionElement/RelayBase enabled or blocked state differs from persisted configuration."
+                        )
+                    add_dependency(
+                        "runtime_function_settings",
+                        element_id,
+                        {
+                            "settings": getattr(function, "settings", {}),
+                            "enabled": getattr(function, "enabled", None),
+                            "blocked": getattr(function, "blocked", None),
+                        },
+                    )
                     add_dependency(
                         "runtime_relay_input_registry",
                         element_id,
