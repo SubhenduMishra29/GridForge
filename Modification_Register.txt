@@ -21781,3 +21781,76 @@ Verification boundary:
   registry descriptor/registry semantics and ProtectionExecutionService
   decision-versus-batch rejection flow.
 - No tests or CI were run.
+
+
+======================================================================
+GF-AUD-157 — LIVE RESIDUAL CT SAMPLE LACKS ATTESTED CURRENT REFERENCE DIRECTION
+======================================================================
+
+Audit finding:
+- The offline/scenario residual-current path requires explicit source
+  provenance including terminal_current_reference_direction,
+  ct_primary_side, ct_positive_current_direction, CT identity/ratio,
+  topology revision and measurement-point identity before normalizing and
+  summing source currents.
+- The live MeasurementSampleAttestation authenticates producer/project/
+  activation/channel identity, timestamp domain, sequence, quality and
+  availability, and the verifier authenticates the sample value. It does
+  not carry a typed current-reference direction or CT-secondary positive
+  direction contract.
+- MeasurementChannel stores source CT identity, source terminal identity,
+  engineering unit, scale and polarity. Its positive/negative channel
+  polarity is a scalar conversion factor; it does not declare whether the
+  producer's positive raw current means current into or out of S1/S2.
+- ProtectionMeasurementBinding persists the CT primary-side association
+  (P1/P2), but that alone does not prove the sign convention of the
+  producer's CT-secondary sample. A source-terminal identity alone also
+  does not establish the producer's signed current reference.
+- Consequently, live A/B/C residual phasors cannot yet be proven to share
+  one physical current reference direction. Applying CT ratio, channel
+  scale and polarity without that proof could produce a numerically valid
+  but electrically reversed or inconsistent residual sum. The same issue
+  applies to direct Neutral CT/CBCT source samples.
+
+Required correction contract:
+- Add a typed, persisted measurement-channel/producer contract for the
+  positive current reference at the CT secondary interface (including the
+  declared S1/S2 terminal and whether positive current is into or out of
+  that terminal).
+- Bind the attested sample to that exact source-reference contract; the
+  producer signature must cover the value and the relevant sample identity,
+  while Application verifies the reference contract against the active CT,
+  configured secondary terminal, CT polarity, persisted P1/P2 association,
+  source equipment terminal and measurement binding.
+- Derive one canonical monitored-equipment current direction and reject
+  any source whose sign cannot be proven. Do not infer sign from channel
+  polarity alone or from an unverified producer label.
+- Preserve raw CT-secondary amperes as the normalization input and apply
+  channel scale/polarity and CT ratio exactly once. Keep sample timestamp,
+  timestamp domain, quality, availability, usability, validity and producer
+  sequence in the sealed per-element snapshot.
+- For THREE_PHASE_SUM, require A/B/C source timestamps in one trusted clock
+  domain and an explicit coherent-acquisition policy; exact timestamp
+  equality may be used as the conservative initial policy. Require all
+  three normalized phasors to share the same canonical reference direction.
+- Keep 50N/51N descriptors incomplete and non-dispatchable until this
+  physical reference-direction and live-sample snapshot contract is
+  implemented end-to-end.
+
+Implementation status:
+- Audit only. No source code change made for this finding.
+- Existing live 50N/51N incomplete-descriptor safeguard from GF-AUD-154
+  remains active; no residual-current dispatch is authorized.
+
+Verification boundary:
+- Inspected MeasurementSampleAttestation and MeasurementChannelService
+  publication/verification, MeasurementChannel raw/engineering value and
+  source-terminal semantics, ProtectionMeasurementBinding CT primary-side
+  identity, CTPolarity definitions, and the scenario residual-current
+  provenance/normalization requirements.
+- Static source inspection only. No tests or CI were run.
+
+Scope:
+- Issue #1070 / PR #1076 — live residual-current sample provenance.
+- Blocks completion of GF-AUD-154 and live 50N/51N dispatch.
+======================================================================
