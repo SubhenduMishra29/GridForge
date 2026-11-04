@@ -20920,3 +20920,39 @@ The independent instrumentation/Protection-equipment batch in PR #1072 does not 
 - #1068: physical topology/switching revision and topology-derived Protection consumers.
 - #1070: CT/PT/CVT instrumentation, Relay Protection-equipment, Protection configuration and source availability freshness.
 Do not merge these revision domains or treat completion of one issue as closure of the other.
+
+
+======================================================================
+PROTECTION MEASUREMENT TERMINAL ROLE VALIDATION — GF-AUD-140
+Date: 2026-11-04
+======================================================================
+
+Finding:
+The Application-owned live/scenario CT/PT/CVT source-availability helper
+verified that MeasurementChannel.source_terminal.equipment_id matched the
+canonical instrument ID, but did not verify that the terminal was a
+measurement-side secondary terminal. A descriptor for a primary terminal
+on the same instrument could therefore pass this specific source-identity
+gate.
+
+Correction:
+- CT channels must identify S1 or S2.
+- CVT channels must identify X1 or X2.
+- PT channels must identify secondary_a or secondary_b.
+- Matching remains against the active canonical Network instrument object.
+- Instrument service availability remains fail-closed.
+- The rule is enforced in the shared Application source-diagnostic helper,
+  used by live and scenario Protection evaluation.
+- Core terminal ownership and electrical topology are unchanged.
+
+Architecture:
+Application validates measurement provenance. Core retains authoritative
+instrument and terminal models. No Qt/QGraphics dependency or UI-side
+connectivity inference is introduced.
+
+Verification boundary:
+Source-level patch only. No tests, CI, full-module syntax/import checks,
+or live/scenario runtime execution were performed. Confirm the exact
+MeasurementChannel terminal-role serialization contract before merge.
+
+======================================================================
