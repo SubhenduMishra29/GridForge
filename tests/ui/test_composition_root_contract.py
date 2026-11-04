@@ -219,7 +219,7 @@ def test_uncommissioned_relay_does_not_project_function_decision_or_trip():
 
 def test_commissioned_relay_projects_the_configured_function_code():
     configuration = SimpleNamespace(
-        relay_id="R1", function_code="51", input_channel_ids={}
+        element_id="E51", relay_id="R1", function_code="51", input_channel_ids={}
     )
     surface = _ProtectionSurfaceProbe(configurations=(configuration,))
 
