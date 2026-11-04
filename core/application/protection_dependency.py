@@ -631,7 +631,7 @@ def build_protection_dependency_registry(
         if element.action_target_type is not None:
             target_identity = f"{element.action_target_type}:{element.action_target_id}"
             target_fields = {
-                "breaker": ("closed", "in_service", "tripped"),
+                "breaker": ("closed", "in_service"),
                 "switch": ("closed", "in_service"),
                 "disconnector": ("closed", "in_service"),
                 "fuse": ("blown", "in_service"),
