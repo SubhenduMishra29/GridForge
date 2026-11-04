@@ -3915,3 +3915,249 @@ Frozen invariants:
 - All mutating property edits follow UI → Controller → Command → Application → Core → Event → Projection → UI.
 
 **Scope boundary:** research register only. No V2 or V3 source implementation, property schema, unit registry, editor, project schema, tests or CI were changed or run.
+
+
+## 8I-21. Proposed V3 diagnostics, alarms and event-management architecture (2026-11-04)
+
+**Purpose:** define a coherent operator/engineer-facing diagnostics and event model without collapsing fundamentally different records—engineering validation, process alarms, Protection operations, Control execution, measurement quality, device commands/feedback, sequence-of-events (SOE), application faults and audit evidence—into one generic message list.
+
+**Status:** research proposal. This section does not approve a universal alarm engine, event bus, historian implementation, alarm philosophy, priority matrix, retention schedule or operational workflow.
+
+### A. Governing principles
+
+1. **Typed records, shared presentation.** Common filtering, navigation, time display and accessibility may be reused; record semantics, lifecycle and authority remain with the originating domain.
+2. **An event is not automatically an alarm.** An event records an occurrence or state transition. An alarm represents an abnormal condition requiring operator awareness/action under an approved alarm philosophy. A validation finding is not necessarily an operational alarm.
+3. **Acknowledgement is not resolution.** Acknowledging an alarm records operator awareness; it does not clear the process condition, reset a relay, execute a command or repair a fault.
+4. **Clearance is evidence-based.** An alarm returns to normal only when its source condition and configured return-to-normal criteria are satisfied. UI dismissal cannot clear the source condition.
+5. **Shelving/suppression is controlled and visible.** It changes annunciation behavior under an authorized, time-bounded policy; it does not erase the source event or make the condition healthy.
+6. **Preserve chronology and provenance.** Retain source identity, event time, receipt time, time quality, sequence/correlation identity, source revision and relevant domain context.
+7. **Do not fabricate order or precision.** Distributed timestamps may be unsynchronized; preserve time quality and source sequence. Display uncertainty instead of claiming a total order unsupported by evidence.
+8. **Separate detection from presentation.** Domain services determine conditions and typed records; UI projections aggregate and render them without becoming the alarm/Protection/Control authority.
+9. **Fail visibly on data loss.** Missing, delayed, duplicated, out-of-order or invalid event streams are themselves observable diagnostics; absence of a displayed alarm is not proof of healthy operation.
+10. **Safety actions remain domain-controlled.** Acknowledge, shelve, inhibit, reset, trip, close and operate are distinct actions with different permissions and safety implications.
+11. **Historical evidence is immutable or append-corrected.** Corrections, annotations and operator notes add provenance; they do not rewrite the original record.
+12. **Role and context determine presentation, not truth.** Role-specific views may filter or prioritize records but must not hide safety-relevant active conditions in a way that implies they do not exist.
+
+### B. Typed record taxonomy
+
+The following record families must remain distinct in storage/contracts even when displayed in a unified Diagnostics workspace:
+
+| Record family | Meaning and owner | Lifecycle / acknowledgement semantics |
+|---|---|---|
+| Engineering validation finding | Model/configuration/topology violation owned by the validating domain/Application workflow | Open, resolved, superseded or waived under explicit engineering review; not operational alarm acknowledgement |
+| Process alarm | Abnormal process condition defined by approved alarm philosophy and source owner | Active/return-to-normal; acknowledgement and shelving are separate states/actions |
+| Event / state transition | Significant occurrence or state change from a domain/device | Append-only occurrence; may have no acknowledgement |
+| SOE record | Time-ordered discrete state/event evidence, often requiring high-resolution source timestamps | Preserve source sequence and time quality; acknowledgement is not inherent |
+| Protection diagnostic | Relay/input/model/evaluation/decision/operation evidence owned by Protection | Distinguish input invalidity, function blocked, decision, trip output and breaker feedback |
+| Control execution diagnostic | Control cycle, logic evaluation, blocked action, interlock, dispatch and feedback evidence owned by Control | Cycle and action lifecycle; not generic alarm reset |
+| Measurement quality notification | Invalid/stale/substituted/out-of-range/uncertain measurement or channel state owned by Signal/Measurement infrastructure | Quality state and freshness lifecycle; acknowledgement policy is separate if configured as an alarm |
+| Command/actuation/feedback record | Intent, authorization, dispatch, acceptance, acknowledgement and physical feedback | Correlated but distinct typed stages; no stage implies the next |
+| Application/platform diagnostic | UI, persistence, plugin, resource, communication or infrastructure fault | Operational support lifecycle; must not masquerade as process alarm |
+| Audit/change record | User/system action, configuration revision, authorization and outcome | Append-only audit evidence; no alarm acknowledgement semantics |
+| User annotation/operator note | Human-authored contextual information linked to records | Author/time/provenance; never silently changes source record |
+
+One source condition may generate linked records in more than one family. Correlation links do not make those records identical.
+
+### C. Canonical record envelope (candidate)
+
+A typed envelope may provide shared navigation and query fields while preserving family-specific payload schemas:
+
+- Stable record ID and schema/type discriminator.
+- Originating domain, producer/service/device identity and source object identity.
+- Event/occurrence time, source timestamp, receive/ingest time and explicit time-quality/synchronization status.
+- Source-local sequence number where supplied; do not synthesize a source sequence.
+- Severity/priority only where meaningful under the family contract; do not map every record to a universal severity.
+- Typed condition/state, reason code, diagnostic code and structured payload.
+- Configuration/model/topology/instrumentation/Protection/Control revision references as relevant.
+- Correlation/causation references with relation type: caused-by, evaluated-from, command-for, feedback-for, same-operation, supersedes or contextual-only.
+- Lifecycle state and lifecycle transition history where the record family defines one.
+- Acknowledgement actor/time/reason and shelving/inhibition metadata only for applicable record types.
+- Quality/completeness indicators for record delivery and source data.
+- Retention/classification metadata and links to historian/source evidence.
+- Localization key plus stable code/parameters; display text is not the machine identity.
+
+Optional fields remain absent when not applicable. A process alarm must not inherit a meaningless solver revision; a solver warning must not receive a fabricated operator acknowledgement state.
+
+### D. Alarm lifecycle and operator actions
+
+Candidate process-alarm lifecycle:
+1. **Normal:** source condition is below configured alarm activation criteria.
+2. **Active/unacknowledged:** alarm condition is present and has not been acknowledged.
+3. **Active/acknowledged:** operator awareness recorded while condition remains active.
+4. **Return-to-normal/unacknowledged:** condition returned to normal but acknowledgement policy remains unsatisfied.
+5. **Returned-to-normal/acknowledged:** condition has returned and acknowledgement requirement is complete.
+6. **Shelved:** authorized temporary suppression of annunciation, with owner, reason, start and expiry; source condition continues to be evaluated and recorded.
+7. **Out-of-service/inhibited:** explicitly engineered/authorized unavailable alarm state, with scope, reason, approval and restoration evidence.
+
+Lifecycle details are alarm-philosophy-dependent; this is a candidate state model, not a claim that all standards mandate these exact state names.
+
+Action semantics:
+- **Acknowledge:** records awareness for a specific alarm instance/condition and operator identity; does not change the process variable or clear the alarm.
+- **Shelve:** temporarily suppresses annunciation under limits and expiry; alarm remains visible in shelved view and history.
+- **Unshelve/expire:** restores annunciation according to current condition; must not fabricate a new source transition.
+- **Inhibit/out-of-service:** controlled engineering/operational action with explicit authorization, reason, duration/approval and audit; not a normal operator shortcut.
+- **Reset:** only exists when the source device/domain defines a reset operation. It is not synonymous with acknowledge or clear.
+- **Clear/return-to-normal:** determined by source condition and configured deadband/delay/latching semantics; never by dismissing a UI row.
+- **Suppress/filter:** presentation query only unless it invokes an explicitly typed alarm-management action.
+
+### E. Severity, priority and rationalization
+
+- Keep event severity, alarm priority, diagnostic impact and software log level as distinct concepts.
+- Alarm priority should reflect consequence and response urgency under an approved site/project alarm philosophy, not merely the apparent magnitude of a measurement or the source software's log level.
+- Define alarm condition, cause, consequence, required operator response and allowable response time through a rationalization process owned by the project/operator.
+- Avoid uncontrolled alarm floods: provide flood detection, rate/context summaries and filtering while retaining all source records and ensuring critical active alarms remain discoverable.
+- Chattering/debouncing, deadband, on/off delays, latching and state-based suppression are source/configuration semantics; never implement them as ad hoc UI filtering.
+- Acknowledgement state does not lower alarm priority.
+- If priority/rationalization metadata is missing, show it as unconfigured/unknown rather than inventing a priority.
+- Non-alarm events and engineering diagnostics should not inflate alarm counts or alarm-rate KPIs.
+
+### F. Time, ordering and SOE integrity
+
+- Preserve source occurrence time and ingestion/receipt time separately.
+- Carry source clock quality/synchronization status and time-zone/UTC offset semantics; store an unambiguous instant plus the original source representation when required.
+- Use source sequence numbers and device timestamp resolution where available. Do not reorder authoritative SOE evidence solely by UI arrival time.
+- Where clocks differ, present time-quality warnings and avoid false precision in cross-device ordering.
+- Duplicate delivery is handled through stable event identity/idempotency where the producer contract supports it; retain evidence of delivery anomalies.
+- Late-arriving events remain late-arriving evidence; do not rewrite their occurrence time to receipt time.
+- Time-window filters must state which time basis they use: source occurrence, receive time, acknowledgement time or historian ingestion time.
+- Preserve sub-second/high-resolution timestamps supplied by source; do not claim a system-wide resolution without validating end-to-end acquisition and storage.
+- Correlate events across domains using explicit causal/correlation links and bounded time windows, not timestamp proximity alone.
+
+### G. Cross-domain diagnostic relationships
+
+The Diagnostics workspace may provide linked views and a causal timeline, but each event remains owned by its source domain.
+
+**G1. Signal/Measurement**
+- Distinguish sensor fault, channel fault, communication loss, stale sample, bad quality, out-of-range and substituted/estimated value.
+- Show raw/calibrated/processed stage, source channel, calibration/scaling revision, sample timestamp and quality reason.
+- Measurement quality degradation can block Protection/Control inputs; display the actual consumer impact through typed dependency/evaluation evidence.
+- A stale or invalid measurement must not be transformed into a healthy numeric value for display.
+
+**G2. Protection**
+- Distinguish relay self-diagnostic, invalid/missing input, stale measurement, unsupported function/model coverage, evaluation blocked, ProtectionDecision, trip signal/command, dispatch result and breaker/device feedback.
+- Preserve function ID/code, relay identity, measurement provenance and relevant topology/instrumentation/Protection revisions.
+- A Protection decision is not an alarm acknowledgement; a trip output is not proof that a breaker opened.
+- Historical Protection evidence remains immutable and is not reset by changing current settings.
+
+**G3. Control**
+- Distinguish cycle started/completed, condition true/false/unknown, interlock block, action requested, command authorized/rejected, dispatch, acknowledgement and feedback.
+- Show why an action was blocked and the exact inputs/quality/revisions used.
+- Do not infer successful physical operation from a logic output or command dispatch.
+- Control execution history is not a generic process alarm state machine.
+
+**G4. Electrical/SLD and topology**
+- Topology/connection validation findings are engineering diagnostics; they do not automatically become operational alarms.
+- Show affected equipment/terminal/network identities and topology revision.
+- A topology edit may invalidate dependent calculations or associations; surface typed stale/invalidation evidence without rewriting past results.
+
+**G5. Studies**
+- Distinguish solver warning, convergence failure, invalid input, assumption/limitation and result quality.
+- Link diagnostics to run ID, input snapshot, solver version/options and result identity.
+- Study warnings are not live process alarms; historical run diagnostics remain attached to the run.
+
+**G6. Platform**
+- Show persistence failures, event-stream gaps, plugin failures, resource exhaustion and projection errors as platform diagnostics with actionable support context.
+- A platform outage must not be represented as process-normal simply because no new process alarms arrive.
+
+### H. Diagnostics workspace and interaction model
+
+Candidate workspace:
+1. **Active alarms:** active/unacknowledged and active/acknowledged, with priority, source, age, state and response guidance where configured.
+2. **Shelved/out-of-service:** separately visible with owner, reason, expiry and authorization context.
+3. **Recent events/SOE:** chronological evidence with source time quality, sequence and filters.
+4. **Engineering validation:** open/resolved findings grouped by project object/domain/revision.
+5. **Protection and Control:** dedicated operational evidence views with domain-native state semantics.
+6. **Measurement quality:** channel/instrument quality and affected consumers.
+7. **Platform diagnostics:** application/infrastructure faults and stream health.
+8. **Record details:** structured payload, provenance, related records, revisions, lifecycle history and permitted actions.
+
+Interaction requirements:
+- Filters support source/domain, object, record family, lifecycle, priority (where applicable), time basis/range, quality, project/workspace and correlation ID.
+- Search uses stable IDs/codes as well as localized text.
+- Saved views are query/presentation configuration, not changes to source records.
+- Selecting a record navigates to the owning object/workspace while preserving the original diagnostic context.
+- Related-record navigation explains relation type; correlation-only links are not labelled causal.
+- Bulk acknowledgement/shelving, if supported, must display exact eligible record count, excluded types, target scope and outcome; never apply an alarm action to validation findings or events.
+- Refresh/reconnect indicates stream freshness and gaps; no-data, disconnected and healthy-with-no-events are distinct states.
+- Acknowledge/shelve controls are available only for typed alarm records and permitted actors.
+- Detail panes show both concise human explanation and machine-stable code/structured evidence.
+
+### I. Historian, retention and event-stream architecture
+
+- Domain producers own creation of authoritative typed records; Application/platform infrastructure may route/persist them but does not reinterpret their semantics.
+- Historian stores time-series samples and event/alarm/SOE/command/feedback evidence with source identity, time quality, sequence, schema version and provenance.
+- Preserve the distinction between event store, time-series historian, audit log and current-state projections; storage technology may be shared only if contracts preserve semantics and retention requirements.
+- UI reads projections/queries and must not subscribe directly to internal device transports or own durable event ingestion.
+- Event delivery contracts define ordering guarantees, idempotency, retry, replay, gap detection, backpressure and schema evolution.
+- A consumer outage/replay must not duplicate operator actions or mutate historical source records.
+- Persist acknowledgement, shelving, inhibition and operator notes as separate actor-attributed records linked to the alarm/event identity.
+- Retention, archival, export and deletion policies are configurable by record class and applicable regulation/site policy; do not impose one universal retention period.
+- Event schema migration must preserve original source payload or a lossless/traceable representation where required.
+- Provide integrity checks and exportable audit evidence for incident review; never claim cryptographic tamper evidence unless the storage design implements and verifies it.
+
+### J. Candidate acceptance scenarios
+
+| ID | Scenario | Candidate pass evidence |
+|---|---|---|
+| UI-ACC-DIAG-08 | Acknowledge an active alarm | Actor/time recorded; source condition remains active |
+| UI-ACC-DIAG-09 | Alarm returns to normal while unacknowledged | Return-to-normal and acknowledgement states remain distinct |
+| UI-ACC-DIAG-10 | Shelve an alarm | Reason, actor, scope and expiry visible; source event retained |
+| UI-ACC-DIAG-11 | Shelving expires while condition remains active | Annunciation resumes without fabricating a new source transition |
+| UI-ACC-DIAG-12 | Receive out-of-order SOE events | Source time/sequence and time-quality warning preserved |
+| UI-ACC-DIAG-13 | Event stream disconnects | Gap/disconnected state is explicit; silence is not shown as healthy |
+| UI-ACC-DIAG-14 | Measurement becomes stale | Quality/freshness and affected Protection/Control consumers are visible |
+| UI-ACC-DIAG-15 | Protection issues trip decision | Decision, command/dispatch and breaker feedback remain separate |
+| UI-ACC-DIAG-16 | Control action is blocked by interlock | Block reason and input evidence visible; no false command success |
+| UI-ACC-DIAG-17 | Study solver fails convergence | Diagnostic links to immutable run/input snapshot; not an active alarm |
+| UI-ACC-DIAG-18 | Topology edit invalidates a result | Current result is marked stale by dependency evidence; historical result preserved |
+| UI-ACC-DIAG-19 | Bulk acknowledge selected records | Only eligible alarm records affected; excluded types and outcomes reported |
+| UI-ACC-DIAG-20 | Search by stable diagnostic code | Correct source record found independent of localized display text |
+| UI-ACC-DIAG-21 | Navigate from alarm to equipment | Owner workspace opens with diagnostic context and source revision preserved |
+| UI-ACC-DIAG-22 | Historian replay after consumer restart | Idempotent replay; no duplicate source events or repeated operator actions |
+
+These scenarios extend the earlier diagnostics scenarios in 8I-11. They are candidates, not approved release criteria or evidence of current conformance.
+
+### K. Standards and governance references requiring project verification
+
+- ISA-18.2 and IEC 62682 are relevant alarm-management lifecycle references for process-industry alarm systems. Exact applicable edition, jurisdiction, scope and licensed text must be verified before normative requirements are encoded.
+- ISA-101 is relevant to human-machine interface design and operator display lifecycle; its applicability and exact edition must be confirmed for each deployment.
+- IEC 61850 event/reporting and time-synchronization mechanisms may be relevant to substation automation integration; do not assume every GridForge event uses IEC 61850 semantics.
+- IEC 60255 relay requirements and applicable device/protection standards inform Protection device/function diagnostics, but do not define the entire application diagnostics taxonomy.
+- IEC 62443 security lifecycle principles are relevant to authorization, audit, role separation and secure operational actions; exact system security requirements require a threat/risk assessment.
+- Standards catalogue verification, edition, clause mapping and licensing are explicit evidence tasks. This section does not claim clause-level compliance.
+
+### L. Open decisions and evidence required
+
+1. Establish V3 repository/branch/commit and inventory existing diagnostic, alarm, event, SOE, audit and historian contracts.
+2. Identify domain producers and authoritative source for every record family; document current gaps and duplicate producers.
+3. Approve project/site alarm philosophy, rationalization, priority, shelving, inhibition and response policy before defining operational alarm behavior.
+4. Define timestamp/time-quality and sequence contracts across physical devices, simulated devices, acquisition, event transport and historian.
+5. Define event delivery guarantees: identity, idempotency, ordering, replay, gap detection, retention and schema evolution.
+6. Define separate lifecycle state machines and actor permissions for alarms, validation findings, Control actions, Protection evidence and platform diagnostics.
+7. Determine whether event store, historian, audit and projections share infrastructure while preserving independent retention/integrity contracts.
+8. Define correlation/causation relation types and rules for cross-domain trace; do not infer causality from time proximity.
+9. Define alarm flood/chatter handling and KPI semantics with operator stakeholders.
+10. Define bulk acknowledgement/shelving authorization and safety boundaries.
+11. Verify applicable ISA/IEC editions, clauses, licences and deployment scope with the standards catalogue owner.
+12. Obtain explicit disposition for UI-GATE-03, UI-GATE-04, UI-GATE-06 and UI-GATE-07 before implementation.
+
+### M. Gate disposition and frozen invariants
+
+**UI-GATE-03, UI-GATE-04, UI-GATE-06 and UI-GATE-07 remain Open** for diagnostics, accessibility, cross-domain traceability and scope/priority decisions implicated here. Other gates retain their previously recorded status.
+
+Frozen invariants:
+- Domain owners create and interpret typed diagnostics; shared UI presentation does not merge authority or lifecycle.
+- Events, alarms, validation findings, SOE, Protection records, Control records, measurement quality, platform diagnostics and audit records remain distinct.
+- Acknowledgement is not clearance, reset, command acceptance or physical feedback.
+- Shelving/inhibition never erases source evidence or changes a condition to healthy.
+- Alarm priority is governed by an approved alarm philosophy, not generic software log severity.
+- Source occurrence time, receipt time, sequence and time quality remain distinguishable.
+- No false total ordering or fabricated timestamp precision is introduced.
+- ProtectionDecision, DeviceCommand/dispatch, acknowledgement and DeviceFeedback remain separate correlated records.
+- Control cycle/interlock/blocked-action evidence remains Control-owned and cannot be reduced to generic alarm status.
+- Measurement quality/freshness is explicit and its impact on consumers is traceable.
+- Historical records and Study results are not rewritten by current configuration changes.
+- UI queries/projections do not own durable ingestion or safety-critical state transitions.
+- All mutating actions follow UI → Controller → Command → Application → owning domain → Event → Projection → UI, with typed authorization and audit.
+
+**Scope boundary:** research register only. No V2 or V3 source implementation, alarm engine, event bus, historian, retention policy, alarm philosophy, tests or CI were changed or run.
