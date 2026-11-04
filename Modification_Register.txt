@@ -21854,3 +21854,51 @@ Scope:
 - Issue #1070 / PR #1076 — live residual-current sample provenance.
 - Blocks completion of GF-AUD-154 and live 50N/51N dispatch.
 ======================================================================
+
+======================================================================
+GF-CONTROL-MEASUREMENT-1031 — RECONCILIATION ON CURRENT MAIN
+======================================================================
+
+Date:
+    2026-11-04
+
+Branch:
+    reconcile/control-measurement-1054 (based on current main after PR #1076)
+
+Reconciliation:
+    - Ported Control measurement input snapshots, semantic destination
+      constraints, mapping schema v2/v1 read compatibility, freshness and
+      clock-domain validation, mandatory sample sequence, bounded-age
+      interlock semantics, typed dynamic adapter metadata, and Inspector
+      MeasurementChannel source discovery onto a branch based on current main.
+    - Added Application MeasurementChannel read-model/read-service boundary,
+      Control cycle wiring, trusted live clock-domain anchoring, and detached
+      Dynamic Control cycle orchestration.
+    - Reapplied the Control-only source changes as focused patches; did not
+      replace shared Application or package files wholesale.
+    - Preserved current main Protection dependency registry and selective
+      decision-guard changes from PR #1076. Protection preparation/relay
+      snapshot changes from the stale PR branch were not blindly copied.
+
+Boundaries / remaining:
+    - DynamicControlCycleService rejects live MeasurementChannel sources
+      for offline/transient simulation until a study-scoped simulation-clock
+      snapshot contract exists.
+    - Dynamic Control is not yet integrated into the production transient
+      DAE combined machine/controller state vector. Issue #1055 remains open.
+    - DynamicControlAssociation input/output mappings still require a
+      canonical translation/precedence contract against ControlSignalMapping.
+    - Full producer-to-action provenance, UI lifecycle interaction review,
+      save/reload mapping verification, caller migration and source/import
+      integrity review remain pending.
+    - This is a reconciliation branch checkpoint, not a merge or production
+      acceptance claim. PR #1054 remains draft until the remaining contracts
+      are resolved and the branch is reviewed.
+
+Verification:
+    - Unified-diff hunk applicability checked against current main for the
+      independently ported Control modules before writing them.
+    - Shared read-model/read-service and Application composition changes
+      were manually reconciled around newer main content.
+    - No tests or CI were run, per repository instruction.
+======================================================================
