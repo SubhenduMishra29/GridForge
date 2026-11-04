@@ -39,7 +39,7 @@ class ProtectionGraphicsNode(QGraphicsRectItem):
     def __init__(self, object_id: str, title: str, x: float, y: float,
                  width: float = 150.0, *, kind: str = "object",
                  relay_id: str | None = None, input_name: str | None = None,
-                 channel_id: str | None = None) -> None:
+                 channel_id: str | None = None, element_id: str | None = None) -> None:
         super().__init__(0.0, 0.0, width, 52.0)
         self.setPos(float(x), float(y))
         self.object_id = str(object_id)
@@ -48,6 +48,7 @@ class ProtectionGraphicsNode(QGraphicsRectItem):
         self.relay_id = relay_id
         self.input_name = input_name
         self.channel_id = channel_id
+        self.element_id = element_id
         self.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setToolTip(f"{self.title}\nID: {self.object_id}")
 
@@ -105,98 +106,146 @@ class ProtectionGraphicsSurface(QGraphicsView):
             configuration_by_relay.setdefault(str(configuration.relay_id), []).append(configuration)
 
         for relay_index, relay in enumerate(protection.relays):
-            base_y = 30.0 + relay_index * 210.0
-            relay_configs = configuration_by_relay.get(str(relay.object_id), ())
-            input_names: list[str] = []
-            for configuration in relay_configs:
-                for input_name in configuration.input_channel_ids:
-                    if input_name not in input_names:
-                        input_names.append(str(input_name))
-
-            input_nodes: list[ProtectionGraphicsNode] = []
-            for index, input_name in enumerate(input_names):
-                channel_id = None
-                for configuration in relay_configs:
-                    channel_id = configuration.input_channel_ids.get(input_name)
-                    if channel_id:
-                        break
-                input_node = self._add_node(
-                    f"{relay.object_id}:input:{input_name}",
-                    f"RELAY INPUT\n{input_name}\n{channel_id or 'UNBOUND'}",
-                    285.0, base_y + index * 62.0,
-                    170.0,
-                    kind="relay_input",
-                    relay_id=str(relay.object_id),
-                    input_name=input_name,
-                    channel_id=str(channel_id) if channel_id else None,
+            relay_id = str(relay.object_id)
+            relay_configs = tuple(sorted(
+                configuration_by_relay.get(relay_id, ()),
+                key=lambda item: str(item.element_id),
+            ))
+            base_y = 30.0 + relay_index * max(
+                210.0,
+                sum(max(145.0, 80.0 + len(item.input_channel_ids) * 62.0) for item in relay_configs) + 80.0,
+            )
+            if not relay_configs:
+                relay_node = self._add_node(
+                    relay_id,
+                    f"RELAY\n{relay.name}\n{relay.function_type}",
+                    510.0, base_y + 30.0, 175.0,
+                    kind="relay",
                 )
-                input_nodes.append(input_node)
-                if channel_id:
+                status_node = self._add_node(
+                    f"{relay_id}:configuration",
+                    "PROTECTION NOT COMMISSIONED\nNO FUNCTION CONFIGURATION",
+                    735.0, base_y + 30.0, 260.0,
+                    kind="configuration_status",
+                    relay_id=relay_id,
+                )
+                self._link(
+                    relay_node,
+                    status_node,
+                    connection_id=f"{relay_id}->configuration",
+                )
+                continue
+
+            decisions_by_element = {
+                str(decision.element_id): decision
+                for decision in getattr(relay, "element_decisions", ())
+                if str(decision.relay_id) == relay_id
+            }
+            legacy_decision = getattr(relay, "decision", None)
+            if (
+                not decisions_by_element
+                and len(relay_configs) == 1
+                and legacy_decision is not None
+                and str(getattr(legacy_decision, "element_id", "")) == str(relay_configs[0].element_id)
+            ):
+                decisions_by_element[str(relay_configs[0].element_id)] = legacy_decision
+
+            total_height = sum(
+                max(145.0, 80.0 + len(configuration.input_channel_ids) * 62.0)
+                for configuration in relay_configs
+            )
+            relay_node_y = base_y + max(30.0, (total_height - 52.0) / 2.0)
+            relay_node = self._add_node(
+                relay_id,
+                f"RELAY\n{relay.name}\n{relay.function_type}",
+                510.0, relay_node_y, 175.0,
+                kind="relay",
+            )
+
+            row_y = base_y
+            for configuration in relay_configs:
+                element_id = str(configuration.element_id)
+                row_height = max(145.0, 80.0 + len(configuration.input_channel_ids) * 62.0)
+                input_nodes: list[ProtectionGraphicsNode] = []
+                for input_index, (input_name, channel_id) in enumerate(
+                    sorted(configuration.input_channel_ids.items())
+                ):
+                    input_y = row_y + 20.0 + input_index * 58.0
+                    input_node_id = f"{relay_id}:element:{element_id}:input:{input_name}"
+                    input_node = self._add_node(
+                        input_node_id,
+                        f"RELAY INPUT\n{input_name}\n{channel_id}",
+                        285.0, input_y, 170.0,
+                        kind="relay_input",
+                        relay_id=relay_id,
+                        element_id=element_id,
+                        input_name=str(input_name),
+                        channel_id=str(channel_id),
+                    )
+                    input_nodes.append(input_node)
                     source_node = self._nodes.get(str(channel_id))
                     if source_node is None:
                         source_node = self._add_node(
                             str(channel_id),
                             f"MEASUREMENT CHANNEL\n{channel_id}",
-                            30.0, base_y + index * 62.0,
-                            190.0,
+                            30.0, input_y, 190.0,
                             kind="measurement_channel",
                             channel_id=str(channel_id),
                         )
-                    self._link(source_node, input_node, connection_id=f"{channel_id}->{relay.object_id}:{input_name}")
+                    self._link(
+                        source_node,
+                        input_node,
+                        connection_id=f"{channel_id}->{relay_id}:element:{element_id}:{input_name}",
+                    )
+                    self._link(
+                        input_node,
+                        relay_node,
+                        connection_id=f"{relay_id}:element:{element_id}:{input_name}->{relay_id}",
+                    )
 
-            relay_node = self._add_node(
-                str(relay.object_id),
-                f"RELAY\n{relay.name}\n{relay.function_type}",
-                510.0, base_y + 30.0, 175.0,
-                kind="relay",
-            )
-            for input_node in input_nodes:
-                self._link(input_node, relay_node, connection_id=f"{input_node.object_id}->{relay.object_id}")
-
-            # A physical Relay is not itself an executable protection function.
-            # Only project-scoped ProtectionFunctionConfiguration entries
-            # commission functions for it. Do not draw a decision/trip chain
-            # from the Relay's descriptive function_type when none is configured.
-            if not relay_configs:
-                status_node = self._add_node(
-                    f"{relay.object_id}:configuration",
-                    "PROTECTION NOT COMMISSIONED\nNO FUNCTION CONFIGURATION",
-                    735.0, base_y + 30.0, 260.0,
-                    kind="configuration_status",
-                    relay_id=str(relay.object_id),
+                function_y = row_y + max(30.0, (row_height - 52.0) / 2.0)
+                function_node = self._add_node(
+                    f"{relay_id}:element:{element_id}:function",
+                    f"PROTECTION ELEMENT\n{configuration.function_code}\n{element_id}",
+                    735.0, function_y, 190.0,
+                    kind="function",
+                    relay_id=relay_id,
+                    element_id=element_id,
+                )
+                decision = decisions_by_element.get(element_id)
+                decision_text = self._decision_text(decision) if decision is not None else "NOT EVALUATED"
+                decision_node = self._add_node(
+                    f"{relay_id}:element:{element_id}:decision",
+                    f"DECISION\n{decision_text}",
+                    980.0, function_y, 165.0,
+                    kind="decision",
+                    relay_id=relay_id,
+                    element_id=element_id,
+                )
+                trip_node = self._add_node(
+                    f"{relay_id}:element:{element_id}:trip",
+                    "TRIP REQUEST\nAPPLICATION BOUNDARY",
+                    1210.0, function_y, 190.0,
+                    kind="trip_output",
+                    relay_id=relay_id,
+                    element_id=element_id,
                 )
                 self._link(
                     relay_node,
-                    status_node,
-                    connection_id=f"{relay.object_id}->configuration",
+                    function_node,
+                    connection_id=f"{relay_id}->element:{element_id}:function",
                 )
-                continue
-
-            configured_functions = ", ".join(
-                sorted({str(item.function_code) for item in relay_configs})
-            )
-            function_node = self._add_node(
-                f"{relay.object_id}:function",
-                f"CONFIGURED PROTECTION\n{configured_functions}",
-                735.0, base_y + 30.0, 190.0,
-                kind="function",
-                relay_id=str(relay.object_id),
-            )
-            decision_node = self._add_node(
-                f"{relay.object_id}:decision",
-                f"DECISION\n{self._decision_text(relay)}",
-                980.0, base_y + 30.0, 165.0,
-                kind="decision",
-            )
-            trip_node = self._add_node(
-                f"{relay.object_id}:trip",
-                "TRIP OUTPUT\nAPPLICATION BOUNDARY",
-                1210.0, base_y + 30.0, 190.0,
-                kind="trip_output",
-            )
-            self._link(relay_node, function_node, connection_id=f"{relay.object_id}->function")
-            self._link(function_node, decision_node, connection_id=f"{relay.object_id}->decision")
-            self._link(decision_node, trip_node, connection_id=f"{relay.object_id}->trip")
+                self._link(
+                    function_node,
+                    decision_node,
+                    connection_id=f"{relay_id}:element:{element_id}:decision",
+                )
+                self._link(
+                    decision_node,
+                    trip_node,
+                    connection_id=f"{relay_id}:element:{element_id}:trip",
+                )
+                row_y += row_height
 
         if self._scene.items():
             self.fitInView(self._scene.itemsBoundingRect().adjusted(-30, -30, 30, 30))
