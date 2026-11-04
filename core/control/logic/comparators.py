@@ -13,7 +13,7 @@ from .base import LogicControlComponent, LogicControlResult
 class UndervoltageComparator(LogicControlComponent):
     """Assert a Boolean trip output when a numeric voltage is below pickup."""
 
-    def __init__(self, component_id: str, *, pickup: float) -> None:
+    def __init__(self, component_id: str, *, pickup: float, pickup_unit: str | None = None) -> None:
         component_id = str(component_id).strip()
         if not component_id:
             raise ValueError("UndervoltageComparator component_id cannot be empty.")
@@ -22,6 +22,11 @@ class UndervoltageComparator(LogicControlComponent):
             raise ValueError("UndervoltageComparator pickup must be finite.")
         self._component_id = component_id
         self._pickup = pickup
+        if pickup_unit is not None:
+            pickup_unit = str(pickup_unit).strip()
+            if pickup_unit.casefold() not in {"v", "kv", "mv", "pu"}:
+                raise ValueError("UndervoltageComparator pickup_unit must be V, kV, mV or pu.")
+        self._pickup_unit = pickup_unit
 
     @property
     def component_id(self) -> str:
@@ -77,9 +82,34 @@ class UndervoltageComparator(LogicControlComponent):
         """Evaluate one canonical, detached Measurement-to-Control input."""
         if not isinstance(control_input, ControlInput):
             raise TypeError("control_input must be a ControlInput.")
-        if not control_input.is_usable:
+        if not control_input.is_usable_at(
+            simulation_time,
+            require_freshness=True,
+        ):
             raise ValueError(
-                f"ControlInput '{control_input.source_id}' is not usable for undervoltage evaluation."
+                f"ControlInput '{control_input.source_id}' is unavailable, invalid, "
+                "future-dated, stale, or missing a timestamp for undervoltage evaluation."
+            )
+        if control_input.signal_type is None or control_input.signal_type.value != "VOLTAGE":
+            actual = control_input.signal_type.value if control_input.signal_type is not None else "unspecified"
+            raise TypeError(
+                f"ControlInput '{control_input.source_id}' has signal type "
+                f"{actual}; VOLTAGE is required."
+            )
+        if control_input.phase.value == "NONE":
+            raise ValueError(
+                f"UndervoltageComparator requires an explicit voltage phase/basis for "
+                f"Measurement '{control_input.source_id}'."
+            )
+        if self._pickup_unit is None:
+            raise ValueError(
+                "UndervoltageComparator requires pickup_unit so the pickup and measurement "
+                "use the same engineering basis."
+            )
+        if control_input.unit.strip().casefold() != self._pickup_unit.casefold():
+            raise ValueError(
+                f"UndervoltageComparator pickup unit is {self._pickup_unit!r}, but Measurement "
+                f"'{control_input.source_id}' uses {control_input.unit!r}; implicit conversion is not permitted."
             )
         if isinstance(control_input.value, complex):
             raise TypeError("UndervoltageComparator requires a real numeric ControlInput value.")
