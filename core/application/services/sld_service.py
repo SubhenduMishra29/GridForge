@@ -132,6 +132,16 @@ class SLDService:
                     "reason": f"unsupported_lifecycle_state:{lifecycle}",
                 })
                 continue
+            try:
+                connection.validate()
+            except (TypeError, ValueError) as exc:
+                diagnostics.append({
+                    "code": "ENDPOINT_MISMATCH",
+                    "connection_id": str(connection.connection_id),
+                    "core_connection_id": None if core_id is None else str(core_id),
+                    "reason": f"invalid_sld_endpoint_node_identity:{exc}",
+                })
+                continue
             if not core_id:
                 diagnostics.append({
                     "code": "SLD_WIRE_WITHOUT_CORE",
