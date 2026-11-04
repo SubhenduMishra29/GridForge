@@ -35,6 +35,7 @@ from core.analysis.transient_stability import TransientStabilityAnalysis, Transi
 from core.network import Network
 from core.model.breaker import Breaker
 from core.persistence import ProjectPersistenceService, StudyResultArchive
+from core.persistence.project_package import normalize_package_path
 from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.control.configuration import ControlConfiguration
 from core.application.control_signal_mapping import ControlSignalMapping
@@ -883,4 +884,84 @@ def create_application(
     return application
 
 
-__all__ = ["create_application"]
+def recover_application(
+    degraded_application: Application,
+    project_path: str | Path,
+    *,
+    measurement_source_verifier: Callable[[MeasurementSampleAttestation, Any, float | complex], bool] | None = None,
+    measurement_clock: Callable[[], float] | None = None,
+    measurement_clock_domain: str | None = None,
+    max_measurement_source_clock_skew_seconds: float = 2.0,
+    synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
+) -> Application:
+    """Compose a replacement Application from the last canonical saved package.
+
+    The supplied Application must already report recovery_required. It is never
+    reset, reopened, or otherwise mutated. A new Network, CommandManager,
+    CommandHistory, services, and Application are composed first; the canonical
+    package is then loaded and activated through the ordinary transactional
+    project lifecycle. The replacement is returned only after its project
+    identity, lifecycle state, and clean command boundary are verified.
+
+    UI/application-shell owners must swap to the returned instance only after
+    this function succeeds. On any failure the old instance remains the
+    authoritative read-only diagnostic object and no replacement is returned.
+    Unsaved recovery artifacts are deliberately not replayed.
+    """
+    if not isinstance(degraded_application, Application):
+        raise TypeError("degraded_application must be an Application instance.")
+    before = degraded_application.recovery_status
+    if not before.recovery_required:
+        raise ValueError("The supplied Application does not require recovery.")
+    if before.project_id is None:
+        raise RuntimeError(
+            "Recovery requires an identified active project; refusing to activate an unrelated package."
+        )
+    target = normalize_package_path(project_path)
+    if not target.is_dir():
+        raise FileNotFoundError(f"Canonical GridForge project package does not exist: {target}")
+
+    replacement = create_application(
+        Network(),
+        measurement_source_verifier=measurement_source_verifier,
+        measurement_clock=measurement_clock,
+        measurement_clock_domain=measurement_clock_domain,
+        max_measurement_source_clock_skew_seconds=max_measurement_source_clock_skew_seconds,
+        synchronism_bypass_provider=synchronism_bypass_provider,
+    )
+    try:
+        # ProjectPersistenceService.load() performs manifest/schema/migration,
+        # Core deserialization, SLD association, and cross-domain validation.
+        context = replacement.open_project(str(target), decision="discard")
+        status = replacement.recovery_status
+        if status.recovery_required or status.command_integrity_state != "CLEAN":
+            raise RuntimeError("Replacement Application did not establish a clean command boundary.")
+        if status.project_lifecycle_state != "ACTIVE":
+            raise RuntimeError(
+                f"Replacement project lifecycle is not ACTIVE: {status.project_lifecycle_state!r}."
+            )
+        if context.project_id != status.project_id:
+            raise RuntimeError("Replacement project identity does not match its recovery status.")
+        if context.project_id != before.project_id:
+            raise RuntimeError(
+                "Canonical package project identity does not match the degraded Application's project."
+            )
+        if context.path is None or Path(context.path).resolve() != target.resolve():
+            raise RuntimeError("Replacement Application activated a different project package.")
+        after = degraded_application.recovery_status
+        if (
+            after.command_integrity_state != before.command_integrity_state
+            or after.project_lifecycle_state != before.project_lifecycle_state
+            or after.project_id != before.project_id
+            or after.activation_generation != before.activation_generation
+        ):
+            raise RuntimeError("The degraded Application changed during replacement composition.")
+        return replacement
+    except BaseException:
+        # No worker has been submitted during composition. Shut down the fresh
+        # facade's executor so a failed candidate does not retain resources.
+        replacement._commit_executor.shutdown(wait=False, cancel_futures=True)
+        raise
+
+
+__all__ = ["create_application", "recover_application"]

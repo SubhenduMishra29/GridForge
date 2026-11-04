@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from .application import Application
-from .bootstrap import create_application
+from .bootstrap import create_application, recover_application
 from .dynamic_control_cycle import DynamicControlCycleResult, DynamicControlCycleService
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_dispatch import (
@@ -88,6 +88,7 @@ from .services.validation_service import ValidationService
 __all__ = [
     "Application",
     "create_application",
+    "recover_application",
     "ControlDiagnostic",
     "ControlCycleResult",
     "ControlCycleService",
