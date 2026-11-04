@@ -218,6 +218,15 @@ class ControlApplicationService:
         if source_rung is None:
             raise ValueError(f"Control component '{component_id}' is not placed in a Ladder rung.")
         position = next(e.position for e in source_rung.elements if e.component_id == component_id)
+        referenced_bindings = tuple(
+            binding.control_id for binding in self.action_bindings
+            if binding.source_component == component_id
+        )
+        if referenced_bindings:
+            raise ValueError(
+                f"Cannot remove Control component '{component_id}'; it is referenced by "
+                f"action binding(s): {', '.join(referenced_bindings)}."
+            )
         affected_connections = tuple(c for c in engine.connections() if c.source_component == component_id or c.target_component == component_id)
         affected_dependencies = tuple(d for d in engine.explicit_dependencies() if d.source_component == component_id or d.target_component == component_id)
         component = record.component
@@ -277,7 +286,11 @@ class ControlApplicationService:
             raise ValueError(f"Control action binding '{binding.control_id}' already exists.")
         previous = self.action_bindings
         self._configuration.action_bindings = previous + (binding,)
-        self._configuration.validate()
+        try:
+            self._configuration.validate()
+        except Exception:
+            self._configuration.action_bindings = previous
+            raise
         transaction.record_undo(lambda: setattr(self._configuration, "action_bindings", previous))
         return ApplicationResult.success_result(
             value=binding,
@@ -306,7 +319,11 @@ class ControlApplicationService:
         if any(item.interlock_id == configuration.interlock_id for item in previous):
             raise ValueError(f"Control interlock '{configuration.interlock_id}' already exists.")
         self._configuration.interlocks = previous + (configuration,)
-        self._configuration.validate()
+        try:
+            self._configuration.validate()
+        except Exception:
+            self._configuration.interlocks = previous
+            raise
         transaction.record_undo(lambda: setattr(self._configuration, "interlocks", previous))
         return ApplicationResult.success_result(
             value=configuration,
@@ -336,7 +353,11 @@ class ControlApplicationService:
         if any(item.association_id == association.association_id for item in previous):
             raise ValueError(f"Dynamic Control association '{association.association_id}' already exists.")
         self._configuration.dynamic_control_associations = previous + (association,)
-        self._configuration.validate()
+        try:
+            self._configuration.validate()
+        except Exception:
+            self._configuration.dynamic_control_associations = previous
+            raise
         transaction.record_undo(lambda: setattr(self._configuration, "dynamic_control_associations", previous))
         return ApplicationResult.success_result(
             value=association,
@@ -392,29 +413,52 @@ class ControlApplicationService:
         old_state = dict(self.program.engine.state(component_id))
         old_order = record.order
         connections = tuple(c for c in self.program.connections() if c.source_component == component_id or c.target_component == component_id)
-        dependencies = tuple(d for d in self.program.dependencies() if d.source_component == component_id or d.target_component == component_id)
+        dependencies = tuple(d for d in self.program.engine.explicit_dependencies() if d.source_component == component_id or d.target_component == component_id)
         configuration = dict(payload.get("configuration") or {})
         component_type = str(payload.get("component_type") or old_component.component_type)
-        self.program.remove_component(component_id)
+        # Construct before removing the active component: constructor/configuration
+        # errors must leave the committed LadderProgram untouched.
         replacement = self._create_component(component_id, component_type, configuration)
-        self.program.restore_component(
-            replacement, rung_id=rung.rung_id, position=position,
-            order=old_order, state=old_state,
+        replacement_outputs = set(replacement.output_names)
+        orphaned_bindings = tuple(
+            binding.control_id for binding in self.action_bindings
+            if binding.source_component == component_id
+            and binding.source_output not in replacement_outputs
         )
-        for connection in connections:
-            self.program.engine.connect(
-                connection.source_component, connection.source_output,
-                connection.target_component, connection.target_input,
-            )
-        for dependency in dependencies:
-            self.program.engine.add_dependency(
-                dependency.source_component, dependency.target_component,
+        if orphaned_bindings:
+            raise ValueError(
+                f"Cannot reconfigure Control component '{component_id}'; replacement "
+                f"does not provide output(s) required by action binding(s): "
+                f"{', '.join(orphaned_bindings)}."
             )
 
-        def restore(component=old_component):
-            self.program.remove_component(component_id)
+        def restore(component):
+            current = next(
+                (item for item in self.program.engine.records()
+                 if item.component_id == component_id),
+                None,
+            )
+            if current is not None:
+                self.program.remove_component(component_id)
             self.program.restore_component(
                 component, rung_id=rung.rung_id, position=position,
+                order=old_order, state=old_state,
+            )
+            for connection in connections:
+                self.program.engine.connect(
+                    connection.source_component, connection.source_output,
+                    connection.target_component, connection.target_input,
+                )
+            for dependency in dependencies:
+                if dependency not in self.program.engine.explicit_dependencies():
+                    self.program.engine.add_dependency(
+                        dependency.source_component, dependency.target_component,
+                    )
+
+        self.program.remove_component(component_id)
+        try:
+            self.program.restore_component(
+                replacement, rung_id=rung.rung_id, position=position,
                 order=old_order, state=old_state,
             )
             for connection in connections:
@@ -426,8 +470,12 @@ class ControlApplicationService:
                 self.program.engine.add_dependency(
                     dependency.source_component, dependency.target_component,
                 )
+        except Exception:
+            # Local recovery is required before the outer transaction has an undo.
+            restore(old_component)
+            raise
 
-        transaction.record_undo(restore)
+        transaction.record_undo(lambda: restore(old_component))
         return ApplicationResult.success_result(
             value=replacement,
             message=f"Control component '{component_id}' configured.",
