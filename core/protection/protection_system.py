@@ -624,8 +624,9 @@ class ProtectionSystem:
         self,
     ) -> tuple[ProtectionDecision, ...]:
         """
-        Return decisions from the most recently successfully
-        committed evaluation cycle.
+        Return still-eligible decisions from the most recently successfully
+        committed evaluation cycle. Decisions explicitly invalidated by
+        element dependency changes are omitted.
         """
 
         return self._last_decisions
