@@ -6560,3 +6560,287 @@ All affected gates remain open. This section does not freeze the taxonomy, param
 - No catalogue, family, parameter or model scope is approved for implementation solely by this research entry.
 
 **Scope boundary:** research register only. No equipment family, schema, catalogue dataset, product record, UI library, parameter database, plugin, model, migration, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
+
+
+## 8I-30. Proposed V3 electrical network topology and connectivity architecture (2026-11-04)
+
+### A. Purpose and governing model
+
+V3 should define a canonical electrical connectivity model that is independent of SLD drawing geometry and is consumed consistently by electrical studies, Protection association, equipment models, validation, interoperability and co-simulation.
+
+The governing rule is: **electrical connectivity is domain truth; SLD geometry is a projection of that truth and an interaction surface for proposing changes.** A graphical crossing, overlapping symbol, visual snap, shared coordinate or drawn line is not sufficient evidence of an electrical connection. A committed topology relationship must be explicit, typed, validated and revisioned.
+
+The model must distinguish at least:
+- equipment instance and its physical/electrical terminals;
+- electrical connection point/node;
+- conductor or branch connecting electrical points;
+- busbar and bus-section equipment/structure;
+- junction or branching connection point where the physical model requires it;
+- grounding/neutral/earth reference and grounding impedance/path;
+- phase/conductor domain and connectivity;
+- switching device and its state-dependent connectivity;
+- network partition/island and energized/de-energized state as derived operational/study views;
+- SLD symbol, pin/anchor, wire route, sheet and layout as presentation objects.
+
+A node is not automatically a busbar asset. A busbar is not merely a thick line or a generic node. A terminal is not a node until an explicit connectivity relation associates it with one. A conductor is not merely a route polyline. A switch is not a permanent short circuit: its conductive relation depends on modeled state and study scenario.
+
+### B. Canonical graph model
+
+Represent the electrical network as a typed graph or equivalent normalized relational model with stable identities and explicit relationships. A candidate conceptual model is:
+
+- **Equipment:** canonical asset/domain object.
+- **Terminal:** stable connection interface owned by an equipment instance; declares terminal role, phase participation, polarity, nominal domain and connection constraints.
+- **Connectivity node:** electrical equivalence point connecting compatible terminals and conductor ends under the declared topology model.
+- **Conductor/branch:** two-ended or explicitly multi-ended electrical path with its own identity, parameters, phase mapping and model assignment.
+- **Busbar/section:** equipment or structured bus assembly with explicit connection points, sections and coupler/breaker relationships.
+- **Junction:** explicit branching point for a conductor network when the selected network abstraction supports it; it is not an accidental geometric crossing.
+- **Switching relation:** state-dependent conductive path across a switching device, with open/closed/unknown state and applicable poles.
+- **Grounding relation:** explicit connection to a declared ground/earth reference through direct, impedance or equipment-mediated path.
+- **Topology grouping:** derived or configured grouping for voltage level, bay, feeder, zone, island or study scope; it must not replace canonical terminal/node relations.
+- **Presentation mapping:** one-to-many references from canonical objects to SLD symbols, terminal anchors, wire routes and views.
+
+Stable IDs must not be derived from display tags, coordinates, object order or generated labels. Deleting and recreating a symbol must not create a new equipment identity unless the engineer explicitly creates a new asset. Node identity and conductor identity must survive harmless layout edits and serialization.
+
+### C. Terminal and connection-point contract
+
+A terminal contract should include stable terminal ID, owning equipment ID, semantic role, electrical domain, phase participation, polarity/reference, nominal voltage context, connection cardinality, permitted connection types, grounding/neutral role and lifecycle/revision.
+
+Terminal compatibility is not merely matching pin shape or voltage text. It must consider:
+- AC/DC domain and frequency where applicable;
+- phase count and phase identity (A/B/C, positive/negative/zero sequence or declared alternative);
+- neutral and protective earth semantics;
+- polarity and winding/transformer side;
+- voltage domain and insulation/connection constraints;
+- terminal direction or source/sink semantics for non-power signal ports (which are not electrical network terminals);
+- cardinality and allowed connection topology;
+- family-specific constraints and operating configuration.
+
+A terminal can connect to a node through an explicit terminal-to-node relation. A conductor end can connect to a node through an explicit endpoint relation. A direct equipment-to-equipment connection is represented by shared connectivity identity or an explicit zero-length/connection relation only where the domain contract defines that semantics; it must not be inferred from coincident graphics.
+
+Do not use one generic port type for power terminals, measurement channels, logical Control signals, mechanical shafts and thermal/fluid ports. They may share infrastructure for stable identity and typed metadata, but their domain semantics and validators remain distinct.
+
+### D. Conductor, branch and wire semantics
+
+A simple SLD wire should represent an electrical connection/conductor between explicit endpoints, with a stable conductor identity and declared electrical semantics. Its graphical route may contain multiple bend points and labels without creating extra electrical nodes.
+
+For initial SLD workflows, terminal-to-terminal simple wire can be the primary editing interaction. The model must not force users to create visible junction objects for every bend or route vertex. Branching, however, must be represented explicitly where the network abstraction permits a shared node or multi-terminal conductor. A branch cannot be inferred merely because two wire paths cross on screen.
+
+Conductor properties may include family/type, length, phase mapping, resistance/reactance/capacitance or phase-domain parameters, temperature/frequency basis, rating, grounding/shielding and model fidelity. The conductor's physical/electrical parameter model is distinct from its SLD route geometry.
+
+A conductor with unresolved endpoint, incompatible terminal, duplicate/ambiguous endpoint or invalid phase mapping is an uncommitted/invalid draft, not a silently accepted electrical branch. Editing a route polyline must not invalidate studies unless the edit changes an actual engineering parameter or connectivity relation.
+
+### E. Busbar, bus section and junction semantics
+
+Busbar is a first-class equipment/assembly concept with explicit terminal or connection-point structure and electrical ratings. It is not just a generic node or a canvas rectangle. A bus may expose multiple connection points while preserving the busbar's own identity and arrangement.
+
+Bus sections, bus couplers, transfer buses and sectionalizers must be modeled through explicit equipment and topology relations. A bus coupler breaker has switching state and rating; it must not be represented as an implicit permanent merge of two bus sections. The topology seen by a study depends on the declared switch state and scenario.
+
+A junction is an electrical branching point in a conductor/node model, not a drawing intersection. For the initial SLD scope, avoid introducing a complex junction editing workflow if simple wire endpoints and explicit shared nodes meet the engineering requirements. The Control canvas may require richer multi-branch logical junction semantics; those are Control-domain objects and must not be conflated with electrical SLD junctions.
+
+The taxonomy decision for bus section, bus coupler and grounding switch remains open pending family/domain specifications. Their electrical behaviour and identity must be explicit whichever type/capability split is selected.
+
+### F. Phase, neutral, grounding and sequence-domain semantics
+
+The topology model must explicitly represent phase participation and connection mapping. Three-phase equipment cannot be reduced to a single undifferentiated connection when phase-domain, unbalanced or earth-fault studies are required.
+
+Required distinctions include:
+- balanced positive-sequence abstraction versus explicit phase-domain connectivity;
+- phase labels and phase mapping through transformers, transposition and connection groups;
+- neutral conductor and neutral point;
+- protective earth/ground conductor and earth reference;
+- equipment grounding impedance, grounding transformer/resistor/reactor and grounding switch;
+- zero-sequence return path and mutual/earth coupling where modeled;
+- AC versus DC network domains and polarity;
+- isolated, impedance-grounded, solidly grounded and other declared grounding methods.
+
+A grounding symbol on the drawing is not enough to establish an electrical earth reference. Grounding must be represented by a typed topology/model relation with impedance or boundary semantics where applicable. A neutral and protective earth are not interchangeable. Zero-sequence connectivity must not be guessed from a positive-sequence network.
+
+### G. Switching state and topology views
+
+Canonical connectivity should preserve equipment terminals and fixed conductor relations while representing switching devices as explicit state-dependent conductive paths. Open, closed, transitional, unknown, failed and out-of-service states must remain distinct where the operational model requires them.
+
+A study topology is a derived view created from:
+- a specific project/topology revision;
+- a declared switch-state snapshot or scenario;
+- grounding and configuration state;
+- equipment availability and model eligibility;
+- explicit exclusions and study boundary conditions.
+
+Do not destructively rewrite the project's physical connectivity when a breaker opens or closes in a study or simulation. Preserve the configured network and create a scenario/revision-bound topology view. Unknown switch state must not be silently treated as closed. A Protection trip decision, Control command, command acknowledgement, physical device feedback and study switch-state assumption are different evidence and must not be collapsed.
+
+Network islands, connected components, energized sections and voltage-level groups are derived results with algorithm/version and input revision provenance. They are not substitutes for canonical topology.
+
+### H. Topology validation and diagnostic taxonomy
+
+Validation must be layered and typed:
+
+1. identity/reference integrity (equipment, terminal, node, conductor and endpoint IDs);
+2. terminal ownership and lifecycle consistency;
+3. terminal/port domain and phase compatibility;
+4. endpoint cardinality and connection completeness;
+5. duplicate or conflicting connections;
+6. explicit crossing-versus-junction resolution;
+7. busbar/section/coupler structural validity;
+8. grounding, neutral and zero-sequence path consistency;
+9. switching state and pole consistency;
+10. voltage-level and transformer-side compatibility;
+11. conductor parameter and model completeness;
+12. network islanding, radiality or meshing constraints when required by the selected study;
+13. Protection measurement and zone association consistency;
+14. project revision and stale dependency detection.
+
+Not every topological condition is a project-wide error. A disconnected spare terminal may be allowed; a missing endpoint in a committed conductor is not. Radiality is study- or design-rule-specific; a meshed network is not intrinsically invalid. A de-energized island may be intentional. Validation results must state the rule, scope, severity, affected IDs, input revisions and remediation.
+
+Separate structural validity, electrical engineering validity, study readiness and operational state. A graph that is structurally valid may still lack data for Short Circuit; a study-ready network does not imply operational authorization.
+
+### I. Topology revisions and dependency invalidation
+
+Topology revision must change only when a committed electrical relationship or topology-relevant parameter changes. Symbol move, zoom, pan, colour, route bend-point or annotation edits must not increment electrical topology revision.
+
+Maintain separate revision dimensions for:
+- equipment identity/lifecycle;
+- terminal and connection topology;
+- conductor/electrical parameters;
+- switch-state scenario/operational snapshot;
+- grounding configuration;
+- instrumentation and measurement association;
+- Protection configuration and per-element dependencies;
+- Control configuration;
+- model assignment/parameterization;
+- SLD presentation/layout;
+- project standards baseline.
+
+A topology change should invalidate only dependent derived views and calculations. Examples:
+- moving an SLD symbol: presentation revision only;
+- rerouting a wire without changing endpoints or physical length: presentation revision only;
+- changing conductor length or impedance: conductor/equipment parameter revision and dependent studies;
+- moving a terminal to another node: topology revision and affected studies/Protection associations;
+- changing CT ratio: instrumentation revision and only dependent measurement/Protection elements, not physical network topology;
+- opening a breaker in a scenario: scenario switch-state revision and derived topology view, not destructive physical topology mutation;
+- changing grounding impedance: grounding/equipment parameter revision and relevant fault/Protection studies.
+
+Dependency edges must identify exact input object/parameter/revision and affected calculation or Protection element. Stale results must remain visible as stale, never relabeled current. Protection dispatch remains fail-closed when its required inputs or decisions are stale or invalid; selective invalidation must not weaken that safety boundary.
+
+### J. SLD interaction and projection contract
+
+The SLD canvas is a projection and interaction surface over canonical equipment, terminals, nodes, conductors and presentation mappings.
+
+Engineer interaction should support:
+- placing a semantic equipment instance and a separate symbol representation;
+- terminal-aware connection previews;
+- explicit compatible snapping and endpoint selection;
+- wire routing independent of electrical endpoint identity;
+- visible indication of connected, draft, invalid, stale and unresolved states;
+- deliberate junction/branch creation only where supported;
+- busbar section/coupler visualization without merging geometry into topology;
+- selection of canonical equipment/terminal/conductor and navigation to the owning domain Inspector;
+- undo/redo of reversible project edits through Application commands, not direct scene mutation.
+
+A preview or visual snap is provisional until the Application command validates and commits the connectivity change. UI must not directly mutate Core. The projection must be regenerated/reconciled from canonical domain events and must handle deleted, replaced or stale references without leaving phantom wires or disappearing equipment.
+
+A single canonical equipment object may appear on multiple SLD sheets/views. Off-page references and layout aggregation do not duplicate or alter the electrical graph.
+
+### K. Study and domain consumption
+
+Consumers should obtain topology through explicit immutable or revision-bound domain read models, not query QGraphicsScene objects.
+
+- **Load Flow:** derive buses/nodes, branches, transformer connectivity, switch states, voltage levels and islands from a declared study topology snapshot. PQ/PV/SLACK classification remains study configuration, not an arbitrary property inferred from symbol type.
+- **Short Circuit:** derive sequence/phase network and grounding/fault return paths from the appropriate topology and parameter revisions; do not infer zero-sequence connectivity from positive-sequence data.
+- **Protection:** resolve CT/VT primary association, relay measurement channels, breaker boundaries and protection zones from canonical topology plus instrumentation/Protection revisions. Protection decisions remain Protection-owned.
+- **Control:** consume typed status/measurement/command/feedback signals; Control logical junctions and logic networks remain separate from electrical connectivity.
+- **Motor Dynamics/co-simulation:** use network connection points and explicit electrical/mechanical coupling ports; participant coupling does not mutate the canonical graph implicitly.
+- **Interoperability:** import/export terminal, node, branch, busbar and grounding semantics through explicit mappings and fidelity reports; graphic line intersections are not connectivity evidence.
+
+Each consumer must declare required topology abstraction and fidelity. A balanced positive-sequence study may use a reduced view; an unbalanced/earth-fault study requires phase and grounding data. Reduction must be explicit and traceable.
+
+### L. Persistence, identity and interchange
+
+Persist canonical topology IDs and relationships in the frozen project package contract alongside equipment and required SLD layout. Store presentation routes separately from electrical endpoints. A project must reopen with identical canonical connectivity even if a renderer, symbol library or UI layout changes.
+
+Serialization must be deterministic and preserve IDs, phase mapping, terminal ownership, grounding, switch configuration, model references and revision/provenance. Migration must detect dangling endpoints, duplicate node identities, ambiguous crossing semantics and unsupported topology forms; do not auto-connect objects based on coincident coordinates.
+
+Interchange adapters must preserve the distinction between connectivity nodes, busbars, terminals, conductors, junctions, switch state and graphics. If the source format cannot express a semantic feature, report loss or ambiguity and require an explicit mapping decision. Do not silently upgrade a graphical intersection to an electrical junction.
+
+### M. Performance and scale
+
+The canonical graph and derived read models should support large industrial networks without coupling engineering truth to scene-item count. Use indexed stable IDs, adjacency/read-model caches keyed by topology revision, incremental projection updates and bounded derived caches.
+
+Potential optimizations include:
+- adjacency indexes by node, terminal, equipment and phase;
+- connected-component/island caches by topology and switch-state revision;
+- incremental invalidation of affected graph regions;
+- lazy loading and viewport culling for presentation only;
+- immutable snapshots for long-running studies;
+- background computation with stale-result rejection;
+- deterministic serialization and bounded memory for large projects.
+
+A cache is never the source of truth. Cache invalidation must be revision-keyed and safe under concurrent edits. Performance measurements should use representative feeder, substation and industrial plant networks; no benchmark is claimed or run by this research entry.
+
+### N. Security and integrity
+
+Project topology, import files and plugin-provided mappings are untrusted until validated. Validate IDs, cardinality, graph size, recursion, duplicate references, malformed phase maps and resource bounds. Prevent malicious or accidental graph explosion through bounded parsing and validation.
+
+Do not execute imported scripts or plugin code as a consequence of connecting equipment. External adapters must be isolated from Core mutation. Audit topology changes with actor, command, before/after relationship, reason, revision and validation outcome.
+
+### O. Candidate acceptance scenarios
+
+The following are candidates only; none is represented as executed or passed:
+
+- UI-ACC-TOPO-01: distinguish equipment, terminal, connectivity node, conductor and SLD presentation identity.
+- UI-ACC-TOPO-02: reject a graphical crossing as a connection unless an explicit junction/node relation is created.
+- UI-ACC-TOPO-03: connect compatible terminals through a simple terminal-to-terminal wire workflow.
+- UI-ACC-TOPO-04: preserve conductor endpoint identity when its SLD route is edited.
+- UI-ACC-TOPO-05: represent a branch through an explicit shared node/junction without accidental geometric inference.
+- UI-ACC-TOPO-06: model a busbar with multiple connection points and separate bus sections.
+- UI-ACC-TOPO-07: represent a bus coupler breaker as state-dependent connectivity, not permanent bus merge.
+- UI-ACC-TOPO-08: reject incompatible phase, AC/DC, polarity or terminal-domain connections.
+- UI-ACC-TOPO-09: preserve neutral, protective earth and grounding impedance as distinct semantics.
+- UI-ACC-TOPO-10: derive zero-sequence return paths only from explicit grounding and network data.
+- UI-ACC-TOPO-11: derive a study topology snapshot from exact topology and switch-state revisions.
+- UI-ACC-TOPO-12: represent open, closed and unknown switching states without destructive topology edits.
+- UI-ACC-TOPO-13: report disconnected terminals, dangling conductors and duplicate endpoint relations with typed diagnostics.
+- UI-ACC-TOPO-14: avoid treating intentional disconnected spares or meshed networks as universal errors.
+- UI-ACC-TOPO-15: increment topology revision for committed connectivity changes but not for symbol movement or wire bend edits.
+- UI-ACC-TOPO-16: selectively invalidate affected studies after topology or conductor-parameter changes.
+- UI-ACC-TOPO-17: selectively invalidate CT-dependent Protection elements after instrumentation changes without changing physical topology revision.
+- UI-ACC-TOPO-18: preserve topology when equipment is displayed on multiple sheets or through off-page references.
+- UI-ACC-TOPO-19: import/export topology with explicit semantic mapping and ambiguity/loss reporting.
+- UI-ACC-TOPO-20: reopen a project with canonical topology intact when presentation symbols or layout providers change.
+
+### P. Open decisions and research tasks
+
+1. Confirm the initial graph representation and whether node/terminal relations are normalized entities or a typed graph API over normalized persistence.
+2. Specify terminal cardinality and node equivalence rules for multi-terminal and multi-winding equipment.
+3. Decide whether a busbar is always equipment, a structured assembly or a family of both, preserving explicit physical semantics.
+4. Define the minimal initial SLD branching/junction model while keeping the simple terminal-to-terminal wire workflow.
+5. Define phase-domain, neutral, earth and grounding abstractions required for the first Load Flow and Short Circuit releases.
+6. Establish switch-state snapshot and scenario contracts, including unknown, transitional and out-of-service states.
+7. Define how topology reductions map to balanced positive-sequence, sequence-domain and phase-domain study inputs.
+8. Reconcile CT/PT/CVT association resolution and Protection zone derivation with the Protection revision/dependency contract.
+9. Decide the boundary between configured topology and operational telemetry/state snapshots.
+10. Define import mapping for IEC CIM and other target exchange formats with explicit treatment of busbars, terminals, connectivity nodes and graphics.
+11. Specify graph validation and incremental dependency algorithms against representative network sizes.
+12. Reconcile with project persistence (8I-23), interoperability (8I-24), equipment model/taxonomy (8I-28/29), solver governance (8I-26) and co-simulation (8I-27).
+
+### Q. Gate and scope disposition
+
+This section informs UI-GATE-02 (canonical topology persistence and revision), UI-GATE-03 (typed topology diagnostics), UI-GATE-05 (graph/projection performance), UI-GATE-06 (topology and cross-domain traceability) and UI-GATE-07 (initial topology scope and sequencing). UI-GATE-04 also applies to accessible terminal selection, connection preview and diagnostics.
+
+All affected gates remain open. This entry does not approve a graph schema, junction workflow, busbar implementation, topology reducer, solver adapter or project migration. Candidate scenarios are not test results.
+
+### R. Frozen invariants and scope boundary
+
+- Core owns canonical electrical equipment, terminals, nodes, conductors, connectivity, grounding and topology truth.
+- Application owns controlled topology mutation, commands, validation orchestration, transactions and events.
+- UI/SLD is projection and interaction only; scene geometry, symbol anchors and route polylines are not electrical connectivity.
+- Terminal-to-terminal simple wire is the primary initial SLD connection interaction; branching is explicit where supported and not inferred from crossing geometry.
+- Busbar, bus section, coupler, junction, grounding and switching semantics remain distinct.
+- Phase, neutral, protective earth, grounding impedance and sequence-domain semantics are explicit.
+- Switch-state scenarios derive topology views without destructively rewriting configured connectivity.
+- Study inputs are immutable/revision-bound and consumers declare their required topology fidelity.
+- Instrumentation, Protection, Control, equipment configuration, topology and presentation revisions remain distinct.
+- Selective invalidation is required; stale Protection dependencies remain fail-closed for dispatch.
+- Plugins and import adapters cannot mutate Core directly; Core has no dependency on UI or plugin implementations.
+- Project persistence remains within the frozen .gridforge package contract.
+
+**Scope boundary:** research register only. No graph schema, topology engine, node/terminal API, junction tool, busbar implementation, solver adapter, project migration, UI, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
