@@ -9652,3 +9652,510 @@ UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/pla
 - V2 main remains unchanged. V3 proposals require review and approval before implementation.
 
 **Scope boundary:** research register only. No schema registry, canonical data model implementation, unit engine, dimensional-analysis runtime, migration framework, provenance database, semantic versioning service, CIM/SCL/STEP adapter, validator, UI, source code, runtime behavior, benchmark, test or CI was implemented or executed. Targeted official-source checks were performed for selected publications and specifications; no complete BIS catalogue verification, standards licensing review, conformance assessment or project-wide schema inventory was completed. V2 main remains unchanged.
+
+
+## 8I-41. Proposed V3 engineering assurance, requirements traceability, verification, validation, commissioning evidence and controlled release architecture (2026-11-04)
+
+### A. Research objective and assurance boundary
+
+V3 needs an end-to-end engineering assurance lifecycle connecting requirements, design intent, canonical models, calculations, implementation/configuration, verification evidence, physical installation, commissioning, acceptance and the approved as-operated baseline. The lifecycle must answer: what was required; who approved it; which model/configuration implemented it; how it was verified; under what conditions it was validated; which deviations remain; what was physically commissioned; and exactly which configuration was released for use.
+
+The architecture must distinguish:
+- Product/software verification: whether GridForge software, domain models, plugins, adapters and reports conform to their specified requirements.
+- Engineering model verification: whether an engineering representation, calculation model or design artifact is internally consistent and correctly implemented.
+- Engineering design validation: whether the design/model is suitable for the intended application, operating envelope and stakeholder need.
+- System integration verification: whether interfaces, signals, communication, Protection/Control dependencies and integrated subsystems behave according to their contracts.
+- Factory acceptance and integration: evidence gathered before shipment or site installation.
+- Site installation, inspection and commissioning: evidence that installed physical systems are correctly erected, configured, tested and ready for the next authorized stage.
+- Operational acceptance: authorized acceptance of the installed plant/system against agreed criteria.
+- Operational performance monitoring: evidence from the as-operated configuration and actual conditions.
+
+These are related but not interchangeable assurance claims. A successful simulation does not prove physical installation; a passed FAT does not prove SAT/SIT; a software test does not prove an electrical protection scheme is correctly applied; a signed report does not by itself prove the underlying test was performed; and commissioning completion does not automatically authorize energization or return to service.
+
+GridForge should provide traceability, engineering evidence management, workflow support and release governance. It must not claim to replace the owner's quality management system, statutory inspection, independent certification, competent-person authorization, site permit-to-work/isolation processes, safety instrumented system lifecycle, or formal contractual acceptance authority.
+
+### B. Lifecycle model and assurance states
+
+Adopt a configurable lifecycle rather than one rigid linear state machine. A typical engineering asset/system progresses through:
+1. Need and stakeholder requirements.
+2. System definition, context, boundaries and assumptions.
+3. Architecture and design requirements allocation.
+4. Engineering model and design development.
+5. Design review and verification.
+6. Design validation and approval for procurement/construction.
+7. Detailed design and controlled issue for construction.
+8. Procurement, manufacturing and factory verification.
+9. Installation and construction completion.
+10. Pre-commissioning and subsystem commissioning.
+11. Factory/site integration and acceptance activities as applicable.
+12. System validation and performance demonstration.
+13. Operational readiness and authorized acceptance.
+14. As-commissioned and as-operated baseline establishment.
+15. Operation, maintenance, modification and periodic reassessment.
+16. Decommissioning, disposal and evidence retention.
+
+State names and transitions must be configurable by project, contract, plant type and applicable standard. They must not be inferred solely from document status or a user pressing a button. State transitions require explicit preconditions, authority, evidence and recorded rationale.
+
+Represent lifecycle dimensions separately where necessary: design maturity; document approval; configuration baseline state; construction completion; test execution state; defect/deviation state; commissioning readiness; safety/permit status; operational availability; and acceptance/release state. Do not collapse all into one status enum. A drawing can be approved for construction while a procurement package remains incomplete; a subsystem may be mechanically complete but not electrically inspected; a FAT may pass with open punch-list items under an approved concession; a plant can be accepted with a defined residual action list that does not authorize every operation.
+
+### C. System-of-interest, context and requirements hierarchy
+
+Every assurance plan starts with a defined system-of-interest (SoI), intended purpose, operating context, boundaries, external actors, interfaces, assumptions, exclusions and applicable environment. GridForge must represent system boundaries independently from project folder boundaries and graphical sheet boundaries.
+
+Requirements should be structured and typed:
+- Stakeholder/user need.
+- Business/plant objective.
+- System requirement.
+- Functional requirement.
+- Performance requirement.
+- Electrical, mechanical, instrumentation or control requirement.
+- Interface requirement.
+- Protection and safety requirement.
+- Cybersecurity requirement.
+- Environmental, maintainability and reliability requirement.
+- Regulatory, statutory, contractual and standards-derived requirement.
+- Verification/validation requirement.
+- Acceptance criterion.
+
+Each requirement should carry stable identity, source, owner, rationale, priority/criticality, applicability, verification method, validation method, acceptance criteria, allocated system/component, derived-from and satisfied-by relationships, revision, approval, status and evidence references.
+
+Requirement text alone is insufficient. Where possible, use structured attributes for numeric limits, units, operating conditions, tolerances, timing, measurement method, test setup, sample size, environmental range and pass/fail rules. Preserve the authoritative source wording and source edition/clause; derived GridForge interpretation is a separate assertion with reviewer and rationale.
+
+Avoid false precision. A requirement may be qualitative or not yet measurable. Such requirements need an explicit evaluation method and accountable reviewer, not fabricated numeric thresholds. Requirements may be conditional, mode-specific or scenario-dependent. Applicability must be evaluated against the defined system configuration and operating envelope.
+
+### D. Requirements traceability and change impact
+
+Maintain a typed many-to-many trace graph:
+- Stakeholder need -> system requirement.
+- System requirement -> allocated subsystem/component.
+- Requirement -> design element/model parameter.
+- Requirement -> interface contract.
+- Requirement -> hazard/threat/control where applicable.
+- Requirement -> verification case/procedure.
+- Requirement -> validation scenario/operational use case.
+- Requirement -> result/evidence.
+- Requirement -> deviation/waiver/approval.
+- Requirement -> release baseline.
+
+Trace links require relationship type, source/target identity, rationale, owner, revision, applicability and lifecycle. A simple checkbox "requirement met" is not adequate.
+
+Coverage should be explicit and qualified:
+- Not yet allocated.
+- Allocated.
+- Designed.
+- Verification planned.
+- Verification executed.
+- Verified pass.
+- Verified fail.
+- Validation planned.
+- Validation completed.
+- Accepted with approved deviation.
+- Not applicable with approved rationale.
+- Superseded or withdrawn.
+- Evidence stale or invalidated.
+
+A requirement can have multiple verification cases and multiple validation scenarios. Passing one test does not prove every aspect of a compound requirement. A test case may cover several requirements, but coverage needs explicit mapping to the exact assertion and conditions it supports.
+
+When a requirement changes, calculate affected descendants: design objects, calculations, equipment selections, terminal/topology models, Protection/Control settings, signal mappings, reports, procedures, test cases, procurement/commissioning records and release baselines. Preserve historical coverage for previous revisions; mark current descendants as impacted/stale until re-evaluated. Do not silently carry forward an old pass result to a changed requirement.
+
+### E. Verification and validation strategy
+
+Use precise definitions in the product:
+- Verification: objective evidence that a specified work product or system element satisfies its allocated requirements and design inputs.
+- Validation: objective evidence that the integrated system/design satisfies intended use, stakeholder needs and operating context.
+- Inspection/review/analysis/demonstration/test: methods that may support verification or validation, selected according to requirement and risk.
+- Qualification: evidence that a defined product/system/environment combination meets stated qualification criteria; not a generic synonym for commissioning.
+- Acceptance: authorized decision that agreed contractual/project criteria have been satisfied or explicitly waived.
+
+The verification method is selected per requirement and integrity/consequence context. Inspection may be sufficient for a drawing convention; analysis may establish a calculation property; demonstration may establish workflow behavior; test may establish dynamic or interface behavior. Do not mandate a test for every requirement or accept a document review as proof of a physical performance requirement.
+
+Verification planning should define independence proportionate to risk. The author of a calculation should not be the sole independent reviewer where the consequence warrants separation. Verification authority, technical approval, owner acceptance and regulatory/third-party witnessing are separate roles.
+
+Validation must use representative operating scenarios and boundary conditions, not only nominal examples. Include abnormal, degraded, maintenance, startup, shutdown, contingency, communication-loss, stale-measurement, mode-transition and recovery cases where relevant. A validation conclusion states scope, assumptions, excluded scenarios and residual uncertainty.
+
+### F. Engineering model verification and calculation assurance
+
+A model assurance case identifies:
+- Model purpose and intended application.
+- Physical/domain scope and excluded phenomena.
+- Governing equations, standards and technical references.
+- Parameter sources, units, bases and provenance.
+- Assumptions, boundary conditions and initial conditions.
+- Numerical method, solver version and configuration.
+- Calibration/identification status and uncertainty.
+- Verification evidence for implementation and numerical behavior.
+- Validation evidence against independent measurements, benchmark cases or accepted references.
+- Applicability range and known limitations.
+- Model owner, reviewer and approved revision.
+
+Verification of a numerical solver includes implementation checks, analytical solutions where available, benchmark/reference comparisons, convergence behavior, numerical stability, conservation/consistency properties, sensitivity and error characterization. Validation of a plant model compares predictions with independent field/factory data or other accepted evidence under documented conditions. Agreement with data used to tune a model is calibration, not independent validation.
+
+A model can be verified but not validated for a particular plant. A validated model may be valid only within a defined operating envelope. Extrapolation outside the validated envelope must be visible and qualified. A model with uncertain parameters reports uncertainty and impact rather than implying exact prediction.
+
+For Power Flow, Short Circuit, Protection coordination, motor dynamics, thermal models and Control simulation, maintain domain-specific assurance plans and acceptance criteria. No single universal numerical tolerance is suitable for all studies. Acceptance thresholds depend on model purpose, quantity, operating point, solver and consequence. GPU/NPU acceleration is an execution implementation and must preserve the declared numerical contract; backend differences and reduced precision require explicit evaluation.
+
+### G. Requirements allocation and architecture/design assurance
+
+Requirements allocation maps each requirement to one or more architecture elements, domain responsibilities, physical equipment, software modules, interfaces, signals, Protection/Control functions, procedures and external systems. Allocation must not imply implementation or completion.
+
+Design reviews should address:
+- Completeness and consistency of allocated requirements.
+- Interface compatibility and ownership.
+- Electrical topology, equipment ratings, phase/sequence and earthing assumptions.
+- Protection coverage, measurement source, trip path and breaker association.
+- Control modes, interlocks, permissives, failure behavior and operator interaction.
+- Signal range, units, quality, timestamps, calibration and communication behavior.
+- Study/model suitability, assumptions and parameter evidence.
+- Maintainability, access, testability, redundancy and recovery.
+- Cybersecurity and functional-safety boundary.
+- Constructability, procurement and commissioning testability.
+- Standards applicability, deviations and unresolved interpretations.
+
+A design review outcome is recorded as accepted, accepted with actions, rejected or deferred. Actions have owner, due date, closure evidence and impact. A review meeting record alone does not make every reviewed design element approved.
+
+### H. Configuration management and controlled baselines
+
+Configuration management establishes which exact engineering artifacts and versions form a controlled system definition at a point in lifecycle. Configuration items can include requirements, canonical project model, SLD/topology, equipment and terminal definitions, calculations, Protection settings, Control logic, signal/channel mappings, communication configurations, device files, software/firmware versions, plugin packages, drawings, reports, test procedures and commissioning records.
+
+A baseline is an immutable, named, revisioned, approved set of configuration items and relationships. It needs:
+- Baseline ID, type, owner and scope.
+- Project/system identity and hierarchy.
+- Item identities, exact revisions and hashes.
+- Dependency and compatibility declarations.
+- Approval authority and timestamp.
+- Applicable operating/design conditions.
+- Standards/contract basis.
+- Known deviations, waivers, open actions and restrictions.
+- Release intent and effective date.
+- Superseded baseline and change record.
+
+Candidate baseline classes include requirements baseline, architecture baseline, design baseline, issue-for-procurement baseline, issue-for-construction baseline, factory configuration baseline, as-built baseline, as-commissioned baseline and as-operated baseline. Names and transition criteria are tailored to the project.
+
+Do not conflate Git commits, project save points, engineering revisions, approved baselines, device configuration versions and released plant configuration. A Git commit is source-control evidence; a project revision is engineering data history; a baseline is an approved configuration set; a release is an authorized use/distribution decision. They may reference one another but are not interchangeable.
+
+### I. Change control, impact analysis and configuration status accounting
+
+Any change to a controlled item records requestor, reason, source, affected requirements, risk/consequence, affected baselines, impacted descendants, review/approval, implementation, verification, release and effective date. Change classes may distinguish correction, design development, field change, obsolescence replacement, emergency change, deviation, concession and administrative correction.
+
+Impact analysis is domain-aware:
+- Electrical topology/ratings and network studies.
+- Instrumentation channel, calibration, polarity, ratio and signal quality.
+- Protection settings, CT/PT associations, zones, trip paths and coordination.
+- Control logic, interlocks, permissives, sequence and fail-state behavior.
+- Communications, time synchronization and device configurations.
+- Safety and cybersecurity assumptions.
+- Asset lifecycle, maintenance and spares.
+- Reports, test procedures, commissioning status and operating instructions.
+
+A change must not silently mutate a released baseline. Emergency changes require a defined authority, risk review, temporary/effective scope, compensating measures and retrospective review within a governed period. Temporary bypasses and overrides are separately tracked with expiry, owner, risk, approval and reinstatement evidence.
+
+Configuration status accounting answers which revision is current, which baseline contains it, what changed, why, who approved, what evidence was rerun, which systems received the release, and what deviations remain. This must be queryable without reconstructing history from filenames.
+
+### J. Verification case and test procedure architecture
+
+A verification case is a controlled artifact containing:
+- Case ID/title, objective and mapped requirements.
+- Verification method and assurance level/risk rationale.
+- Preconditions, setup and configuration baseline.
+- Test article/model/device identity and revision.
+- Instruments, calibration status and measurement uncertainty.
+- Procedure steps and expected results.
+- Acceptance criteria, tolerance and evaluation algorithm.
+- Environmental/operating conditions.
+- Witness, executor, reviewer and approval roles.
+- Deviations, defects, anomalies and retest references.
+- Result, rationale, evidence package and signature.
+
+Separate test case definition from execution instance. A procedure revision can be reused, but each execution has its own test article, configuration, time, environment, operator, observations and result. Re-running a failed test creates a new execution linked to the prior one; it does not erase the failed result.
+
+Use explicit outcomes: pass, fail, blocked, inconclusive, not run, not applicable (approved), pass with approved deviation, invalidated and superseded. "Complete" is not a test result. A test cannot pass if required evidence is missing or the tested configuration is unknown.
+
+### K. Test evidence, metrology and chain of custody
+
+Evidence preserves original observations and provenance:
+- Raw instrument readings and files where available.
+- Instrument identity, serial number, range, calibration certificate and validity.
+- Test setup, connection diagram, wiring/terminal references and safety conditions.
+- Test environment, ambient conditions and operating mode.
+- Timestamp source, clock quality and synchronization state.
+- Executor, witness, reviewer and organization.
+- Software/tool/firmware versions and configuration hashes.
+- Procedure version and test article baseline.
+- Data transformations, calculations and evaluation criteria.
+- Original files, cryptographic integrity references and evidence links.
+- Deviations, corrections, annotations and approval history.
+
+Do not replace raw data with a summary table. Derived values link to raw evidence and transformation formula/version. A corrected transcription preserves original observation, correction reason, actor and timestamp. A digital signature establishes an attributable approval under a trust model; it does not prove the physical observation is true.
+
+Measurement uncertainty and calibration traceability matter for acceptance limits. If uncertainty overlaps the acceptance boundary, the result may be indeterminate under the defined decision rule; do not arbitrarily round into pass. Acceptance decision rules specify guard bands, uncertainty treatment, resolution and calibration requirements before execution.
+
+### L. Factory acceptance and factory integration
+
+For equipment and systems with vendor/factory activities, represent FAT and factory integration as planned, scoped and witnessed assurance events. IEC 62381:2024 explicitly covers FAT, factory integration test (FIT), SAT and SIT checklists for process-industry automation systems. GridForge should support project-specific tailoring rather than hard-code a universal FAT.
+
+A FAT package identifies contract/specification baseline, approved drawings, equipment/software revisions, test scope, exclusions, vendor responsibilities, owner/witness responsibilities, procedures, test environment, simulation/stubs, interface emulation, raw results, defects, punch items and release recommendation.
+
+FAT evidence can verify selected functions under factory test conditions. It does not establish field wiring, actual site network behavior, installed CT polarity, actual earthing, field instrument calibration, plant interlocks or full site performance unless those aspects are genuinely included and proven in the test configuration.
+
+FIT validates defined factory-level integrated interfaces and sequences; it is distinct from FAT of an individual panel or device. Simulation/emulation must be labelled, with fidelity and limitations. A simulated breaker feedback is not proof of a physical breaker mechanism.
+
+### M. Installation completion and pre-commissioning
+
+Installation and construction evidence should be organized by system/subsystem and physical boundary. It may include:
+- Approved construction drawings and latest controlled revisions.
+- Equipment identification, nameplate and installation location.
+- Mechanical/electrical completion certificates.
+- Cable, termination, earthing/bonding and continuity records.
+- Inspection and test records.
+- Instrument installation, impulse tubing and calibration certificates.
+- CT/PT polarity, ratio, earthing and secondary circuit checks.
+- Protection/control panel wiring and point-to-point checks.
+- Network/communication cabling and device identity.
+- Punch-list classification and closure.
+- As-built markups and field change records.
+- Isolation, permits and safety handover evidence maintained under site authority.
+
+Pre-commissioning is not the same as energization or operational acceptance. Readiness requires explicit boundaries, approved procedures, open-item assessment, required safety controls and authorized handover. GridForge may record evidence and readiness status but cannot issue a plant switching instruction or replace site permit authority.
+
+### N. Site acceptance, integration and commissioning
+
+Commissioning is a controlled sequence of proving that installed equipment/system has been inspected, configured, tested and integrated in accordance with approved design and site procedures. IEC 62337:2012 defines phases and milestones for commissioning electrical, instrumentation and control systems in process industry; confirm current lifecycle status, national adoption and applicability before making it normative.
+
+SAT verifies agreed system/equipment requirements in actual site configuration and environment. SIT verifies defined integration across system boundaries and interfaces. These activities may include actual field devices, communication paths, signal loops, control logic, protection trip paths, operator stations, time synchronization, alarms, historian and external interfaces.
+
+Commissioning plans identify:
+- System/subsystem boundaries and handover interfaces.
+- Approved as-built configuration and equipment identity.
+- Procedure and acceptance criteria.
+- Prerequisites, permits, isolations and safe work boundaries.
+- Responsible/executing/witnessing/approving authorities.
+- Test tools and calibration status.
+- Point-to-point and loop checks.
+- Functional tests and cause/effect validation.
+- Protection injection and end-to-end tests where applicable.
+- Breaker/intertrip and trip circuit verification.
+- Control sequence, permissive, interlock and fail-state tests.
+- Communication, redundancy, time-sync and recovery tests.
+- Alarm, SOE, event and historian validation.
+- Performance and load tests where applicable.
+- Deviations, punch items, restoration and reinstatement.
+- Final readiness and handover approvals.
+
+A loop check identifies instrument, channel, signal range/unit, wiring, polarity, scaling, alarm/action, control-room indication, source/receive timestamps and quality where relevant. A point-to-point check is not necessarily a functional loop test. A successful relay secondary injection test is not by itself proof of the entire CT primary circuit, trip wiring, breaker mechanism and end-to-end protection path.
+
+### O. Protection and Control assurance requirements
+
+Protection and Control remain separate domains and authorities. Their assurance evidence preserves this distinction.
+
+Protection verification/commissioning traces:
+- CT/PT/CVT identity, ratio, class, polarity, secondary earthing and calibration/test evidence.
+- Measurement channel and source association, scaling, phase and quality.
+- Relay hardware, firmware, setting group and approved configuration revision.
+- Protection function, element parameters, logic and zone boundaries.
+- Breaker/isolator topology, trip coil/circuit and auxiliary feedback.
+- Trip matrix, intertrip, lockout and reset logic.
+- Secondary injection, primary injection where required, end-to-end and functional test evidence.
+- Event records, disturbance records and test instrument metadata.
+- Coordination/study revision and approved setting derivation.
+- Restoration of temporary test links, blocks and bypasses.
+
+Control assurance traces:
+- Controller/PLC/runtime identity, firmware and project revision.
+- I/O module, channel, wiring, range, scaling and signal quality.
+- Control logic, sequence, state transitions, permissives and interlocks.
+- Cause/effect matrix, alarm/action and operator interface.
+- Manual/automatic/local/remote mode behavior.
+- Failure, stale signal, communication loss and restart behavior.
+- Actuator command, acknowledgement, physical feedback and timeout.
+- Loop/function tests and approved bypass restoration.
+
+Do not treat an online simulation, logic download success, relay setting file checksum or protocol connection as proof of correct field operation. Physical testing must be performed under authorized procedures and safe conditions by qualified personnel.
+
+### P. Safety assurance and independent authorization
+
+Safety lifecycle and hazard controls require their own governance and evidence. A hazard analysis, safety requirement, safety function, proof test, bypass, override and safety validation should be traceable to the relevant independent safety lifecycle and responsible authority.
+
+IEC 61508/IEC 61511 and applicable sector-specific standards are candidate references where functional safety is in scope. GridForge must not claim safety certification, SIL capability or safety-function integrity merely because it stores safety-related requirements or test records.
+
+Electrical Protection, process interlocks, safety instrumented functions, cybersecurity controls and operator procedures can interact but are not interchangeable. A protection trip is not automatically a safety instrumented function; a PLC interlock is not automatically a certified safety function. The engineering system should make the declared role and assurance basis visible.
+
+Energization, isolation removal, trip blocking, bypass removal, safety-function release and return-to-service require separately authorized decisions. A passed software check or completed commissioning checklist cannot perform those actions implicitly.
+
+### Q. Deviations, defects, punch lists and concessions
+
+Represent distinct records for defect/nonconformance, test anomaly, design deviation, field change, punch item, waiver, concession and approved exception. Each has identity, source, affected requirement/configuration, severity/risk, containment, owner, due date, disposition, evidence, approval and closure verification.
+
+Disposition states may include open, under assessment, contained, accepted for rework, rework complete, retest required, accepted concession, rejected, closed and superseded. Do not treat "closed" as proof of technical correction without closure evidence.
+
+A concession accepts a defined departure under specific scope, duration, conditions and authority. It does not rewrite the requirement or make the deviation disappear. Record expiry, compensating measures, operational restrictions and review trigger. A concession must not be used to bypass statutory or safety obligations.
+
+Punch-list items should be classified by impact and release consequence. Some may block energization/operation; others may be acceptable for handover with an owner and due date. The release rule is project- and risk-specific, explicit and approved; do not hard-code all punch items as either blocking or non-blocking.
+
+### R. Acceptance, release and as-operated baseline
+
+Acceptance is an explicit decision against a defined set of criteria and configuration. The acceptance record includes:
+- Accepted system/subsystem scope and boundaries.
+- Exact baseline and item revisions.
+- Requirement coverage summary and exclusions.
+- Verification/validation evidence references.
+- FAT/FIT/SAT/SIT/commissioning results.
+- Open defects, concessions and restrictions.
+- Safety/cybersecurity and operational-readiness dependencies.
+- Approving authority, witnesses and date.
+- Conditions, effective date and review/expiry triggers.
+- Distribution and recipient acknowledgement.
+
+A release package is immutable and includes a manifest of approved artifacts, versions, hashes, signatures/approvals, evidence references, dependencies and known limitations. Signing/hashing uses a defined canonicalization and trust policy; hashes alone do not authenticate an author or confer approval.
+
+As-designed, as-procured, as-manufactured, as-installed, as-built, as-commissioned and as-operated baselines remain distinct. A commissioned baseline records the tested/accepted field configuration. An as-operated baseline records the approved configuration in actual service, including effective settings, firmware, mappings, operating restrictions and authorized deviations. It is not inferred from the last saved design project.
+
+Where device readback is available, preserve source, time, quality, device identity and comparison result. A readback mismatch creates a reconciliation finding; it must not silently overwrite the approved design or be accepted as actual state without review.
+
+### S. Operational change, periodic review and revalidation
+
+Changes during operation may be driven by equipment replacement, settings revision, firmware update, topology change, protection/control modification, new operating envelope, maintenance, incident, obsolescence or standards update. Each change requires impact assessment against approved requirements, safety basis, study results, procedures, test evidence and existing baseline.
+
+Define re-verification/revalidation triggers:
+- Changed requirement, design assumption or interface.
+- Changed equipment/model/firmware/software version.
+- Changed CT/PT ratio, polarity, channel mapping or calibration.
+- Changed relay setting/function, logic, trip path or breaker association.
+- Changed Control logic, permissive/interlock or actuator.
+- Changed topology, rating, operating envelope or protection zone.
+- Changed communication protocol/profile, time source or network architecture.
+- Incident, unexpected behavior, field observation or failed proof test.
+- Evidence expiry, calibration expiry or material data-quality concern.
+- New standard/contract requirement where applicability is established.
+
+Not every change requires full requalification. Use dependency and risk-based impact analysis to identify affected assurance claims and evidence. Preserve previous acceptance and baseline history; a new revision receives new assurance evidence and a new release decision.
+
+### T. Engineering assurance case and argument structure
+
+For high-consequence engineering decisions, organize evidence as a structured assurance argument:
+- Claim: the defined system/design is acceptable for a stated purpose and context.
+- Subclaims: requirements are complete; design is suitable; models are fit for purpose; implementation conforms; interfaces are integrated; risks are controlled; commissioning is complete; residual deviations are acceptable.
+- Context: system boundary, assumptions, operating conditions, standards and lifecycle.
+- Strategy: argument decomposition and evidence plan.
+- Evidence: approved requirements, reviews, calculations, tests, inspection records, certificates, field measurements, signatures and acceptance records.
+- Defeaters/limitations: uncertainty, exclusions, unresolved anomalies, invalidated evidence, out-of-envelope operation and assumptions.
+- Authority: responsible authors, independent reviewers, approvers and owner acceptance.
+
+A structured assurance case is not a substitute for underlying engineering evidence. A diagram or argument can expose missing evidence but cannot manufacture it. GSN is a candidate notation for safety/assurance arguments; GridForge may support a format-neutral claim/argument/evidence graph and optional notation adapters.
+
+### U. Data, evidence and revision integration
+
+The assurance lifecycle consumes and links the preceding research architecture:
+- 8I-22 collaboration/change control: review, approval, immutable revisions.
+- 8I-23 persistence/recovery: canonical project, evidence references, integrity and recovery.
+- 8I-24 exchange: controlled import/export and fidelity.
+- 8I-25 standards: normative requirement and clause traceability.
+- 8I-26 solver governance and 8I-31 network modelling: model assurance and study snapshots.
+- 8I-32 calibration: parameter identification and uncertainty.
+- 8I-33 signal/measurement: raw data, quality, calibration and timestamps.
+- 8I-34 Protection/Control signal consumers: execution inputs and decision evidence.
+- 8I-35 operational lifecycle: command/feedback/actuation trace.
+- 8I-36 historian/SOE/audit: operational event evidence.
+- 8I-37 reports: immutable evidence-backed deliverables.
+- 8I-38 asset lifecycle: asset identity, maintenance and field condition.
+- 8I-39 cybersecurity: identity, authorization, signatures, package/plugin trust and audit.
+- 8I-40 canonical schemas: stable IDs, units, provenance, schema versions and compatibility.
+
+Evidence objects should be revision-bound, typed and independently addressable. A test report may reference raw data, but raw data should not be embedded repeatedly into every report. The canonical project remains the engineering project root; large waveforms, video, vendor binaries, calibration certificates and signed external records may be stored as controlled external evidence objects with immutable references, hashes, retention policy and availability status. External evidence availability must be checked before claiming a complete evidence package.
+
+### V. UI/UX and engineering workflows
+
+Provide role-aware workflows and a clear distinction between design workspace, review workspace, test execution, commissioning and release. The UI should show:
+- Lifecycle stage and allowed next transitions.
+- Current approved baseline vs working revision.
+- Requirements coverage and orphan/unallocated requirements.
+- Verification/validation plans, execution status and stale evidence.
+- Configuration item changes and impacted descendants.
+- Test procedure revision and test execution identity.
+- Open defects, concessions, punch items and restrictions.
+- Commissioning readiness and missing prerequisites.
+- Evidence provenance, signatures, timestamps and calibration validity.
+- Approval authority and separation-of-duty status.
+- Exact as-commissioned/as-operated configuration.
+
+Do not show a single green "compliant" or "commissioned" badge when only one part of the lifecycle is complete. Show scoped status with evidence and limitations. Provide explicit compare views for design vs as-built, approved vs device-readback, and previous vs proposed baseline. Show stale evidence reasons and affected requirements. Never let a UI checkbox directly assert a test pass, commissioning approval or operational release without the controlled command and authorization path.
+
+### W. Standards and source checks
+
+Targeted official-source checks were performed on 2026-11-04. These are candidate references, not a full standards catalogue, BIS adoption verification or compliance assessment.
+
+1. ISO/IEC/IEEE 15288:2023, Edition 2 — systems life-cycle process framework applicable across system life-cycle stages and system-of-interest elements. Source: https://www.iso.org/standard/81702.html
+2. IEEE 1012-2024 — active standard for system, software and hardware verification and validation; the publisher states V&V covers lifecycle products, systems/software/hardware and interfaces, including analysis, review, inspection, assessment and testing. Published 2025-08-22. Source: https://standards.ieee.org/ieee/1012/7324/
+3. ISO 10007:2017, Edition 3 — configuration management guidance across product/service life cycle; ISO page says reviewed and confirmed in 2023 and remains current at source check. Source: https://www.iso.org/standard/70400.html
+4. IEC 62381:2024, Edition 3.0 — process-industry automation FAT, FIT, SAT and SIT requirements/checklists; published 2024-07-30. It supersedes IEC 62381:2012. Source: https://webstore.iec.ch/en/publication/67572
+5. IEC 62337:2012, Edition 2.0 — commissioning phases and milestones for electrical, instrumentation and control systems in process industry. Confirm current lifecycle, corrigenda and Indian adoption before normative selection. Source: https://webstore.iec.ch/en/publication/6871
+6. IEC 61850-10:2012+AMD1:2025 CSV — Edition 2.1 consolidated conformance testing for client/server/sampled-value devices and engineering tools, with updated server/client/sampled-value/tool/GOOSE performance procedures. Source: https://webstore.iec.ch/en/publication/108858
+7. IEC 61508/IEC 61511 — candidate functional safety lifecycle references where scope applies; applicability, editions, sector adoption and certification requirements require separate review.
+8. ISO 9001 — candidate quality-management-system reference; it does not itself prescribe GridForge's engineering assurance data model or prove product conformity.
+9. ISO 19011 — candidate auditing guidance; audit evidence and engineering verification are distinct.
+10. ISO/IEC 17025 — candidate competence requirements for testing/calibration laboratories; GridForge must not infer instrument calibration validity merely from a certificate file.
+11. ISO 10005 — candidate quality plan guidance for project-specific quality/assurance planning.
+12. IEC 60255 series — candidate requirements/test methods for measuring relays and protection equipment; choose applicable parts and editions for the device/function under test.
+13. IEC 61850-10 and relevant IEC 61850 parts — candidate IED/system/tool conformance references; protocol conformance does not prove plant-level functional suitability.
+14. IEC 62382 — candidate loop-checking reference for process automation; exact current edition/adoption must be verified before use.
+15. IEC 62337 and IEC 62381 — commissioning milestones and FAT/FIT/SAT/SIT planning; neither replaces project-specific approved procedures or site authorization.
+16. ISO/IEC/IEEE 29148 — candidate requirements engineering process and information-item reference; verify current edition and adoption before normative use.
+17. ISO/IEC/IEEE 15289 — candidate life-cycle information item/documentation reference; verify current edition and applicability.
+18. ISO/IEC/IEEE 12207 — candidate software life-cycle process reference for GridForge product development; distinct from plant engineering commissioning.
+19. IEC 62402 — candidate obsolescence management reference, linked to asset lifecycle and change impact.
+20. IEC 62708 — candidate document types for electrical, instrumentation and control projects; check current status and project scope.
+
+Standards publication metadata and abstracts are not a substitute for licensed full-text review. GridForge should store standard identifier, edition, amendments, corrigenda, national adoption, effective/withdrawal dates, applicability, licensed access and clause-level evidence. Do not make claims such as "IEC compliant", "BIS approved", "IEEE certified" or "SIL certified" without exact applicable requirements, assessment scope and competent authority evidence.
+
+### X. Candidate acceptance and usability scenarios
+
+1. **UI-ACC-ASSURE-01** — A system-of-interest defines boundaries, operating context, assumptions, external actors and exclusions independently of project folders/sheets.
+2. **UI-ACC-ASSURE-02** — A requirement has stable identity, source, owner, revision, acceptance criteria, verification method and validation method.
+3. **UI-ACC-ASSURE-03** — Requirement-to-design-to-test-to-evidence traceability identifies unallocated, uncovered, failed and stale requirements.
+4. **UI-ACC-ASSURE-04** — A requirement change marks impacted downstream design, calculation, Protection/Control, report and test evidence stale without rewriting historical results.
+5. **UI-ACC-ASSURE-05** — Verification and validation conclusions remain distinct and state their system scope, conditions, assumptions and limitations.
+6. **UI-ACC-ASSURE-06** — A model verified against implementation requirements but not validated for a particular plant is visibly restricted from that plant-specific claim.
+7. **UI-ACC-ASSURE-07** — A model's validated operating envelope and uncertainty are visible when a study or report uses it.
+8. **UI-ACC-ASSURE-08** — A configuration baseline lists exact item revisions, dependencies, approvals, deviations and effective scope.
+9. **UI-ACC-ASSURE-09** — A Git commit, project revision, approved baseline and release are not conflated.
+10. **UI-ACC-ASSURE-10** — A change request identifies affected requirements, interfaces, studies, settings, test procedures and released baselines.
+11. **UI-ACC-ASSURE-11** — A test case definition is separate from every execution instance and retest.
+12. **UI-ACC-ASSURE-12** — A test execution cannot pass without required configuration identity, preconditions, observations and acceptance evidence.
+13. **UI-ACC-ASSURE-13** — Raw instrument readings, calibration validity, uncertainty and evaluation transformation remain linked to a test result.
+14. **UI-ACC-ASSURE-14** — A test result whose measurement uncertainty overlaps the acceptance boundary follows a declared decision rule rather than display rounding.
+15. **UI-ACC-ASSURE-15** — FAT, FIT, SAT and SIT are separately scoped and identify simulated/emulated interfaces and their limitations.
+16. **UI-ACC-ASSURE-16** — A successful FAT does not automatically satisfy site installation, SAT, SIT or commissioning requirements.
+17. **UI-ACC-ASSURE-17** — Mechanical completion, pre-commissioning, commissioning readiness, energization authorization and operational acceptance remain separate.
+18. **UI-ACC-ASSURE-18** — CT/PT/CVT polarity, ratio, calibration, channel association, relay settings and end-to-end trip path have distinct evidence links.
+19. **UI-ACC-ASSURE-19** — Control logic tests include I/O mapping, modes, permissives, interlocks, feedback, failure and recovery behavior.
+20. **UI-ACC-ASSURE-20** — A bypass/temporary test link has an owner, scope, authorization, expiry, restoration evidence and operational restriction.
+21. **UI-ACC-ASSURE-21** — A concession preserves the original requirement, defined departure, risk rationale, authority, expiry and compensating measures.
+22. **UI-ACC-ASSURE-22** — Acceptance records the exact as-commissioned baseline, open restrictions, evidence, signatories and effective date.
+23. **UI-ACC-ASSURE-23** — Device readback mismatch is reconciled as a finding and cannot silently overwrite approved engineering configuration.
+24. **UI-ACC-ASSURE-24** — An operational change invalidates only impacted assurance claims and triggers risk-based re-verification/revalidation.
+
+### Y. Open decisions, dependencies and gates
+
+Open decisions include: lifecycle state model and tailoring rules; system-of-interest hierarchy and boundaries; requirement taxonomy and structured acceptance criteria; requirement authority and source precedence; traceability coverage semantics; independence levels and approval roles; model verification and validation policies by solver/domain; numerical acceptance thresholds and uncertainty decision rules; baseline types and item granularity; baseline signature/trust model; Git/project/baseline/release relationships; change classification and emergency process; test case/procedure/execution schema; raw evidence retention and external object storage; instrument calibration source and traceability; FAT/FIT/SAT/SIT tailoring; commissioning system/subsystem boundaries; Protection/Control commissioning templates; bypass and restoration governance; concession and punch-list release rules; operational acceptance authority; as-operated baseline acquisition and device readback; assurance case notation; standards applicability and BIS adoption; evidence retention and legal requirements; role separation; and integration with external QMS/EDMS/CMMS/EAM systems.
+
+Dependencies: 8I-12 traceability; 8I-21 diagnostics/events; 8I-22 change control; 8I-23 persistence; 8I-24 exchange; 8I-25 standards; 8I-26 solver governance; 8I-31 network models; 8I-32 calibration/uncertainty; 8I-33 signals/measurement; 8I-34 Protection/Control consumers; 8I-35 operational command lifecycle; 8I-36 historian/SOE/audit; 8I-37 reports/evidence; 8I-38 asset lifecycle; 8I-39 cybersecurity/functional safety; 8I-40 canonical data schemas.
+
+UI-GATE-02 Project/session, UI-GATE-03 Diagnostics, UI-GATE-04 Accessibility/platform, UI-GATE-05 Display/performance, UI-GATE-06 Cross-domain trace and UI-GATE-07 Scope/priority remain open. This entry closes no gate. Approval requires review by system engineering, electrical design, Protection, Control, commissioning, metrology, quality, operations, cybersecurity, functional safety and project owner roles as applicable.
+
+### Z. Frozen invariants and research boundary
+
+- Verification, validation, commissioning, acceptance and operational release are distinct assurance claims.
+- Requirements, design artifacts, tests, results, deviations, approvals and baselines have stable identities and revision-aware typed relationships.
+- Historical evidence and approved baselines are immutable; a new revision creates new evidence and release decisions.
+- A passing model/solver test is not proof of plant-specific model validity or physical commissioning.
+- FAT/FIT/SAT/SIT remain distinct and tailored to system scope and actual test configuration.
+- Simulation/emulation evidence is labelled and cannot be represented as physical-device proof.
+- Protection and Control remain separate domains and authorities; their commissioning evidence is domain-specific.
+- Energization, isolation removal, bypass removal and return-to-service remain under authorized site processes.
+- A concession records a defined departure; it does not silently rewrite a requirement or erase risk.
+- Git commits, project revisions, approved configuration baselines and releases are distinct.
+- Device readback, field measurements and as-operated state require provenance, quality and reconciliation.
+- Evidence integrity hashes do not prove truth, calibration or authorization by themselves.
+- Core/Application/UI/plugin boundaries and the frozen GridForge package root remain unchanged.
+- V2 main remains unchanged. V3 proposals require review and approval before implementation.
+
+**Scope boundary:** research register only. No requirements-management subsystem, traceability graph, verification/validation engine, test execution framework, commissioning workflow, configuration baseline manager, acceptance/release service, assurance case editor, source code, UI, runtime behavior, benchmark, test or CI was implemented or executed. Targeted source checks were made for selected standards; no complete standards catalogue, BIS adoption verification, licensed clause review, plant commissioning, product certification or conformance assessment was performed. V2 main remains unchanged.
