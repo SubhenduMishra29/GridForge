@@ -86,6 +86,85 @@ class ProtectionConfigurationService:
         payload = json.dumps(canonical, ensure_ascii=True, separators=(",", ":"))
         return "ct-primary-component:v1:" + sha256(payload.encode("ascii")).hexdigest()
 
+    def validate_measurement_binding_associations(
+        self,
+        network: Network | None = None,
+    ) -> tuple[str, ...]:
+        """Revalidate persisted CT P1/P2 association identities against live topology."""
+        active = self._require_configuration()
+        active_network = network
+        if active_network is None and self._network_provider is not None:
+            active_network = self._network_provider()
+        if active_network is None:
+            return ("active Network is unavailable; CT primary-side association cannot be established.",)
+
+        diagnostics: list[str] = []
+        resolver = ConnectivityResolver(active_network)
+        for binding in active.measurement_bindings:
+            if binding.measurement_type.strip().lower() != "current":
+                continue
+            prefix = f"binding={binding.binding_id!r}, element={binding.protection_element_id!r}"
+            if (
+                binding.instrument_primary_side is None
+                or binding.instrument_primary_component_fingerprint is None
+            ):
+                diagnostics.append(
+                    f"{prefix}: legacy CT binding has no persisted P1/P2 component identity; explicit rebind is required."
+                )
+                continue
+            try:
+                instrument = active_network.get_by_identity(binding.instrument_id)
+                if not isinstance(instrument, CurrentTransformer):
+                    raise ValueError("bound instrument is not an authoritative CurrentTransformer")
+                source_reference = binding.source_endpoint_reference
+                if source_reference.is_bus:
+                    selected_endpoint = TopologyEndpointReference.from_bus(source_reference)
+                elif source_reference.is_terminal:
+                    selected_endpoint = TopologyEndpointReference.from_terminal(source_reference)
+                else:
+                    raise ValueError("source endpoint is neither a terminal nor a Bus attachment")
+                primary_references = {
+                    role: EndpointReference.terminal(
+                        equipment_type=EquipmentType("ct"),
+                        equipment_id=instrument.id,
+                        terminal_role=role,
+                    )
+                    for role in ("P1", "P2")
+                }
+                components = {
+                    role: resolver.topology_component(
+                        TopologyEndpointReference.from_terminal(reference)
+                    )
+                    for role, reference in primary_references.items()
+                }
+                if set(components["P1"]) == set(components["P2"]):
+                    raise ValueError("CT P1 and P2 resolve to the same topology component")
+                matching_roles = tuple(
+                    role for role, component in components.items()
+                    if selected_endpoint in component
+                )
+                if len(matching_roles) != 1:
+                    raise ValueError(
+                        f"selected source endpoint belongs to {len(matching_roles)} CT primary components"
+                    )
+                resolved_side = matching_roles[0]
+                resolved_fingerprint = self._ct_primary_component_fingerprint(
+                    components[resolved_side]
+                )
+                if binding.instrument_primary_side != resolved_side:
+                    diagnostics.append(
+                        f"{prefix}: persisted CT primary side {binding.instrument_primary_side!r} "
+                        f"does not match resolved side {resolved_side!r}; explicit rebind is required."
+                    )
+                    continue
+                if binding.instrument_primary_component_fingerprint != resolved_fingerprint:
+                    diagnostics.append(
+                        f"{prefix}: CT primary component membership changed; explicit rebind is required."
+                    )
+            except (TypeError, ValueError, KeyError, AttributeError) as exc:
+                diagnostics.append(f"{prefix}: CT primary association cannot be resolved safely: {exc}.")
+        return tuple(diagnostics)
+
     @staticmethod
     def _validate_differential_scheme_ownership(
         active: ProtectionProjectConfiguration,
