@@ -21500,3 +21500,50 @@ Verification boundary:
   differential evaluation/dispatch were performed.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-153 — CT PRIMARY-SIDE ASSOCIATION IDENTITY IS NOT PERSISTED
+======================================================================
+
+Audit finding:
+- ProtectionConfigurationService.create_measurement_binding() resolves the
+  CT P1 and P2 SimpleWire topology components and verifies that the selected
+  source endpoint belongs to exactly one component.
+- The resulting matching_ct_roles value (P1 or P2) is used for validation
+  and discarded. ProtectionMeasurementBinding persists instrument ID,
+  source endpoint, electrical side, ratio and channel, but not the resolved
+  CT-primary side or a canonical fingerprint of either primary component.
+- The binding correlation key omits CT identity and resolved P1/P2 component
+  membership. Persisted binding state therefore cannot prove that its
+  original CT-primary association remains valid after a topology edit.
+- Differential scheme current_directions is explicit configuration, but
+  does not replace persisted/validated physical CT orientation and local
+  association provenance.
+
+Required correction contract:
+- Persist canonical CT association identity: CT identity, selected primary
+  side (P1/P2), explicit source endpoint and deterministic fingerprint of
+  resolved component membership.
+- Re-resolve against the active Network during configuration validation and
+  Protection input preparation. Compare local component identity rather
+  than relying only on project-wide topology revision.
+- Require explicit rebind/update when selected component membership or CT
+  orientation changes. Preserve configured INTO_ZONE/OUT_OF_ZONE semantics;
+  never silently reverse them from changed topology.
+- Keep sample timestamp, quality and producer sequence separate from
+  association/configuration identity.
+
+Scope boundary:
+- Refines GF-AUD-148 and remains within issue #1070.
+- No persistent association token, migration, rebind command or runtime
+  invalidation behavior was implemented by this audit entry.
+
+Verification boundary:
+- Inspected ProtectionConfigurationService CT P1/P2 component resolution,
+  ProtectionMeasurementBinding fields/to_dict/from_dict/correlation_key and
+  the differential scheme direction contract.
+- Source inspection only. No tests, CI, syntax/import checks or runtime
+  topology-rebind scenarios were performed.
+
+======================================================================
