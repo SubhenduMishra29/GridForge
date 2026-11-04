@@ -149,7 +149,7 @@ class ProtectionExecutionService:
         *,
         action_resolver: Callable[[ProtectionDecision], ControlDecision | None],
         pre_dispatch_guard: Callable[[], None] | None = None,
-        decision_guard: Callable[[ProtectionDecision], None] | None = None,
+        decision_guard: Callable[[ProtectionDecision, ControlDecision | None], None] | None = None,
         state_observer: Callable[[ControlDecision, Command, ApplicationResult], ProtectionPostconditionVerification | str] | None = None,
     ) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
@@ -225,7 +225,7 @@ class ProtectionExecutionService:
 
             if self._decision_guard is not None:
                 try:
-                    self._decision_guard(protection_decision)
+                    self._decision_guard(protection_decision, None)
                 except StaleProtectionDecisionError as exc:
                     message = (
                         f"Protection decision rejected for '{protection_decision.element_id}' "
@@ -291,7 +291,7 @@ class ProtectionExecutionService:
 
             if self._decision_guard is not None:
                 try:
-                    self._decision_guard(protection_decision)
+                    self._decision_guard(protection_decision, control_decision)
                 except StaleProtectionDecisionError as exc:
                     message = (
                         f"Protection decision rejected after action resolution for "
@@ -362,7 +362,7 @@ class ProtectionExecutionService:
 
             if self._decision_guard is not None:
                 try:
-                    self._decision_guard(protection_decision)
+                    self._decision_guard(protection_decision, control_decision)
                 except StaleProtectionDecisionError as exc:
                     message = (
                         f"Protection decision rejected immediately before dispatch for "
@@ -512,7 +512,7 @@ class ProtectionExecutionService:
 
             if self._decision_guard is not None:
                 try:
-                    self._decision_guard(protection_decision)
+                    self._decision_guard(protection_decision, control_decision)
                 except (StaleProtectionDecisionError, StaleProtectionExecutionError) as exc:
                     diagnostics.append(
                         f"Post-dispatch dependency changed for element "
