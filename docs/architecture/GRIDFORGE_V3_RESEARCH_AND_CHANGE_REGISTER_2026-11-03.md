@@ -7098,3 +7098,244 @@ These are design scenarios for later executable acceptance specifications, not t
 - The frozen .gridforge persistence contract remains unchanged.
 
 **Scope boundary:** this entry records V3 research and candidate design only. It does not authorise V2 changes, V3 implementation, solver selection, standard-conformance claims, performance claims or test/CI acceptance. Candidate scenarios are not test results.
+
+
+## 8I-32. Proposed V3 engineering parameter identification, model calibration and uncertainty governance architecture (2026-11-04)
+
+### A. Purpose and boundary
+
+V3 should provide a governed way to reconcile design data, nameplate information, manufacturer data, commissioning tests, field measurements and calculated model parameters. This capability supports equipment parameterization (8I-28/29), network model construction (8I-30/31), solver governance (8I-26) and simulation/co-simulation (8I-27).
+
+The objective is not to create an automatic “make the model fit” feature. It is to establish traceable evidence and controlled engineering decisions for parameter selection, estimation, calibration, uncertainty and model validation.
+
+The following must remain distinct:
+1. **Observed data:** acquired or imported readings with source, time, quality and calibration context.
+2. **Declared parameter:** design, nameplate, manufacturer or project-specified value.
+3. **Estimated parameter:** derived from an explicit estimation method and input dataset.
+4. **Calibrated parameter:** an authorized model parameter adjusted against declared reference evidence under a defined objective.
+5. **Validated model:** a model whose behaviour has been compared with independent evidence for a stated operating envelope.
+6. **Accepted engineering configuration:** the project-authorized parameter/model selection for a defined use and revision.
+
+A good numerical fit is not proof that a parameter is physically correct, uniquely identifiable, safe, compliant or valid outside the calibration envelope.
+
+### B. Canonical parameter evidence and provenance
+
+Every calibration-relevant datum must retain stable identity and provenance. Candidate metadata includes:
+- source record and source type (nameplate, datasheet, factory test, site test, commissioning, operational historian, laboratory, simulation or engineering estimate);
+- equipment identity, serial/variant and configuration revision;
+- measurement point, terminal/phase, channel and sensor identity where applicable;
+- timestamp, time zone, clock quality and acquisition method;
+- quantity definition, unit, reference direction, phase convention and operating condition;
+- instrument identity, calibration status, accuracy class, range and uncertainty;
+- sampling rate, bandwidth, filtering, synchronization and missing-data treatment;
+- environmental and process conditions;
+- data quality, completeness, outlier flags and transformations;
+- author, issuer, reviewer, import method and immutable source reference/digest where lawful.
+
+Raw source evidence must be preserved separately from normalized, filtered, resampled or transformed datasets. Each transformation must record algorithm/version, settings, input identity, output identity and discarded or imputed samples. A derived dataset must never be presented as original field evidence.
+
+A parameter value must keep its semantic class and source. An estimated motor equivalent-circuit parameter must not overwrite the motor nameplate; a calibrated CT ratio correction must not alter the manufacturer's declared ratio; a fitted cable impedance must not become a measured factory test value.
+
+### C. Parameter state and selection policy
+
+For each engineering parameter, maintain distinct candidate values and their evidence links rather than a single unqualified scalar. The selected value used by a study must identify:
+- selected value and quantity/unit;
+- parameter definition and applicable equipment/model;
+- selection policy and rationale;
+- source evidence and confidence/uncertainty;
+- author/reviewer and approval state;
+- effective project/model revision and applicability envelope;
+- superseded alternatives and unresolved conflicts.
+
+Selection policies may prefer a valid factory test for a particular parameter, an approved project design value for another, or a validated estimate when no direct evidence exists. There must be no universal precedence rule across all parameter families. Conflicting evidence must be surfaced for engineering resolution.
+
+Defaults and estimates are permissible only when the selected study/model allows them and their use is visible. Critical missing parameters must block the affected calculation where the method cannot safely proceed. A user override requires rationale and audit history; it cannot silently bypass a hard physical or safety constraint.
+
+### D. Calibration and identification workflow
+
+A governed workflow should contain:
+
+1. **Scope definition:** equipment/model identity, target parameters, intended study/simulation use, operating envelope and calibration objective.
+2. **Evidence selection:** choose source datasets and reference cases, inspect provenance and quality, define excluded periods and explain exclusions.
+3. **Precondition validation:** verify units, channel calibration, synchronization, sensor range, operating stability, excitation/observability and configuration consistency.
+4. **Model selection:** identify model structure, fixed parameters, free parameters, bounds, constraints, parameter correlations and known non-identifiability.
+5. **Estimation execution:** run a versioned estimation method against an immutable dataset and model snapshot.
+6. **Fit and residual assessment:** report objective function, residual distribution, bias, outliers, confidence intervals and sensitivity to data/model assumptions.
+7. **Independent validation:** evaluate on held-out or independent evidence not used to fit the parameters.
+8. **Engineering review:** compare fitted values with physical ranges, manufacturer/test data, standards and prior accepted revisions.
+9. **Controlled acceptance:** publish a new parameter/model revision through Application-controlled mutation with approval and traceability.
+10. **Impact analysis:** identify affected studies, simulations, Protection dependencies and historical results; invalidate only impacted derived artifacts.
+
+Estimation output remains a proposal until accepted. Calibration must not mutate a running simulation or an already captured study snapshot.
+
+### E. Identifiability, observability and numerical conditioning
+
+Before presenting an estimated parameter as meaningful, the system should assess whether the available evidence can identify it. Correlated parameters may produce nearly identical model responses. Insufficient excitation, narrow operating range, sensor bias or unobserved internal states can make a parameter unidentifiable.
+
+The estimation report should expose, as supported by the method:
+- parameter sensitivity and correlation;
+- rank/conditioning of the sensitivity or information matrix;
+- confidence or credible intervals and their assumptions;
+- practical identifiability limits;
+- objective-function landscape or multiple candidate minima;
+- dependence on initial guesses, bounds and regularization;
+- residual structure and evidence of model mismatch.
+
+A numerically converged optimizer does not establish identifiability. If multiple parameter sets explain the data, report the ambiguity rather than selecting one without qualification. Regularization and prior constraints must be disclosed because they influence the result.
+
+### F. Uncertainty and error budget
+
+Uncertainty must be represented with the parameter or measurement, not hidden in display formatting. Distinguish:
+- instrument accuracy and calibration uncertainty;
+- repeatability and reproducibility;
+- sampling/time synchronization uncertainty;
+- environmental and operating-condition variation;
+- data-processing uncertainty;
+- model-form and structural uncertainty;
+- parameter-estimation uncertainty;
+- numerical solver error;
+- uncertainty propagated into calculated outputs.
+
+Use suitable representations for the quantity and evidence: bounded interval, standard uncertainty, distribution or scenario range. Do not assume Gaussian distributions or independence without justification. Correlated uncertainties and shared calibration errors must be preserved where they materially affect results.
+
+Uncertainty propagation may use analytical sensitivity, linearized covariance, Monte Carlo, interval methods or other domain-appropriate techniques. The selected method, sample strategy, convergence and confidence interpretation must be recorded. A probability statement must not be presented unless its statistical assumptions are supported.
+
+Result reporting should distinguish numerical precision from engineering certainty. Extra decimal places do not reduce uncertainty. A nominal value without an uncertainty statement may still be appropriate where uncertainty is unavailable, but the absence must be explicit rather than interpreted as zero uncertainty.
+
+### G. Model validation versus calibration
+
+Calibration adjusts model parameters against selected evidence; validation evaluates the resulting model against evidence not used for fitting. Verification of software implementation is a further, separate activity.
+
+Validation must be scoped to:
+- equipment identity and configuration;
+- operating point and environmental envelope;
+- input/output variables and measured boundary conditions;
+- reference dataset and instrument uncertainty;
+- acceptance metrics and tolerances;
+- model version and parameter revision;
+- limitations and unsupported regimes.
+
+A motor model validated at rated steady state is not automatically validated for locked-rotor starting, thermal overload or transient torque. A transformer equivalent validated at one tap and frequency is not automatically valid for all tap positions or EMT inrush. A CT model calibrated at low current is not thereby validated for saturation under fault current.
+
+Where field data are used, distinguish model validation from operational performance assessment and from formal type/routine testing. GridForge must not claim certification or regulatory compliance based solely on fitted data.
+
+### H. Domain-specific applications
+
+**Rotating machines and drives**
+- Estimate equivalent-circuit or dynamic parameters only from declared tests/operating datasets and model structure.
+- Retain motor nameplate, factory test, site test and fitted parameter sets independently.
+- Include inertia/load torque, drive/starter configuration, thermal state and supply conditions when relevant.
+- Validate separately for steady-state, starting, transient and thermal use cases.
+
+**Transformers and network components**
+- Preserve factory test values (losses, impedance, ratio, winding resistance) separately from field measurements and derived equivalent parameters.
+- Track tap position, winding connection, vector group, frequency and temperature reference.
+- Validate impedance and loss models only over the conditions represented by the evidence.
+- Never infer zero-sequence or grounding behaviour from positive-sequence fit alone.
+
+**Instrument transformers and sensors**
+- Calibration evidence is linked to the exact instrument, range, burden, frequency, polarity, secondary wiring and channel configuration.
+- Distinguish nominal ratio, measured ratio error, phase displacement, accuracy class and saturation characteristics.
+- A calibration update changes instrumentation/calibration revision, not physical network topology.
+- Measurement quality or calibration expiry must flow to dependent signal consumers and Protection evaluation through typed quality/freshness dependencies.
+
+**Protection and Control**
+- Relay setting selection and logic remain Protection-owned; Control configuration and execution remain Control-owned.
+- Parameter identification may supply evidence or proposed measurement/model parameters but cannot create Protection decisions, trip commands or Control actions.
+- Calibration or channel changes must invalidate only dependent Protection elements and preserve fail-closed dispatch on stale inputs.
+- Historical decisions retain the exact calibration and measurement revisions used at evaluation time.
+
+**Network and simulation models**
+- Parameter fitting for line, cable, load, source or converter equivalents must state frequency, phase domain, operating point and topology boundaries.
+- Reduced/equivalent models must not be calibrated against a dataset that hides the boundaries or equipment identities needed for the intended use.
+- Multi-physics calibration must retain synchronization and uncertainty across electrical, mechanical, thermal and process measurements.
+
+### I. Revisioning, acceptance and dependency invalidation
+
+Calibration runs, candidate parameter sets, accepted model revisions and validation evidence require stable identities. A new accepted parameter set creates a new revision; it must not rewrite the values used by historical study snapshots or simulation runs.
+
+Dependency records should identify exact parameter IDs, model revision, evidence revision and applicable domain consumers. A parameter change invalidates only dependent calculations and simulation initializations. Instrument calibration changes affect measurement quality and dependent Protection/Control consumers, but must not increment physical topology revision unless connectivity itself changes.
+
+Stale results must be visibly stale and cannot be reused as current. For Protection, per-element dependency invalidation and stale-decision isolation remain mandatory; a missing or stale required measurement/calibration dependency must preserve fail-closed dispatch. No calibration subsystem may weaken this guardrail.
+
+### J. User experience and engineering review
+
+The UI should present evidence and engineering judgement, not an opaque “auto-calibrate” button. A calibration workspace should make the following visible:
+- equipment and model under review;
+- parameter candidates and current accepted values;
+- evidence sources and quality;
+- operating envelope and selected dataset;
+- fit/residual plots and parameter sensitivity;
+- uncertainty and identifiability warnings;
+- comparison with nameplate, manufacturer and test data;
+- affected studies and consumers;
+- reviewer decisions, rationale and approval status.
+
+Reviewers should be able to inspect raw versus transformed data, reject exclusions, compare candidate revisions and reproduce a calibration run. Visual fit quality must not be used as the sole acceptance criterion. Accessibility and non-colour status indicators apply to all quality and uncertainty states.
+
+### K. Security, data governance and licensing
+
+Imported datasets, model files and calibration scripts are untrusted. Parsing and estimation must use bounded resources and controlled access. Native libraries or user-supplied scripts require sandboxing or an explicitly governed execution boundary. Credentials, personal information and unrelated process data must not be copied into project evidence unnecessarily.
+
+Retain source licensing and contractual restrictions. Data retention, export and sharing must respect plant confidentiality, vendor restrictions and applicable law. A digest can establish content identity but does not prove source authenticity or signer authority. Evidence authenticity and digital signatures require separate trust policy.
+
+### L. Verification evidence and candidate acceptance scenarios
+
+Verification should use synthetic data with known parameters, analytical models, independent datasets, instrument uncertainty, deliberately biased/noisy data and representative field evidence where authorized. Demonstrate both successful identification and cases where parameters are not identifiable. Compare estimators and uncertainty methods only within declared assumptions. No calibration benchmark, test or CI execution is authorized by this research entry.
+
+Candidate scenarios:
+
+- UI-ACC-CAL-01: retain nameplate, factory-test, field-measured and estimated values as distinct evidence-backed candidates.
+- UI-ACC-CAL-02: prevent a fitted value from overwriting the original manufacturer declaration.
+- UI-ACC-CAL-03: reject calibration data with incompatible units, phase convention or reference direction.
+- UI-ACC-CAL-04: expose sensor calibration state, range, timestamp and uncertainty before estimation.
+- UI-ACC-CAL-05: preserve raw data and a complete lineage for filtering, resampling and exclusion.
+- UI-ACC-CAL-06: report non-identifiable or strongly correlated parameters rather than presenting a unique unsupported estimate.
+- UI-ACC-CAL-07: show optimizer convergence separately from physical plausibility and independent validation.
+- UI-ACC-CAL-08: quantify parameter and measurement uncertainty with explicit assumptions.
+- UI-ACC-CAL-09: validate a motor model on held-out starting/transient evidence not used for fitting.
+- UI-ACC-CAL-10: distinguish transformer positive-sequence fit from zero-sequence/grounding validation.
+- UI-ACC-CAL-11: preserve CT ratio and phase-error calibration evidence independently from nominal nameplate ratio.
+- UI-ACC-CAL-12: propagate calibration expiry or poor measurement quality to dependent consumers.
+- UI-ACC-CAL-13: invalidate only calculations and Protection elements that depend on a changed parameter or channel.
+- UI-ACC-CAL-14: retain historical study and Protection results with the exact parameter/calibration revisions used.
+- UI-ACC-CAL-15: require controlled review before publishing a candidate parameter set as accepted project configuration.
+- UI-ACC-CAL-16: disclose regularization, priors, bounds and initial guesses that materially influence estimates.
+- UI-ACC-CAL-17: preserve parameter correlations and common-mode uncertainty where supported.
+- UI-ACC-CAL-18: reject reuse of a calibration outside its validated operating envelope without an explicit qualification.
+- UI-ACC-CAL-19: reproduce a calibration run from immutable inputs, method version and settings.
+- UI-ACC-CAL-20: prevent calibration or model-fitting workflows from issuing Protection trips or Control actions.
+
+### M. Open decisions and research tasks
+
+1. Define the initial supported calibration workflows and equipment families, prioritizing motor dynamics and instrument transformers.
+2. Specify common data/evidence schemas and immutable raw/derived dataset lineage.
+3. Define parameter identifiability diagnostics and acceptable uncertainty representations by domain.
+4. Select estimation algorithms and numerical libraries only after licensing, reproducibility and execution-isolation review.
+5. Establish approval roles and evidence thresholds for accepting parameter revisions.
+6. Define calibration expiry and out-of-tolerance propagation policies for Signals, Protection and Control.
+7. Specify validation dataset partitioning and prevent leakage between calibration and independent validation.
+8. Define how uncertainty propagates through Load Flow, Short Circuit, motor dynamics and co-simulation outputs.
+9. Reconcile calibration revision vectors with Protection per-element invalidation and operational historian traceability.
+10. Establish project retention and export policies for plant data, vendor evidence and licensed datasets.
+
+### N. Gate and scope disposition
+
+This section informs UI-GATE-02 (immutable evidence and parameter revisions), UI-GATE-03 (quality, uncertainty and calibration diagnostics), UI-GATE-05 (dataset and estimation performance), UI-GATE-06 (evidence-to-result traceability) and UI-GATE-07 (initial calibration scope). UI-GATE-04 applies to accessible plots, uncertainty cues and review workflows.
+
+All affected gates remain open. This entry does not approve an estimation algorithm, calibration policy, parameter schema, execution sandbox, acceptance authority or production workflow.
+
+### O. Frozen invariants and scope boundary
+
+- Core owns canonical equipment identity and accepted engineering parameter state; Application governs calibration workflows, controlled acceptance and publication.
+- Raw observations, transformed datasets, parameter candidates, accepted values and validation evidence remain distinct and traceable.
+- Calibration is not validation, software verification, certification or proof of physical truth.
+- No estimate or default silently becomes a measured, nameplate or manufacturer value.
+- Uncertainty, identifiability, model limitations and operating envelope remain explicit.
+- Study and simulation snapshots remain immutable and revision-bound; calibration does not mutate historical results or running simulations.
+- Signal/instrumentation, Protection, Control, topology and equipment revisions remain separate; selective invalidation is required.
+- Stale Protection dependencies remain fail-closed for dispatch.
+- Calibration providers use governed extension contracts and cannot mutate Core directly or issue operational actions.
+- Project persistence remains within the frozen .gridforge package contract.
+
+**Scope boundary:** research register only. No calibration engine, estimator, model fitter, data importer, parameter schema, execution sandbox, UI, source code, benchmark, tests or CI were implemented or run. V2 main remains unchanged.
