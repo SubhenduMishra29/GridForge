@@ -10,6 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
+from enum import Enum
+import json
 import math
 from datetime import datetime, timezone
 from typing import Any
@@ -1726,6 +1728,133 @@ class StudyReadService:
             numeric_deltas=tuple(numeric_deltas),
             numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
         )
+
+    def export_archived_comparison(
+        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+    ) -> str:
+        """Return a versioned, lossless JSON export of two archived transient runs."""
+        comparison = self.compare_archived_results(
+            left_record_id, right_record_id, project_id=project_id
+        )
+        left, right = comparison.left, comparison.right
+        transient_name = (
+            f"{TransientStabilityResult.__module__}."
+            f"{TransientStabilityResult.__qualname__}"
+        )
+
+        def is_transient(value: Any) -> bool:
+            return (
+                isinstance(value, TransientStabilityResult)
+                or (isinstance(value, Mapping) and value.get("$dataclass") == transient_name)
+                or (
+                    isinstance(value, Mapping)
+                    and value.get("$type") == "solver_result"
+                    and value.get("class") == transient_name
+                )
+            )
+
+        if not (is_transient(left.value) or is_transient(right.value)):
+            raise ValueError("Archived comparison does not contain a transient-stability result.")
+
+        def encode(value: Any) -> Any:
+            if value is None or isinstance(value, (str, bool, int)):
+                return value
+            if isinstance(value, float):
+                if math.isfinite(value):
+                    return value
+                label = "nan" if math.isnan(value) else (
+                    "positive_infinity" if value > 0 else "negative_infinity"
+                )
+                return {"$type": "float", "value": label}
+            if isinstance(value, complex):
+                if not math.isfinite(value.real) or not math.isfinite(value.imag):
+                    raise ValueError("Transient comparison export contains a non-finite complex value.")
+                return {"$type": "complex", "real": value.real, "imag": value.imag}
+            if isinstance(value, UUID):
+                return {"$type": "uuid", "value": str(value)}
+            if isinstance(value, Enum):
+                return {
+                    "$type": "enum",
+                    "class": f"{type(value).__module__}.{type(value).__qualname__}",
+                    "value": encode(value.value),
+                }
+            if isinstance(value, Mapping):
+                if any(not isinstance(key, str) for key in value):
+                    raise ValueError("Transient comparison export requires string mapping keys.")
+                return {key: encode(item) for key, item in value.items()}
+            if isinstance(value, (tuple, list)):
+                return [encode(item) for item in value]
+            if isinstance(value, (set, frozenset)):
+                encoded = [encode(item) for item in value]
+                return sorted(encoded, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+            if hasattr(value, "dtype") and hasattr(value, "shape") and callable(getattr(value, "tolist", None)):
+                dtype = value.dtype
+                if getattr(dtype, "kind", None) not in "biufc" or getattr(dtype, "hasobject", True):
+                    raise ValueError("Transient comparison export contains an unsupported array dtype.")
+                return {
+                    "$type": "ndarray",
+                    "dtype": dtype.str,
+                    "shape": list(value.shape),
+                    "data": encode(value.tolist()),
+                }
+            if hasattr(value, "item") and callable(value.item) and type(value).__module__.startswith("numpy"):
+                return encode(value.item())
+            if is_dataclass(value) and not isinstance(value, type):
+                qualified = f"{type(value).__module__}.{type(value).__qualname__}"
+                known_tags = {
+                    transient_name: "solver_result",
+                    f"{EventExecution.__module__}.{EventExecution.__qualname__}": "event_execution",
+                    f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}": "transient_discontinuity",
+                }
+                return {
+                    "$type": known_tags.get(qualified, "dataclass"),
+                    "class": qualified,
+                    "fields": {item.name: encode(getattr(value, item.name)) for item in fields(value)},
+                }
+            raise ValueError(
+                f"Transient comparison export cannot encode {type(value).__module__}.{type(value).__qualname__}."
+            )
+
+        def record_payload(record: ArchivedStudyResultReadModel) -> dict[str, Any]:
+            return {
+                "record_id": str(record.record_id),
+                "saved_at": record.saved_at,
+                "study_id": str(record.study_id),
+                "project_id": record.project_id,
+                "activation_generation": record.activation_generation,
+                "source_revision": encode(record.source_revision),
+                "study_type": record.study_type,
+                "status": record.status,
+                "message": record.message,
+                "metadata": encode(record.metadata),
+                "value": encode(record.value),
+            }
+
+        payload = {
+            "format": "GridForgeTransientComparison",
+            "schema_version": 1,
+            "left": record_payload(left),
+            "right": record_payload(right),
+            "comparison": {
+                "compatible": comparison.compatible,
+                "compatibility_message": comparison.compatibility_message,
+                "same_source_revision": comparison.same_source_revision,
+                "same_activation_generation": comparison.same_activation_generation,
+                "numeric_comparison_status": comparison.numeric_comparison_status,
+                "transient_compatibility_diagnostics": encode(comparison.transient_compatibility_diagnostics),
+                "transient_signal_deltas": encode(comparison.transient_signal_deltas),
+                "transient_event_matches": encode(comparison.transient_event_matches),
+                "transient_discontinuity_deltas": encode(comparison.transient_discontinuity_deltas),
+                "numeric_deltas": encode(comparison.numeric_deltas),
+            },
+        }
+        try:
+            return json.dumps(
+                payload, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Transient comparison export is not canonical JSON: {exc}") from exc
 
     def verify_archived_results(self, *, project_id: str, activation_generation: int | None = None) -> Any:
         if self._archive is None or not callable(getattr(self._archive, "verify", None)):
