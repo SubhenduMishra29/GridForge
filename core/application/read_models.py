@@ -386,6 +386,7 @@ class TransientEventReadModel:
     post_event_re_evaluation_status: str = "not_run"
     post_event_re_evaluation_failure_type: str | None = None
     post_event_re_evaluation_failure_message: str | None = None
+    transition: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.event_id or not self.event_type:
@@ -402,11 +403,23 @@ class TransientEventReadModel:
             raise ValueError("Transient event re-evaluation status is invalid.")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("Transient event metadata must be a mapping.")
+        if self.transition is not None and not isinstance(self.transition, Mapping):
+            raise TypeError("Transient event transition must be a typed mapping when supplied.")
         object.__setattr__(self, "scheduled_time", float(self.scheduled_time))
         if self.dispatch_time is not None:
             object.__setattr__(self, "dispatch_time", float(self.dispatch_time))
         object.__setattr__(self, "metadata", _freeze(self.metadata))
         object.__setattr__(self, "result", _freeze(self.result))
+        if self.transition is not None:
+            transition = dict(self.transition)
+            required_identity = ("transition_type", "target_kind", "target_id")
+            if not isinstance(transition.get("transition_type"), str) or not transition["transition_type"].strip():
+                raise ValueError("Transient event transition requires a non-empty transition_type.")
+            if not isinstance(transition.get("target_kind"), str) or not transition["target_kind"].strip():
+                raise ValueError("Transient event transition requires a non-empty target_kind.")
+            if not isinstance(transition.get("target_id"), str) or not transition["target_id"].strip():
+                raise ValueError("Transient event transition requires a non-empty target_id.")
+            object.__setattr__(self, "transition", _freeze(transition))
 
     @property
     def marker_time(self) -> float:
