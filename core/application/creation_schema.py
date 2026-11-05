@@ -225,6 +225,28 @@ class CreationDefinition:
     def default_values(self) -> Mapping[str, Any]:
         return {p.parameter_id: p.default_value for p in self.parameter_definitions if p.default_value is not None}
 
+    def validate_updates(self, values: Mapping[str, Any]) -> tuple[str, ...]:
+        """Validate only supplied canonical parameter values for an update.
+
+        Unlike creation validation, updates are partial and must not require
+        unrelated required-before-create fields to be resubmitted. Explicit
+        None values are left to the owning update command's clearing contract.
+        """
+        if not isinstance(values, Mapping):
+            raise TypeError("engineering update values must be a mapping.")
+        errors: list[str] = []
+        for parameter in self.parameter_definitions:
+            if parameter.parameter_id not in values:
+                continue
+            value = values[parameter.parameter_id]
+            if value is None:
+                continue
+            try:
+                _validate_parameter(parameter, value)
+            except (TypeError, ValueError) as exc:
+                errors.append(f"{parameter.display_name}: {exc}")
+        return tuple(errors)
+
     def parameter(self, parameter_id: str) -> EngineeringParameterDefinition:
         for parameter in self.parameter_definitions:
             if parameter.parameter_id == parameter_id:
