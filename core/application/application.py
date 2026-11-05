@@ -60,7 +60,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -4293,12 +4293,164 @@ class Application:
     def read_protection(self) -> ProtectionReadModel:
         self._require_protection_read_service(); return self._protection_read_service.protection()  # type: ignore[union-attr]
     def read_protection_configuration(self) -> tuple[Any, ...]:
-        """Return immutable project-scoped protection configuration read state."""
+        """Return the immutable project-scoped domain configuration for compatibility."""
         service = getattr(self, "protection_configuration_service", None)
         configuration = getattr(service, "configuration", None) if service is not None else None
         if configuration is None:
             return ()
         return tuple(configuration.elements)
+
+    def read_protection_function_configurations(
+        self, *, relay_id: str | None = None
+    ) -> tuple[ProtectionFunctionConfigurationReadModel, ...]:
+        """Return detached, metadata-backed function configuration snapshots."""
+        from core.protection.function_catalog import (
+            ProtectionFunctionStatus,
+            get_protection_function,
+        )
+
+        service = getattr(self, "protection_configuration_service", None)
+        project_configuration = getattr(service, "configuration", None) if service is not None else None
+        if project_configuration is None:
+            return ()
+        if relay_id is not None and (not isinstance(relay_id, str) or not relay_id.strip()):
+            raise ValueError("relay_id must be a non-empty string or None.")
+
+        result = []
+        for configuration in sorted(project_configuration.elements, key=lambda item: str(item.element_id)):
+            if relay_id is not None and str(configuration.relay_id) != relay_id.strip():
+                continue
+            try:
+                specification = get_protection_function(configuration.function_code)
+            except (KeyError, TypeError, ValueError):
+                specification = None
+            contract = (
+                specification.settings_contract
+                if specification is not None
+                and specification.status is ProtectionFunctionStatus.IMPLEMENTED
+                else None
+            )
+            defaults = contract.default_values if contract is not None else {}
+            setting_models = []
+            modeled_keys = set()
+            if contract is not None:
+                for definition in contract.fields:
+                    modeled_keys.add(definition.key)
+                    configured = definition.key in configuration.settings
+                    has_default = definition.key in defaults
+                    value = (
+                        configuration.settings[definition.key]
+                        if configured
+                        else defaults.get(definition.key)
+                    )
+                    setting_models.append(ProtectionSettingValueReadModel(
+                        key=definition.key,
+                        label=definition.label,
+                        datatype=definition.datatype,
+                        unit=definition.unit,
+                        value=value,
+                        required=definition.required,
+                        configured=configured,
+                        default_value=defaults.get(definition.key),
+                        has_default=has_default,
+                        choices=definition.choices,
+                        choices_by=definition.choices_by,
+                        choices_by_value=definition.choices_by_value or {},
+                        editable=True,
+                    ))
+            residual_input = (
+                configuration.residual_current_input.to_dict()
+                if configuration.residual_current_input is not None
+                else None
+            )
+            result.append(ProtectionFunctionConfigurationReadModel(
+                element_id=str(configuration.element_id),
+                relay_id=str(configuration.relay_id),
+                function_code=str(configuration.function_code),
+                name=str(configuration.name),
+                settings=tuple(setting_models),
+                input_channel_ids=dict(configuration.input_channel_ids),
+                enabled=bool(configuration.enabled),
+                blocked=bool(configuration.blocked),
+                priority=int(configuration.priority),
+                action_target_type=configuration.action_target_type,
+                action_target_id=configuration.action_target_id,
+                action_type=configuration.action_type,
+                residual_current_input=residual_input,
+                metadata=dict(configuration.metadata),
+                unmodeled_settings={
+                    key: value for key, value in configuration.settings.items()
+                    if key not in modeled_keys
+                },
+                settings_editable=contract is not None,
+                implementation_status=(
+                    specification.status.value if specification is not None else "UNKNOWN"
+                ),
+            ))
+        return tuple(result)
+
+    def read_physical_relay_configuration(
+        self, relay_id: str
+    ) -> PhysicalRelayConfigurationReadModel:
+        """Return physical Relay configuration separately from runtime telemetry.
+
+        Raw plugin settings remain inspectable but read-only until the plugin
+        declares a typed setting schema.
+        """
+        relay = self.read_relay(relay_id)
+        return PhysicalRelayConfigurationReadModel(
+            relay_id=relay.object_id,
+            name=relay.name,
+            relay_type=relay.relay_type,
+            plugin_id=relay.plugin_id,
+            settings=relay.settings,
+            in_service=relay.in_service,
+            enabled=relay.enabled,
+            blocked=relay.blocked,
+            settings_editable=False,
+            settings_editability_reason=(
+                "No plugin-declared setting schema is currently exposed through the Application read contract."
+                if relay.settings else
+                "No plugin-specific setting fields are declared in the Application read contract."
+            ),
+        )
+
+
+    def update_protection_function_settings(
+        self, *, element_id: str, settings: Mapping[str, Any]
+    ) -> ApplicationResult:
+        """Update one function's settings through the canonical Protection command.
+
+        The Application merges submitted fields into the existing immutable
+        project configuration and delegates value validation, transaction,
+        undo and event behavior to the existing command/service.
+        """
+        if not isinstance(element_id, str) or not element_id.strip():
+            raise ValueError("element_id must be a non-empty string.")
+        if not isinstance(settings, Mapping) or not settings:
+            raise ValueError("settings must be a non-empty mapping.")
+
+        service = getattr(self, "protection_configuration_service", None)
+        project_configuration = getattr(service, "configuration", None) if service is not None else None
+        if project_configuration is None:
+            raise RuntimeError("No active project Protection configuration is available.")
+        current = project_configuration.get(element_id.strip())
+        merged_settings = dict(current.settings)
+        for key, value in settings.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("Protection setting keys must be non-empty strings.")
+            merged_settings[key.strip()] = value
+
+        from dataclasses import replace
+        from core.application.commands.protection_configuration_commands import (
+            UpdateProtectionConfigurationCommand,
+        )
+
+        replacement = replace(current, settings=merged_settings)
+        return self.execute(
+            UpdateProtectionConfigurationCommand(configuration=replacement)
+        )
+
     def read_relay(self, relay_id: str) -> RelayReadModel:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
