@@ -348,6 +348,29 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     assert not grid_mismatch.compatible
     assert "TIME_GRID_MISMATCH" in grid_mismatch.transient_compatibility_diagnostics
 
+    mismatched_provenance = dict(provenance)
+    mismatched_provenance["nominal_frequency_hz"] = 60.0
+    provenance_record_id = uuid4()
+    provenance_record = SimpleNamespace(
+        record_id=provenance_record_id, saved_at="2026-11-05T10:00:00+00:00",
+        result=SimpleNamespace(
+            study_id=uuid4(), project_id=project_id, activation_generation=3,
+            source_revision=revision, study_type="transient_stability", status="completed",
+            value=transient_result(0.1, provenance_override=mismatched_provenance),
+            message="", metadata={},
+        ),
+    )
+    provenance_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (provenance_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    provenance_comparison = provenance_service.compare_study_results(
+        live_result, provenance_record_id, project_id=project_id,
+        activation_generation=4, current_revision=revision,
+    )
+    assert not provenance_comparison.compatible
+    assert "PROVENANCE_MISMATCH:nominal_frequency_hz" in provenance_comparison.transient_compatibility_diagnostics
+
     failed_boundary_result = SimpleNamespace(
         study_id=uuid4(), project_id=project_id, activation_generation=3,
         source_revision=revision, study_type="transient_stability", status="completed",
