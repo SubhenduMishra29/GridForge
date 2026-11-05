@@ -18,7 +18,7 @@ from uuid import UUID
 from .revision import ProjectRevision
 
 from core.solver.power_flow.result import PowerFlowResult
-from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
@@ -1021,6 +1021,19 @@ class StudyReadService:
                     "post_event_re_evaluation_status": event.post_event_re_evaluation_status,
                     "post_event_re_evaluation_failure_type": event.post_event_re_evaluation_failure_type,
                     "post_event_re_evaluation_failure_message": event.post_event_re_evaluation_failure_message,
+                    "transition": (
+                        None if event.transition is None else {
+                            "transition_type": event.transition.transition_type,
+                            "target_kind": event.transition.target_kind,
+                            "target_id": event.transition.target_id,
+                            "previous_state": event.transition.previous_state,
+                            "new_state": event.transition.new_state,
+                            "source_topology_revision": event.transition.source_topology_revision,
+                            "pre_event_revision": event.transition.pre_event_revision,
+                            "post_event_revision": event.transition.post_event_revision,
+                            "details": event.transition.details,
+                        }
+                    ),
                 }
             elif isinstance(event, Mapping) and event.get("$dataclass") == event_class_name:
                 legacy_event_fields = event.get("fields")
