@@ -310,6 +310,8 @@ class TransientStabilitySolver:
                     executions.extend(attempted)
                     if attempted:
                         discontinuities.append(self._make_discontinuity(pre_event_solution, attempted, None, post_status="dispatch_failed"))
+                    if not times or not math.isclose(times[-1], pre_event_solution.time, rel_tol=0.0, abs_tol=1e-12):
+                        self._record(pre_event_solution, times, states, voltages, powers, algebraic_quality)
                     partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
                     raise TransientStabilityError(
                         f"Event dispatch failed at t={self._time:.12g} s; partial trajectory retained.",
@@ -322,6 +324,8 @@ class TransientStabilitySolver:
                     executions.extend(annotated)
                     if event_batch:
                         discontinuities.append(self._make_discontinuity(pre_event_solution, annotated, None, post_status="post_evaluation_failed"))
+                    if not times or not math.isclose(times[-1], pre_event_solution.time, rel_tol=0.0, abs_tol=1e-12):
+                        self._record(pre_event_solution, times, states, voltages, powers, algebraic_quality)
                     partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
                     raise TransientStabilityError(
                         f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s; partial trajectory retained.",
