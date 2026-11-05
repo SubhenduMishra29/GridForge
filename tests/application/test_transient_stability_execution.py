@@ -7,6 +7,7 @@ from scipy.sparse import csr_matrix
 from core.application.read_models import StudyResultReadModel
 from core.application.read_service import StudyReadService
 from core.application.revision import ProjectRevision
+from core.solver.dynamics.transient_stability import TransientStabilityResult
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.analysis.power_flow_preparation import PreparedBranch, PreparedPowerFlow
@@ -114,16 +115,30 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     revision = ProjectRevision(model_revision=3, topology_revision=2)
     live_study_id = uuid4()
     archived_record_id = uuid4()
-    live_result = StudyResultReadModel(
-        study_id=live_study_id,
-        project_id=project_id,
-        activation_generation=4,
-        source_revision=revision,
-        study_type="transient_stability",
-        status="completed",
-        value=None,
-        current=True,
-    )
+    provenance = {
+        "nominal_frequency_hz": 50.0,
+        "power_base_mva": 100.0,
+        "bus_voltage_bases_kv": {"B1": 11.0},
+        "canonical_topology_fingerprint": "topology-sha256",
+        "prepared_network_topology_fingerprint": "prepared-sha256",
+        "machine_model_manifest": (("G1", "classical"),),
+        "state_signals": ({
+            "signal_id": "machine:G1:rotor_angle",
+            "global_index": 0,
+            "label": "G1 rotor angle",
+            "state_name": "rotor_angle",
+            "unit": "rad",
+            "machine_id": "G1",
+        },),
+    }
+    def transient_result(offset):
+        return TransientStabilityResult(
+            time=np.asarray([0.0, 0.01]),
+            states=np.asarray([[0.1 + offset], [0.2 + offset]]),
+            terminal_voltages=({"B1": 1.0 + 0.0j}, {"B1": 0.99 + 0.01j}),
+            electrical_powers=({"G1": (0.8, 0.1)}, {"G1": (0.79, 0.11)}),
+            provenance=provenance,
+        )
     archived_result = SimpleNamespace(
         study_id=uuid4(),
         project_id=project_id,
@@ -131,9 +146,19 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
         source_revision=revision,
         study_type="transient_stability",
         status="completed",
-        value=None,
+        value=transient_result(0.0),
         message="archived run",
         metadata={},
+    )
+    live_result = StudyResultReadModel(
+        study_id=live_study_id,
+        project_id=project_id,
+        activation_generation=4,
+        source_revision=revision,
+        study_type="transient_stability",
+        status="completed",
+        value=transient_result(0.05),
+        current=True,
     )
     archive_record = SimpleNamespace(
         record_id=archived_record_id,
@@ -162,6 +187,9 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     assert comparison.right.record_id == archived_record_id
     assert comparison.left.study_id == live_study_id
     assert comparison.compatible
+    assert comparison.numeric_comparison_status == "TRANSIENT_COMPARABLE"
+    assert comparison.transient_signal_deltas
+    assert comparison.transient_signal_deltas[0].deltas == (0.05, 0.05)
     assert read_service.compare_archived_results(
         live_result,
         archived_record_id,
