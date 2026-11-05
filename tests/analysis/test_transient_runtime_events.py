@@ -89,7 +89,7 @@ def test_simultaneous_breaker_open_and_close_conflict_before_any_mutation():
     event_state, _ = _runtime()
     manager = EventManager()
     schedule_breaker_open(manager, event_state, 0.1, "CB1", event_id="breaker-open")
-    schedule_breaker_close(manager, event_state, 0.1, "CB1", event_id="breaker-close")
+    schedule_breaker_close(manager, event_state, 0.1 + 5e-10, "CB1", event_id="breaker-close")
 
     with pytest.raises(EventBatchConflictError, match="CB1.*breaker-"):
         manager.process_interval(0.0, 0.1)
