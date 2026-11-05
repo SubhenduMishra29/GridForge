@@ -1039,9 +1039,14 @@ def recover_application(
             raise RuntimeError("The degraded Application changed during replacement composition.")
         return replacement
     except BaseException:
-        # No worker has been submitted during composition. Shut down the fresh
-        # facade's executor so a failed candidate does not retain resources.
-        replacement._commit_executor.shutdown(wait=False, cancel_futures=True)
+        # The composition owner holds UI/workspace resources that are outside
+        # the headless Application's ownership. Dispose that staged graph before
+        # releasing the candidate's executor; disposal is required to be safe
+        # even when configuration or activation failed partway through.
+        try:
+            recovery_composition.dispose_replacement(replacement)
+        finally:
+            replacement._commit_executor.shutdown(wait=False, cancel_futures=True)
         raise
 
 
