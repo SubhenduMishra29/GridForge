@@ -2741,7 +2741,7 @@ class Application:
             raise RuntimeError("An active project is required to export archived Study Results.")
         if not isinstance(left_record_id, UUID) or not isinstance(right_record_id, UUID):
             raise TypeError("Archived Study Result record identities must be UUID values.")
-        return self._study_read_service.export_archived_comparison(
+        return self._study_read_service.export_study_comparison(
             left_record_id, right_record_id, project_id=context.project_id,
         )
 
