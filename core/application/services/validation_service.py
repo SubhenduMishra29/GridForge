@@ -132,6 +132,8 @@ class ValidationService:
                 "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH": "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH",
                 "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED": "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED",
                 "SLD_DOCUMENT_PROJECT_MISMATCH": "SLD_DOCUMENT_PROJECT_MISMATCH",
+                "SLD_DOCUMENT_ID_INVALID": "SLD_DOCUMENT_ID_INVALID",
+                "SLD_PRESENTATION_DOCUMENT_ID_DUPLICATE": "SLD_PRESENTATION_DOCUMENT_ID_DUPLICATE",
             }.get(source_code, "SLD_CONNECTION_AUDIT_FAILED")
             connection_id = diagnostic.get("connection_id")
             core_connection_id = diagnostic.get("core_connection_id")
@@ -144,6 +146,8 @@ class ValidationService:
                 "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH",
                 "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED",
                 "SLD_DOCUMENT_PROJECT_MISMATCH",
+                "SLD_DOCUMENT_ID_INVALID",
+                "SLD_PRESENTATION_DOCUMENT_ID_DUPLICATE",
             }:
                 message = f"{identity_prefix}presentation collection integrity failed: {reason or source_code}."
             else:
