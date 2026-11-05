@@ -101,7 +101,7 @@ class ReportsWorkspaceView(QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Study Reports", self))
         layout.addWidget(self._list)
-        layout.addWidget(QLabel("Archived transient runs — select exactly two to export a comparison", self))
+        layout.addWidget(QLabel("Transient runs — select any two live/archive runs to export a comparison", self))
         layout.addWidget(self._archive_list)
         self.refresh()
 
@@ -117,23 +117,37 @@ class ReportsWorkspaceView(QWidget):
                     f"{result.message or 'No message'}"
                 )
         self._archive_list.clear()
+        live = tuple(
+            result for result in results
+            if result.study_type == "transient_stability"
+        )
+        for result in live:
+            self._archive_list.addItem(
+                f"LIVE — generation {result.activation_generation} — {result.status} — {result.study_id}"
+            )
+            item = self._archive_list.item(self._archive_list.count() - 1)
+            item.setData(Qt.ItemDataRole.UserRole, ("live", str(result.study_id)))
         archived = tuple(self._application.read_archived_study_results(study_type="transient_stability"))
         for record in archived:
             self._archive_list.addItem(
-                f"{record.saved_at} — {record.status} — {record.record_id}"
+                f"ARCHIVE — {record.saved_at} — {record.status} — {record.record_id}"
             )
             item = self._archive_list.item(self._archive_list.count() - 1)
-            item.setData(Qt.ItemDataRole.UserRole, str(record.record_id))
+            item.setData(Qt.ItemDataRole.UserRole, ("archive", str(record.record_id)))
 
-    def selected_archived_record_ids(self) -> tuple[str, ...]:
-        """Return selected archive UUIDs in visible row order."""
+    def selected_study_execution_refs(self) -> tuple[tuple[str, str], ...]:
+        """Return selected live/archive execution identities in visible row order."""
         selected = []
         for index in range(self._archive_list.count()):
             item = self._archive_list.item(index)
             if item.isSelected():
                 value = item.data(Qt.ItemDataRole.UserRole)
-                if isinstance(value, str) and value.strip():
-                    selected.append(value)
+                if (
+                    isinstance(value, tuple) and len(value) == 2
+                    and value[0] in {"live", "archive"}
+                    and isinstance(value[1], str) and value[1].strip()
+                ):
+                    selected.append((value[0], value[1]))
         return tuple(selected)
 
 
