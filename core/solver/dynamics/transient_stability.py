@@ -281,10 +281,23 @@ class TransientStabilitySolver:
         discontinuities: list[TransientDiscontinuity] = []
 
         if not (should_cancel is not None and should_cancel()):
-            executions.extend(self._process_due_events())
-            if record_initial:
-                initial = self.dae_solver.evaluate(self._state, self._time)
-                self._record(initial, times, states, voltages, powers, algebraic_quality)
+            try:
+                due_executions = self._process_due_events()
+            except TransientStabilityError as exc:
+                boundary = self._last_due_discontinuity
+                if boundary is not None:
+                    discontinuities.append(boundary)
+                    executions.extend(boundary.event_executions)
+                    self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
+                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
+                    raise TransientStabilityError(str(exc), partial_result=partial) from exc
+                raise
+            executions.extend(due_executions)
+            if self._last_due_discontinuity is not None:
+                discontinuities.append(self._last_due_discontinuity)
+            if record_initial or self._last_due_post_solution is not None:
+                initial = self._last_due_post_solution or self.dae_solver.evaluate(self._state, self._time)
+                self._record_boundary_solution(initial, times, states, voltages, powers, algebraic_quality)
 
         while self._time < self.end_time - self.event_manager.tolerance:
             if should_cancel is not None and should_cancel():
@@ -292,7 +305,22 @@ class TransientStabilitySolver:
             # Dispatch events due at the current simulation time before asking
             # the scheduler for a strictly-future event boundary. This is
             # independent of whether the caller records an initial sample.
-            executions.extend(self._process_due_events())
+            try:
+                due_executions = self._process_due_events()
+            except TransientStabilityError as exc:
+                boundary = self._last_due_discontinuity
+                if boundary is not None:
+                    discontinuities.append(boundary)
+                    executions.extend(boundary.event_executions)
+                    self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
+                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
+                    raise TransientStabilityError(str(exc), partial_result=partial) from exc
+                raise
+            executions.extend(due_executions)
+            if self._last_due_discontinuity is not None:
+                discontinuities.append(self._last_due_discontinuity)
+                if self._last_due_post_solution is not None:
+                    self._record_boundary_solution(self._last_due_post_solution, times, states, voltages, powers, algebraic_quality)
             previous_time = self._time
             next_event_time = self.event_manager.next_event_time(previous_time)
             target_time = min(previous_time + self.dt, self.end_time)
@@ -470,6 +498,40 @@ class TransientStabilitySolver:
         self._last_due_discontinuity = None
         self._last_due_post_solution = None
         self.event_manager.reset()
+
+    def _append_discontinuity_pre_sample(
+        self,
+        boundary: TransientDiscontinuity,
+        times: list[float],
+        states: list[np.ndarray],
+        voltages: list[dict[str, complex]],
+        powers: list[dict[str, tuple[float, float]]],
+        algebraic_quality: list[AlgebraicNetworkSolution],
+    ) -> None:
+        if times and math.isclose(times[-1], boundary.time, rel_tol=0.0, abs_tol=1e-12):
+            return
+        times.append(boundary.time)
+        states.append(boundary.pre_state.copy())
+        voltages.append(dict(boundary.pre_terminal_voltages))
+        powers.append(dict(boundary.pre_electrical_powers))
+        algebraic_quality.append(boundary.pre_algebraic_quality)
+
+    def _record_boundary_solution(
+        self,
+        solution: DAESolution,
+        times: list[float],
+        states: list[np.ndarray],
+        voltages: list[dict[str, complex]],
+        powers: list[dict[str, tuple[float, float]]],
+        algebraic_quality: list[AlgebraicNetworkSolution],
+    ) -> None:
+        if times and math.isclose(times[-1], solution.time, rel_tol=0.0, abs_tol=1e-12):
+            states[-1] = np.asarray(solution.state, dtype=float).copy()
+            voltages[-1] = dict(solution.terminal_voltages)
+            powers[-1] = self._electrical_powers(solution.state, solution.terminal_voltages)
+            algebraic_quality[-1] = self._algebraic_quality(solution)
+            return
+        self._record(solution, times, states, voltages, powers, algebraic_quality)
 
     def _algebraic_quality(self, solution: DAESolution) -> AlgebraicNetworkSolution:
         quality = solution.algebraic_quality
