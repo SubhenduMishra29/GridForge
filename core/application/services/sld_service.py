@@ -1691,16 +1691,16 @@ class SLDService:
             # the original live objects, recreates only absent objects, and
             # fails closed on conflicting identities rather than silently
             # skipping or deleting unrelated objects with matching IDs.
-            # Preserve engineer-authored attached connections as orphaned
-            # presentation, while projection-owned companions are removed with
-            # the deleted projection node.
+            # Register the inverse before mutating any attached connection.
+            # Preserve engineer-authored connections as orphans; projection-owned
+            # companions are removed with the deleted projection node.
+            transaction.record_undo(restore)
             preserved_connection_ids: list[str] = []
             for connection in attached:
                 if self.has_engineer_presentation_overrides_for_connection(connection):
                     orphan_connection(connection)
                     preserved_connection_ids.append(connection.connection_id)
 
-            transaction.record_undo(restore)
             self.document.model.remove_node(
                 node.node_id,
                 preserve_connection_ids=tuple(preserved_connection_ids),
