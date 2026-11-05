@@ -45,20 +45,25 @@ class StudyCaseController:
         except Exception as exc:
             return self._handle_error(exc)
 
-    def export_archived_comparison(self, left_record_id: UUID, right_record_id: UUID) -> str:
-        """Request an archived transient comparison export through Application."""
+    def export_study_comparison(
+        self, left_source: str, left_record_id: UUID | str,
+        right_source: str, right_record_id: UUID | str,
+    ) -> str:
+        """Request a live/archive Study comparison export through Application."""
         try:
             left_id = left_record_id if isinstance(left_record_id, UUID) else UUID(str(left_record_id))
             right_id = right_record_id if isinstance(right_record_id, UUID) else UUID(str(right_record_id))
         except (TypeError, ValueError) as exc:
-            return self._handle_error(ValueError("Selected archived Study Result identity is invalid."), cause=exc)
+            return self._handle_error(ValueError("Selected Study execution identity is invalid."), cause=exc)
+        if left_source not in {"live", "archive"} or right_source not in {"live", "archive"}:
+            return self._handle_error(ValueError("Selected Study execution source is invalid."))
         try:
-            export = getattr(self._application, "export_archived_study_comparison", None)
+            export = getattr(self._application, "export_study_comparison", None)
             if not callable(export):
-                raise RuntimeError("Application archived transient comparison export is unavailable.")
-            payload = export(left_id, right_id)
+                raise RuntimeError("Application unified Study comparison export is unavailable.")
+            payload = export(left_source, left_id, right_source, right_id)
             if not isinstance(payload, str) or not payload:
-                raise RuntimeError("Application returned an empty archived comparison export.")
+                raise RuntimeError("Application returned an empty Study comparison export.")
             return payload
         except Exception as exc:
             return self._handle_error(exc)
