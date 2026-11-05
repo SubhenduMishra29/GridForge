@@ -100,6 +100,24 @@ class EngineeringEditorHost(QWidget):
         previous_widget = self._editors.get(previous_id or "")
         previous_workspace = getattr(previous_context, "workspace", None)
         next_workspace = getattr(context, "workspace", None)
+        previous_project_id = getattr(previous_context, "project_id", None)
+        if previous_project_id is None:
+            previous_project_id = getattr(getattr(previous_context, "engineering", None), "project_id", None)
+        next_project_id = getattr(context, "project_id", None)
+        if next_project_id is None:
+            next_project_id = getattr(getattr(context, "engineering", None), "project_id", None)
+        project_changed = bool(
+            previous_project_id
+            and next_project_id
+            and previous_project_id != next_project_id
+        )
+        if previous_widget is not None and project_changed:
+            # Project-scoped presentation state is discarded only when moving
+            # directly between two known, distinct projects. Hiding an editor,
+            # changing Area/Editor, or dropping context is not a project close.
+            clear_project_state = getattr(previous_widget, "clear_project_state", None)
+            if callable(clear_project_state):
+                clear_project_state()
         if previous_widget is not None and (
             previous_id != editor_id
             or (previous_workspace is not None and next_workspace is not None and previous_workspace != next_workspace)
