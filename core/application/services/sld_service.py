@@ -204,7 +204,7 @@ class SLDService:
                         core.endpoint_b.to_mapping(),
                         document=target_document,
                     )
-                except (KeyError, TypeError, ValueError) as exc:
+                except (AttributeError, KeyError, TypeError, ValueError) as exc:
                     diagnostics.append({
                         "code": "SLD_ENDPOINT_NODE_UNRESOLVED",
                         "connection_id": str(connection.connection_id),
