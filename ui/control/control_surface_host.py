@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from ui.core.qt import QFileDialog, QMessageBox, QWidget, QVBoxLayout
@@ -185,7 +187,28 @@ class ControlSurfaceHost(QWidget):
             )
             if not isinstance(payload, str) or not payload:
                 raise RuntimeError("Application returned an empty comparison export.")
-            destination.write_text(payload, encoding="utf-8")
+            temporary_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=destination.parent,
+                    prefix=f".{destination.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary_file:
+                    temporary_path = Path(temporary_file.name)
+                    temporary_file.write(payload)
+                    temporary_file.flush()
+                    os.fsync(temporary_file.fileno())
+                os.replace(temporary_path, destination)
+                temporary_path = None
+            finally:
+                if temporary_path is not None:
+                    try:
+                        temporary_path.unlink()
+                    except OSError:
+                        pass
         except Exception as exc:
             QMessageBox.critical(self, "Transient Comparison Export Failed", str(exc))
             return
