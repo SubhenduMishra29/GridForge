@@ -178,7 +178,7 @@ class ControlSurfaceHost(QWidget):
             payload = runtime.export_selected_comparison(record_ids[0], record_ids[1])
             if not isinstance(payload, str) or not payload:
                 raise RuntimeError("Application returned an empty comparison export.")
-            destination.write_text(payload, encoding="utf-8", newline="\\n")
+            destination.write_text(payload, encoding="utf-8")
         except Exception as exc:
             QMessageBox.critical(self, "Transient Comparison Export Failed", str(exc))
             return
