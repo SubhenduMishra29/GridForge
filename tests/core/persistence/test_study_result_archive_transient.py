@@ -16,7 +16,8 @@ from core.persistence.study_result_archive import (
     _canonical_json,
 )
 from core.solver.dynamics.events import EventExecution, EventTransition
-from core.solver.dynamics.transient_stability import TransientStabilityResult
+from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
+from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 
 
 def _transient_result() -> TransientStabilityResult:
@@ -63,6 +64,42 @@ def _transient_result() -> TransientStabilityResult:
         pre_event_revision=8,
         post_event_revision=8,
     )
+    quality_pre = AlgebraicNetworkSolution(
+        bus_voltages={"BUS-GEN1": 1.0 + 0.0j},
+        status="UNVERIFIED",
+        accepted=True,
+        quality_verified=False,
+        solver_name="archive-test",
+        bus_ids=("BUS-GEN1",),
+        topology_revision=7,
+        simulation_time=1.0,
+    )
+    quality_post = AlgebraicNetworkSolution(
+        bus_voltages={"BUS-GEN1": 0.0 + 0.0j},
+        status="UNVERIFIED",
+        accepted=True,
+        quality_verified=False,
+        solver_name="archive-test",
+        bus_ids=("BUS-GEN1",),
+        topology_revision=8,
+        simulation_time=1.0,
+    )
+    discontinuity = TransientDiscontinuity(
+        time=1.0,
+        event_ids=(event.event_id,),
+        event_executions=(event,),
+        pre_state=np.asarray([0.1, 0.0]),
+        pre_terminal_voltages={"BUS-GEN1": 1.0 + 0.0j},
+        pre_electrical_powers={"GEN-1": (1.0, 0.1)},
+        pre_algebraic_quality=quality_pre,
+        pre_topology_revision=7,
+        post_state=np.asarray([0.2, 0.01]),
+        post_terminal_voltages={"BUS-GEN1": 0.0 + 0.0j},
+        post_electrical_powers={"GEN-1": (0.0, 0.0)},
+        post_algebraic_quality=quality_post,
+        post_topology_revision=8,
+        post_status="succeeded",
+    )
     return TransientStabilityResult(
         time=np.asarray([0.0, 1.0], dtype=float),
         states=np.asarray([[0.0, 0.0], [0.2, 0.01]], dtype=float),
@@ -75,6 +112,7 @@ def _transient_result() -> TransientStabilityResult:
             {"GEN-1": (0.0, 0.0)},
         ),
         events=(event, failed_event),
+        discontinuities=(discontinuity,),
         provenance={
             "project_id": "project-archive-test",
             "activation_generation": 3,
@@ -123,6 +161,14 @@ def test_transient_result_and_event_execution_round_trip_as_canonical_types(tmp_
     assert value.terminal_voltages[0]["BUS-GEN1"] == 1.0 + 0.0j
     assert value.electrical_powers[1]["GEN-1"] == (0.0, 0.0)
     assert value.provenance["final_detached_network_revision"] == 8
+    assert len(value.discontinuities) == 1
+    boundary = value.discontinuities[0]
+    assert isinstance(boundary, TransientDiscontinuity)
+    assert boundary.event_ids == ("GEN1-CB-OPEN",)
+    assert boundary.pre_terminal_voltages["BUS-GEN1"] == 1.0 + 0.0j
+    assert boundary.post_terminal_voltages["BUS-GEN1"] == 0.0 + 0.0j
+    assert boundary.pre_topology_revision == 7
+    assert boundary.post_topology_revision == 8
 
     assert len(value.events) == 2
     event = value.events[0]
