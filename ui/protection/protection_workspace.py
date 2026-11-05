@@ -20,7 +20,7 @@ from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteract
 from ui.core.qt import (
     QAction, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
     QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout,
+    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox,
 )
 from ui.core.selection_manager import SelectionManager
 from .protection_presentation import ProtectionPresentationDocument
@@ -398,7 +398,9 @@ class ProtectionInspector(QGroupBox):
         self._editor_status = QLabel("", self)
         self._setting_controls: dict[str, Any] = {}
         self._active_element_id: str | None = None
+        self._active_relay_id: str | None = None
         self._active_setting_snapshot: tuple[Any, ...] = ()
+        self._relay_setting_snapshot: dict[str, Any] = {}
         layout = QVBoxLayout(self)
         layout.addWidget(self._label)
         layout.addWidget(self._editor_host)
@@ -425,7 +427,9 @@ class ProtectionInspector(QGroupBox):
                 widget.deleteLater()
         self._setting_controls.clear()
         self._active_element_id = None
+        self._active_relay_id = None
         self._active_setting_snapshot = ()
+        self._relay_setting_snapshot = {}
         self._apply_button.setEnabled(False)
         self._editor_status.setText("")
 
@@ -489,9 +493,67 @@ class ProtectionInspector(QGroupBox):
             selector.currentTextChanged.connect(refresh_choices)
             refresh_choices(selector.currentText())
 
+        self._apply_button.setText("Apply Function Settings")
         self._apply_button.setEnabled(bool(self._setting_controls))
 
+    def _build_physical_relay_editor(self, configuration: Any) -> None:
+        self._clear_editor()
+        self._active_relay_id = str(configuration.relay_id)
+        self._relay_setting_snapshot = {
+            "name": str(configuration.name),
+            "enabled": bool(configuration.enabled),
+            "blocked": bool(configuration.blocked),
+            "in_service": bool(configuration.in_service),
+        }
+        name_control = QLineEdit(self._relay_setting_snapshot["name"], self._editor_host)
+        self._setting_controls["name"] = name_control
+        self._editor_form.addRow("Relay name", name_control)
+        for key, label in (("in_service", "In service"), ("enabled", "Enabled"), ("blocked", "Blocked")):
+            control = QCheckBox(self._editor_host)
+            control.setChecked(self._relay_setting_snapshot[key])
+            self._setting_controls[key] = control
+            self._editor_form.addRow(label, control)
+        self._apply_button.setText("Apply Physical Relay Configuration")
+        self._apply_button.setEnabled(True)
+        self._editor_status.setText(
+            "Only Relay identity and lifecycle flags are editable here. "
+            "Plugin-specific settings remain read-only without a typed plugin schema."
+        )
+
+    def _apply_physical_relay_settings(self) -> None:
+        relay_id = self._active_relay_id
+        if not relay_id:
+            return
+        name_control = self._setting_controls.get("name")
+        if not isinstance(name_control, QLineEdit):
+            return
+        values = {
+            "name": name_control.text(),
+            "in_service": bool(self._setting_controls["in_service"].isChecked()),
+            "enabled": bool(self._setting_controls["enabled"].isChecked()),
+            "blocked": bool(self._setting_controls["blocked"].isChecked()),
+        }
+        try:
+            result = self._application.update_physical_relay_configuration(
+                relay_id=relay_id, **values
+            )
+        except Exception as exc:
+            self._editor_status.setText(f"Relay configuration update rejected: {exc}")
+            return
+        if not getattr(result, "success", False):
+            self._editor_status.setText(
+                getattr(result, "message", "Relay configuration update was rejected.")
+            )
+            return
+        self.refresh()
+        self._editor_status.setText(
+            getattr(result, "message", "Physical Relay configuration updated.")
+        )
+
     def _apply_settings(self) -> None:
+        if self._active_relay_id:
+            self._apply_physical_relay_settings()
+            return
         if not self._active_element_id:
             return
         updates: dict[str, Any] = {}
@@ -658,6 +720,8 @@ class ProtectionInspector(QGroupBox):
         self._label.setText("\n".join(lines))
         if selected_configuration is not None:
             self._build_settings_editor(selected_configuration)
+        elif object_id == relay_id:
+            self._build_physical_relay_editor(physical_configuration)
 
 
 class ProtectionToolbar(QToolBar):
