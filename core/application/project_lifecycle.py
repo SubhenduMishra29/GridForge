@@ -23,7 +23,7 @@ from .project_presentation import ProjectPresentationCollection
 
 ProjectLoader = Callable[[Path], LoadedProject]
 ProjectSaver = Callable[..., None]
-ProtectionSnapshotProvider = Callable[[str, int], ProtectionProjectConfigurationSnapshot | None]
+ProtectionSnapshotProvider = Callable[[str, int], ProtectionProjectConfigurationSnapshot]
 NetworkFactory = Callable[[], Any]
 NetworkActivator = Callable[[Any], Callable[[], None] | None]
 PresentationFactory = Callable[[ProjectContext], Any]
@@ -217,14 +217,14 @@ class ProjectLifecycleService:
 
     @staticmethod
     def _validate_protection_snapshot(
-        snapshot: ProtectionProjectConfigurationSnapshot | None,
+        snapshot: ProtectionProjectConfigurationSnapshot,
         project_id: str,
         activation_generation: int,
     ) -> None:
         if snapshot is None:
             raise RuntimeError("An active project must provide a Protection configuration snapshot.")
         if not isinstance(snapshot, ProtectionProjectConfigurationSnapshot):
-            raise TypeError("Protection snapshot provider must return ProtectionProjectConfigurationSnapshot or None.")
+            raise TypeError("Protection snapshot provider must return ProtectionProjectConfigurationSnapshot.")
         if snapshot.project_id != project_id or snapshot.activation_generation != activation_generation:
             raise ValueError("Protection snapshot project/generation provenance does not match the active project.")
 
