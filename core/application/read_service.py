@@ -705,8 +705,8 @@ class TransientSignalDeltaReadModel:
 class StudyResultComparisonReadModel:
     """Two-execution comparison with only base-compatible numeric deltas."""
 
-    left: ArchivedStudyResultReadModel
-    right: ArchivedStudyResultReadModel
+    left: StudyResultReadModel | ArchivedStudyResultReadModel
+    right: StudyResultReadModel | ArchivedStudyResultReadModel
     compatible: bool
     compatibility_message: str
     same_source_revision: bool
