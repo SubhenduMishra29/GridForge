@@ -317,9 +317,9 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     assert event_comparison.transient_event_matches[0].right_event_id == "right-event"
     event_match = event_comparison.transient_event_matches[0]
     assert event_match.event_time_s == 0.01
-    assert event_match.left_dispatch_time_s == 0.0101
-    assert event_match.right_dispatch_time_s == 0.1101
-    assert event_match.dispatch_delta_s == 0.1
+    assert event_match.left_dispatch_time_s == pytest.approx(0.0101)
+    assert event_match.right_dispatch_time_s == pytest.approx(0.1101)
+    assert event_match.dispatch_delta_s == pytest.approx(0.1)
     assert len(event_comparison.transient_discontinuity_deltas) == 1
     boundary = event_comparison.transient_discontinuity_deltas[0]
     assert boundary.signals[0].pre_delta == 0.1
