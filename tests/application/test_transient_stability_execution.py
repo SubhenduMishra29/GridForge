@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -445,6 +446,32 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     assert not missing_transition.compatible
     assert "EVENT_SEMANTIC_IDENTITY_UNAVAILABLE" in missing_transition.transient_compatibility_diagnostics
 
+    duplicate_event_result = transient_result(0.1, event_id="duplicate-event")
+    duplicate_event_result = replace(
+        duplicate_event_result,
+        events=duplicate_event_result.events + duplicate_event_result.events,
+    )
+    duplicate_event_record_id = uuid4()
+    duplicate_event_record = SimpleNamespace(
+        record_id=duplicate_event_record_id,
+        saved_at="2026-11-05T10:00:00+00:00",
+        result=SimpleNamespace(
+            study_id=uuid4(), project_id=project_id, activation_generation=3,
+            source_revision=revision, study_type="transient_stability", status="completed",
+            value=duplicate_event_result, message="", metadata={},
+        ),
+    )
+    duplicate_event_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (duplicate_event_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    duplicate_event_comparison = duplicate_event_service.compare_study_results(
+        left_event_run, duplicate_event_record_id, project_id=project_id,
+        activation_generation=4, current_revision=revision,
+    )
+    assert not duplicate_event_comparison.compatible
+    assert "EVENT_SEMANTIC_IDENTITY_AMBIGUOUS" in duplicate_event_comparison.transient_compatibility_diagnostics
+
     unsupported_export_value = object()
     unsupported_provenance = dict(provenance)
     unsupported_provenance["unsupported_payload"] = unsupported_export_value
@@ -463,8 +490,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
         load_all=lambda *args, **kwargs: (unsupported_record,),
         load_latest=lambda *args, **kwargs: None,
     ))
-    import pytest
-    with pytest.raises(ValueError, match="cannot encode"):
+    with __import__("pytest").raises(ValueError, match="cannot encode"):
         unsupported_service.export_study_comparison(
             live_result, unsupported_record_id, project_id=project_id,
             activation_generation=4, current_revision=revision,
