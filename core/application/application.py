@@ -4416,6 +4416,40 @@ class Application:
         )
 
 
+    def update_physical_relay_configuration(
+        self, *, relay_id: str, name: str, enabled: bool,
+        blocked: bool, in_service: bool,
+    ) -> ApplicationResult:
+        """Update supported physical Relay fields through UpdateRelayCommand.
+
+        Opaque plugin settings are intentionally excluded until a plugin-owned
+        typed setting schema is available. Only changed fields are submitted,
+        avoiding unnecessary device lifecycle transitions.
+        """
+        if not isinstance(relay_id, str) or not relay_id.strip():
+            raise ValueError("relay_id must be a non-empty string.")
+        if not isinstance(name, str):
+            raise TypeError("Relay name must be a string.")
+        for key, value in (("enabled", enabled), ("blocked", blocked), ("in_service", in_service)):
+            if not isinstance(value, bool):
+                raise TypeError(f"{key} must be bool.")
+
+        current = self.read_physical_relay_configuration(relay_id.strip())
+        updates: dict[str, Any] = {}
+        if name != current.name:
+            updates["name"] = name
+        if enabled != current.enabled:
+            updates["enabled"] = enabled
+        if blocked != current.blocked:
+            updates["blocked"] = blocked
+        if in_service != current.in_service:
+            updates["in_service"] = in_service
+        if not updates:
+            raise ValueError("No physical Relay configuration changes were supplied.")
+
+        from core.application.commands.relay_commands import UpdateRelayCommand
+        return self.execute(UpdateRelayCommand(relay_id=relay_id.strip(), **updates))
+
     def update_protection_function_settings(
         self, *, element_id: str, settings: Mapping[str, Any]
     ) -> ApplicationResult:
