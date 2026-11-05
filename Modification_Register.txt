@@ -22063,9 +22063,11 @@ V2 collection-wide SLD validation:
   Application.presentation. Collection membership, active-document identity,
   document project ownership and collection-provider failures are surfaced as
   fail-closed diagnostics.
-- SLDService.audit_simple_wire_projection() accepts an explicit document for
-  read-only audit, resolving endpoint node identities against that document
-  while retaining the active-document default for existing callers.
+- SLDService.audit_simple_wire_projection() accepts an explicit document or
+  the complete document collection, resolves endpoint node identities against
+  each document, and aggregates companion uniqueness/missing checks globally
+  so a valid companion in one sheet is not reported missing in another. The
+  active-document default remains available for existing callers.
 - ValidationService aggregates node/orphan and Simple-Wire/Core endpoint
   diagnostics across the collection and prefixes document identity so
   same-named connection/node IDs in separate SLD documents remain traceable.
