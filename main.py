@@ -966,6 +966,8 @@ def _build_application_impl(
             handler = lambda tool_id=tool_id: _activate_workspace_tool(control_workspace.activate_tool_id, tool_id)
         elif editor_type == "protection":
             handler = lambda tool_id=tool_id: _activate_workspace_tool(protection_workspace.activate_tool_id, tool_id)
+        elif editor_type == "study" and tool_id == "export":
+            handler = workspace_surface_host.export_selected_study_comparison
         elif editor_type == "study":
             handler = lambda tool_id=tool_id: _activate_workspace_tool(study_tool_runtime.activate, tool_id)
         elif editor_type == "editor" and tool_manager.has_tool(tool_id):
