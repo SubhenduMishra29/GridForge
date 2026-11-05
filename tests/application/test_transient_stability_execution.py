@@ -139,7 +139,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
         offset, *, event_id=None, boundary_status="succeeded",
         target_id="SW1", time_samples=(0.0, 0.01), provenance_override=None,
         event_status="succeeded", reevaluation_status="succeeded",
-        include_transition=True,
+        include_transition=True, boundary_event_ids=None,
     ):
         events = ()
         discontinuities = ()
@@ -172,7 +172,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
             successful_boundary = boundary_status == "succeeded"
             discontinuities = (TransientDiscontinuity(
                 time=0.01,
-                event_ids=(event_id,),
+                event_ids=(event_id,) if boundary_event_ids is None else boundary_event_ids,
                 event_executions=(event,),
                 pre_state=np.asarray([0.2 + offset]),
                 pre_terminal_voltages={"B1": 0.99 + 0.01j},
@@ -446,6 +446,12 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     )
     assert not missing_transition.compatible
     assert "EVENT_SEMANTIC_IDENTITY_UNAVAILABLE" in missing_transition.transient_compatibility_diagnostics
+
+    missing_boundary_event = compare_event_variant(
+        event_id="boundary-event", boundary_event_ids=("unknown-run-local-event",),
+    )
+    assert not missing_boundary_event.compatible
+    assert "DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE" in missing_boundary_event.transient_compatibility_diagnostics
 
     duplicate_event_result = transient_result(0.1, event_id="duplicate-event")
     duplicate_event_result = replace(
