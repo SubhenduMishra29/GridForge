@@ -681,7 +681,12 @@ class Application:
     @property
     def revision(self) -> ProjectRevision: return self._revision_service.revision
     @property
-    def is_dirty(self) -> bool: return self._revision_service.is_dirty
+    def is_dirty(self) -> bool:
+        lifecycle = self._project_lifecycle
+        return bool(
+            self._revision_service.is_dirty
+            or (lifecycle is not None and lifecycle.protection_configuration_dirty)
+        )
     @property
     def revision_service(self) -> RevisionService: return self._revision_service
     @property
@@ -2536,6 +2541,11 @@ class Application:
         ):
             raise RuntimeError(
                 "Project activation changed during save; persisted revision baseline "
+                "and ProjectSaved event were not updated."
+            )
+        if lifecycle.protection_configuration_dirty:
+            raise RuntimeError(
+                "Protection configuration changed during save; persisted project baseline "
                 "and ProjectSaved event were not updated."
             )
 

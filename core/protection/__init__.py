@@ -24,6 +24,7 @@ from .project_configuration import (
     ProtectionFunctionConfiguration,
     DifferentialProtectionSchemeConfiguration,
     ProtectionProjectConfiguration,
+    ProtectionProjectConfigurationSnapshot,
 )
 from .differential import (
     DifferentialRestraintMethod,
@@ -69,7 +70,7 @@ __all__ = [
     "NeutralCTConstruction", "CBCTConductor", "CBCTWindowConstruction",
     "ResidualCurrentInputConfiguration", "ResidualCurrentSample", "ResidualCurrentSourceSample", "normalize_residual_current_source", "resolve_residual_current",
     "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
-    "ProtectionProjectConfiguration",
+    "ProtectionProjectConfiguration", "ProtectionProjectConfigurationSnapshot",
     "DifferentialRestraintMethod", "DifferentialProtectionSettings",
     "DifferentialCurrentSample", "DifferentialPhaseResult",
     "DifferentialProtectionResult", "evaluate_differential_scheme",
