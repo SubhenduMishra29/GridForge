@@ -605,18 +605,26 @@ class SLDModel:
                 f"{connection.connection_id!r}"
             )
 
-        if connection.source_node_id not in self._nodes:
+        orphaned = (
+            str(connection.properties.get("lifecycle_state", "BOUND")).upper() == "ORPHANED"
+            and connection.source_endpoint is None
+            and connection.target_endpoint is None
+        )
+        if connection.source_node_id not in self._nodes and not orphaned:
             raise ValueError(
                 f"unknown source node: "
                 f"{connection.source_node_id!r}"
             )
 
-        if connection.target_node_id not in self._nodes:
+        if connection.target_node_id not in self._nodes and not orphaned:
             raise ValueError(
                 f"unknown target node: "
                 f"{connection.target_node_id!r}"
             )
 
+        # Only explicitly orphaned, semantically detached presentation may
+        # retain historical source/target node IDs after a Core deletion.
+        # BOUND connections remain structurally strict.
         connection.validate()
         self._connections[connection.connection_id] = connection
         return connection
