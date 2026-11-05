@@ -1506,6 +1506,7 @@ def recover_application_shell(
         adapter = resources.get("project_workspace_adapter")
         sld_controller = resources.get("sld_controller")
         surface_host = resources.get("workspace_surface_host")
+        canvas_composition = resources.get("canvas_composition")
         engineering_context = resources.get("engineering_context")
         if not isinstance(lifecycle, ProjectWorkspaceLifecycle):
             raise RuntimeError("Candidate ProjectWorkspaceLifecycle is unavailable.")
@@ -1517,6 +1518,8 @@ def recover_application_shell(
             raise RuntimeError("Candidate engineering context is unavailable.")
         if surface_host is None:
             raise RuntimeError("Candidate workspace surface host is unavailable.")
+        if canvas_composition is None or getattr(canvas_composition, "surface", None) is None:
+            raise RuntimeError("Candidate SLD canvas surface is unavailable.")
 
         active = replacement.presentation
         documents = tuple(lifecycle.documents.documents())
@@ -1554,6 +1557,15 @@ def recover_application_shell(
             raise RuntimeError("Candidate SLDService is not bound to the restored active document.")
         if getattr(surface_host, "sld_document", None) is not active:
             raise RuntimeError("Candidate workspace surface is not displaying the restored active document.")
+        canvas_surface = canvas_composition.surface
+        if getattr(canvas_surface, "document_id", None) != active.document_id:
+            raise RuntimeError("Candidate SLD canvas surface is not displaying the restored active document.")
+        canvas_snapshot = getattr(canvas_surface, "sld_canvas_snapshot", None)
+        if canvas_snapshot is None or (
+            len(canvas_snapshot.nodes) != len(active.model.nodes)
+            or len(canvas_snapshot.connections) != len(active.model.connections)
+        ):
+            raise RuntimeError("Candidate SLD canvas projection does not match the restored document model.")
 
         current = engineering_context.current
         if current.project_id != context.project_id or current.document_id != active.document_id:
