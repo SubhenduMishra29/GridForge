@@ -121,6 +121,14 @@ class ProjectLifecycleService:
         self._activation_generation = 1 if context is not None else 0
         self._state = "ACTIVE" if context is not None else "NO_PROJECT"
         self._rollback_error: Exception | None = None
+        if self._protection_snapshot_provider is not None and context is not None:
+            initial_protection_snapshot = self._protection_snapshot_provider(
+                context.project_id, self._activation_generation
+            )
+            self._validate_protection_snapshot(
+                initial_protection_snapshot, context.project_id, self._activation_generation
+            )
+            self._protection_saved_snapshot = initial_protection_snapshot
 
     @property
     def context(self) -> ProjectContext | None: return self._context
