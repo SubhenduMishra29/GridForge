@@ -419,7 +419,12 @@ class TransientStabilitySolver:
             raise TransientStabilityError("Simulation has reached end_time.")
         # Keep incremental stepping consistent with run(): dispatch events
         # already due (including the current-time tolerance window) first.
-        self._process_due_events()
+        try:
+            self._process_due_events()
+        except TransientStabilityError:
+            self._last_step_discontinuity = self._last_due_discontinuity
+            raise
+        self._last_step_discontinuity = self._last_due_discontinuity
         previous_time = self._time
         step_end = min(previous_time + requested_dt, self.end_time)
         next_event_time = self.event_manager.next_event_time(previous_time)
