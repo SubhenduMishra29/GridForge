@@ -22237,3 +22237,36 @@ Verification:
 Related:
 - Issue #1003 — relay configuration projection and inspector workflow.
 ======================================================================
+
+======================================================================
+SLD EDITOR DEACTIVATION / PROJECT-STATE LIFECYCLE CORRECTION
+======================================================================
+
+Date:
+    2026-11-05
+
+Correction:
+- Ordinary editor/Area navigation no longer clears the mounted SLD canvas.
+- SLD document projection, draft projection, selection and viewport are
+  preserved when the editor is hidden and later reactivated.
+- Project-state clearing is a separate explicit SLD editor operation.
+- EngineeringEditorHost invokes project-state clearing only when both the
+  previous and next editor contexts identify distinct, non-empty project IDs.
+- Corrected implementation merged through PR #1103; superseded PR #1101
+  was closed without a separate merge.
+
+Architecture boundary:
+- Temporary editor deactivation is presentation lifecycle, not project close.
+- Project-scoped presentation cleanup occurs only on an identified project
+  transition; canvas disposal remains owned by permanent editor teardown.
+- No Core/Application electrical-domain state is mutated by this UI cleanup.
+
+Verification:
+- Source inspection of EngineeringEditorHost and SLDEditor lifecycle paths.
+- GitHub merge confirmed on main at d874219483d8f8ce3ac4b4a2fd9f903fb645874b.
+- No tests or CI used as acceptance gates, per repository instruction.
+
+Related:
+- PR #1103 — preserve SLD canvas across editor navigation.
+- Superseded PR #1101.
+======================================================================
