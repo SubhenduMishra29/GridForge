@@ -1813,9 +1813,22 @@ class StudyReadService:
         if not (is_transient(left.value) or is_transient(right.value)):
             raise ValueError("Comparison does not contain a transient-stability result.")
 
-        def encode(value: Any) -> Any:
+        def encode(value: Any, _active: set[int] | None = None) -> Any:
             if value is None or isinstance(value, (str, bool, int)):
                 return value
+            if _active is None:
+                _active = set()
+
+            def encode_compound(builder: Any) -> Any:
+                identity = id(value)
+                if identity in _active:
+                    raise ValueError("Transient comparison export cannot encode cyclic values.")
+                _active.add(identity)
+                try:
+                    return builder()
+                finally:
+                    _active.remove(identity)
+
             if isinstance(value, float):
                 if math.isfinite(value):
                     return value
@@ -1833,29 +1846,33 @@ class StudyReadService:
                 return {
                     "$type": "enum",
                     "class": f"{type(value).__module__}.{type(value).__qualname__}",
-                    "value": encode(value.value),
+                    "value": encode(value.value, _active),
                 }
             if isinstance(value, Mapping):
                 if any(not isinstance(key, str) for key in value):
                     raise ValueError("Transient comparison export requires string mapping keys.")
-                return {key: encode(item) for key, item in value.items()}
+                return encode_compound(
+                    lambda: {key: encode(item, _active) for key, item in value.items()}
+                )
             if isinstance(value, (tuple, list)):
-                return [encode(item) for item in value]
+                return encode_compound(lambda: [encode(item, _active) for item in value])
             if isinstance(value, (set, frozenset)):
-                encoded = [encode(item) for item in value]
-                return sorted(encoded, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+                def encode_set() -> list[Any]:
+                    encoded = [encode(item, _active) for item in value]
+                    return sorted(encoded, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+                return encode_compound(encode_set)
             if hasattr(value, "dtype") and hasattr(value, "shape") and callable(getattr(value, "tolist", None)):
                 dtype = value.dtype
                 if getattr(dtype, "kind", None) not in "biufc" or getattr(dtype, "hasobject", True):
                     raise ValueError("Transient comparison export contains an unsupported array dtype.")
-                return {
+                return encode_compound(lambda: {
                     "$type": "ndarray",
                     "dtype": dtype.str,
                     "shape": list(value.shape),
-                    "data": encode(value.tolist()),
-                }
+                    "data": encode(value.tolist(), _active),
+                })
             if hasattr(value, "item") and callable(value.item) and type(value).__module__.startswith("numpy"):
-                return encode(value.item())
+                return encode(value.item(), _active)
             if is_dataclass(value) and not isinstance(value, type):
                 qualified = f"{type(value).__module__}.{type(value).__qualname__}"
                 known_tags = {
@@ -1863,11 +1880,11 @@ class StudyReadService:
                     f"{EventExecution.__module__}.{EventExecution.__qualname__}": "event_execution",
                     f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}": "transient_discontinuity",
                 }
-                return {
+                return encode_compound(lambda: {
                     "$type": known_tags.get(qualified, "dataclass"),
                     "class": qualified,
-                    "fields": {item.name: encode(getattr(value, item.name)) for item in fields(value)},
-                }
+                    "fields": {item.name: encode(getattr(value, item.name), _active) for item in fields(value)},
+                })
             raise ValueError(
                 f"Transient comparison export cannot encode {type(value).__module__}.{type(value).__qualname__}."
             )
