@@ -575,6 +575,7 @@ class ProtectionInspector(QGroupBox):
 
     def refresh(self) -> None:
         self._clear_editor()
+        self._apply_physical_button.setEnabled(False)
         selected = self._selection_manager.selected_ids
         if not selected:
             self._label.setText("Select a relay or a specific Protection function element.")
@@ -636,6 +637,7 @@ class ProtectionInspector(QGroupBox):
         try:
             physical_configuration = self._application.read_physical_relay_configuration(relay_id)
         except (RuntimeError, KeyError):
+            self._apply_physical_button.setEnabled(False)
             self._label.setText("Physical Relay configuration is no longer available; refresh the selection.")
             return
         self._physical_name.setText(physical_configuration.name)
