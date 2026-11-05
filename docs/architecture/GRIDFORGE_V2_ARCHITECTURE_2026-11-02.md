@@ -41,6 +41,19 @@ Physical equipment owns its device-specific parameters, configuration and operat
 
 The network owns canonical electrical relationships between equipment terminals. Topology is derived from those relationships and the applicable equipment/switching state. A bus is an authoritative electrical object, not a graphical line. A terminal is not itself a recursively connected topology object.
 
+### 2.2.1 Canonical Network package ownership
+
+The authoritative implementation for assembled network relationships, topology and connectivity is `core.network`:
+
+- `core/network/topology.py` owns `TopologyManager`; topology rebuild and invalidation are coordinated by the `Network` facade.
+- `core/network/connectivity.py` owns conventional Simple Wire connectivity resolution/storage.
+- `core/network/topology_endpoint_reference.py` and `topology_snapshot.py` define typed topology endpoints and immutable derived snapshots/provenance.
+- `core/network/electrical_boundary.py` owns endpoint compatibility and conductive-boundary policy.
+- `core/network/physical_conductor_topology.py` and `phase_domain_conductor_network.py` own the separate physical-conductor/phase-domain representations.
+- `core/network/ct_measurement_association.py` owns the Network-side CT association resolver contract; this is not a second topology graph.
+
+`core/topology/` currently contains only a README. It is documentation-only, not an implementation package or facade. All references to topology/connectivity ownership must point to `core.network`; do not create duplicate managers, resolvers, registries or graph state under `core.topology`.
+
 ### 2.3 Two connection representations that must not be conflated
 
 **Simple Wire connectivity** is the canonical, persistent terminal-to-terminal relationship used by the conventional network model and SLD workflow. It has an independent relationship identity and explicit endpoints.
