@@ -190,7 +190,7 @@ class ProtectionExecutionAuditStore:
                 "timestamp_domain TEXT NOT NULL DEFAULT 'protection_evaluation'"
             )
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_protection_audit_project_time "
+            "CREATE INDEX IF NOT EXISTS idx_protection_audit_project_domain_time "
             "ON protection_execution_audit(project_id, timestamp_domain, occurred_at)"
         )
         connection.execute(
