@@ -1417,7 +1417,7 @@ class StudyReadService:
                 return row
         raise KeyError(f"Archived Study Result record '{record_id}' was not found in this project scope.")
 
-    def compare_archived_results(
+    def compare_study_results(
         self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
         right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
         project_id: str, activation_generation: int | None = None,
@@ -1754,14 +1754,26 @@ class StudyReadService:
             numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
         )
 
-    def export_archived_comparison(
+    def compare_archived_results(
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
+    ) -> StudyResultComparisonReadModel:
+        """Compatibility alias for the unified live/archive comparison contract."""
+        return self.compare_study_results(
+            left_record_id, right_record_id, project_id=project_id,
+            activation_generation=activation_generation, current_revision=current_revision,
+        )
+
+    def export_study_comparison(
         self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
         right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
         project_id: str, activation_generation: int | None = None,
         current_revision: ProjectRevision | None = None,
     ) -> str:
         """Return a versioned lossless export for two live and/or archived transient runs."""
-        comparison = self.compare_archived_results(
+        comparison = self.compare_study_results(
             left_record_id, right_record_id, project_id=project_id,
             activation_generation=activation_generation, current_revision=current_revision,
         )
@@ -1885,6 +1897,18 @@ class StudyReadService:
             )
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Transient comparison export is not canonical JSON: {exc}") from exc
+
+    def export_archived_comparison(
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
+    ) -> str:
+        """Compatibility alias for the unified live/archive comparison export."""
+        return self.export_study_comparison(
+            left_record_id, right_record_id, project_id=project_id,
+            activation_generation=activation_generation, current_revision=current_revision,
+        )
 
     def verify_archived_results(self, *, project_id: str, activation_generation: int | None = None) -> Any:
         if self._archive is None or not callable(getattr(self._archive, "verify", None)):
