@@ -222,6 +222,15 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     )
     assert not stale_comparison.compatible
     assert "LEFT_LIVE_RESULT_NOT_CURRENT" in stale_comparison.transient_compatibility_diagnostics
+    revision_drift_comparison = read_service.compare_study_results(
+        live_result,
+        archived_record_id,
+        project_id=project_id,
+        activation_generation=4,
+        current_revision=ProjectRevision(model_revision=4, topology_revision=2),
+    )
+    assert not revision_drift_comparison.compatible
+    assert "LEFT_LIVE_RESULT_NOT_CURRENT" in revision_drift_comparison.transient_compatibility_diagnostics
     assert read_service.compare_archived_results(
         live_result,
         archived_record_id,
