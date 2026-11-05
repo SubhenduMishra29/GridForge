@@ -22044,3 +22044,15 @@ Verification boundary:
 - Final GitHub PR diff/repository-state review remains required before merge.
 
 ======================================================================
+
+V2 Protection Properties projection target routing:
+- Protection configuration results now carry the affected relay identity and
+  protection element identity in semantic event metadata. Updates include
+  both the previous and replacement relay IDs so moving a configuration
+  refreshes both affected inspectors; create/delete/bind/unbind and their
+  undo/redo paths retain target identity through the transaction result.
+- SelectionProjectionCoordinator routes only execute/undo/redo configuration
+  events whose affected relay IDs intersect the current selection and whose
+  project ID and activation generation match. Runtime cycle telemetry and
+  unrelated relay changes do not refresh the selected Properties target.
+- Static source inspection only; no tests or CI run.
