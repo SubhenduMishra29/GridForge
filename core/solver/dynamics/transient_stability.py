@@ -88,10 +88,25 @@ class TransientDiscontinuity:
             object.__setattr__(self, "post_terminal_voltages", MappingProxyType({str(k): complex(v) for k, v in self.post_terminal_voltages.items()}))
         if self.post_electrical_powers is not None:
             object.__setattr__(self, "post_electrical_powers", MappingProxyType({str(k): (float(v[0]), float(v[1])) for k, v in self.post_electrical_powers.items()}))
-        if self.pre_topology_revision is not None and self.pre_topology_revision < 0:
-            raise ValueError("Pre-event topology revision must be non-negative.")
-        if self.post_topology_revision is not None and self.post_topology_revision < 0:
-            raise ValueError("Post-event topology revision must be non-negative.")
+        if post_state is not None and post_state.shape != pre_state.shape:
+            raise ValueError("Pre/post dynamic states must have identical shapes.")
+        if pre_quality is not None and (
+            pre_quality.topology_revision != self.pre_topology_revision
+            or pre_quality.simulation_time is None
+            or not math.isclose(pre_quality.simulation_time, time, rel_tol=0.0, abs_tol=1e-12)
+        ):
+            raise ValueError("Pre-event algebraic quality must match its boundary time and topology revision.")
+        if post_quality is not None and (
+            post_quality.topology_revision != self.post_topology_revision
+            or post_quality.simulation_time is None
+            or not math.isclose(post_quality.simulation_time, time, rel_tol=0.0, abs_tol=1e-12)
+        ):
+            raise ValueError("Post-event algebraic quality must match its boundary time and topology revision.")
+        for name, revision in (("pre", self.pre_topology_revision), ("post", self.post_topology_revision)):
+            if revision is not None and (
+                isinstance(revision, bool) or not isinstance(revision, int) or revision < 0
+            ):
+                raise ValueError(f"{name.title()}-event topology revision must be a non-negative integer.")
 
 
 @dataclass(frozen=True, slots=True)
