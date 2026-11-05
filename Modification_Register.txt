@@ -22444,3 +22444,67 @@ Status:
     Merge commit: c5a869c5cc62189603195cb419a593e4653f75ce.
 
 ======================================================================
+
+
+======================================================================
+V2 DURABLE PROTECTION EXECUTION AUDIT
+======================================================================
+
+Date:
+    2026-11-05
+
+Related:
+    Issue #1008 — durable live Protection execution audit and feedback correlation.
+
+Correction:
+- Added an Application-owned SQLite audit repository stored outside the
+  canonical .gridforge project package at ~/.gridforge/audit.
+- A supplied stable event ID becomes the cycle identity; otherwise a UUID is
+  generated. Measurement-triggered cycles derive identity from channel ID +
+  sample sequence. A previously claimed cycle is not redispatched.
+- CYCLE_STARTED is durably claimed before evaluation. The complete immutable
+  Protection decision set is appended before action resolution. Each command
+  receives a durable DISPATCH_INTENT record (decision, action, target and
+  command identity) immediately before dispatcher invocation. A crash after
+  intent but before outcome remains explicitly incomplete with unknown commit
+  boundary. Completed cycles append per-element outcomes; exceptions append
+  a correlated CYCLE_FAILED record.
+- Evidence includes project ID, activation generation, configuration revision
+  and content identity, detached configuration snapshot, evaluation time and
+  domain, active measurement-channel sample provenance, relay/element/function
+  identity, decision state/reason, action target, command/correlation IDs,
+  Application result, commit-boundary status, and typed Core postcondition
+  with its observation timestamp/domain.
+- Field feedback is a separate append-only record. It requires an external
+  source identity, command/cycle correlation, source timestamp and domain,
+  delivery/acknowledgement statuses, quality and authenticity statuses, and
+  supports explicit delivery/acknowledgement references. It cannot be inferred
+  from Core state.
+- Record keys are idempotent; duplicate cycle identity suppresses redispatch
+  and command IDs cannot be reused across different cycles. SQLite uses WAL,
+  FULL synchronous durability and a bounded 100 ms lock wait. Update/delete
+  triggers reject mutation; a SHA-256 previous-record chain is verifiable.
+- Application exposes filtered audit queries (time filters require an explicit
+  timestamp domain), whole-cycle reads, field-feedback append and integrity
+  verification. Bootstrap composes the repository.
+- Audit persistence failures are reported in result diagnostics and cycle
+  events but do not suppress Protection execution. Core postcondition evidence
+  remains separate from physical acknowledgement, which stays
+  unknown/unavailable until external feedback is recorded.
+
+Architecture boundary:
+- Persistence and audit read models remain in Application infrastructure.
+  Core electrical truth and persisted-only Protection dispatch authority are
+  unchanged. No Qt/UI or direct Core mutation dependency is introduced.
+- Audit database is outside project.json and the .gridforge package.
+
+Verification:
+- Static source inspection only; no tests or CI were run, per instruction.
+- SQLite restart/recovery, failure injection, field-feedback ingestion,
+  hash-chain verification and filesystem flush latency remain unverified.
+  Measure filesystem latency before any field deployment.
+
+Status:
+    IMPLEMENTED ON feat/protection-execution-audit-1008;
+    PULL REQUEST REVIEW PENDING.
+======================================================================
