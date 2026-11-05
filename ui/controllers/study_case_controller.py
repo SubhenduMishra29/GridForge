@@ -45,6 +45,24 @@ class StudyCaseController:
         except Exception as exc:
             return self._handle_error(exc)
 
+    def export_archived_comparison(self, left_record_id: UUID, right_record_id: UUID) -> str:
+        """Request an archived transient comparison export through Application."""
+        try:
+            left_id = left_record_id if isinstance(left_record_id, UUID) else UUID(str(left_record_id))
+            right_id = right_record_id if isinstance(right_record_id, UUID) else UUID(str(right_record_id))
+        except (TypeError, ValueError) as exc:
+            return self._handle_error(ValueError("Selected archived Study Result identity is invalid."), cause=exc)
+        try:
+            export = getattr(self._application, "export_archived_study_comparison", None)
+            if not callable(export):
+                raise RuntimeError("Application archived transient comparison export is unavailable.")
+            payload = export(left_id, right_id)
+            if not isinstance(payload, str) or not payload:
+                raise RuntimeError("Application returned an empty archived comparison export.")
+            return payload
+        except Exception as exc:
+            return self._handle_error(exc)
+
     def available_bus_ids(self) -> tuple[str, ...]:
         """Return canonical Bus identities from the Application read model."""
         read_network = getattr(self._application, "read_network", None)
