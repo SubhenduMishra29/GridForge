@@ -59,5 +59,6 @@ __all__ = [
     "DAESolver",
     "TransientStabilityError",
     "TransientStabilityResult",
+    "TransientDiscontinuity",
     "TransientStabilitySolver",
 ]
