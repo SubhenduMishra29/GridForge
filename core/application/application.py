@@ -2769,7 +2769,7 @@ class Application:
             raise ValueError("Study comparison source must be 'live' or 'archive'.")
         left = resolve(left_source, left_id)
         right = resolve(right_source, right_id)
-        return self._study_read_service.export_archived_comparison(
+        return self._study_read_service.export_study_comparison(
             left, right, project_id=context.project_id,
             activation_generation=self.project_lifecycle.activation_generation,
             current_revision=self.revision,
