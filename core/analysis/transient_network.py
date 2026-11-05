@@ -239,6 +239,38 @@ class PreparedTransientStability:
                     }),
                 ))
             global_index += int(machine.state_size)
+        # Fingerprint the prepared electrical topology, not project revision
+        # counters or mutable UI state. Numerical parameters and PU bases are
+        # intentionally excluded: those are separate compatibility dimensions.
+        topology_payload = {
+            "schema_version": 1,
+            "bus_ids": tuple(sorted(self.network.bus_ids)),
+            "branches": tuple(sorted(
+                (item.branch_id, item.from_bus_id, item.to_bus_id)
+                for item in self.network.branches
+            )),
+            "transformers": tuple(sorted(
+                (item.branch_id, item.from_bus_id, item.to_bus_id)
+                for item in self.network.transformers
+            )),
+            "shunts": tuple(sorted(
+                (item.shunt_id, item.bus_id)
+                for item in self.network.shunts
+            )),
+            "equipment_states": tuple(sorted(self.network.equipment_states.items())),
+            "switch_states": tuple(sorted(self.network.breaker_states.items())),
+            "switch_availability_states": tuple(sorted(self.network.switch_available_states.items())),
+            "switch_connections": tuple(sorted(
+                (key, tuple(value)) for key, value in self.network.switch_connections.items()
+            )),
+            "machine_connections": tuple(sorted(
+                (key, tuple(value)) for key, value in self.network.machine_connection_paths.items()
+            )),
+            "machine_rotor_policies": tuple(sorted(self.network.machine_rotor_policies.items())),
+        }
+        topology_fingerprint = hashlib.sha256(
+            json.dumps(topology_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         manifest = {
             "schema_version": 1,
             "model_family": "synchronous_machine",
@@ -249,6 +281,11 @@ class PreparedTransientStability:
             "activation_generation": self.activation_generation,
             "source_revision": self.source_revision,
             "topology_revision": self.network.topology_revision,
+            "prepared_network_topology_fingerprint": MappingProxyType({
+                "schema_version": 1,
+                "algorithm": "sha256",
+                "value": topology_fingerprint,
+            }),
             "machine_connections": {
                 machine_id: {
                     "switching_path": self.network.machine_connection_paths[machine_id],
