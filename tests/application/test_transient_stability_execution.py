@@ -406,6 +406,9 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     )
     assert not failed_boundary_comparison.compatible
     assert "DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE" in failed_boundary_comparison.transient_compatibility_diagnostics
+    assert failed_boundary_comparison.transient_signal_deltas == ()
+    assert failed_boundary_comparison.transient_event_matches == ()
+    assert failed_boundary_comparison.transient_discontinuity_deltas == ()
 
     def compare_event_variant(*, event_id, **event_options):
         record_id = uuid4()
