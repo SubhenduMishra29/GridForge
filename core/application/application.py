@@ -1569,6 +1569,7 @@ class Application:
                 simulation_time=evaluation_time,
                 triggered_by=mapping.element_id,
             )
+
         def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> ProtectionPostconditionVerification:
             """Verify the action-specific postcondition in the captured Core network.
 
