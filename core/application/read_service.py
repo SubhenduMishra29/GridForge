@@ -633,6 +633,33 @@ class StudyResultNumericDeltaReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class TransientDiscontinuitySignalDeltaReadModel:
+    """Pre/post values and deltas for one typed signal at an event boundary."""
+
+    signal_id: str
+    unit: str
+    left_pre: float
+    right_pre: float
+    pre_delta: float
+    left_post: float
+    right_post: float
+    post_delta: float
+
+
+@dataclass(frozen=True, slots=True)
+class TransientDiscontinuityDeltaReadModel:
+    """Matched event boundary with separate pre-event and post-event deltas."""
+
+    event_semantic_keys: tuple[tuple[Any, ...], ...]
+    time_s: float
+    left_pre_topology_revision: int | None
+    right_pre_topology_revision: int | None
+    left_post_topology_revision: int | None
+    right_post_topology_revision: int | None
+    signals: tuple[TransientDiscontinuitySignalDeltaReadModel, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TransientSemanticEventMatchReadModel:
     """One event pair matched by engineering operation, not run-local event ID."""
 
@@ -687,6 +714,7 @@ class StudyResultComparisonReadModel:
     transient_signal_deltas: tuple[TransientSignalDeltaReadModel, ...] = ()
     transient_compatibility_diagnostics: tuple[str, ...] = ()
     transient_event_matches: tuple[TransientSemanticEventMatchReadModel, ...] = ()
+    transient_discontinuity_deltas: tuple[TransientDiscontinuityDeltaReadModel, ...] = ()
 
 
 def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
@@ -1490,8 +1518,125 @@ class StudyReadService:
                                 diagnostics.append(f"EVENT_POST_EVALUATION_NOT_SUCCESSFUL:{event.event_id}")
             deltas: list[TransientSignalDeltaReadModel] = []
             event_matches: list[TransientSemanticEventMatchReadModel] = []
+            discontinuity_deltas: list[TransientDiscontinuityDeltaReadModel] = []
             if not diagnostics and left_transient is not None and right_transient is not None:
                 right_signals = {item.signal_id: item for item in right_transient.signals}
+                def boundary_key(boundary: TransientDiscontinuityReadModel) -> tuple[Any, ...] | None:
+                    if boundary.post_status != "succeeded":
+                        return None
+                    keys = []
+                    for event_id in boundary.event_ids:
+                        event = next((item for item in left_transient.events if item.event_id == event_id), None)
+                        peer = next((item for item in right_transient.events if item.event_id == event_id), None)
+                        if event is None:
+                            event = next((item for item in left_transient.events if item.event_id == event_id), None)
+                        if event is None:
+                            return None
+                        key = event_key(event)
+                        if key is None:
+                            return None
+                        keys.append(key)
+                    return (boundary.time_s, tuple(sorted(keys, key=repr)))
+                left_boundaries = {boundary_key(item): item for item in left_transient.discontinuities}
+                right_boundaries = {boundary_key(item): item for item in right_transient.discontinuities}
+                if None in left_boundaries or None in right_boundaries:
+                    diagnostics.append("DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE")
+                elif set(left_boundaries) != set(right_boundaries):
+                    diagnostics.append("DISCONTINUITY_BOUNDARY_SET_MISMATCH")
+                elif len(left_boundaries) != len(left_transient.discontinuities) or len(right_boundaries) != len(right_transient.discontinuities):
+                    diagnostics.append("DISCONTINUITY_BOUNDARY_IDENTITY_AMBIGUOUS")
+                if not diagnostics:
+                    state_descriptors = left_transient.provenance.get("state_signals")
+                    right_state_descriptors = right_transient.provenance.get("state_signals")
+                    if not isinstance(state_descriptors, (tuple, list)) or state_descriptors != right_state_descriptors:
+                        diagnostics.append("DISCONTINUITY_STATE_DESCRIPTOR_MISMATCH")
+                    else:
+                        for boundary_key_value in sorted(left_boundaries, key=repr):
+                            left_boundary = left_boundaries[boundary_key_value]
+                            right_boundary = right_boundaries[boundary_key_value]
+                            if (
+                                left_boundary.post_state is None or right_boundary.post_state is None
+                                or left_boundary.post_terminal_voltages is None or right_boundary.post_terminal_voltages is None
+                                or left_boundary.post_electrical_powers is None or right_boundary.post_electrical_powers is None
+                            ):
+                                diagnostics.append("DISCONTINUITY_POST_SIDE_UNAVAILABLE")
+                                break
+                            left_values: dict[str, tuple[str, float, float]] = {}
+                            right_values: dict[str, tuple[str, float, float]] = {}
+                            for descriptor in state_descriptors:
+                                index = descriptor.get("global_index")
+                                signal_id = descriptor.get("signal_id")
+                                unit = descriptor.get("unit")
+                                if not isinstance(index, int) or not isinstance(signal_id, str) or not isinstance(unit, str):
+                                    diagnostics.append("DISCONTINUITY_STATE_DESCRIPTOR_INVALID")
+                                    break
+                                if index >= len(left_boundary.pre_state) or index >= len(right_boundary.pre_state) or index >= len(left_boundary.post_state) or index >= len(right_boundary.post_state):
+                                    diagnostics.append("DISCONTINUITY_STATE_WIDTH_MISMATCH")
+                                    break
+                                left_values[signal_id] = (unit, left_boundary.pre_state[index], left_boundary.post_state[index])
+                                right_values[signal_id] = (unit, right_boundary.pre_state[index], right_boundary.post_state[index])
+                            if diagnostics:
+                                break
+                            for side_name, left_map, right_map in (
+                                ("voltage", left_boundary.pre_terminal_voltages, right_boundary.pre_terminal_voltages),
+                            ):
+                                if set(left_map) != set(right_map):
+                                    diagnostics.append("DISCONTINUITY_PRE_VOLTAGE_IDENTITY_MISMATCH")
+                                    break
+                            if diagnostics:
+                                break
+                            if set(left_boundary.pre_electrical_powers) != set(right_boundary.pre_electrical_powers):
+                                diagnostics.append("DISCONTINUITY_PRE_POWER_IDENTITY_MISMATCH")
+                                break
+                            if set(left_boundary.post_terminal_voltages) != set(right_boundary.post_terminal_voltages):
+                                diagnostics.append("DISCONTINUITY_POST_VOLTAGE_IDENTITY_MISMATCH")
+                                break
+                            if set(left_boundary.post_electrical_powers) != set(right_boundary.post_electrical_powers):
+                                diagnostics.append("DISCONTINUITY_POST_POWER_IDENTITY_MISMATCH")
+                                break
+                            for bus_id in sorted(left_boundary.pre_terminal_voltages):
+                                for component, unit in (("real", "p.u."), ("imag", "p.u.")):
+                                    signal_id = f"voltage:{bus_id}:{component}"
+                                    lv = getattr(left_boundary.pre_terminal_voltages[bus_id], component)
+                                    rv = getattr(right_boundary.pre_terminal_voltages[bus_id], component)
+                                    lp = getattr(left_boundary.post_terminal_voltages[bus_id], component)
+                                    rp = getattr(right_boundary.post_terminal_voltages[bus_id], component)
+                                    left_values[signal_id] = (unit, lv, lp)
+                                    right_values[signal_id] = (unit, rv, rp)
+                            for machine_id in sorted(left_boundary.pre_electrical_powers):
+                                for index, component in ((0, "active_power"), (1, "reactive_power")):
+                                    signal_id = f"power:{machine_id}:{component}"
+                                    left_values[signal_id] = ("p.u.", left_boundary.pre_electrical_powers[machine_id][index], left_boundary.post_electrical_powers[machine_id][index])
+                                    right_values[signal_id] = ("p.u.", right_boundary.pre_electrical_powers[machine_id][index], right_boundary.post_electrical_powers[machine_id][index])
+                            if set(left_values) != set(right_values):
+                                diagnostics.append("DISCONTINUITY_SIGNAL_IDENTITY_MISMATCH")
+                                break
+                            boundary_signals = tuple(
+                                TransientDiscontinuitySignalDeltaReadModel(
+                                    signal_id=signal_id,
+                                    unit=left_values[signal_id][0],
+                                    left_pre=left_values[signal_id][1],
+                                    right_pre=right_values[signal_id][1],
+                                    pre_delta=right_values[signal_id][1] - left_values[signal_id][1],
+                                    left_post=left_values[signal_id][2],
+                                    right_post=right_values[signal_id][2],
+                                    post_delta=right_values[signal_id][2] - left_values[signal_id][2],
+                                )
+                                for signal_id in sorted(left_values)
+                                if left_values[signal_id][0] == right_values[signal_id][0]
+                            )
+                            if len(boundary_signals) != len(left_values):
+                                diagnostics.append("DISCONTINUITY_SIGNAL_UNIT_MISMATCH")
+                                break
+                            discontinuity_deltas.append(TransientDiscontinuityDeltaReadModel(
+                                event_semantic_keys=boundary_key_value[1],
+                                time_s=boundary_key_value[0],
+                                left_pre_topology_revision=left_boundary.pre_topology_revision,
+                                right_pre_topology_revision=right_boundary.pre_topology_revision,
+                                left_post_topology_revision=left_boundary.post_topology_revision,
+                                right_post_topology_revision=right_boundary.post_topology_revision,
+                                signals=boundary_signals,
+                            ))
                 for signal in sorted(left_transient.signals, key=lambda item: item.signal_id):
                     other = right_signals[signal.signal_id]
                     deltas.append(TransientSignalDeltaReadModel(
@@ -1534,6 +1679,7 @@ class StudyReadService:
                 transient_signal_deltas=tuple(deltas),
                 transient_compatibility_diagnostics=tuple(diagnostics),
                 transient_event_matches=tuple(event_matches),
+                transient_discontinuity_deltas=tuple(discontinuity_deltas),
             )
         compatible = left.project_id == right.project_id and left.study_type == right.study_type
         if left.project_id != right.project_id:
