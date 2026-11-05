@@ -487,6 +487,7 @@ class ProtectionInspector(QGroupBox):
                 f"Protection Element: {element_id}",
                 f"  ANSI Function: {configuration.function_code}",
                 f"  Input / Measurement Bindings: {dict(configuration.input_channel_ids)}",
+                f"  Residual Current Source Configuration: {dict(configuration.residual_current_input) if configuration.residual_current_input is not None else 'n/a'}",
                 f"  Settings: {', '.join(f'{item.label} ({item.key}) = {item.value!r} {item.unit}' for item in configuration.settings) or 'No typed settings metadata'}",
                 f"  Unmodelled Settings (read-only): {dict(configuration.unmodeled_settings)}",
                 f"  Settings Editable Through Application Contract: {configuration.settings_editable}",
