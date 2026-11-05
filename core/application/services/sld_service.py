@@ -92,7 +92,7 @@ class SLDService:
             raise ValueError("core_connection_id must be a non-empty string")
         return f"sld-wire-{core_connection_id}"
 
-    def audit_simple_wire_projection(self, network: Any, *, document: Any | None = None) -> tuple[dict[str, Any], ...]:
+    def audit_simple_wire_projection(self, network: Any, *, document: Any | None = None, documents: tuple[Any, ...] | None = None) -> tuple[dict[str, Any], ...]:
         """Audit Core/SLD Simple-Wire consistency without mutating the document.
 
         This method is the activation/read-side counterpart to the mutating
@@ -101,16 +101,24 @@ class SLDService:
         """
         if network is None or not hasattr(network, "connectivity"):
             raise TypeError("network must expose the authoritative connectivity aggregate")
-        target_document = self.document if document is None else document
-        if target_document is None or not hasattr(target_document, "model"):
-            raise TypeError("document must expose the SLD model to audit")
+        if documents is not None:
+            target_documents = tuple(documents)
+        else:
+            target_documents = (self.document if document is None else document,)
+        if not target_documents or any(
+            target_document is None or not hasattr(target_document, "model")
+            for target_document in target_documents
+        ):
+            raise TypeError("documents must contain SLD documents exposing a model")
 
         core_connections = tuple(network.connectivity.connections)
         core_by_id = {str(connection.connection_id): connection for connection in core_connections}
         diagnostics: list[dict[str, Any]] = []
-        companions: dict[str, Any] = {}
+        companions: dict[str, tuple[str | None, Any]] = {}
 
-        for connection in target_document.model.connections:
+        for target_document in target_documents:
+            document_id = getattr(target_document, "document_id", None)
+            for connection in target_document.model.connections:
             properties = connection.properties
             kind = str(properties.get("connection_kind", "")).upper()
             lifecycle = str(properties.get("lifecycle_state", "BOUND")).upper()
@@ -142,6 +150,7 @@ class SLDService:
                     "code": "ENDPOINT_MISMATCH",
                     "connection_id": str(connection.connection_id),
                     "core_connection_id": None if core_id is None else str(core_id),
+                    "document_id": None if document_id is None else str(document_id),
                     "reason": f"invalid_sld_endpoint_node_identity:{exc}",
                 })
                 continue
@@ -166,10 +175,15 @@ class SLDService:
                     "code": "DUPLICATE_PRESENTATION_COMPANION",
                     "connection_id": str(connection.connection_id),
                     "core_connection_id": core_id,
+                    "document_id": None if document_id is None else str(document_id),
+                    "first_document_id": companions[core_id][0],
                 })
                 continue
 
-            companions[core_id] = connection
+            companions[core_id] = (
+                None if document_id is None else str(document_id),
+                connection,
+            )
             if core_id not in core_by_id:
                 diagnostics.append({
                     "code": "SLD_WIRE_WITHOUT_CORE",
@@ -213,12 +227,6 @@ class SLDService:
                     "code": "CORE_WIRE_WITHOUT_SLD_COMPANION",
                     "connection_id": core_id,
                 })
-        document_id = getattr(target_document, "document_id", None)
-        if document_id is not None:
-            diagnostics = [
-                {**diagnostic, "document_id": str(document_id)}
-                for diagnostic in diagnostics
-            ]
         return tuple(diagnostics)
 
     def reconcile_simple_wire_projection(self, network: Any) -> Callable[[], None]:
