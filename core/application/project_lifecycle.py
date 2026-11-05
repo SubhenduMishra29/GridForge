@@ -16,12 +16,14 @@ from uuid import uuid4
 
 from core.persistence.project_package import normalize_package_path
 from core.persistence.project_persistence import LoadedProject
+from core.protection.project_configuration import ProtectionProjectConfigurationSnapshot
 
 from .project import ProjectContext
 from .project_presentation import ProjectPresentationCollection
 
 ProjectLoader = Callable[[Path], LoadedProject]
-ProjectSaver = Callable[[ProjectContext, Any, Mapping[str, Any] | None, Path, Mapping[str, Any] | None], None]
+ProjectSaver = Callable[..., None]
+ProtectionSnapshotProvider = Callable[[str, int], ProtectionProjectConfigurationSnapshot | None]
 NetworkFactory = Callable[[], Any]
 NetworkActivator = Callable[[Any], Callable[[], None] | None]
 PresentationFactory = Callable[[ProjectContext], Any]
@@ -77,6 +79,7 @@ class ProjectLifecycleService:
         presentation_collection_deserializer: PresentationCollectionDeserializer | None = None,
         presentation_collection_activator: PresentationCollectionActivator | None = None,
         presentation_collection_snapshot_provider: PresentationCollectionSnapshotProvider | None = None,
+        protection_snapshot_provider: ProtectionSnapshotProvider | None = None,
     ) -> None:
         if network is None:
             raise ValueError("network is required.")
@@ -111,6 +114,8 @@ class ProjectLifecycleService:
         self._presentation_collection_deserializer = presentation_collection_deserializer
         self._presentation_collection_activator = presentation_collection_activator
         self._presentation_collection_snapshot_provider = presentation_collection_snapshot_provider
+        self._protection_snapshot_provider = protection_snapshot_provider
+        self._protection_saved_snapshot: ProtectionProjectConfigurationSnapshot | None = None
         self._post_network_activator: Callable[[ProjectContext | None, LoadedProject | None, Any, int], Callable[[], None] | None] | None = None
         self._post_network_activation_mode = POST_NETWORK_ACTIVATION_READ_ONLY_AUDIT
         self._activation_generation = 1 if context is not None else 0
@@ -137,6 +142,17 @@ class ProjectLifecycleService:
 
     @property
     def has_project(self) -> bool: return self._context is not None
+
+    @property
+    def protection_saved_snapshot(self) -> ProtectionProjectConfigurationSnapshot | None:
+        return self._protection_saved_snapshot
+
+    @property
+    def protection_configuration_dirty(self) -> bool:
+        if self._context is None or self._protection_snapshot_provider is None:
+            return False
+        current = self._protection_snapshot_provider(self._context.project_id, self._activation_generation)
+        return current != self._protection_saved_snapshot
     @property
     def activation_generation(self) -> int: return self._activation_generation
     @property
@@ -178,6 +194,31 @@ class ProjectLifecycleService:
         self._presentation_collection_deserializer = snapshot.collection_deserializer
         self._presentation_collection_activator = snapshot.collection_activator
         self._presentation_collection_snapshot_provider = snapshot.collection_snapshot_provider
+
+    def configure_protection_snapshot_provider(self, provider: ProtectionSnapshotProvider) -> None:
+        """Configure the Application-owned immutable Protection save boundary."""
+        if not callable(provider):
+            raise TypeError("protection snapshot provider must be callable.")
+        self._protection_snapshot_provider = provider
+        if self._context is not None:
+            snapshot = provider(self._context.project_id, self._activation_generation)
+            self._validate_protection_snapshot(snapshot, self._context.project_id, self._activation_generation)
+            self._protection_saved_snapshot = snapshot
+        else:
+            self._protection_saved_snapshot = None
+
+    @staticmethod
+    def _validate_protection_snapshot(
+        snapshot: ProtectionProjectConfigurationSnapshot | None,
+        project_id: str,
+        activation_generation: int,
+    ) -> None:
+        if snapshot is None:
+            return
+        if not isinstance(snapshot, ProtectionProjectConfigurationSnapshot):
+            raise TypeError("Protection snapshot provider must return ProtectionProjectConfigurationSnapshot or None.")
+        if snapshot.project_id != project_id or snapshot.activation_generation != activation_generation:
+            raise ValueError("Protection snapshot project/generation provenance does not match the active project.")
 
     def configure_persistence(self, *, loader: ProjectLoader, saver: ProjectSaver) -> None:
         if not callable(loader) or not callable(saver):
@@ -361,16 +402,25 @@ class ProjectLifecycleService:
             # mutable values and the live presentation document.
             presentation_data = deepcopy(dict(presentation_data))
 
+        protection_snapshot = None
+        if self._protection_snapshot_provider is not None:
+            protection_snapshot = self._protection_snapshot_provider(context.project_id, starting_generation)
+            self._validate_protection_snapshot(protection_snapshot, context.project_id, starting_generation)
+
         # The saver receives detached payloads so it cannot mutate the captured
         # serialized baseline through a shared nested mapping. The network and
         # activation identity are separately guarded below.
-        self._saver(
+        saver_arguments = (
             context,
             starting_network,
             deepcopy(presentation_data),
             target,
             deepcopy(collection_data),
         )
+        if self._protection_snapshot_provider is not None:
+            self._saver(*saver_arguments, protection_snapshot)
+        else:
+            self._saver(*saver_arguments)
         # A saver/serializer may call back into Application and activate another
         # project synchronously. Never let this save clean documents or rewrite
         # the path on that newly activated project.
@@ -384,6 +434,20 @@ class ProjectLifecycleService:
                 "Project activation changed during save; the saved snapshot was not "
                 "applied to the active project's baseline."
             )
+        if self._protection_snapshot_provider is not None:
+            try:
+                current_protection_snapshot = self._protection_snapshot_provider(
+                    context.project_id, starting_generation
+                )
+                self._validate_protection_snapshot(
+                    current_protection_snapshot, context.project_id, starting_generation
+                )
+            except Exception:
+                current_protection_snapshot = None
+            # Advance the saved baseline only when the exact revision and
+            # activation that were written are still current after I/O.
+            if current_protection_snapshot == protection_snapshot:
+                self._protection_saved_snapshot = protection_snapshot
         if collection is not None:
             # A save only establishes a clean baseline for the exact collection
             # snapshot that was serialized. A document may have changed while
@@ -493,6 +557,7 @@ class ProjectLifecycleService:
         old_generation = self._activation_generation
         old_state = self._state
         old_rollback_error = self._rollback_error
+        old_protection_saved_snapshot = self._protection_saved_snapshot
         next_generation = old_generation + 1
 
         rollback_stack: list[Callable[[], None]] = []
@@ -534,9 +599,19 @@ class ProjectLifecycleService:
             if rollback is not None:
                 rollback_stack.append(rollback)
 
+            candidate_protection_snapshot = None
+            if context is not None and self._protection_snapshot_provider is not None:
+                candidate_protection_snapshot = self._protection_snapshot_provider(
+                    context.project_id, next_generation
+                )
+                self._validate_protection_snapshot(
+                    candidate_protection_snapshot, context.project_id, next_generation
+                )
+
             self._network = network
             self._context = context
             self._activation_generation = next_generation
+            self._protection_saved_snapshot = candidate_protection_snapshot
             self._state = "ACTIVE" if context is not None else "NO_PROJECT"
             self._rollback_error = None
             return context if context is not None else previous_context
@@ -557,6 +632,7 @@ class ProjectLifecycleService:
             self._network = old_network
             self._context = old_context
             self._activation_generation = old_generation
+            self._protection_saved_snapshot = old_protection_saved_snapshot
 
             if rollback_errors:
                 self._state = "ROLLBACK_FAILED"
