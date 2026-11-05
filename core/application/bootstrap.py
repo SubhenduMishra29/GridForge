@@ -620,14 +620,14 @@ def create_application(
         # installed only by the successful activation transaction.
         return persistence.load(path)
 
-    def save_project(context, active_network, presentation, path, presentation_collection=None):
+    def save_project(context, active_network, presentation, path, presentation_collection=None, protection_snapshot=None):
         persistence.save(
             context,
             active_network,
             presentation,
             path,
             dynamic_models=dynamic_models.all(),
-            protection_configuration=protection_configuration_service.configuration,
+            protection_configuration=protection_snapshot,
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             control_signal_mapping=application.control_signal_mapping,
@@ -653,6 +653,14 @@ def create_application(
         activate_network=activate_network,
         project_state_activator=activate_project_state,
         project_state_validator=validate_project_candidate,
+    )
+    lifecycle.configure_protection_snapshot_provider(
+        lambda project_id, generation: (
+            protection_configuration_service.configuration.create_snapshot(generation)
+            if protection_configuration_service.configuration is not None
+            and protection_configuration_service.configuration.project_id == project_id
+            else None
+        )
     )
     application.attach_project_lifecycle(lifecycle)
     application.revision_service.initialize_from_network(
