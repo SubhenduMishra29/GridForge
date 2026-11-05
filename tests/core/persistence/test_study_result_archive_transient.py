@@ -15,7 +15,7 @@ from core.persistence.study_result_archive import (
     StudyResultArchiveError,
     _canonical_json,
 )
-from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.transient_stability import TransientStabilityResult
 
 
@@ -135,6 +135,13 @@ def test_transient_result_and_event_execution_round_trip_as_canonical_types(tmp_
     assert event.post_event_revision == 8
     assert event.post_event_re_evaluation_status == "succeeded"
     assert event.result["machine_transitions"]["GEN-1"]["connected_after"] is False
+    assert isinstance(event.transition, EventTransition)
+    assert event.transition.transition_type == "breaker_open"
+    assert event.transition.target_kind == "switch"
+    assert event.transition.target_id == "CB-GEN1"
+    assert event.transition.pre_event_revision == 7
+    assert event.transition.post_event_revision == 8
+    assert event.transition.details["machine_transitions"]["GEN-1"]["connected_after"] is False
     failed_event = value.events[1]
     assert failed_event.event_id == "FAULT-CLEAR-FAILED"
     assert failed_event.status == "failed"
@@ -146,7 +153,7 @@ def test_transient_result_and_event_execution_round_trip_as_canonical_types(tmp_
         event.result["switch_id"] = "CHANGED"
 
 
-def test_schema_v2_rejects_unknown_event_execution_fields(tmp_path):
+def test_schema_v3_rejects_unknown_event_execution_fields(tmp_path):
     archive = StudyResultArchive(tmp_path)
     original = _study_result(_transient_result())
     archive.save(original)
@@ -166,6 +173,31 @@ def test_schema_v2_rejects_unknown_event_execution_fields(tmp_path):
     with pytest.raises(StudyResultArchiveError, match="EventExecution fields"):
         archive.load_all(original.project_id)
 
+
+
+def test_schema_v2_event_execution_migrates_transition_from_legacy_result_mapping(tmp_path):
+    archive = StudyResultArchive(tmp_path)
+    original = _study_result(_transient_result())
+    archive.save(original)
+
+    record_path = next(tmp_path.rglob("*.json"))
+    envelope = json.loads(record_path.read_text(encoding="utf-8"))
+    envelope["schema_version"] = 2
+    for event_payload in envelope["payload"]["value"]["fields"]["events"]:
+        event_payload["fields"].pop("transition", None)
+    unsigned = {
+        key: envelope[key]
+        for key in ("format", "schema_version", "record_id", "saved_at", "payload")
+    }
+    envelope["record_sha256"] = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
+    record_path.write_bytes(_canonical_json(envelope))
+
+    restored = archive.load_latest(original.project_id, original.activation_generation, original.study_id)
+    assert restored is not None
+    event = restored.result.value.events[0]
+    assert isinstance(event.transition, EventTransition)
+    assert event.transition.target_id == "CB-GEN1"
+    assert event.transition.post_event_revision == 8
 
 def test_schema_v1_transient_dataclass_keeps_legacy_mapping_semantics(tmp_path):
     project_id = "project-archive-test"
@@ -261,7 +293,7 @@ def test_empty_transient_state_array_shape_round_trips(tmp_path):
     assert restored.result.value.states.flags.writeable is False
 
 
-def test_schema_v2_rejects_unknown_transient_result_fields(tmp_path):
+def test_schema_v3_rejects_unknown_transient_result_fields(tmp_path):
     archive = StudyResultArchive(tmp_path)
     original = _study_result(_transient_result())
     archive.save(original)
