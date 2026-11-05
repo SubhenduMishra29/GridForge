@@ -5,8 +5,8 @@ stores them beside the user's GridForge application data, keyed by project and
 activation provenance, without modifying the canonical .gridforge package.
 
 Schema v1 remains readable with its historical generic-dataclass mapping
-semantics. Schema v2 adds allowlisted reconstruction for transient results,
-EventExecution and algebraic-quality records, including shaped NumPy arrays.
+semantics. Schema v2 adds allowlisted transient result/event reconstruction;
+schema v3 adds typed detached event-transition reconstruction.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import numpy as np
 from core.application.revision import ProjectRevision
 from core.application.study import StudyResult
 from core.solver.power_flow.result import PowerFlowResult
-from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.transient_stability import TransientStabilityResult
 from core.solver.short_circuit.fault_types import FaultType
@@ -47,7 +47,7 @@ from core.solver.short_circuit.result import (
 
 
 ARCHIVE_FORMAT = "GridForgeStudyResult"
-ARCHIVE_SCHEMA_VERSION = 2
+ARCHIVE_SCHEMA_VERSION = 3
 
 
 class StudyResultArchiveError(RuntimeError):
@@ -121,6 +121,9 @@ _SOLVER_RESULT_TYPES = {
 _SOLVER_EVENT_TYPES = {
     f"{EventExecution.__module__}.{EventExecution.__qualname__}": EventExecution,
 }
+_SOLVER_TRANSITION_TYPES = {
+    f"{EventTransition.__module__}.{EventTransition.__qualname__}": EventTransition,
+}
 _SOLVER_ALGEBRAIC_TYPES = {
     f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}": AlgebraicNetworkSolution,
 }
@@ -184,6 +187,8 @@ def _encode_value(value: Any) -> Any:
             tag = "solver_result"
         elif qualified in _SOLVER_EVENT_TYPES:
             tag = "event_execution"
+        elif qualified in _SOLVER_TRANSITION_TYPES:
+            tag = "event_transition"
         elif qualified in _SOLVER_ALGEBRAIC_TYPES:
             tag = "algebraic_network_solution"
         else:
@@ -208,6 +213,7 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
     transient_result_name = f"{TransientStabilityResult.__module__}.{TransientStabilityResult.__qualname__}"
     event_execution_name = f"{EventExecution.__module__}.{EventExecution.__qualname__}"
     algebraic_solution_name = f"{AlgebraicNetworkSolution.__module__}.{AlgebraicNetworkSolution.__qualname__}"
+    event_transition_name = f"{EventTransition.__module__}.{EventTransition.__qualname__}"
     if schema_version >= 2 and qualified_hint in {transient_result_name, event_execution_name, algebraic_solution_name}:
         expected_kind = (
             "solver_result" if qualified_hint == transient_result_name else
@@ -218,7 +224,11 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
             raise StudyResultArchiveError(
                 f"Known transient type {qualified_hint} must use the {expected_kind!r} archive tag in schema v2."
             )
-    if kind in {"solver_result", "event_execution", "algebraic_network_solution"} and set(value) != {"$type", "class", "fields"}:
+    if schema_version >= 3 and qualified_hint == event_transition_name and kind != "event_transition":
+        raise StudyResultArchiveError("Known EventTransition must use the 'event_transition' archive tag in schema v3.")
+    if kind == "event_transition" and schema_version < 3:
+        raise StudyResultArchiveError("EventTransition tags require Study Result archive schema v3.")
+    if kind in {"solver_result", "event_execution", "algebraic_network_solution", "event_transition"} and set(value) != {"$type", "class", "fields"}:
         raise StudyResultArchiveError(f"Persisted {kind} archive value has missing or unknown fields.")
     if kind == "ndarray":
         if schema_version < 2:
@@ -295,6 +305,20 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                     f"Persisted AlgebraicNetworkSolution violates its result contract: {exc}"
                 ) from exc
 
+        if kind == "event_transition":
+            if schema_version < 3:
+                raise StudyResultArchiveError("EventTransition tags require Study Result archive schema v3.")
+            transition_type = _SOLVER_TRANSITION_TYPES.get(qualified)
+            if transition_type is None:
+                raise StudyResultArchiveError("Persisted event transition type is not allowlisted.")
+            allowed_fields = {item.name for item in fields(transition_type)}
+            if set(decoded_fields) != allowed_fields:
+                raise StudyResultArchiveError("Persisted EventTransition fields do not match its canonical contract.")
+            try:
+                return transition_type(**decoded_fields)
+            except (TypeError, ValueError) as exc:
+                raise StudyResultArchiveError(f"Persisted EventTransition violates its result contract: {exc}") from exc
+
         if kind == "event_execution":
             if schema_version < 2:
                 raise StudyResultArchiveError("EventExecution tags require Study Result archive schema v2.")
@@ -302,7 +326,15 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
             if execution_type is None:
                 raise StudyResultArchiveError("Persisted event execution type is not allowlisted.")
             allowed_fields = {item.name for item in fields(execution_type)}
-            if set(decoded_fields) != allowed_fields:
+            if schema_version < 3 and "transition" in allowed_fields:
+                legacy_fields = allowed_fields - {"transition"}
+                if set(decoded_fields) == legacy_fields:
+                    decoded_fields["transition"] = None
+                elif set(decoded_fields) != allowed_fields:
+                    raise StudyResultArchiveError(
+                        "Persisted EventExecution fields do not match the schema-v2 canonical contract."
+                    )
+            elif set(decoded_fields) != allowed_fields:
                 raise StudyResultArchiveError(
                     "Persisted EventExecution fields do not match its versioned canonical contract."
                 )
@@ -352,6 +384,10 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
         }:
             raise StudyResultArchiveError(
                 f"Known transient type {qualified} cannot use the generic dataclass archive tag in schema v2."
+            )
+        if schema_version >= 3 and qualified == event_transition_name:
+            raise StudyResultArchiveError(
+                "Known EventTransition cannot use the generic dataclass archive tag in schema v3."
             )
         return {"$dataclass": qualified, "fields": decoded_fields}
     return {key: _decode_value(item, schema_version=schema_version) for key, item in value.items()}
@@ -479,7 +515,7 @@ class StudyResultArchive:
             if envelope.get("format") != ARCHIVE_FORMAT:
                 raise StudyResultArchiveError("Unsupported Study Result archive format.")
             schema_version = envelope.get("schema_version")
-            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2}:
+            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2, 3}:
                 raise StudyResultArchiveError(
                     f"Unsupported Study Result archive schema: {schema_version!r}."
                 )
