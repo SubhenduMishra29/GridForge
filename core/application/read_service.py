@@ -1040,6 +1040,15 @@ class StudyReadService:
                 if not isinstance(legacy_event_fields, Mapping):
                     raise ValueError("Legacy EventExecution mapping has no canonical fields object.")
                 scheduled_time = float(legacy_event_fields["time"])
+                legacy_transition = legacy_event_fields.get("transition")
+                if isinstance(legacy_transition, Mapping) and isinstance(legacy_transition.get("fields"), Mapping):
+                    legacy_transition = legacy_transition["fields"]
+                if isinstance(legacy_transition, Mapping) and legacy_transition.get("$dataclass"):
+                    legacy_transition = legacy_transition.get("fields")
+                typed_transition = (
+                    EventTransition.from_mapping(legacy_transition)
+                    if isinstance(legacy_transition, Mapping) else None
+                )
                 event_data = {
                     "event_id": str(legacy_event_fields["event_id"]),
                     "event_type": str(legacy_event_fields["event_type"]),
@@ -1057,6 +1066,19 @@ class StudyReadService:
                     "post_event_re_evaluation_status": "unavailable",
                     "post_event_re_evaluation_failure_type": None,
                     "post_event_re_evaluation_failure_message": None,
+                    "transition": (
+                        None if typed_transition is None else {
+                            "transition_type": typed_transition.transition_type,
+                            "target_kind": typed_transition.target_kind,
+                            "target_id": typed_transition.target_id,
+                            "previous_state": typed_transition.previous_state,
+                            "new_state": typed_transition.new_state,
+                            "source_topology_revision": typed_transition.source_topology_revision,
+                            "pre_event_revision": typed_transition.pre_event_revision,
+                            "post_event_revision": typed_transition.post_event_revision,
+                            "details": typed_transition.details,
+                        }
+                    ),
                 }
             else:
                 raise ValueError("Transient event history contains an unknown event record type.")
