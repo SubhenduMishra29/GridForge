@@ -620,14 +620,14 @@ def create_application(
         # installed only by the successful activation transaction.
         return persistence.load(path)
 
-    def save_project(context, active_network, presentation, path, presentation_collection=None):
+    def save_project(context, active_network, presentation, path, presentation_collection=None, protection_snapshot=None):
         persistence.save(
             context,
             active_network,
             presentation,
             path,
             dynamic_models=dynamic_models.all(),
-            protection_configuration=protection_configuration_service.configuration,
+            protection_configuration=protection_snapshot,
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             control_signal_mapping=application.control_signal_mapping,
@@ -654,6 +654,15 @@ def create_application(
         project_state_activator=activate_project_state,
         project_state_validator=validate_project_candidate,
     )
+    def protection_snapshot_for_project(project_id: str, generation: int):
+        configuration = protection_configuration_service.configuration
+        if configuration is None:
+            raise RuntimeError("Active project Protection configuration is unavailable.")
+        if configuration.project_id != project_id:
+            raise RuntimeError("Active Protection configuration belongs to a different project.")
+        return configuration.create_snapshot(generation)
+
+    lifecycle.configure_protection_snapshot_provider(protection_snapshot_for_project)
     application.attach_project_lifecycle(lifecycle)
     application.revision_service.initialize_from_network(
         topology_revision=network.state.topology_revision,

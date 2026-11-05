@@ -30,7 +30,7 @@ from core.application.control_signal_mapping import ControlSignalMapping
 from core.application.draft import DraftNetwork
 from core.control.configuration import ControlConfiguration
 from core.network import Network
-from core.protection.project_configuration import ProtectionProjectConfiguration
+from core.protection.project_configuration import ProtectionProjectConfiguration, ProtectionProjectConfigurationSnapshot
 from core.application.services.validation_service import ValidationService
 
 from .network_serializer import deserialize_network, serialize_network
@@ -201,7 +201,7 @@ class ProjectPersistenceService:
              presentation: Mapping[str, Any] | str | Path | None = None,
              path: str | Path | None = None,
              *, dynamic_models: Sequence[DynamicMachineModelAssociation] = (),
-             protection_configuration: ProtectionProjectConfiguration | None = None,
+             protection_configuration: ProtectionProjectConfigurationSnapshot | None = None,
              measurement_definitions: Sequence[Mapping[str, Any]] = (),
              control_configuration: ControlConfiguration | None = None,
              control_signal_mapping: ControlSignalMapping | None = None,
@@ -237,10 +237,18 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError("dynamic_models contains an association for a different project.")
         if len({(item.project_id, item.activation_generation) for item in dynamic_models}) > 1:
             raise ProjectPersistenceError("dynamic_models contains mixed project-generation provenance.")
-        if protection_configuration is not None and not isinstance(
-            protection_configuration, ProtectionProjectConfiguration
-        ):
-            raise TypeError("protection_configuration must be ProtectionProjectConfiguration or None.")
+        protection_snapshot = protection_configuration
+        if protection_snapshot is not None:
+            if not isinstance(protection_snapshot, ProtectionProjectConfigurationSnapshot):
+                raise TypeError("protection_configuration must be an immutable ProtectionProjectConfigurationSnapshot or None.")
+            if protection_snapshot.project_id != context.project_id:
+                raise ProjectPersistenceError("Protection snapshot project_id does not match the project.")
+            # Rehydrate only the detached snapshot payload for cross-domain
+            # validation. Never serialize or inspect the live aggregate here.
+            try:
+                protection_configuration = ProtectionProjectConfiguration.from_dict(protection_snapshot.to_dict())
+            except (TypeError, ValueError, KeyError) as exc:
+                raise ProjectPersistenceError(f"Invalid Protection snapshot payload: {exc}") from exc
         if not isinstance(measurement_definitions, Sequence) or any(
             not isinstance(item, Mapping) for item in measurement_definitions
         ):
@@ -315,8 +323,8 @@ class ProjectPersistenceService:
             "measurement": {"channels": [dict(item) for item in measurement_definitions]},
             "study_cases": [self._serialize_study_case(item) for item in study_cases],
         }
-        if protection_configuration is not None:
-            project["protection"] = protection_configuration.to_dict()
+        if protection_snapshot is not None:
+            project["protection"] = protection_snapshot.to_dict()
         if protection_presentation is not None:
             project["protection_presentation"] = dict(protection_presentation)
         if control_configuration is not None:

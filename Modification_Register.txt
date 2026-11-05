@@ -22350,3 +22350,59 @@ Verification:
 Related:
 - Issue #1003 — relay configuration projection and inspector workflow.
 ======================================================================
+
+======================================================================
+V2 PROTECTION CONFIGURATION SAVE SNAPSHOT / REVISION CONSISTENCY
+======================================================================
+
+Date:
+    2026-11-05
+
+Related:
+    Issue #1005 — Protection configuration save consistency.
+
+Correction:
+- ProtectionProjectConfiguration now maintains a monotonic in-memory
+  content revision. Every successful element, measurement-binding,
+  differential-scheme and ANSI 25 policy mutation advances the revision.
+  Transaction undo/rollback uses the same aggregate mutation methods and
+  therefore advances the revision rather than reusing an earlier value.
+- Added immutable ProtectionProjectConfigurationSnapshot carrying the
+  project ID, activation generation, aggregate revision, canonical content
+  identity and detached immutable payload.
+- ProjectLifecycleService captures the snapshot before persistence and
+  passes that exact value to the saver. It advances the saved Protection
+  baseline only when project identity, activation generation and current
+  snapshot still match after the write. A concurrent mutation therefore
+  remains dirty rather than being marked saved.
+- Project activation establishes a new generation-scoped Protection
+  baseline and restores the prior baseline if activation rolls back.
+- Application.is_dirty now includes the lifecycle's Protection snapshot
+  comparison, so SAVE/DISCARD/CANCEL transition protection cannot overlook
+  Protection-only edits or treat a mid-save mutation as clean. The Application
+  save coordinator also withholds its persisted revision baseline and
+  ProjectSaved event when Protection remains dirty after the write.
+- ProjectPersistenceService validates a rehydrated copy of the detached
+  snapshot payload and serializes that same snapshot. It no longer reads
+  the mutable ProtectionConfigurationService aggregate during serialization.
+- Legacy projects without a Protection payload remain represented by an
+  empty project-scoped configuration on activation; no new persisted
+  revision field or schema migration is introduced.
+
+Architecture boundary:
+- Revision/snapshot ownership remains in the Core Protection aggregate.
+- Application ProjectLifecycleService owns activation provenance and
+  saved-baseline comparison.
+- Persistence receives only a detached snapshot; it does not query
+  Application services or live Protection state.
+
+Verification:
+- Static source inspection only.
+- No tests or CI were run, per repository instruction.
+- Runtime save-race and project activation/rollback behavior remain
+  unverified and must be exercised in a later explicit runtime validation.
+
+Status:
+    IMPLEMENTED ON fix/protection-save-snapshot-revision-1005;
+    PULL REQUEST / MERGE REVIEW PENDING.
+
