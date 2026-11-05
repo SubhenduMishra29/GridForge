@@ -141,7 +141,6 @@ class ProtectionFunctionConfiguration:
         object.__setattr__(self, "input_channel_ids", MappingProxyType(dict(self.input_channel_ids)))
         object.__setattr__(self, "metadata", _freeze_value(self.metadata))
 
-    @_synchronized
     def to_dict(self) -> dict[str, Any]:
         return {
             "element_id": self.element_id,
@@ -654,6 +653,7 @@ class ProtectionProjectConfiguration:
         self._mark_changed()
         return value
 
+    @_synchronized
     def to_dict(self) -> dict[str, Any]:
         payload = {
             "project_id": self.project_id,
