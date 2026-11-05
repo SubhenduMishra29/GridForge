@@ -30,9 +30,6 @@ def schedule_breaker_open(
             "target_kind": "switch",
             "target_id": str(breaker_id),
             "operation": "open",
-            "target_kind": "switch",
-            "target_id": str(breaker_id),
-            "operation": "close",
             "breaker_id": str(breaker_id),
             "affected_equipment_ids": affected,
             "machine_ids": state.machines_for_switch(breaker_id),
@@ -64,6 +61,9 @@ def schedule_breaker_close(
         event_type="breaker_close",
         priority=priority,
         metadata={
+            "target_kind": "switch",
+            "target_id": str(breaker_id),
+            "operation": "close",
             "breaker_id": str(breaker_id),
             "affected_equipment_ids": affected,
             "machine_ids": state.machines_for_switch(breaker_id),
@@ -112,7 +112,7 @@ def schedule_fault_apply(manager: EventManager, state: TransientEventState, time
         priority=priority,
         metadata={
             "target_kind": "fault",
-            "target_id": str(getattr(fault, "fault_id", "")) or str(getattr(fault, "bus_id", "")),
+            "target_id": "active_fault",
             "operation": "apply",
             "fault_id": str(getattr(fault, "fault_id", "")) or None,
             "fault_bus_id": str(getattr(fault, "bus_id", "")) or None,
