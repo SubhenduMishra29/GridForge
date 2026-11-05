@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -190,6 +191,37 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     assert comparison.numeric_comparison_status == "TRANSIENT_COMPARABLE"
     assert comparison.transient_signal_deltas
     assert comparison.transient_signal_deltas[0].deltas == (0.05, 0.05)
+    payload = json.loads(read_service.export_study_comparison(
+        live_result,
+        archived_record_id,
+        project_id=project_id,
+        activation_generation=4,
+        current_revision=revision,
+    ))
+    assert payload["format"] == "GridForgeTransientComparison"
+    assert payload["left"]["source_kind"] == "live"
+    assert payload["left"]["record_id"] is None
+    assert payload["right"]["source_kind"] == "archive"
+    assert payload["right"]["record_id"] == str(archived_record_id)
+    stale_live = StudyResultReadModel(
+        study_id=live_study_id,
+        project_id=project_id,
+        activation_generation=4,
+        source_revision=revision,
+        study_type="transient_stability",
+        status="completed",
+        value=transient_result(0.05),
+        current=False,
+    )
+    stale_comparison = read_service.compare_study_results(
+        stale_live,
+        archived_record_id,
+        project_id=project_id,
+        activation_generation=4,
+        current_revision=revision,
+    )
+    assert not stale_comparison.compatible
+    assert "LEFT_LIVE_RESULT_NOT_CURRENT" in stale_comparison.transient_compatibility_diagnostics
     assert read_service.compare_archived_results(
         live_result,
         archived_record_id,
