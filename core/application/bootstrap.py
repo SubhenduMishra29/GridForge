@@ -968,6 +968,11 @@ def recover_application(
         # ProjectPersistenceService.load() performs manifest/schema/migration,
         # Core deserialization, SLD association, and cross-domain validation.
         context = replacement.open_project(str(target), decision="discard")
+        # Application activation commits the project and presentation lifecycle,
+        # but direct Application.open_project() does not publish the UI adapter's
+        # ProjectWorkspaceChanged notification. Synchronize the hidden candidate
+        # shell before validating its projections and before publishing the shell.
+        recovery_composition.synchronize_replacement(replacement, context)
         # A clean Core command boundary is not sufficient for a usable GridForge
         # project: the canonical package also carries the engineer's SLD
         # presentation. The headless bootstrap must not silently accept a load
