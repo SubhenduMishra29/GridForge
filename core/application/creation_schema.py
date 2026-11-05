@@ -56,8 +56,10 @@ class EngineeringParameterDefinition:
         if self.minimum is not None or self.maximum is not None:
             if datatype not in {"float", "number", "int", "integer"}:
                 raise ValueError("minimum/maximum bounds require a numeric datatype.")
+            normalized_bounds: dict[str, float | None] = {}
             for bound_name, bound in (("minimum", self.minimum), ("maximum", self.maximum)):
                 if bound is None:
+                    normalized_bounds[bound_name] = None
                     continue
                 if isinstance(bound, bool):
                     raise TypeError(f"{bound_name} must be a finite numeric bound.")
@@ -69,11 +71,15 @@ class EngineeringParameterDefinition:
                     raise ValueError(f"{bound_name} must be finite.")
                 if datatype in {"int", "integer"} and not numeric_bound.is_integer():
                     raise ValueError(f"{bound_name} must be integral for integer parameters.")
+                normalized_bounds[bound_name] = numeric_bound
             if (
-                self.minimum is not None and self.maximum is not None
-                and float(self.minimum) > float(self.maximum)
+                normalized_bounds["minimum"] is not None
+                and normalized_bounds["maximum"] is not None
+                and normalized_bounds["minimum"] > normalized_bounds["maximum"]
             ):
                 raise ValueError("minimum cannot exceed maximum.")
+            object.__setattr__(self, "minimum", normalized_bounds["minimum"])
+            object.__setattr__(self, "maximum", normalized_bounds["maximum"])
         choices = tuple(self.choices)
         if datatype == "enum":
             if not choices:
