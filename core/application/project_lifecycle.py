@@ -160,6 +160,7 @@ class ProjectLifecycleService:
         if self._context is None or self._protection_snapshot_provider is None:
             return False
         current = self._protection_snapshot_provider(self._context.project_id, self._activation_generation)
+        self._validate_protection_snapshot(current, self._context.project_id, self._activation_generation)
         return current != self._protection_saved_snapshot
     @property
     def activation_generation(self) -> int: return self._activation_generation
