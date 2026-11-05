@@ -57,6 +57,15 @@ class StudyToolRuntime:
             raise RuntimeError("StudyCaseController is not bound.")
         return self._study_case_controller.run_study(study_id)
 
+    def export_selected_comparison(self, left_record_id: object, right_record_id: object) -> str:
+        """Export a selected archived comparison through the Study controller/Application."""
+        if self._study_case_controller is None:
+            raise RuntimeError("StudyCaseController is not bound.")
+        export = getattr(self._study_case_controller, "export_archived_comparison", None)
+        if not callable(export):
+            raise RuntimeError("StudyCaseController does not expose archived comparison export.")
+        return export(left_record_id, right_record_id)
+
     def active_tool(self) -> ToolDefinition:
         return next(item for item in self.TOOL_DEFINITIONS if item.tool_id == self._active_tool_id)
 
