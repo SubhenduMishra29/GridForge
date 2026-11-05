@@ -9,6 +9,7 @@ import pytest
 
 from core.application.revision import ProjectRevision
 from core.application.study import StudyResult
+from core.application.read_service import StudyReadService
 from core.persistence.study_result_archive import (
     ARCHIVE_FORMAT,
     StudyResultArchive,
@@ -389,3 +390,17 @@ def test_schema_v4_rejects_unknown_discontinuity_fields(tmp_path):
     record_path.write_bytes(_canonical_json(envelope))
     with pytest.raises(StudyResultArchiveError, match="TransientDiscontinuity fields"):
         archive.load_all(original.project_id)
+
+
+def test_application_transient_presentation_exposes_discontinuity_sides():
+    row = _study_result(_transient_result())
+    presentation = StudyReadService._transient_presentation(row, historical=False)
+    assert presentation is not None
+    assert len(presentation.discontinuities) == 1
+    boundary = presentation.discontinuities[0]
+    assert boundary.time_s == 1.0
+    assert boundary.event_ids == ("GEN1-CB-OPEN",)
+    assert boundary.pre_terminal_voltages["BUS-GEN1"] == 1.0 + 0.0j
+    assert boundary.post_terminal_voltages["BUS-GEN1"] == 0.0 + 0.0j
+    assert boundary.pre_topology_revision == 7
+    assert boundary.post_topology_revision == 8
