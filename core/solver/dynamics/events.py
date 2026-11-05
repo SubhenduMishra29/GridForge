@@ -266,6 +266,76 @@ def _freeze_event_value(value: Any) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class EventTransition:
+    """Typed immutable summary of one detached electrical-state transition."""
+
+    transition_type: str
+    target_kind: str | None = None
+    target_id: str | None = None
+    previous_state: Any = None
+    new_state: Any = None
+    source_topology_revision: int | None = None
+    pre_event_revision: int | None = None
+    post_event_revision: int | None = None
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.transition_type, str) or not self.transition_type.strip():
+            raise ValueError("Event transition type must be non-empty.")
+        for name in ("target_kind", "target_id"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"Event transition {name} must be non-empty when supplied.")
+        for name in ("source_topology_revision", "pre_event_revision", "post_event_revision"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                raise ValueError(f"Event transition {name} must be a non-negative integer when supplied.")
+        if not isinstance(self.details, Mapping):
+            raise TypeError("Event transition details must be a mapping.")
+        object.__setattr__(self, "transition_type", self.transition_type.strip())
+        object.__setattr__(self, "target_kind", None if self.target_kind is None else self.target_kind.strip())
+        object.__setattr__(self, "target_id", None if self.target_id is None else self.target_id.strip())
+        object.__setattr__(self, "previous_state", _freeze_event_value(self.previous_state))
+        object.__setattr__(self, "new_state", _freeze_event_value(self.new_state))
+        object.__setattr__(self, "details", _freeze_event_value(self.details))
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "EventTransition | None":
+        """Build a typed transition only from an explicit transition payload."""
+        transition_type = value.get("transition_type")
+        if not isinstance(transition_type, str) or not transition_type.strip():
+            return None
+        target_kind = value.get("target_kind")
+        target_id = value.get("target_id")
+        if target_id is None:
+            for key, kind in (("switch_id", "switch"), ("equipment_id", "equipment"), ("fault_id", "fault")):
+                if value.get(key) is not None:
+                    target_id = str(value[key])
+                    if target_kind is None:
+                        target_kind = kind
+                    break
+        known = {
+            "transition_type", "target_kind", "target_id", "previous_state", "new_state",
+            "source_topology_revision", "pre_event_revision", "post_event_revision",
+            "detached_network_revision", "switch_id", "equipment_id", "fault_id",
+            "previous_fault_active", "new_fault_active",
+        }
+        previous_state = value.get("previous_state", value.get("previous_fault_active"))
+        new_state = value.get("new_state", value.get("new_fault_active"))
+        return cls(
+            transition_type=transition_type,
+            target_kind=None if target_kind is None else str(target_kind),
+            target_id=None if target_id is None else str(target_id),
+            previous_state=previous_state,
+            new_state=new_state,
+            source_topology_revision=value.get("source_topology_revision"),
+            pre_event_revision=value.get("pre_event_revision"),
+            post_event_revision=value.get("post_event_revision"),
+            details={str(key): item for key, item in value.items() if key not in known},
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EventExecution:
     """Immutable evidence for one event dispatch attempt.
 
@@ -290,6 +360,7 @@ class EventExecution:
     post_event_re_evaluation_status: str = "not_run"
     post_event_re_evaluation_failure_type: str | None = None
     post_event_re_evaluation_failure_message: str | None = None
+    transition: EventTransition | None = None
 
     def __post_init__(self) -> None:
         scheduled = float(self.time if self.scheduled_time is None else self.scheduled_time)
@@ -327,8 +398,14 @@ class EventExecution:
         object.__setattr__(self, "time", scheduled)
         object.__setattr__(self, "scheduled_time", scheduled)
         object.__setattr__(self, "dispatch_time", dispatched)
+        transition = self.transition
+        if transition is None and isinstance(self.result, Mapping):
+            transition = EventTransition.from_mapping(self.result)
+        if transition is not None and not isinstance(transition, EventTransition):
+            raise TypeError("Event execution transition must be an EventTransition or None.")
         object.__setattr__(self, "metadata", _freeze_event_value(self.metadata))
         object.__setattr__(self, "result", _freeze_event_value(self.result))
+        object.__setattr__(self, "transition", transition)
 
 
 # ======================================================================
@@ -1060,6 +1137,7 @@ __all__ = [
     "EventAction",
     "SimulationEvent",
     "EventExecution",
+    "EventTransition",
     "EventError",
     "DuplicateEventError",
     "UnknownEventError",
