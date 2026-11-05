@@ -44,7 +44,7 @@ from .protection_dependency import (
     build_protection_dependency_registry,
 )
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
-from .recovery import ApplicationRecoveryStatus
+from .recovery import ApplicationRecoveryStatus, ApplicationRecoveryComposition
 from .project_presentation import ProjectPresentationCollection
 from .read_models import (
     ElementReadModel,
@@ -119,6 +119,7 @@ __all__ = [
     "ProtectionDependencyRegistry",
     "build_protection_dependency_registry",
     "ApplicationRecoveryStatus",
+    "ApplicationRecoveryComposition",
     "ProjectTransitionDecision",
     "ProjectTransitionRequired",
     "ProjectPresentationCollection",
