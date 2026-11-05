@@ -15,7 +15,7 @@ from .machine_models import (
     MachineElectricalOutput,
 )
 from .multimachine import MultiMachineSystem
-from .events import EventExecution, EventManager, SimulationEvent
+from .events import EventBatchConflictError, EventExecution, EventManager, EventOperation, EventTransition, SimulationEvent
 from .dae_solver import (
     AlgebraicNetworkSolution,
     NetworkSolver,
@@ -43,7 +43,10 @@ __all__ = [
     "MachineElectricalOutput",
     "MultiMachineSystem",
     "SimulationEvent",
+    "EventOperation",
+    "EventBatchConflictError",
     "EventExecution",
+    "EventTransition",
     "EventManager",
     "AlgebraicNetworkSolution",
     "NetworkSolver",
@@ -56,5 +59,6 @@ __all__ = [
     "DAESolver",
     "TransientStabilityError",
     "TransientStabilityResult",
+    "TransientDiscontinuity",
     "TransientStabilitySolver",
 ]

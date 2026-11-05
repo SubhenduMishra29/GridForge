@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import Any, Optional
 
 from ui.canvas.coordinate_system import CoordinateSystem
@@ -20,7 +21,7 @@ from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.engineering_canvas_contract import CanvasInteractionContract
 from ui.canvas.preview_layer import PreviewLayer
 from ui.core.controller import Controller
-from ui.core.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from ui.core.qt import QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
@@ -31,6 +32,9 @@ from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_route_edit_controller import SLDRouteEditController
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -71,7 +75,10 @@ class SLDCanvasSurface(QWidget):
             raise ValueError("sld_canvas_render_system must target the canonical GraphicsView scene.")
         self._sld_canvas_projection = sld_canvas_projection
         self._sld_canvas_render_system = sld_canvas_render_system
+        self._navigation_controller = navigation_controller
+        self._zoom_changed_listener = self._update_zoom_readout
         self._document_id: str | None = None
+        self._composition: Any | None = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
         self.setObjectName("SLDCanvasSurface")
         root = QVBoxLayout(self)
@@ -90,11 +97,6 @@ class SLDCanvasSurface(QWidget):
         header_layout.addWidget(title)
         header_layout.addStretch(1)
 
-        mode = QComboBox(header)
-        mode.addItems(("Normal Mode", "Placement Mode", "Connection Mode"))
-        mode.setObjectName("SLDModeSelector")
-        mode.setToolTip("Presentation mode for the active SLD canvas.")
-        header_layout.addWidget(mode)
 
         zoom_out = QPushButton("−", header)
         zoom_out.setObjectName("SLDZoomOut")
@@ -104,6 +106,7 @@ class SLDCanvasSurface(QWidget):
 
         zoom_label = QLabel("100%", header)
         zoom_label.setObjectName("SLDZoomValue")
+        self._zoom_label = zoom_label
         header_layout.addWidget(zoom_label)
 
         zoom_in = QPushButton("+", header)
@@ -138,6 +141,45 @@ class SLDCanvasSurface(QWidget):
         plus.setToolTip("Additional SLD documents are managed by the project/document lifecycle.")
         tabs.setCornerWidget(plus)
         root.addWidget(tabs, 1)
+
+        # The navigation controller is the sole zoom authority. Subscribe once
+        # and initialize from its actual state rather than a literal default.
+        self._update_zoom_readout(navigation_controller.get_zoom_level())
+        navigation_controller.add_zoom_changed_listener(self._zoom_changed_listener)
+
+    def _update_zoom_readout(self, level: float) -> None:
+        self._zoom_label.setText(f"{int(round(float(level) * 100.0))}%")
+
+    def detach_navigation_listener(self) -> None:
+        """Detach this surface's observer before permanent canvas disposal."""
+        controller = self._navigation_controller
+        self._navigation_controller = None
+        if controller is not None:
+            controller.remove_zoom_changed_listener(self._zoom_changed_listener)
+
+    def bind_composition(self, composition: Any) -> None:
+        """Bind the aggregate lifecycle owner after composition is complete."""
+        if composition is None:
+            raise ValueError("composition must not be None.")
+        if self._composition is not None and self._composition is not composition:
+            raise RuntimeError("SLDCanvasSurface already has a composition owner.")
+        self._composition = composition
+
+    def clear_project_state(self) -> None:
+        """Clear project-scoped presentation state while retaining reusable services."""
+        composition = self._composition
+        if composition is not None:
+            composition.clear_project_state()
+        else:
+            self.clear_document()
+
+    def dispose_canvas(self) -> None:
+        """Permanently release the aggregate canvas resources."""
+        composition = self._composition
+        if composition is not None:
+            composition.dispose()
+        else:
+            self.clear_document()
 
     def present_document(self, document: SLDDocument) -> SLDCanvasSnapshot:
         """Present the Application-authoritative SLD document on this surface."""
@@ -209,6 +251,57 @@ class CanvasComposition:
     selection_projection: SelectionProjectionCoordinator
     interaction_contract: CanvasInteractionContract
     draft_sld_projection: DraftSLDProjection | None = None
+    _disposed: bool = False
+
+    def __post_init__(self) -> None:
+        self.surface.bind_composition(self)
+
+    @staticmethod
+    def _run_cleanup(label: str, operation: Any, failures: list[tuple[str, BaseException]]) -> None:
+        try:
+            operation()
+        except BaseException as exc:
+            failures.append((label, exc))
+            _LOGGER.exception("Canvas composition cleanup failed: %s", label)
+
+    def clear_project_state(self) -> None:
+        """Clear project/document presentation state without disposing shared services."""
+        if self._disposed:
+            return
+        failures: list[tuple[str, BaseException]] = []
+        tool_manager = getattr(self.interaction_manager, "tool_manager", None)
+        cancel = getattr(tool_manager, "cancel", None)
+        if callable(cancel):
+            self._run_cleanup("active tool interaction", cancel, failures)
+        self._run_cleanup("route edit state", self.route_edit_controller.cancel, failures)
+        self._run_cleanup("selection state", self.selection_manager.clear, failures)
+        self._run_cleanup("preview graphics", self.preview_layer.clear, failures)
+        self._run_cleanup("SLD graphics and snap registrations", self.surface.clear_document, failures)
+        if failures:
+            _LOGGER.warning("Canvas project-state clear completed with %d cleanup failure(s): %s", len(failures), ", ".join(label for label, _ in failures))
+
+    def dispose(self) -> None:
+        """Idempotently release canvas-owned resources, never shared Application/ToolManager."""
+        if self._disposed:
+            return
+        self.clear_project_state()
+        failures: list[tuple[str, BaseException]] = []
+        steps = (
+            ("renderer subscriptions and graphics", self.sld_canvas_render_system.dispose),
+            ("selection projection subscription", self.selection_projection.dispose),
+            ("interaction manager", self.interaction_manager.dispose),
+            ("surface zoom observer", self.surface.detach_navigation_listener),
+            ("navigation controller", self.navigation_controller.dispose),
+            ("preview layer", self.preview_layer.dispose),
+            ("snap system", self.snap_system.dispose),
+            ("graphics view references", self.view.dispose),
+        )
+        for label, operation in steps:
+            self._run_cleanup(label, operation, failures)
+        self.surface._composition = None
+        self._disposed = True
+        if failures:
+            _LOGGER.warning("Canvas disposal completed with %d cleanup failure(s): %s", len(failures), ", ".join(label for label, _ in failures))
 
     @property
     def widget(self) -> QWidget:

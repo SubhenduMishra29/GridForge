@@ -39,6 +39,9 @@ class TransientResultViewWidget(QWidget):
         self._event_list = QListWidget(self)
         self._event_details = QLabel("Select an event to inspect its complete transition evidence.", self)
         self._quality_list = QListWidget(self)
+        self._discontinuity_list = QListWidget(self)
+        self._discontinuity_details = QLabel("Select an event boundary to inspect its pre/post electrical states.", self)
+        self._discontinuity_details.setWordWrap(True)
         self._quality_details = QLabel("Select a recorded sample to inspect algebraic solver quality.", self)
         self._quality_details.setWordWrap(True)
         self._event_details.setWordWrap(True)
@@ -60,11 +63,15 @@ class TransientResultViewWidget(QWidget):
         layout.addWidget(QLabel("Algebraic solver quality (recorded samples)", self))
         layout.addWidget(self._quality_list)
         layout.addWidget(self._quality_details)
+        layout.addWidget(QLabel("Event discontinuities (pre/post sides)", self))
+        layout.addWidget(self._discontinuity_list)
+        layout.addWidget(self._discontinuity_details)
         layout.addWidget(self._message)
 
         self._signal_combo.currentIndexChanged.connect(self._render_selected_signal)
         self._event_list.currentRowChanged.connect(self._show_selected_event_details)
         self._quality_list.currentRowChanged.connect(self._show_selected_quality_details)
+        self._discontinuity_list.currentRowChanged.connect(self._show_selected_discontinuity_details)
         self.setVisible(False)
 
     def set_result(self, model: TransientResultPresentationReadModel) -> None:
@@ -99,6 +106,7 @@ class TransientResultViewWidget(QWidget):
             f"Signals: {len(model.signals)}",
             f"Events: {len(model.events)}",
             f"Algebraic quality records: {len(model.algebraic_quality)}",
+            f"Event discontinuities: {len(model.discontinuities)}",
         ]
         if model.record_id is not None:
             details.append(f"Archive record: {model.record_id}")
@@ -174,6 +182,16 @@ class TransientResultViewWidget(QWidget):
                 "No legacy quality records have been inferred or generated."
             )
 
+        self._discontinuity_list.clear()
+        for item in model.discontinuities:
+            self._discontinuity_list.addItem(
+                f"{item.time_s:.9g} s — {', '.join(item.event_ids)} — {item.post_status}"
+            )
+        if model.discontinuities:
+            self._discontinuity_list.setCurrentRow(0)
+        else:
+            self._discontinuity_details.setText("No event discontinuity sides were recorded.")
+
         if model.historical:
             self._message.setText(
                 "Historical archive record. This view is read-only and is never projected onto the live SLD."
@@ -198,6 +216,8 @@ class TransientResultViewWidget(QWidget):
         self._event_details.clear()
         self._quality_list.clear()
         self._quality_details.clear()
+        self._discontinuity_list.clear()
+        self._discontinuity_details.clear()
         self._provenance.clear()
         self._solver_provenance.clear()
         self._message.setText("Select a transient result to inspect its time series.")
@@ -233,6 +253,33 @@ class TransientResultViewWidget(QWidget):
                 f"{event.post_event_re_evaluation_failure_message or ''}"
             )
         self._event_details.setText(" | ".join(details))
+
+    def _show_selected_discontinuity_details(self, row: int) -> None:
+        model = self._model
+        if model is None or row < 0 or row >= len(model.discontinuities):
+            self._discontinuity_details.setText("Select an event boundary to inspect its pre/post electrical states.")
+            return
+        item = model.discontinuities[row]
+        details = [
+            f"Boundary: {item.time_s:.12g} s",
+            f"Events: {item.event_ids}",
+            f"Post-state status: {item.post_status}",
+            f"Pre-event dynamic state: {item.pre_state!r}",
+            f"Pre-event terminal voltages: {dict(item.pre_terminal_voltages)!r}",
+            f"Pre-event electrical powers: {dict(item.pre_electrical_powers)!r}",
+            f"Pre-event topology revision: {item.pre_topology_revision}",
+        ]
+        if item.post_status == "succeeded":
+            details.extend((
+                f"Post-event dynamic state: {item.post_state!r}",
+                f"Post-event terminal voltages: {dict(item.post_terminal_voltages or {})!r}",
+                f"Post-event electrical powers: {dict(item.post_electrical_powers or {})!r}",
+                f"Post-event topology revision: {item.post_topology_revision}",
+            ))
+        else:
+            details.append("Post-event electrical solution: unavailable; no successful post-state is claimed.")
+            details.append(f"Observed detached topology revision after dispatch: {item.post_topology_revision}")
+        self._discontinuity_details.setText(" | ".join(details))
 
     def _show_selected_quality_details(self, row: int) -> None:
         model = self._model

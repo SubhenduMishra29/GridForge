@@ -423,7 +423,13 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "failed",
+                value=None if cancelled else getattr(exc, "partial_result", None),
                 message="Study cancelled." if cancelled else str(exc),
+                metadata=(
+                    {}
+                    if cancelled or getattr(exc, "partial_result", None) is None
+                    else {"partial_result_available": True}
+                ),
             )
             try:
                 self._persist_result(result)
@@ -435,7 +441,13 @@ class StudyService:
                     source_revision=request.source_revision,
                     study_type=request.study_type,
                     status=result.status,
+                    value=result.value,
                     message=f"{result.message} Durable archive write also failed: {type(persistence_exc).__name__}: {persistence_exc}",
+                    metadata={
+                        **dict(result.metadata),
+                        "archive_write_failed": True,
+                        "archive_failure": f"{type(persistence_exc).__name__}: {persistence_exc}",
+                    },
                 )
             with self._lock:
                 self._results[key] = result

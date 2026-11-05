@@ -499,6 +499,7 @@ class TransientEventReadModel:
     post_event_re_evaluation_status: str = "not_run"
     post_event_re_evaluation_failure_type: str | None = None
     post_event_re_evaluation_failure_message: str | None = None
+    transition: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.event_id or not self.event_type:
@@ -515,16 +516,73 @@ class TransientEventReadModel:
             raise ValueError("Transient event re-evaluation status is invalid.")
         if not isinstance(self.metadata, Mapping):
             raise TypeError("Transient event metadata must be a mapping.")
+        if self.transition is not None and not isinstance(self.transition, Mapping):
+            raise TypeError("Transient event transition must be a typed mapping when supplied.")
         object.__setattr__(self, "scheduled_time", float(self.scheduled_time))
         if self.dispatch_time is not None:
             object.__setattr__(self, "dispatch_time", float(self.dispatch_time))
         object.__setattr__(self, "metadata", _freeze(self.metadata))
         object.__setattr__(self, "result", _freeze(self.result))
+        if self.transition is not None:
+            transition = dict(self.transition)
+            if not isinstance(transition.get("transition_type"), str) or not transition["transition_type"].strip():
+                raise ValueError("Transient event transition requires a non-empty transition_type.")
+            for key in ("target_kind", "target_id"):
+                value = transition.get(key)
+                if value is not None and (not isinstance(value, str) or not value.strip()):
+                    raise ValueError(f"Transient event transition {key} must be non-empty when supplied.")
+            object.__setattr__(self, "transition", _freeze(transition))
 
     @property
     def marker_time(self) -> float:
         """Use actual dispatch time for chart markers, retaining scheduled time separately."""
         return self.scheduled_time if self.dispatch_time is None else self.dispatch_time
+
+
+@dataclass(frozen=True, slots=True)
+class TransientDiscontinuityReadModel:
+    """UI-neutral pre/post electrical sides of one event boundary."""
+
+    time_s: float
+    event_ids: tuple[str, ...]
+    post_status: str
+    pre_state: tuple[float, ...]
+    pre_terminal_voltages: Mapping[str, complex]
+    pre_electrical_powers: Mapping[str, tuple[float, float]]
+    pre_topology_revision: int | None
+    post_state: tuple[float, ...] | None = None
+    post_terminal_voltages: Mapping[str, complex] | None = None
+    post_electrical_powers: Mapping[str, tuple[float, float]] | None = None
+    post_topology_revision: int | None = None
+
+    def __post_init__(self) -> None:
+        time_s = float(self.time_s)
+        if not math.isfinite(time_s) or time_s < 0.0:
+            raise ValueError("Transient discontinuity time must be finite and non-negative.")
+        if self.post_status not in {"succeeded", "dispatch_failed", "post_evaluation_failed"}:
+            raise ValueError("Transient discontinuity post_status is invalid.")
+        pre_state = tuple(float(value) for value in self.pre_state)
+        post_state = None if self.post_state is None else tuple(float(value) for value in self.post_state)
+        if any(not math.isfinite(value) for value in pre_state) or (post_state is not None and any(not math.isfinite(value) for value in post_state)):
+            raise ValueError("Transient discontinuity states must be finite.")
+        if self.post_status == "succeeded" and (
+            post_state is None or self.post_terminal_voltages is None or self.post_electrical_powers is None
+        ):
+            raise ValueError("Successful transient discontinuities require both electrical sides.")
+        if self.post_status != "succeeded" and (
+            post_state is not None or self.post_terminal_voltages is not None or self.post_electrical_powers is not None
+        ):
+            raise ValueError("Failed transient discontinuities cannot claim a post electrical solution.")
+        object.__setattr__(self, "time_s", time_s)
+        object.__setattr__(self, "event_ids", tuple(str(value) for value in self.event_ids))
+        object.__setattr__(self, "pre_state", pre_state)
+        object.__setattr__(self, "post_state", post_state)
+        object.__setattr__(self, "pre_terminal_voltages", _freeze(self.pre_terminal_voltages))
+        object.__setattr__(self, "pre_electrical_powers", _freeze(self.pre_electrical_powers))
+        if self.post_terminal_voltages is not None:
+            object.__setattr__(self, "post_terminal_voltages", _freeze(self.post_terminal_voltages))
+        if self.post_electrical_powers is not None:
+            object.__setattr__(self, "post_electrical_powers", _freeze(self.post_electrical_powers))
 
 
 @dataclass(frozen=True, slots=True)
@@ -551,6 +609,7 @@ class TransientResultPresentationReadModel:
     events: tuple[TransientEventReadModel, ...]
     provenance: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     algebraic_quality: tuple[TransientAlgebraicQualityReadModel, ...] = ()
+    discontinuities: tuple[TransientDiscontinuityReadModel, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
@@ -580,6 +639,11 @@ class TransientResultPresentationReadModel:
         events = tuple(self.events)
         if not all(isinstance(event, TransientEventReadModel) for event in events):
             raise TypeError("Transient presentation events must be TransientEventReadModel values.")
+        discontinuities = tuple(self.discontinuities)
+        if not all(isinstance(item, TransientDiscontinuityReadModel) for item in discontinuities):
+            raise TypeError("Transient discontinuities must be TransientDiscontinuityReadModel values.")
+        if any(not any(math.isclose(item.time_s, sample, rel_tol=0.0, abs_tol=1e-12) for sample in times) for item in discontinuities):
+            raise ValueError("Transient discontinuities must align with a base trajectory boundary time.")
         algebraic_quality = tuple(self.algebraic_quality)
         if not all(isinstance(item, TransientAlgebraicQualityReadModel) for item in algebraic_quality):
             raise TypeError("Transient algebraic quality must contain TransientAlgebraicQualityReadModel values.")
@@ -596,6 +660,7 @@ class TransientResultPresentationReadModel:
         object.__setattr__(self, "signals", signals)
         object.__setattr__(self, "events", events)
         object.__setattr__(self, "algebraic_quality", algebraic_quality)
+        object.__setattr__(self, "discontinuities", discontinuities)
         object.__setattr__(self, "provenance", _freeze(self.provenance))
 
     @property
@@ -671,6 +736,7 @@ __all__ = [
     "StudyResultReadModel",
     "TransientSignalReadModel",
     "TransientAlgebraicQualityReadModel",
+    "TransientDiscontinuityReadModel",
     "TransientEventReadModel",
     "TransientResultPresentationReadModel",
 ]

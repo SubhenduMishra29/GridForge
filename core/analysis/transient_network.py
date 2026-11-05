@@ -183,7 +183,58 @@ class PreparedTransientStability:
 
     @property
     def provenance(self) -> Mapping[str, object]:
-        return MappingProxyType({
+        """Return the canonical, detached identity and model manifest for this run."""
+        state_signals: list[Mapping[str, object]] = []
+        machine_models: list[Mapping[str, object]] = []
+        global_index = 0
+        for machine in self.machines:
+            parameters = machine.parameters
+            model_type = f"{type(machine).__module__}.{type(machine).__qualname__}"
+            machine_models.append(MappingProxyType({
+                "machine_id": machine.machine_id,
+                "bus_id": machine.bus_id,
+                "model_type": model_type,
+                "parameters": MappingProxyType({
+                    "H": parameters.H,
+                    "Xd_prime": parameters.Xd_prime,
+                    "D": parameters.D,
+                    "Efd": parameters.Efd,
+                }),
+                "mechanical_power": self.mechanical_powers[machine.machine_id],
+            }))
+            # The currently prepared production path constructs the classical
+            # second-order model. Do not infer labels for a future model whose
+            # state semantics have not been declared by its implementation.
+            if type(machine) is ClassicalSynchronousMachine and machine.state_size == 2:
+                state_signals.extend((
+                    MappingProxyType({
+                        "signal_id": f"machine:{machine.machine_id}:rotor_angle",
+                        "global_index": global_index,
+                        "label": f"{machine.machine_id} — Rotor angle",
+                        "state_name": "rotor_angle",
+                        "unit": "rad",
+                        "machine_id": machine.machine_id,
+                        "quantity": "rotor_angle",
+                        "component": "scalar",
+                    }),
+                    MappingProxyType({
+                        "signal_id": f"machine:{machine.machine_id}:speed_deviation",
+                        "global_index": global_index + 1,
+                        "label": f"{machine.machine_id} — Speed deviation",
+                        "state_name": "speed_deviation",
+                        "unit": "p.u.",
+                        "machine_id": machine.machine_id,
+                        "quantity": "speed_deviation",
+                        "component": "scalar",
+                    }),
+                ))
+            global_index += int(machine.state_size)
+        manifest = {
+            "schema_version": 1,
+            "model_family": "synchronous_machine",
+            "machine_models": tuple(machine_models),
+        }
+        result: dict[str, object] = {
             "project_id": self.project_id,
             "activation_generation": self.activation_generation,
             "source_revision": self.source_revision,
@@ -198,7 +249,11 @@ class PreparedTransientStability:
             "initial_switch_states": dict(self.network.breaker_states),
             "switch_availability_states": dict(self.network.switch_available_states),
             "switch_connections": dict(self.network.switch_connections),
-        })
+            "machine_model_manifest": MappingProxyType(manifest),
+        }
+        if len(state_signals) == global_index:
+            result["state_signals"] = tuple(state_signals)
+        return MappingProxyType(result)
 
     @classmethod
     def from_power_flow(

@@ -866,12 +866,9 @@ def create_application(
             solver,
             configuration,
             prepared.initial_state,
-            provenance={
-                "project_id": prepared.project_id,
-                "activation_generation": prepared.activation_generation,
-                "source_revision": prepared.source_revision,
-                "topology_revision": prepared.network.topology_revision,
-            },
+            # PreparedTransientStability is the authoritative source for
+            # detached model/state descriptors and execution provenance.
+            provenance=prepared.provenance,
         )
         result = analysis.run(should_cancel=lambda: token.cancelled)
         if token.cancelled:

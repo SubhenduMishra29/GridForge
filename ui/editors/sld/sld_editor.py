@@ -229,6 +229,32 @@ class SLDEditor(QWidget):
         for region_id in ("explorer", "sidebar", "diagnostics", "tool_settings"):
             self.set_region_visible(region_id, False, user=False)
 
+    def deactivate_workspace(self) -> None:
+        """Release transient editor focus without clearing the mounted project canvas.
+
+        The editor host may call this during ordinary navigation between Areas
+        or Editors. The SLD document, committed projection, draft projection,
+        selection and viewport therefore remain intact while this widget is
+        hidden and later reactivated.
+        """
+        return
+
+    def clear_project_state(self) -> None:
+        """Clear SLD presentation state after an actual project transition."""
+        canvas_region = self._region_widgets.get("canvas")
+        canvas_surface = canvas_region.contained_widget if canvas_region is not None else None
+        clear = getattr(canvas_surface, "clear_project_state", None)
+        if callable(clear):
+            clear()
+
+    def dispose_editor(self) -> None:
+        """Permanently dispose the canvas aggregate owned by this editor."""
+        canvas_region = self._region_widgets.get("canvas")
+        canvas_surface = canvas_region.contained_widget if canvas_region is not None else None
+        dispose = getattr(canvas_surface, "dispose_canvas", None)
+        if callable(dispose):
+            dispose()
+
     def set_document_lifecycle(self, document_manager: object, *, activate, new_document, close_document) -> None:
         """Bind the tab strip to the canonical document lifecycle."""
         self._document_tabs.bind(document_manager, activate=activate, new_document=new_document, close_document=close_document)

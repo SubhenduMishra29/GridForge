@@ -18,9 +18,9 @@ from uuid import UUID
 from .revision import ProjectRevision
 
 from core.solver.power_flow.result import PowerFlowResult
-from core.solver.dynamics.events import EventExecution
+from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
-from core.solver.dynamics.transient_stability import TransientStabilityResult
+from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
@@ -43,6 +43,7 @@ from .read_models import (
     TransientAlgebraicQualityReadModel,
     TransientSignalReadModel,
     TransientResultPresentationReadModel,
+    TransientDiscontinuityReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
@@ -840,6 +841,7 @@ class StudyReadService:
                 "electrical_powers": value.electrical_powers,
                 "events": value.events,
                 "algebraic_quality": value.algebraic_quality,
+                "discontinuities": value.discontinuities,
                 "provenance": value.provenance,
             }
         elif isinstance(value, Mapping) and value.get("$dataclass") == (
@@ -1019,12 +1021,34 @@ class StudyReadService:
                     "post_event_re_evaluation_status": event.post_event_re_evaluation_status,
                     "post_event_re_evaluation_failure_type": event.post_event_re_evaluation_failure_type,
                     "post_event_re_evaluation_failure_message": event.post_event_re_evaluation_failure_message,
+                    "transition": (
+                        None if event.transition is None else {
+                            "transition_type": event.transition.transition_type,
+                            "target_kind": event.transition.target_kind,
+                            "target_id": event.transition.target_id,
+                            "previous_state": event.transition.previous_state,
+                            "new_state": event.transition.new_state,
+                            "source_topology_revision": event.transition.source_topology_revision,
+                            "pre_event_revision": event.transition.pre_event_revision,
+                            "post_event_revision": event.transition.post_event_revision,
+                            "details": event.transition.details,
+                        }
+                    ),
                 }
             elif isinstance(event, Mapping) and event.get("$dataclass") == event_class_name:
                 legacy_event_fields = event.get("fields")
                 if not isinstance(legacy_event_fields, Mapping):
                     raise ValueError("Legacy EventExecution mapping has no canonical fields object.")
                 scheduled_time = float(legacy_event_fields["time"])
+                legacy_transition = legacy_event_fields.get("transition")
+                if isinstance(legacy_transition, Mapping) and isinstance(legacy_transition.get("fields"), Mapping):
+                    legacy_transition = legacy_transition["fields"]
+                if isinstance(legacy_transition, Mapping) and legacy_transition.get("$dataclass"):
+                    legacy_transition = legacy_transition.get("fields")
+                typed_transition = (
+                    EventTransition.from_mapping(legacy_transition)
+                    if isinstance(legacy_transition, Mapping) else None
+                )
                 event_data = {
                     "event_id": str(legacy_event_fields["event_id"]),
                     "event_type": str(legacy_event_fields["event_type"]),
@@ -1042,6 +1066,19 @@ class StudyReadService:
                     "post_event_re_evaluation_status": "unavailable",
                     "post_event_re_evaluation_failure_type": None,
                     "post_event_re_evaluation_failure_message": None,
+                    "transition": (
+                        None if typed_transition is None else {
+                            "transition_type": typed_transition.transition_type,
+                            "target_kind": typed_transition.target_kind,
+                            "target_id": typed_transition.target_id,
+                            "previous_state": typed_transition.previous_state,
+                            "new_state": typed_transition.new_state,
+                            "source_topology_revision": typed_transition.source_topology_revision,
+                            "pre_event_revision": typed_transition.pre_event_revision,
+                            "post_event_revision": typed_transition.post_event_revision,
+                            "details": typed_transition.details,
+                        }
+                    ),
                 }
             else:
                 raise ValueError("Transient event history contains an unknown event record type.")
@@ -1104,6 +1141,29 @@ class StudyReadService:
                 diagnostics=tuple(quality_value("diagnostics", ())),
             ))
         algebraic_quality = tuple(quality_records)
+        discontinuity_records = []
+        discontinuity_class_name = f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}"
+        for record in transient_fields.get("discontinuities", ()):
+            if isinstance(record, TransientDiscontinuity):
+                discontinuity = record
+                discontinuity_records.append(TransientDiscontinuityReadModel(
+                    time_s=discontinuity.time,
+                    event_ids=discontinuity.event_ids,
+                    post_status=discontinuity.post_status,
+                    pre_state=tuple(float(value) for value in discontinuity.pre_state),
+                    pre_terminal_voltages=discontinuity.pre_terminal_voltages,
+                    pre_electrical_powers=discontinuity.pre_electrical_powers,
+                    pre_topology_revision=discontinuity.pre_topology_revision,
+                    post_state=None if discontinuity.post_state is None else tuple(float(value) for value in discontinuity.post_state),
+                    post_terminal_voltages=discontinuity.post_terminal_voltages,
+                    post_electrical_powers=discontinuity.post_electrical_powers,
+                    post_topology_revision=discontinuity.post_topology_revision,
+                ))
+            elif isinstance(record, Mapping) and record.get("$dataclass") == discontinuity_class_name:
+                raise ValueError("Legacy generic discontinuity records are not supported; use archive schema v4.")
+            else:
+                raise ValueError("Transient discontinuities contain an unknown record type.")
+        discontinuities = tuple(discontinuity_records)
         provenance = dict(provenance_source)
         provenance["execution_identity"] = {
             "study_id": str(row.study_id),
@@ -1132,6 +1192,7 @@ class StudyReadService:
             events=events,
             provenance=provenance,
             algebraic_quality=algebraic_quality,
+            discontinuities=discontinuities,
         )
 
     def transient_result(

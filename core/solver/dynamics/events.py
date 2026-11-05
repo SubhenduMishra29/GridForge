@@ -97,9 +97,34 @@ class UnknownEventError(
     """Raised when an unknown event is referenced."""
 
 
+class EventBatchConflictError(EventError):
+    """Raised when one simultaneous electrical event batch has conflicting targets."""
+
+
 # ======================================================================
 # EVENT
 # ======================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class EventOperation:
+    """Typed target/operation identity used to validate simultaneous mutations."""
+
+    target_kind: str
+    target_id: str
+    operation: str
+
+    def __post_init__(self) -> None:
+        for name in ("target_kind", "target_id", "operation"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Event operation {name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+
+    @property
+    def conflict_key(self) -> tuple[str, str]:
+        kind = "switchable_equipment" if self.target_kind in {"switch", "equipment"} else self.target_kind
+        return kind, self.target_id
 
 
 @dataclass
@@ -171,6 +196,7 @@ class SimulationEvent:
     )
 
     revision_reader: Callable[[], int | None] | None = None
+    operation: EventOperation | None = None
 
     def __post_init__(
         self,
@@ -235,6 +261,8 @@ class SimulationEvent:
         )
         if self.revision_reader is not None and not callable(self.revision_reader):
             raise EventError("revision_reader must be callable when supplied.")
+        if self.operation is not None and not isinstance(self.operation, EventOperation):
+            raise EventError("operation must be an EventOperation when supplied.")
 
     def reset(
         self,
@@ -266,6 +294,76 @@ def _freeze_event_value(value: Any) -> Any:
 
 
 @dataclass(frozen=True, slots=True)
+class EventTransition:
+    """Typed immutable summary of one detached electrical-state transition."""
+
+    transition_type: str
+    target_kind: str | None = None
+    target_id: str | None = None
+    previous_state: Any = None
+    new_state: Any = None
+    source_topology_revision: int | None = None
+    pre_event_revision: int | None = None
+    post_event_revision: int | None = None
+    details: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.transition_type, str) or not self.transition_type.strip():
+            raise ValueError("Event transition type must be non-empty.")
+        for name in ("target_kind", "target_id"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"Event transition {name} must be non-empty when supplied.")
+        for name in ("source_topology_revision", "pre_event_revision", "post_event_revision"):
+            value = getattr(self, name)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 0):
+                raise ValueError(f"Event transition {name} must be a non-negative integer when supplied.")
+        if not isinstance(self.details, Mapping):
+            raise TypeError("Event transition details must be a mapping.")
+        object.__setattr__(self, "transition_type", self.transition_type.strip())
+        object.__setattr__(self, "target_kind", None if self.target_kind is None else self.target_kind.strip())
+        object.__setattr__(self, "target_id", None if self.target_id is None else self.target_id.strip())
+        object.__setattr__(self, "previous_state", _freeze_event_value(self.previous_state))
+        object.__setattr__(self, "new_state", _freeze_event_value(self.new_state))
+        object.__setattr__(self, "details", _freeze_event_value(self.details))
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> "EventTransition | None":
+        """Build a typed transition only from an explicit transition payload."""
+        transition_type = value.get("transition_type")
+        if not isinstance(transition_type, str) or not transition_type.strip():
+            return None
+        target_kind = value.get("target_kind")
+        target_id = value.get("target_id")
+        if target_id is None:
+            for key, kind in (("switch_id", "switch"), ("equipment_id", "equipment"), ("fault_id", "fault"), ("fault_bus_id", "fault")):
+                if value.get(key) is not None:
+                    target_id = str(value[key])
+                    if target_kind is None:
+                        target_kind = kind
+                    break
+        known = {
+            "transition_type", "target_kind", "target_id", "previous_state", "new_state",
+            "source_topology_revision", "pre_event_revision", "post_event_revision",
+            "switch_id", "equipment_id", "fault_id",
+            "previous_fault_active", "new_fault_active",
+        }
+        previous_state = value.get("previous_state", value.get("previous_fault_active"))
+        new_state = value.get("new_state", value.get("new_fault_active"))
+        return cls(
+            transition_type=transition_type,
+            target_kind=None if target_kind is None else str(target_kind),
+            target_id=None if target_id is None else str(target_id),
+            previous_state=previous_state,
+            new_state=new_state,
+            source_topology_revision=value.get("source_topology_revision"),
+            pre_event_revision=value.get("pre_event_revision"),
+            post_event_revision=value.get("post_event_revision"),
+            details={str(key): item for key, item in value.items() if key not in known},
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class EventExecution:
     """Immutable evidence for one event dispatch attempt.
 
@@ -290,6 +388,7 @@ class EventExecution:
     post_event_re_evaluation_status: str = "not_run"
     post_event_re_evaluation_failure_type: str | None = None
     post_event_re_evaluation_failure_message: str | None = None
+    transition: EventTransition | None = None
 
     def __post_init__(self) -> None:
         scheduled = float(self.time if self.scheduled_time is None else self.scheduled_time)
@@ -327,8 +426,14 @@ class EventExecution:
         object.__setattr__(self, "time", scheduled)
         object.__setattr__(self, "scheduled_time", scheduled)
         object.__setattr__(self, "dispatch_time", dispatched)
+        transition = self.transition
+        if transition is None and isinstance(self.result, Mapping):
+            transition = EventTransition.from_mapping(self.result)
+        if transition is not None and not isinstance(transition, EventTransition):
+            raise TypeError("Event execution transition must be an EventTransition or None.")
         object.__setattr__(self, "metadata", _freeze_event_value(self.metadata))
         object.__setattr__(self, "result", _freeze_event_value(self.result))
+        object.__setattr__(self, "transition", transition)
 
 
 # ======================================================================
@@ -474,6 +579,7 @@ class EventManager:
             Any,
         ] | None = None,
         revision_reader: Callable[[], int | None] | None = None,
+        operation: EventOperation | None = None,
     ) -> SimulationEvent:
         """
         Register a simulation event.
@@ -505,6 +611,7 @@ class EventManager:
                 else dict(metadata)
             ),
             revision_reader=revision_reader,
+            operation=operation,
         )
 
         self._events[
@@ -531,6 +638,7 @@ class EventManager:
             Any,
         ] | None = None,
         revision_reader: Callable[[], int | None] | None = None,
+        operation: EventOperation | None = None,
     ) -> SimulationEvent:
         """
         Register an event using the legacy method name.
@@ -553,6 +661,7 @@ class EventManager:
             priority=priority,
             metadata=metadata,
             revision_reader=revision_reader,
+            operation=operation,
         )
 
     # ==================================================================
@@ -628,34 +737,18 @@ class EventManager:
             t
         )
 
-        executions: list[
-            EventExecution
-        ] = []
-
-        for event in self.events:
-
-            if not event.enabled:
-                continue
-
-            if event.triggered:
-                continue
-
-            if (
-                event.time
-                <= current_time
-                + self._tolerance
-            ):
-
-                execution = (
-                    self._execute_event(
-                        event,
-                        dispatch_time=current_time,
-                    )
-                )
-
-                executions.append(
-                    execution
-                )
+        executions: list[EventExecution] = []
+        candidates = [
+            event for event in self.events
+            if event.enabled and not event.triggered
+            and event.time <= current_time + self._tolerance
+        ]
+        self._validate_candidate_batches(candidates)
+        # A validated batch is dispatched sequentially in canonical
+        # time/priority/ID order. Mutations are visible to later actions;
+        # an already-applied prefix is not rolled back if a later action fails.
+        for event in candidates:
+            executions.append(self._execute_event(event, dispatch_time=current_time))
 
         return tuple(
             executions
@@ -731,22 +824,41 @@ class EventManager:
             )
         ]
 
+        self._validate_candidate_batches(candidates)
+        # The batch is sequential and prevalidated; the DAE solver re-evaluates
+        # the network once after the complete batch returns.
         for event in candidates:
-
-            execution = (
-                self._execute_event(
-                    event,
-                    dispatch_time=end,
-                )
-            )
-
-            executions.append(
-                execution
-            )
+            executions.append(self._execute_event(event, dispatch_time=end))
 
         return tuple(
             executions
         )
+
+    def _validate_candidate_batches(self, candidates: list[SimulationEvent]) -> None:
+        """Reject duplicate target mutations before any event in a batch executes."""
+        ordered = sorted(candidates, key=self._sort_key)
+        batches: list[list[SimulationEvent]] = []
+        for event in ordered:
+            if not batches or event.time - batches[-1][0].time > self._tolerance:
+                batches.append([event])
+            else:
+                batches[-1].append(event)
+        for batch in batches:
+            seen: dict[tuple[str, str], SimulationEvent] = {}
+            for event in batch:
+                operation = event.operation
+                if operation is None:
+                    continue
+                key = operation.conflict_key
+                previous = seen.get(key)
+                if previous is not None:
+                    raise EventBatchConflictError(
+                        f"Conflicting simultaneous operations at t={event.time:.12g} s "
+                        f"for {key[0]} target '{key[1]}': events "
+                        f"'{previous.event_id}' ({previous.operation.operation}) and "
+                        f"'{event.event_id}' ({operation.operation})."
+                    )
+                seen[key] = event
 
     # ==================================================================
     # RESET
@@ -1036,6 +1148,7 @@ def create_event(
         str,
         Any,
     ] | None = None,
+    operation: EventOperation | None = None,
 ) -> SimulationEvent:
     """
     Convenience factory for creating a SimulationEvent.
@@ -1053,16 +1166,20 @@ def create_event(
             if metadata is None
             else dict(metadata)
         ),
+        operation=operation,
     )
 
 
 __all__ = [
     "EventAction",
     "SimulationEvent",
+    "EventOperation",
     "EventExecution",
+    "EventTransition",
     "EventError",
     "DuplicateEventError",
     "UnknownEventError",
+    "EventBatchConflictError",
     "EventManager",
     "create_event",
 ]
