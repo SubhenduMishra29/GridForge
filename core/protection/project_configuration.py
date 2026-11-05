@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from functools import wraps
 import hashlib
 import json
 import math
+from threading import RLock
 from types import MappingProxyType
 from typing import Any, Mapping
 
 from .protection_measurement_binding import ProtectionMeasurementBinding
 from .residual_current import ResidualCurrentInputConfiguration
+
+
+def _synchronized(method):
+    """Serialize aggregate reads/writes so snapshots cannot mix revisions."""
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return guarded
 
 
 def _freeze_value(value: Any) -> Any:
@@ -130,6 +141,7 @@ class ProtectionFunctionConfiguration:
         object.__setattr__(self, "input_channel_ids", MappingProxyType(dict(self.input_channel_ids)))
         object.__setattr__(self, "metadata", _freeze_value(self.metadata))
 
+    @_synchronized
     def to_dict(self) -> dict[str, Any]:
         return {
             "element_id": self.element_id,
@@ -349,6 +361,7 @@ class ProtectionProjectConfiguration:
         if not isinstance(project_id, str) or not project_id.strip():
             raise ValueError("project_id must be a non-empty string.")
         self._project_id = project_id.strip()
+        self._lock = RLock()
         self._elements: dict[str, ProtectionFunctionConfiguration] = {}
         self._bindings: dict[str, ProtectionMeasurementBinding] = {}
         self._differential_schemes: dict[str, DifferentialProtectionSchemeConfiguration] = {}
@@ -362,11 +375,13 @@ class ProtectionProjectConfiguration:
     @property
     def revision(self) -> int:
         """Monotonic in-memory content revision; undo/rollback also advances it."""
-        return self._revision
+        with self._lock:
+            return self._revision
 
     def _mark_changed(self) -> None:
         self._revision += 1
 
+    @_synchronized
     def create_snapshot(self, activation_generation: int) -> ProtectionProjectConfigurationSnapshot:
         """Capture detached canonical content with project and activation provenance."""
         payload = self.to_dict()
@@ -381,10 +396,12 @@ class ProtectionProjectConfiguration:
         )
 
     @property
+    @_synchronized
     def synchronism_check_configuration(self) -> Mapping[str, Any] | None:
         """Detached immutable ANSI 25 policy payload persisted with protection configuration."""
         return self._synchronism_check_configuration
 
+    @_synchronized
     def set_synchronism_check_configuration(self, configuration: Mapping[str, Any] | None) -> None:
         """Store explicit schema-2 ANSI 25 breaker policies without an Application dependency."""
         if configuration is None:
@@ -412,17 +429,21 @@ class ProtectionProjectConfiguration:
         self._mark_changed()
 
     @property
+    @_synchronized
     def elements(self) -> tuple[ProtectionFunctionConfiguration, ...]:
         return tuple(self._elements.values())
 
     @property
+    @_synchronized
     def measurement_bindings(self) -> tuple[ProtectionMeasurementBinding, ...]:
         return tuple(self._bindings.values())
 
     @property
+    @_synchronized
     def differential_schemes(self) -> tuple[DifferentialProtectionSchemeConfiguration, ...]:
         return tuple(self._differential_schemes.values())
 
+    @_synchronized
     def add(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration, ProtectionFunctionConfiguration):
             raise TypeError("configuration must be ProtectionFunctionConfiguration.")
@@ -448,6 +469,7 @@ class ProtectionProjectConfiguration:
             return binding.binding_id in cls._residual_binding_ids(configuration)
         return configuration.input_channel_ids.get(binding.relay_input_id) == binding.channel_id
 
+    @_synchronized
     def replace(self, configuration: ProtectionFunctionConfiguration) -> None:
         if not isinstance(configuration, ProtectionFunctionConfiguration):
             raise TypeError("configuration must be ProtectionFunctionConfiguration.")
@@ -472,6 +494,7 @@ class ProtectionProjectConfiguration:
         self._elements[configuration.element_id] = configuration
         self._mark_changed()
 
+    @_synchronized
     def remove(self, element_id: str) -> ProtectionFunctionConfiguration:
         if any(binding.protection_element_id == element_id for binding in self._bindings.values()):
             raise ValueError(
@@ -492,6 +515,7 @@ class ProtectionProjectConfiguration:
         try: return self._elements[element_id]
         except KeyError as exc: raise KeyError(f"Protection element is not configured: {element_id}") from exc
 
+    @_synchronized
     def add_measurement_binding(self, binding: ProtectionMeasurementBinding) -> None:
         if not isinstance(binding, ProtectionMeasurementBinding):
             raise TypeError("binding must be ProtectionMeasurementBinding.")
@@ -521,6 +545,7 @@ class ProtectionProjectConfiguration:
         self._bindings[binding.binding_id] = binding
         self._mark_changed()
 
+    @_synchronized
     def replace_measurement_binding(self, binding: ProtectionMeasurementBinding) -> None:
         if not isinstance(binding, ProtectionMeasurementBinding):
             raise TypeError("binding must be ProtectionMeasurementBinding.")
@@ -560,6 +585,7 @@ class ProtectionProjectConfiguration:
         except KeyError as exc:
             raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
 
+    @_synchronized
     def add_differential_scheme(self, scheme: DifferentialProtectionSchemeConfiguration) -> None:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
@@ -578,6 +604,7 @@ class ProtectionProjectConfiguration:
         self._differential_schemes[scheme.scheme_id] = scheme
         self._mark_changed()
 
+    @_synchronized
     def replace_differential_scheme(self, scheme: DifferentialProtectionSchemeConfiguration) -> None:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
             raise TypeError("scheme must be DifferentialProtectionSchemeConfiguration.")
@@ -602,6 +629,7 @@ class ProtectionProjectConfiguration:
         except KeyError as exc:
             raise KeyError(f"Differential protection scheme not found: {scheme_id}") from exc
 
+    @_synchronized
     def remove_differential_scheme(self, scheme_id: str) -> DifferentialProtectionSchemeConfiguration:
         try:
             value = self._differential_schemes.pop(scheme_id)
@@ -610,6 +638,7 @@ class ProtectionProjectConfiguration:
         self._mark_changed()
         return value
 
+    @_synchronized
     def remove_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
         if any(binding_id in scheme.measurement_binding_ids for scheme in self._differential_schemes.values()):
             raise ValueError(f"Cannot remove measurement binding {binding_id!r} while a differential scheme references it.")
