@@ -22106,3 +22106,16 @@ V2 canonical engineering-parameter metadata integrity:
   comparisons and Qt projection do not encounter string or bool bounds.
 - This is schema-construction validation only; Core remains authoritative for
   domain invariants. Static source inspection only; no tests or CI run.
+
+V2 Application engineering-update contract enforcement:
+- CreationDefinition.validate_updates() validates only submitted canonical
+  parameter values, preserving partial-update semantics and not requiring
+  unrelated required-before-create values to be resent. Explicit None values
+  remain governed by the update command's clearing contract.
+- EngineeringUpdatePreparer resolves the trusted built-in CreationDefinition
+  for supported equipment aliases and validates submitted parameter fields
+  against its datatype, finite-value, range, enum and declared validation
+  rules before constructing an update command.
+- Specialized update transformations and Core command/domain validation remain
+  in place; this adds no UI-owned engineering schema and does not replace Core
+  authority. Static source inspection only; no tests or CI run.
