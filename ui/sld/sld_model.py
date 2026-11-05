@@ -569,6 +569,16 @@ class SLDModel:
                 "Cannot preserve connections that are not attached to the removed node: "
                 + ", ".join(sorted(unknown_preserved))
             )
+        for connection_id in preserved:
+            connection = self._connections[connection_id]
+            if (
+                str(connection.properties.get("lifecycle_state", "BOUND")).upper() != "ORPHANED"
+                or connection.source_endpoint is not None
+                or connection.target_endpoint is not None
+            ):
+                raise ValueError(
+                    f"Cannot preserve SLD connection {connection_id!r} without an explicit, detached ORPHANED lifecycle."
+                )
 
         for connection_id in connection_ids:
             if connection_id not in preserved:
