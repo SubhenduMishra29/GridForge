@@ -46,13 +46,15 @@ class ApplicationRecoveryComposition:
 
     The validate callback runs after project activation. It must verify that the
     newly composed workspace adopted the restored collection and persisted
-    active-document identity. The dispose callback tears down all candidate UI
-    resources if configuration, activation, or validation fails. UI-specific
-    lifecycle management stays outside Core.
+    active-document identity. The commit callback publishes the candidate shell
+    only after all recovery checks pass. The dispose callback tears down all
+    candidate UI resources if configuration, activation, validation, or commit
+    fails. UI-specific lifecycle management stays outside Core.
     """
 
     configure_replacement: Callable[["Application"], None]
     validate_replacement: Callable[["Application", "ProjectContext"], None]
+    commit_replacement: Callable[["Application"], None]
     dispose_replacement: Callable[["Application"], None]
 
     def __post_init__(self) -> None:
@@ -60,6 +62,8 @@ class ApplicationRecoveryComposition:
             raise TypeError("configure_replacement must be callable.")
         if not callable(self.validate_replacement):
             raise TypeError("validate_replacement must be callable.")
+        if not callable(self.commit_replacement):
+            raise TypeError("commit_replacement must be callable.")
         if not callable(self.dispose_replacement):
             raise TypeError("dispose_replacement must be callable.")
 
