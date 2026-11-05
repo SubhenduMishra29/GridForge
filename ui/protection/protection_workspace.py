@@ -96,7 +96,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
         self._preview_line = None
         try:
             protection = self._application.read_protection()
-            configurations = self._application.read_protection_configuration()
+            configurations = self._application.read_protection_function_configurations()
         except RuntimeError:
             self._draw_message("Protection read boundary unavailable.")
             return
@@ -462,16 +462,24 @@ class ProtectionInspector(QGroupBox):
             else "PICKED UP" if bool(getattr(relay, "picked_up", False))
             else "NO ACTIVE DEVICE STATE"
         )
+        try:
+            physical_configuration = self._application.read_physical_relay_configuration(relay_id)
+        except (RuntimeError, KeyError):
+            self._label.setText("Physical Relay configuration is no longer available; refresh the selection.")
+            return
         lines = [
             "Identity", f"  {relay.object_id}",
-            "Relay", f"  {relay.name} ({relay.relay_type})",
+            "Relay", f"  {physical_configuration.name} ({physical_configuration.relay_type})",
             "Physical Relay Function Label", f"  {relay.function_type}",
+            "Plugin", f"  {physical_configuration.plugin_id or 'n/a'}",
+            "Physical Relay Settings (read-only)", f"  {dict(physical_configuration.settings)}",
+            f"  {physical_configuration.settings_editability_reason}",
             "Configured Protection Elements", f"  {len(relay_configurations)}",
             "Physical Relay Inputs", f"  {len(relay.input_channel_bindings)}",
             "Physical Relay State", f"  {physical_state}",
-            "In Service", f"  {relay.in_service}",
-            "Enabled", f"  {relay.enabled}",
-            "Blocked", f"  {relay.blocked}",
+            "In Service", f"  {physical_configuration.in_service}",
+            "Enabled", f"  {physical_configuration.enabled}",
+            "Blocked", f"  {physical_configuration.blocked}",
         ]
         for configuration in visible_configurations:
             element_id = str(configuration.element_id)
@@ -479,7 +487,10 @@ class ProtectionInspector(QGroupBox):
                 f"Protection Element: {element_id}",
                 f"  ANSI Function: {configuration.function_code}",
                 f"  Input / Measurement Bindings: {dict(configuration.input_channel_ids)}",
-                f"  Settings: {dict(configuration.settings or {})}",
+                f"  Residual Current Source Configuration: {dict(configuration.residual_current_input) if configuration.residual_current_input is not None else 'n/a'}",
+                f"  Settings: {', '.join(f'{item.label} ({item.key}) = {item.value!r} {item.unit}' for item in configuration.settings) or 'No typed settings metadata'}",
+                f"  Unmodelled Settings (read-only): {dict(configuration.unmodeled_settings)}",
+                f"  Settings Editable Through Application Contract: {configuration.settings_editable}",
                 f"  Enabled: {configuration.enabled}",
                 f"  Blocked: {configuration.blocked}",
             ])

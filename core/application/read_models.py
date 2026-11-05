@@ -198,6 +198,119 @@ class RelayReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class PhysicalRelayConfigurationReadModel:
+    """Detached physical Relay configuration, separate from runtime telemetry."""
+
+    relay_id: str
+    name: str
+    relay_type: str
+    plugin_id: str | None
+    settings: Mapping[str, Any]
+    in_service: bool
+    enabled: bool
+    blocked: bool
+    settings_editable: bool = False
+    settings_editability_reason: str = "No plugin-declared setting schema is available."
+
+    def __post_init__(self) -> None:
+        for name in ("relay_id", "name", "relay_type"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"PhysicalRelayConfigurationReadModel.{name} must be non-empty.")
+            object.__setattr__(self, name, value.strip())
+        if self.plugin_id is not None and (
+            not isinstance(self.plugin_id, str) or not self.plugin_id.strip()
+        ):
+            raise ValueError("plugin_id must be a non-empty string or None.")
+        if not isinstance(self.settings, Mapping):
+            raise TypeError("Physical Relay settings must be a mapping.")
+        if any(not isinstance(getattr(self, name), bool) for name in ("in_service", "enabled", "blocked", "settings_editable")):
+            raise TypeError("Physical Relay configuration state flags must be boolean.")
+        object.__setattr__(self, "settings", _freeze(self.settings))
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionSettingValueReadModel:
+    """One configured Protection function setting with canonical editor metadata."""
+
+    key: str
+    label: str
+    datatype: str
+    unit: str
+    value: Any
+    required: bool
+    configured: bool
+    default_value: Any = None
+    has_default: bool = False
+    choices: tuple[str, ...] = ()
+    choices_by: str | None = None
+    choices_by_value: Mapping[str, tuple[str, ...]] = field(default_factory=lambda: MappingProxyType({}))
+    editable: bool = True
+
+    def __post_init__(self) -> None:
+        for name in ("key", "label", "datatype", "unit"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"ProtectionSettingValueReadModel.{name} must be non-empty.")
+            object.__setattr__(self, name, value.strip())
+        if self.datatype not in {"number", "string"}:
+            raise ValueError("Protection setting datatype must be number or string.")
+        for name in ("required", "configured", "has_default", "editable"):
+            if not isinstance(getattr(self, name), bool):
+                raise TypeError(f"{name} must be boolean.")
+        if not isinstance(self.choices, tuple):
+            raise TypeError("choices must be a tuple.")
+        object.__setattr__(self, "value", _freeze(self.value))
+        object.__setattr__(self, "default_value", _freeze(self.default_value))
+        object.__setattr__(self, "choices_by_value", _freeze(self.choices_by_value))
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionFunctionConfigurationReadModel:
+    """Immutable Application snapshot of one project-scoped Protection function."""
+
+    element_id: str
+    relay_id: str
+    function_code: str
+    name: str
+    settings: tuple[ProtectionSettingValueReadModel, ...]
+    input_channel_ids: Mapping[str, str]
+    enabled: bool
+    blocked: bool
+    priority: int
+    action_target_type: str | None = None
+    action_target_id: str | None = None
+    action_type: str | None = None
+    residual_current_input: Mapping[str, Any] | None = None
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    unmodeled_settings: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    settings_editable: bool = True
+    implementation_status: str = "IMPLEMENTED"
+
+    def __post_init__(self) -> None:
+        for name in ("element_id", "relay_id", "function_code"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"ProtectionFunctionConfigurationReadModel.{name} must be non-empty.")
+            object.__setattr__(self, name, value.strip())
+        object.__setattr__(self, "name", str(self.name))
+        if not isinstance(self.settings, tuple) or any(
+            not isinstance(item, ProtectionSettingValueReadModel) for item in self.settings
+        ):
+            raise TypeError("settings must contain ProtectionSettingValueReadModel values.")
+        if not isinstance(self.input_channel_ids, Mapping):
+            raise TypeError("input_channel_ids must be a mapping.")
+        if any(not isinstance(getattr(self, name), bool) for name in ("enabled", "blocked", "settings_editable")):
+            raise TypeError("Protection function state flags must be boolean.")
+        if isinstance(self.priority, bool) or not isinstance(self.priority, int):
+            raise TypeError("priority must be an integer.")
+        object.__setattr__(self, "input_channel_ids", _freeze(self.input_channel_ids))
+        object.__setattr__(self, "residual_current_input", _freeze(self.residual_current_input))
+        object.__setattr__(self, "metadata", _freeze(self.metadata))
+        object.__setattr__(self, "unmodeled_settings", _freeze(self.unmodeled_settings))
+
+
+@dataclass(frozen=True, slots=True)
 class StudyResultReadModel:
     """Immutable Application read-side view of one published study result.
 
@@ -552,6 +665,9 @@ __all__ = [
     "MeasurementChannelReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",
+    "PhysicalRelayConfigurationReadModel",
+    "ProtectionSettingValueReadModel",
+    "ProtectionFunctionConfigurationReadModel",
     "StudyResultReadModel",
     "TransientSignalReadModel",
     "TransientAlgebraicQualityReadModel",
