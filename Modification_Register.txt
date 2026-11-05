@@ -22444,3 +22444,88 @@ Status:
     Merge commit: c5a869c5cc62189603195cb419a593e4653f75ce.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-159 — SLD SNAP CANDIDATE / DRAFT ENDPOINT IDENTITY CONSISTENCY
+======================================================================
+
+Date:
+    2026-11-05
+
+Related:
+    Issue #874 — The "Ghost Connection" Illusion (Visual Snapping Disconnect).
+    Related but separate: #773 (draft route geometry), #752 (draft identity
+    lifecycle), and #945 (save/async DraftNetwork commit consistency).
+
+FETCH / AUDIT:
+- Current main uses renderer-registered BusItem, EquipmentItem and draft
+  presentation items as the sole SnapSystem object-candidate sources.
+- SnapSystem._normalize_candidate() validated required fields, but for a
+  committed Bus candidate it did not require candidate object_id/bus_id to
+  match the registered BusItem identity.
+- For draft equipment candidates it required draft_id/type/role presence,
+  but did not require object_id and draft_id to match the source item, did
+  not compare candidate equipment type with the source draft item, and did
+  not require the terminal_id/terminal_name/draft-role tuple to be coherent.
+- WireTool._authoring_endpoint() constructed DraftEndpointReference directly
+  from draft snap fields, bypassing EndpointIdentityAdapter's source-item
+  and canonical EndpointReference checks.
+- WireTool.on_mouse_move() previewed a draft target as a Core EndpointReference
+  while the click/command path converted the same candidate into a
+  DraftEndpointReference. Preview and command therefore used different
+  scope representations for the same draft endpoint.
+
+CORRECTION:
+- SnapSystem now requires Bus candidate identity to agree with its registered
+  BusItem.
+- Draft snap candidates must agree with the source item's object/draft ID and
+  equipment type. Draft terminal candidates require a non-empty terminal ID
+  and name, with draft_terminal_role equal to terminal_name. Draft Bus
+  candidates retain their separate Bus/attachment contract.
+- WireTool now resolves every candidate through EndpointIdentityAdapter
+  before assigning draft scope. Draft scope is applied only when the resolved
+  canonical endpoint object ID agrees with the candidate draft ID.
+- Wire preview and click/commit now use the same _authoring_endpoint()
+  conversion, so draft endpoint identity is not represented differently
+  between preview and command creation.
+
+ARCHITECTURE:
+- SnapSystem and WireTool remain UI-only presentation/interaction components.
+- Snap coordinates select a registered candidate; they do not create
+  connectivity or enter Core as electrical identity.
+- DraftEndpointReference remains the Application authoring identity.
+  CommitNetworkHandler remains the only Draft→Core identity translator.
+- Core EndpointReference and electrical topology authority are unchanged.
+- No Qt imports were added; existing UI Qt access remains through
+  ui.core.qt. No public package exports were added or changed.
+
+RECONCILIATION / LIMITATION:
+- Existing issue #874 audit comments correctly state that the reported
+  pixel-coordinate mismatch is not proven by static source inspection:
+  endpoint identity is carried by snap candidates and commit commands, while
+  resolved scene coordinates are used for rendering.
+- This correction hardens malformed/mismatched snap candidate identity and
+  removes preview/commit scope inconsistency. It does not claim to reproduce
+  or fully close the reported visual-snap/Core-connectivity symptom.
+- Keep #874 open pending an actual interaction trace containing source and
+  target SnapResult identities, DraftEndpointReference values, resolved SLD
+  anchors, committed EndpointReference values, resulting Core connection,
+  and ConnectivityResolver result.
+- Route-vertex cleanup in #773 and draft cancellation/undo trace in #752
+  remain separate; no route or Core topology semantics were changed.
+
+CHECK:
+- Static source inspection and targeted diff review only.
+- No tests or CI run, per repository instruction.
+- Python syntax/import execution not yet performed at this register update.
+- ui/core/qt.py was inspected; no change required.
+- ui/tools/__init__.py was inspected; no export change required.
+- No docs/audit files or tests were added.
+
+STATUS:
+    IMPLEMENTED ON fix/sld-snap-candidate-identity-874.
+    FOCUSED PULL REQUEST PREPARED; NOT MERGED.
+    ISSUE #874 REMAINS OPEN PENDING RUNTIME REPRODUCTION.
+
+======================================================================
