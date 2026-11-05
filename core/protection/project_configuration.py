@@ -510,6 +510,7 @@ class ProtectionProjectConfiguration:
         self._mark_changed()
         return value
 
+    @_synchronized
     def get(self, element_id: str) -> ProtectionFunctionConfiguration:
         try: return self._elements[element_id]
         except KeyError as exc: raise KeyError(f"Protection element is not configured: {element_id}") from exc
@@ -578,6 +579,7 @@ class ProtectionProjectConfiguration:
         self._bindings[binding.binding_id] = binding
         self._mark_changed()
 
+    @_synchronized
     def get_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
         try:
             return self._bindings[binding_id]
@@ -622,6 +624,7 @@ class ProtectionProjectConfiguration:
         self._differential_schemes[scheme.scheme_id] = scheme
         self._mark_changed()
 
+    @_synchronized
     def get_differential_scheme(self, scheme_id: str) -> DifferentialProtectionSchemeConfiguration:
         try:
             return self._differential_schemes[scheme_id]
