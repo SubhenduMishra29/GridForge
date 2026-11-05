@@ -97,9 +97,34 @@ class UnknownEventError(
     """Raised when an unknown event is referenced."""
 
 
+class EventBatchConflictError(EventError):
+    """Raised when one simultaneous electrical event batch has conflicting targets."""
+
+
 # ======================================================================
 # EVENT
 # ======================================================================
+
+
+@dataclass(frozen=True, slots=True)
+class EventOperation:
+    """Typed target/operation identity used to validate simultaneous mutations."""
+
+    target_kind: str
+    target_id: str
+    operation: str
+
+    def __post_init__(self) -> None:
+        for name in ("target_kind", "target_id", "operation"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"Event operation {name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+
+    @property
+    def conflict_key(self) -> tuple[str, str]:
+        kind = "switchable_equipment" if self.target_kind in {"switch", "equipment"} else self.target_kind
+        return kind, self.target_id
 
 
 @dataclass
@@ -171,6 +196,7 @@ class SimulationEvent:
     )
 
     revision_reader: Callable[[], int | None] | None = None
+    operation: EventOperation | None = None
 
     def __post_init__(
         self,
@@ -235,6 +261,34 @@ class SimulationEvent:
         )
         if self.revision_reader is not None and not callable(self.revision_reader):
             raise EventError("revision_reader must be callable when supplied.")
+        if self.operation is not None and not isinstance(self.operation, EventOperation):
+            raise EventError("operation must be an EventOperation when supplied.")
+
+    def _validate_candidate_batches(self, candidates: list[SimulationEvent]) -> None:
+        """Reject duplicate target mutations before any event in a batch executes."""
+        ordered = sorted(candidates, key=self._sort_key)
+        batches: list[list[SimulationEvent]] = []
+        for event in ordered:
+            if not batches or event.time - batches[-1][0].time > self._tolerance:
+                batches.append([event])
+            else:
+                batches[-1].append(event)
+        for batch in batches:
+            seen: dict[tuple[str, str], SimulationEvent] = {}
+            for event in batch:
+                operation = event.operation
+                if operation is None:
+                    continue
+                key = operation.conflict_key
+                previous = seen.get(key)
+                if previous is not None:
+                    raise EventBatchConflictError(
+                        f"Conflicting simultaneous operations at t={event.time:.12g} s "
+                        f"for {key[0]} target '{key[1]}': events "
+                        f"'{previous.event_id}' ({previous.operation.operation}) and "
+                        f"'{event.event_id}' ({operation.operation})."
+                    )
+                seen[key] = event
 
     def reset(
         self,
@@ -551,6 +605,7 @@ class EventManager:
             Any,
         ] | None = None,
         revision_reader: Callable[[], int | None] | None = None,
+        operation: EventOperation | None = None,
     ) -> SimulationEvent:
         """
         Register a simulation event.
@@ -582,6 +637,7 @@ class EventManager:
                 else dict(metadata)
             ),
             revision_reader=revision_reader,
+            operation=operation,
         )
 
         self._events[
@@ -705,34 +761,18 @@ class EventManager:
             t
         )
 
-        executions: list[
-            EventExecution
-        ] = []
-
-        for event in self.events:
-
-            if not event.enabled:
-                continue
-
-            if event.triggered:
-                continue
-
-            if (
-                event.time
-                <= current_time
-                + self._tolerance
-            ):
-
-                execution = (
-                    self._execute_event(
-                        event,
-                        dispatch_time=current_time,
-                    )
-                )
-
-                executions.append(
-                    execution
-                )
+        executions: list[EventExecution] = []
+        candidates = [
+            event for event in self.events
+            if event.enabled and not event.triggered
+            and event.time <= current_time + self._tolerance
+        ]
+        self._validate_candidate_batches(candidates)
+        # A validated batch is dispatched sequentially in canonical
+        # time/priority/ID order. Mutations are visible to later actions;
+        # an already-applied prefix is not rolled back if a later action fails.
+        for event in candidates:
+            executions.append(self._execute_event(event, dispatch_time=current_time))
 
         return tuple(
             executions
@@ -808,18 +848,11 @@ class EventManager:
             )
         ]
 
+        self._validate_candidate_batches(candidates)
+        # The batch is sequential and prevalidated; the DAE solver re-evaluates
+        # the network once after the complete batch returns.
         for event in candidates:
-
-            execution = (
-                self._execute_event(
-                    event,
-                    dispatch_time=end,
-                )
-            )
-
-            executions.append(
-                execution
-            )
+            executions.append(self._execute_event(event, dispatch_time=end))
 
         return tuple(
             executions
@@ -1113,6 +1146,7 @@ def create_event(
         str,
         Any,
     ] | None = None,
+    operation: EventOperation | None = None,
 ) -> SimulationEvent:
     """
     Convenience factory for creating a SimulationEvent.
@@ -1130,17 +1164,20 @@ def create_event(
             if metadata is None
             else dict(metadata)
         ),
+        operation=operation,
     )
 
 
 __all__ = [
     "EventAction",
     "SimulationEvent",
+    "EventOperation",
     "EventExecution",
     "EventTransition",
     "EventError",
     "DuplicateEventError",
     "UnknownEventError",
+    "EventBatchConflictError",
     "EventManager",
     "create_event",
 ]
