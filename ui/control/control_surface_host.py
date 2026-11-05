@@ -159,12 +159,12 @@ class ControlSurfaceHost(QWidget):
         if callable(activate):
             activate("export")
             self.refresh_tool_shelves()
-        record_ids = reports.selected_archived_record_ids()
-        if len(record_ids) != 2:
+        execution_refs = reports.selected_study_execution_refs()
+        if len(execution_refs) != 2:
             QMessageBox.warning(
                 self,
                 "Transient Comparison Export",
-                "Select exactly two archived transient runs before exporting a comparison.",
+                "Select exactly two live and/or archived transient runs before exporting a comparison.",
             )
             return
         filename, _selected_filter = QFileDialog.getSaveFileName(
@@ -179,7 +179,10 @@ class ControlSurfaceHost(QWidget):
         if destination.suffix.lower() != ".json":
             destination = destination.with_suffix(".json")
         try:
-            payload = runtime.export_selected_comparison(record_ids[0], record_ids[1])
+            payload = runtime.export_selected_comparison(
+                execution_refs[0][0], execution_refs[0][1],
+                execution_refs[1][0], execution_refs[1][1],
+            )
             if not isinstance(payload, str) or not payload:
                 raise RuntimeError("Application returned an empty comparison export.")
             destination.write_text(payload, encoding="utf-8")
