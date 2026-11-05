@@ -22195,3 +22195,45 @@ Verification:
 Related:
 - Issue #1003 — relay configuration projection and inspector workflow.
 ======================================================================
+
+
+======================================================================
+V2 PROTECTION CONFIGURATION APPLICATION READ MODELS
+======================================================================
+
+Date:
+    2026-11-05
+
+Correction:
+- Added immutable Application read models for project-scoped Protection
+  function settings and physical Relay configuration.
+- Function setting values are projected using the canonical Core setting
+  contract, including units, choices, conditional IEC/IEEE curves,
+  dataclass defaults and explicit configured-vs-defaulted state.
+- Unknown/unmodelled setting keys remain inspectable and read-only.
+  Function settings without an IMPLEMENTED canonical contract are not
+  exposed as editable.
+- Physical Relay configuration is separated from runtime telemetry.
+  Plugin settings remain inspectable but read-only until a plugin supplies
+  a typed setting schema; physical identity/service/enable/block fields are
+  exposed separately.
+- ProtectionInspector now consumes the Application read models and labels
+  physical Relay settings as read-only instead of presenting them as
+  Protection function settings.
+
+Architecture boundary:
+- Application DTOs are detached immutable snapshots; UI receives no mutable
+  Core aggregate or service reference.
+- Runtime decisions/pickup/trip telemetry remain in RelayReadModel and are
+  not copied into the editable function configuration model.
+- Existing read_protection_configuration() is retained for compatibility.
+  New typed accessors are read_protection_function_configurations() and
+  read_physical_relay_configuration().
+
+Verification:
+- Static source inspection only.
+- No tests or CI were run, per repository instruction.
+
+Related:
+- Issue #1003 — relay configuration projection and inspector workflow.
+======================================================================
