@@ -669,6 +669,9 @@ class TransientSemanticEventMatchReadModel:
     left_event_id: str
     right_event_id: str
     event_time_s: float
+    left_dispatch_time_s: float | None
+    right_dispatch_time_s: float | None
+    dispatch_delta_s: float | None
     transition_type: str
     target_kind: str
     target_id: str
@@ -1696,6 +1699,12 @@ class StudyReadService:
                             left_event_id=event.event_id,
                             right_event_id=peer.event_id,
                             event_time_s=event.scheduled_time,
+                            left_dispatch_time_s=event.dispatch_time,
+                            right_dispatch_time_s=peer.dispatch_time,
+                            dispatch_delta_s=(
+                                None if event.dispatch_time is None or peer.dispatch_time is None
+                                else peer.dispatch_time - event.dispatch_time
+                            ),
                             transition_type=str(transition["transition_type"]),
                             target_kind=str(transition["target_kind"]),
                             target_id=str(transition["target_id"]),
