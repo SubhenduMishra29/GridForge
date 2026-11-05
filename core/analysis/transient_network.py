@@ -153,6 +153,8 @@ class PreparedTransientStability:
     mechanical_powers: Mapping[str, float]
     initial_state: tuple[float, ...]
     model_types: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    base_mva: float | None = None
+    bus_voltage_bases_kv: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -169,6 +171,17 @@ class PreparedTransientStability:
         if any(not value for value in model_types.values()):
             raise ValueError("Prepared transient declared model types must be non-empty.")
         object.__setattr__(self, "model_types", MappingProxyType(model_types))
+        if self.base_mva is not None:
+            base_mva = float(self.base_mva)
+            if not np.isfinite(base_mva) or base_mva <= 0.0:
+                raise ValueError("Prepared transient base MVA must be positive and finite.")
+            object.__setattr__(self, "base_mva", base_mva)
+        voltage_bases = {str(key): float(value) for key, value in self.bus_voltage_bases_kv.items()}
+        if voltage_bases and set(voltage_bases) != set(self.network.bus_ids):
+            raise ValueError("Prepared transient voltage bases must cover the detached network Bus identities exactly.")
+        if any(not np.isfinite(value) or value <= 0.0 for value in voltage_bases.values()):
+            raise ValueError("Prepared transient voltage bases must be positive and finite.")
+        object.__setattr__(self, "bus_voltage_bases_kv", MappingProxyType(voltage_bases))
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
         if self.network.project_id != self.project_id:
             raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
@@ -281,6 +294,8 @@ class PreparedTransientStability:
             "activation_generation": self.activation_generation,
             "source_revision": self.source_revision,
             "topology_revision": self.network.topology_revision,
+            "power_base_mva": self.base_mva,
+            "bus_voltage_bases_kv": MappingProxyType(dict(self.bus_voltage_bases_kv)),
             "prepared_network_topology_fingerprint": MappingProxyType({
                 "schema_version": 1,
                 "algorithm": "sha256",
@@ -449,6 +464,8 @@ class PreparedTransientStability:
             mechanical,
             tuple(initial_states),
             {definition.machine_id: definition.model_type for definition in definitions},
+            prepared_power_flow.base_mva,
+            prepared_power_flow.bus_voltage_bases,
         )
 
 
