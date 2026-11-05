@@ -4451,6 +4451,29 @@ class Application:
             UpdateProtectionConfigurationCommand(configuration=replacement)
         )
 
+
+    def update_physical_relay_configuration(
+        self, *, relay_id: str, name: str, enabled: bool,
+        blocked: bool, in_service: bool
+    ) -> ApplicationResult:
+        """Update supported physical Relay lifecycle fields through its command."""
+        if not isinstance(relay_id, str) or not relay_id.strip():
+            raise ValueError("relay_id must be a non-empty string.")
+        if not isinstance(name, str):
+            raise TypeError("Relay name must be a string.")
+        if any(not isinstance(value, bool) for value in (enabled, blocked, in_service)):
+            raise TypeError("Relay enabled, blocked and in_service values must be boolean.")
+
+        from core.application.commands.relay_commands import UpdateRelayCommand
+
+        return self.execute(UpdateRelayCommand(
+            relay_id=relay_id.strip(),
+            name=name,
+            enabled=enabled,
+            blocked=blocked,
+            in_service=in_service,
+        ))
+
     def read_relay(self, relay_id: str) -> RelayReadModel:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
