@@ -3754,8 +3754,8 @@ class Application:
                     "document_id": document_id,
                     "reason": "The project presentation collection contains duplicate document identities.",
                 })
-                continue
-            seen_document_ids.add(document_id)
+            else:
+                seen_document_ids.add(document_id)
             if getattr(document, "project_id", None) != context.project_id:
                 sld_connection_diagnostics.append({
                     "code": "SLD_DOCUMENT_PROJECT_MISMATCH",
