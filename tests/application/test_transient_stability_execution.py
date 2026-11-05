@@ -1,11 +1,12 @@
-import numpy as np
 from types import SimpleNamespace
 from uuid import uuid4
+
+import numpy as np
+from scipy.sparse import csr_matrix
 
 from core.application.read_models import StudyResultReadModel
 from core.application.read_service import StudyReadService
 from core.application.revision import ProjectRevision
-from scipy.sparse import csr_matrix
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.analysis.power_flow_preparation import PreparedBranch, PreparedPowerFlow
