@@ -233,6 +233,8 @@ class TransientStabilitySolver:
         self._state: np.ndarray | None = None
         self._time = self.start_time
         self._last_step_discontinuity: TransientDiscontinuity | None = None
+        self._last_due_discontinuity: TransientDiscontinuity | None = None
+        self._last_due_post_solution: DAESolution | None = None
 
     @property
     def initialized(self) -> bool:
@@ -257,6 +259,8 @@ class TransientStabilitySolver:
         self.dae_solver.evaluate(candidate, self._time)
         self._state = candidate
         self._last_step_discontinuity = None
+        self._last_due_discontinuity = None
+        self._last_due_post_solution = None
         return candidate.copy()
 
     def run(
@@ -455,6 +459,8 @@ class TransientStabilitySolver:
         self._state = None
         self._time = self.start_time
         self._last_step_discontinuity = None
+        self._last_due_discontinuity = None
+        self._last_due_post_solution = None
         self.event_manager.reset()
 
     def _algebraic_quality(self, solution: DAESolution) -> AlgebraicNetworkSolution:
