@@ -27,6 +27,7 @@ from .control_signal_mapping import (
     ControlSignalResolutionError,
     ControlSignalSource,
 )
+from .protection_execution_audit import ProtectionExecutionAuditRecord, ProtectionExecutionAuditStore
 from .protection_execution import (
     PostconditionStatus,
     ProtectionActionOutcome,
@@ -114,6 +115,8 @@ __all__ = [
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
     "ProtectionExecutionService",
+    "ProtectionExecutionAuditRecord",
+    "ProtectionExecutionAuditStore",
     "ProtectionDependency",
     "ProtectionElementDependencyDescriptor",
     "ProtectionDependencyRegistry",
