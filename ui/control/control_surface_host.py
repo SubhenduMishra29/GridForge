@@ -155,6 +155,10 @@ class ControlSurfaceHost(QWidget):
         if runtime is None or reports is None:
             QMessageBox.information(self, "Transient Comparison Export", "Study comparison export is not configured.")
             return
+        activate = getattr(runtime, "activate", None)
+        if callable(activate):
+            activate("export")
+            self.refresh_tool_shelves()
         record_ids = reports.selected_archived_record_ids()
         if len(record_ids) != 2:
             QMessageBox.warning(
