@@ -572,7 +572,7 @@ class SLDModel:
         for connection_id in preserved:
             connection = self._connections[connection_id]
             if (
-                str(connection.properties.get("lifecycle_state", "BOUND")).upper() != "ORPHANED"
+                str(connection.properties.get("lifecycle_state", "BOUND")).strip().upper() != "ORPHANED"
                 or connection.source_endpoint is not None
                 or connection.target_endpoint is not None
             ):
