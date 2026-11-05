@@ -22092,3 +22092,17 @@ V2 independent SLD node/connection ownership during Core equipment deletion:
   nodes/connections plus retained orphan objects in place, preserving identity
   and authored route/presentation state for undo/redo.
 - Static source inspection only; no tests or CI run.
+
+V2 canonical engineering-parameter metadata integrity:
+- EngineeringParameterDefinition validates its presentation/edit contract at
+  construction: supported datatype, non-empty unit metadata, finite ordered
+  numeric bounds, integral bounds for integer parameters, enum choice
+  non-emptiness/uniqueness, and choice/datatype compatibility.
+- Catalogue defaults are validated against the same canonical parameter
+  value contract used during creation (type, finite numeric values, range,
+  enum membership and declared validation rules), preventing malformed
+  metadata from reaching draft/committed projections and inspector controls.
+- Numeric bounds are normalized to finite floats after validation so later
+  comparisons and Qt projection do not encounter string or bool bounds.
+- This is schema-construction validation only; Core remains authoritative for
+  domain invariants. Static source inspection only; no tests or CI run.
