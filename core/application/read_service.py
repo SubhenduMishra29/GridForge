@@ -20,7 +20,7 @@ from .revision import ProjectRevision
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.dynamics.events import EventExecution
 from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
-from core.solver.dynamics.transient_stability import TransientStabilityResult
+from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 from core.solver.short_circuit.result import ShortCircuitConductorCurrent, ShortCircuitTransformerDeltaLoopCurrent
 
 from core.network.network import Network
@@ -43,6 +43,7 @@ from .read_models import (
     TransientAlgebraicQualityReadModel,
     TransientSignalReadModel,
     TransientResultPresentationReadModel,
+    TransientDiscontinuityReadModel,
 )
 
 _ELEMENT_COLLECTIONS = (
@@ -840,6 +841,7 @@ class StudyReadService:
                 "electrical_powers": value.electrical_powers,
                 "events": value.events,
                 "algebraic_quality": value.algebraic_quality,
+                "discontinuities": value.discontinuities,
                 "provenance": value.provenance,
             }
         elif isinstance(value, Mapping) and value.get("$dataclass") == (
@@ -1104,6 +1106,29 @@ class StudyReadService:
                 diagnostics=tuple(quality_value("diagnostics", ())),
             ))
         algebraic_quality = tuple(quality_records)
+        discontinuity_records = []
+        discontinuity_class_name = f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}"
+        for record in transient_fields.get("discontinuities", ()):
+            if isinstance(record, TransientDiscontinuity):
+                discontinuity = record
+                discontinuity_records.append(TransientDiscontinuityReadModel(
+                    time_s=discontinuity.time,
+                    event_ids=discontinuity.event_ids,
+                    post_status=discontinuity.post_status,
+                    pre_state=tuple(float(value) for value in discontinuity.pre_state),
+                    pre_terminal_voltages=discontinuity.pre_terminal_voltages,
+                    pre_electrical_powers=discontinuity.pre_electrical_powers,
+                    pre_topology_revision=discontinuity.pre_topology_revision,
+                    post_state=None if discontinuity.post_state is None else tuple(float(value) for value in discontinuity.post_state),
+                    post_terminal_voltages=discontinuity.post_terminal_voltages,
+                    post_electrical_powers=discontinuity.post_electrical_powers,
+                    post_topology_revision=discontinuity.post_topology_revision,
+                ))
+            elif isinstance(record, Mapping) and record.get("$dataclass") == discontinuity_class_name:
+                raise ValueError("Legacy generic discontinuity records are not supported; use archive schema v4.")
+            else:
+                raise ValueError("Transient discontinuities contain an unknown record type.")
+        discontinuities = tuple(discontinuity_records)
         provenance = dict(provenance_source)
         provenance["execution_identity"] = {
             "study_id": str(row.study_id),
@@ -1132,6 +1157,7 @@ class StudyReadService:
             events=events,
             provenance=provenance,
             algebraic_quality=algebraic_quality,
+            discontinuities=discontinuities,
         )
 
     def transient_result(
