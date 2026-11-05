@@ -384,23 +384,27 @@ class TransientStabilitySolver:
         self._state = solution.state.copy()
         self._time = float(solution.time)
         if next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-            event_batch = self.event_manager.process_interval(previous_time, self._time)
+            pre_event_solution = solution
+            history_start = len(self.event_manager.history)
+            try:
+                event_batch = self.event_manager.process_interval(previous_time, self._time)
+            except Exception as exc:
+                attempted = self.event_manager.history[history_start:]
+                if attempted:
+                    self._last_step_discontinuity = self._make_discontinuity(pre_event_solution, attempted, None, post_status="dispatch_failed")
+                raise TransientStabilityError(
+                    f"Event dispatch failed at t={self._time:.12g} s; inspect last_step_discontinuity."
+                ) from exc
             try:
                 solution = self.dae_solver.evaluate(self._state, self._time)
             except Exception as exc:
-                self.event_manager.annotate_post_event_re_evaluation(
-                    event_batch,
-                    succeeded=False,
-                    failure=exc,
-                )
-                raise TransientStabilityError(
-                    f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
-                ) from exc
+                annotated = self.event_manager.annotate_post_event_re_evaluation(event_batch, succeeded=False, failure=exc)
+                if event_batch:
+                    self._last_step_discontinuity = self._make_discontinuity(pre_event_solution, annotated, None, post_status="post_evaluation_failed")
+                raise TransientStabilityError(f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s.") from exc
             if event_batch:
-                self.event_manager.annotate_post_event_re_evaluation(
-                    event_batch,
-                    succeeded=True,
-                )
+                annotated = self.event_manager.annotate_post_event_re_evaluation(event_batch, succeeded=True)
+                self._last_step_discontinuity = self._make_discontinuity(pre_event_solution, annotated, solution, post_status="succeeded")
         return solution
 
     def _process_due_events(self) -> tuple[EventExecution, ...]:
