@@ -360,7 +360,13 @@ class ProtectionConfigurationService:
         self._validate_configuration(configuration); active = self._require_configuration()
         try: previous = active.get(configuration.element_id)
         except KeyError as exc: raise ResourceError(code="PROTECTION_CONFIGURATION_NOT_FOUND", message=f"Protection configuration not found: {configuration.element_id}", details={"element_id": configuration.element_id}) from exc
-        active.replace(configuration); transaction.record_undo(lambda previous=previous: active.replace(previous)); return self._success(configuration, f"Protection configuration updated: {configuration.element_id}")
+        active.replace(configuration)
+        transaction.record_undo(lambda previous=previous: active.replace(previous))
+        return self._success(
+            configuration,
+            f"Protection configuration updated: {configuration.element_id}",
+            affected_relay_ids=(previous.relay_id, configuration.relay_id),
+        )
 
     def bind_measurement(self, *, element_id: str, input_name: str, channel_id: str,
                          transaction: Transaction) -> ApplicationResult[ProtectionFunctionConfiguration]:
@@ -1097,8 +1103,29 @@ class ProtectionConfigurationService:
         if not isinstance(transaction, Transaction): raise TypeError("transaction must be a Transaction.")
         if not transaction.active: raise RuntimeError("Transaction must be active.")
 
-    def _success(self, value: ProtectionFunctionConfiguration, message: str) -> ApplicationResult[ProtectionFunctionConfiguration]:
-        return ApplicationResult.success_result(value=value, message=message, metadata={"object_type": "protection_configuration", "object_id": value.element_id})
+    def _success(
+        self,
+        value: ProtectionFunctionConfiguration,
+        message: str,
+        *,
+        affected_relay_ids: tuple[str, ...] = (),
+    ) -> ApplicationResult[ProtectionFunctionConfiguration]:
+        relay_ids = tuple(dict.fromkeys(
+            str(relay_id)
+            for relay_id in (affected_relay_ids or (value.relay_id,))
+            if relay_id is not None and str(relay_id)
+        ))
+        return ApplicationResult.success_result(
+            value=value,
+            message=message,
+            metadata={
+                "object_type": "protection_configuration",
+                "object_id": value.element_id,
+                "element_id": value.element_id,
+                "relay_id": str(value.relay_id),
+                "affected_relay_ids": relay_ids,
+            },
+        )
 
 
 __all__ = ["ProtectionConfigurationService"]
