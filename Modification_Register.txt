@@ -21953,3 +21953,169 @@ Additional lifecycle safeguard — project-scoped Control mappings:
 - This is a fail-closed lifecycle guard, not project save/reload persistence.
   The separate persistence-owner gap above remains open.
 - Static source inspection only; no tests or CI run.
+
+V2 recovery UI orchestration — staged shell handover:
+- Added recover_application_shell() to the main composition root. It builds a
+  hidden candidate shell around the exact fresh Application supplied by
+  recover_application(), publishes the restored workspace through the canonical
+  ProjectWorkspaceApplicationAdapter, validates collection/document/view and
+  SLD service/controller/surface/canvas identity, and reveals the candidate
+  before retiring old UI resources.
+- Candidate failure cleanup is scoped to candidate-owned resources and does
+  not shut down the shared QApplication. The degraded Application is retained
+  on the replacement window as a read-only diagnostic reference.
+- ControlSurfaceHost now exposes its currently adopted SLD document so the
+  composition validator can verify workspace-surface identity without
+  inspecting private widget state.
+- Static source inspection only; no tests or CI run. Runtime Qt handover,
+  event ordering, and failure-injection behavior remain to be verified.
+
+
+GF-AUD-158 — SLD SEMANTIC CONNECTION VALIDATION AND ORPHAN LIFECYCLE
+======================================================================
+
+Related issues:
+- #997 — persisted SLD/Core semantic connection endpoint integrity.
+- #996 — retained orphaned SLD presentation diagnostics.
+- Related but deliberately separate: #874 visual snapping vs Core
+  connectivity, #773 wire drawing/orthogonal routing, #767 ghost terminal
+  rendering, and #995 configured symbol-default rehydration.
+
+Source findings on main:
+- ValidationService.validate_sld_associations() checked only node equipment IDs.
+  It did not report retained ORPHANED nodes/connections and did not require
+  a non-orphan node to retain a Core equipment identity.
+- Application.validate_project() did not include SLDService's existing
+  read-only Core/Simple-Wire companion audit in its ValidationResult. The
+  audit was retained only as activation diagnostics, so study validation
+  could miss stale/missing/duplicate connection companions and endpoint drift.
+- SLDService._sld_endpoint_from_mapping() incorrectly used Core object_id as
+  the SLD endpoint node_id. SLD node identity is independent presentation
+  identity (for example, sld-core-<core-id> or sld-node-<uuid>), so a valid
+  endpoint could be diagnosed as mismatched after commit/reload.
+- SLDService.reconcile_element_delete() orphaned engineer-authored attached
+  connections but cleared only the endpoint on the deleted node side. It
+  retained the opposite semantic endpoint and could retain core_connection_id,
+  despite the connection no longer representing a complete live electrical
+  relationship.
+
+Correction prepared on branch fix/sld-validation-orphan-integrity-2026-11-04:
+- SLD endpoint conversion now unwraps the canonical nested
+  TopologyEndpointReference envelope, then resolves the actual unique
+  presentation node for the Core endpoint object. Unsupported Core endpoint
+  kinds and missing/ambiguous SLD nodes fail with explicit diagnostics.
+- The read-only Simple-Wire audit reports unresolved endpoint-to-node mapping
+  as a diagnostic rather than aborting the entire audit.
+- Application.validate_project() now includes the active SLDService audit in
+  the canonical ValidationResult; unavailable/failed audit execution is
+  represented as an error diagnostic, not silently omitted.
+- ValidationService now reports orphaned SLD nodes and connections as
+  warnings, while treating a non-orphan node without equipment identity as
+  an error. It rejects orphan nodes/connections that still carry active Core
+  bindings; it also rejects orphan connections that retain semantic endpoint
+  descriptors.
+- Engineer-authored connections retained when their equipment node is
+  deleted now lose both semantic endpoints and the active Core connection
+  binding. The former Core connection ID is retained as orphan provenance.
+  Transactional snapshots continue to restore the original values on undo.
+
+Architecture boundary:
+- All cross-domain SLD/Core validation and lifecycle reconciliation remain in
+  Application services. SLD geometry and snapping never create Core topology.
+- Core connectivity remains authoritative. The audit is read-only and does
+  not repair or mutate Core topology.
+- No Qt/QGraphics dependency was added to Core or Application. No new public
+  exports were introduced; existing service entry points remain stable.
+- Application.validate_project() receives the active SLD document through
+  ProjectLifecycleService.presentation. Collection-wide multi-SLD validation
+  is not included because the collection snapshot provider is a separate
+  lifecycle persistence boundary; keep #997 open until all-document coverage
+  is explicitly reconciled.
+
+Verification boundary:
+- Inspected current main SLDService audit/reconciliation, DraftNetwork commit
+  projection identity path, SLD endpoint schema, nested
+  TopologyEndpointReference.to_mapping() envelope, Core EndpointReference and
+  ConnectivityStore validation, ValidationService and Application project
+  validation flow.
+- Static Python AST parsing completed for the edited ValidationService,
+  Application.validate_project(), SLD endpoint conversion, audit and orphan
+  mutation blocks. No runtime module imports, tests or CI were run.
+- Final GitHub PR diff/repository-state review remains required before merge.
+
+======================================================================
+
+V2 Protection Properties projection target routing:
+- Protection configuration results now carry the affected relay identity and
+  protection element identity in semantic event metadata. Updates include
+  both the previous and replacement relay IDs so moving a configuration
+  refreshes both affected inspectors; create/delete/bind/unbind and their
+  undo/redo paths retain target identity through the transaction result.
+- SelectionProjectionCoordinator routes only execute/undo/redo configuration
+  events whose affected relay IDs intersect the current selection and whose
+  project ID and activation generation match. Runtime cycle telemetry and
+  unrelated relay changes do not refresh the selected Properties target.
+- Static source inspection only; no tests or CI run.
+
+V2 collection-wide SLD validation:
+- Application.validate_project() now obtains the canonical project presentation
+  collection snapshot and validates every persisted SLD document, not only
+  Application.presentation. Collection membership, active-document identity,
+  document project ownership and collection-provider failures are surfaced as
+  fail-closed diagnostics.
+- SLDService.audit_simple_wire_projection() accepts an explicit document or
+  the complete document collection, resolves endpoint node identities against
+  each document, and aggregates companion uniqueness/missing checks globally
+  so a valid companion in one sheet is not reported missing in another. The
+  active-document default remains available for existing callers.
+- ValidationService aggregates node/orphan and Simple-Wire/Core endpoint
+  diagnostics across the collection and prefixes document identity so
+  same-named connection/node IDs in separate SLD documents remain traceable.
+- Core topology validation remains authoritative for terminal and Bus
+  attachment contracts; SLD audit remains read-only.
+- Static source inspection only; no tests or CI run.
+
+V2 independent SLD node/connection ownership during Core equipment deletion:
+- Core equipment deletion now reconciles node and attached-connection ownership
+  independently. Projection-owned attached wires are removed; engineer-authored
+  wires are retained as ORPHANED presentation with semantic endpoints and
+  active Core bindings cleared, whether the associated node is removed or
+  retained as an orphan.
+- SLDModel.remove_node() accepts an explicit set of attached connection IDs to
+  preserve for orphan lifecycle handling. Its default cascade-delete behavior
+  is unchanged for existing callers. SLDModel.add_connection() and canonical
+  SLD persistence validation permit missing historical node IDs only for
+  ORPHANED connections whose semantic endpoints are both cleared; BOUND
+  connections remain structurally strict. This allows detached authored
+  route/presentation state to survive package save/reopen safely.
+- The transaction inverse is registered before mutation and restores removed
+  nodes/connections plus retained orphan objects in place, preserving identity
+  and authored route/presentation state for undo/redo.
+- Static source inspection only; no tests or CI run.
+
+V2 canonical engineering-parameter metadata integrity:
+- EngineeringParameterDefinition validates its presentation/edit contract at
+  construction: supported datatype, non-empty unit metadata, finite ordered
+  numeric bounds, integral bounds for integer parameters, enum choice
+  non-emptiness/uniqueness, and choice/datatype compatibility.
+- Catalogue defaults are validated against the same canonical parameter
+  value contract used during creation (type, finite numeric values, range,
+  enum membership and declared validation rules), preventing malformed
+  metadata from reaching draft/committed projections and inspector controls.
+- Numeric bounds are normalized to finite floats after validation so later
+  comparisons and Qt projection do not encounter string or bool bounds.
+- This is schema-construction validation only; Core remains authoritative for
+  domain invariants. Static source inspection only; no tests or CI run.
+
+V2 Application engineering-update contract enforcement:
+- CreationDefinition.validate_updates() validates only submitted canonical
+  parameter values, preserving partial-update semantics and not requiring
+  unrelated required-before-create values to be resent. Explicit None values
+  remain governed by the update command's clearing contract.
+- EngineeringUpdatePreparer resolves the trusted built-in CreationDefinition
+  for supported equipment aliases and validates submitted parameter fields
+  against its datatype, finite-value, range, enum and declared validation
+  rules before constructing an update command.
+- Specialized update transformations and Core command/domain validation remain
+  in place; this adds no UI-owned engineering schema and does not replace Core
+  authority. Static source inspection only; no tests or CI run.

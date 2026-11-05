@@ -42,11 +42,63 @@ class EngineeringParameterDefinition:
             raise ValueError("datatype must be non-empty")
         if self.derived and self.editable:
             raise ValueError("derived parameters cannot be editable")
-        object.__setattr__(self, "parameter_id", self.parameter_id.strip())
-        object.__setattr__(self, "display_name", self.display_name.strip())
-        object.__setattr__(self, "datatype", self.datatype.strip())
-        object.__setattr__(self, "choices", tuple(self.choices))
+        parameter_id = self.parameter_id.strip()
+        display_name = self.display_name.strip()
+        datatype = self.datatype.strip().lower()
+        if datatype not in {"float", "number", "int", "integer", "bool", "boolean", "str", "string", "enum"}:
+            raise ValueError(f"Unsupported engineering parameter datatype {datatype!r}.")
+        if self.unit is not None and (
+            not isinstance(self.unit, str) or not self.unit.strip()
+        ):
+            raise ValueError("unit must be None or a non-empty string.")
+        if not isinstance(self.validation, Mapping):
+            raise TypeError("validation must be a mapping.")
+        if self.minimum is not None or self.maximum is not None:
+            if datatype not in {"float", "number", "int", "integer"}:
+                raise ValueError("minimum/maximum bounds require a numeric datatype.")
+            normalized_bounds: dict[str, float | None] = {}
+            for bound_name, bound in (("minimum", self.minimum), ("maximum", self.maximum)):
+                if bound is None:
+                    normalized_bounds[bound_name] = None
+                    continue
+                if isinstance(bound, bool):
+                    raise TypeError(f"{bound_name} must be a finite numeric bound.")
+                try:
+                    numeric_bound = float(bound)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise TypeError(f"{bound_name} must be a finite numeric bound.") from exc
+                if not math.isfinite(numeric_bound):
+                    raise ValueError(f"{bound_name} must be finite.")
+                if datatype in {"int", "integer"} and not numeric_bound.is_integer():
+                    raise ValueError(f"{bound_name} must be integral for integer parameters.")
+                normalized_bounds[bound_name] = numeric_bound
+            if (
+                normalized_bounds["minimum"] is not None
+                and normalized_bounds["maximum"] is not None
+                and normalized_bounds["minimum"] > normalized_bounds["maximum"]
+            ):
+                raise ValueError("minimum cannot exceed maximum.")
+            object.__setattr__(self, "minimum", normalized_bounds["minimum"])
+            object.__setattr__(self, "maximum", normalized_bounds["maximum"])
+        choices = tuple(self.choices)
+        if datatype == "enum":
+            if not choices:
+                raise ValueError("enum parameters require at least one choice.")
+            normalized_choices = [str(choice).strip() for choice in choices]
+            if any(not choice for choice in normalized_choices):
+                raise ValueError("enum choices must be non-empty.")
+            if len(normalized_choices) != len(set(normalized_choices)):
+                raise ValueError("enum choices must be unique.")
+        elif choices:
+            raise ValueError("choices are supported only for enum parameters.")
+        object.__setattr__(self, "parameter_id", parameter_id)
+        object.__setattr__(self, "display_name", display_name)
+        object.__setattr__(self, "datatype", datatype)
+        object.__setattr__(self, "unit", None if self.unit is None else self.unit.strip())
+        object.__setattr__(self, "choices", choices)
         object.__setattr__(self, "validation", MappingProxyType(dict(self.validation)))
+        if self.default_value is not None:
+            _validate_parameter(self, self.default_value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +224,28 @@ class CreationDefinition:
     @property
     def default_values(self) -> Mapping[str, Any]:
         return {p.parameter_id: p.default_value for p in self.parameter_definitions if p.default_value is not None}
+
+    def validate_updates(self, values: Mapping[str, Any]) -> tuple[str, ...]:
+        """Validate only supplied canonical parameter values for an update.
+
+        Unlike creation validation, updates are partial and must not require
+        unrelated required-before-create fields to be resubmitted. Explicit
+        None values are left to the owning update command's clearing contract.
+        """
+        if not isinstance(values, Mapping):
+            raise TypeError("engineering update values must be a mapping.")
+        errors: list[str] = []
+        for parameter in self.parameter_definitions:
+            if parameter.parameter_id not in values:
+                continue
+            value = values[parameter.parameter_id]
+            if value is None:
+                continue
+            try:
+                _validate_parameter(parameter, value)
+            except (TypeError, ValueError) as exc:
+                errors.append(f"{parameter.display_name}: {exc}")
+        return tuple(errors)
 
     def parameter(self, parameter_id: str) -> EngineeringParameterDefinition:
         for parameter in self.parameter_definitions:

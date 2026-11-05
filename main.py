@@ -11,7 +11,8 @@ import sys
 from collections.abc import Callable
 from uuid import uuid4
 
-from core.application.bootstrap import create_application
+from core.application.bootstrap import create_application, recover_application
+from core.application.recovery import ApplicationRecoveryComposition
 from core.application import Application
 from core.application.errors import ExecutionError
 from core.application.events import ProjectLoaded
@@ -1450,6 +1451,198 @@ def build_application() -> tuple[QApplication, MainWindow, PluginManager, Worksp
     resources: dict[str, object] = {}
     try: return _build_application_impl(resources)
     except BaseException: _cleanup_startup_failure(resources); raise
+
+
+
+def recover_application_shell(
+    current_shell: tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle],
+    project_path: str,
+) -> tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle]:
+    """Replace a degraded UI/Application composition from its canonical package.
+
+    The current shell remains visible and untouched until a fully composed,
+    synchronized, and identity-validated candidate is ready to be shown.
+    """
+    if not isinstance(current_shell, tuple) or len(current_shell) != 6:
+        raise TypeError("current_shell must be the six-item build_application() result.")
+    current_app, current_window, current_plugins, current_workspace, current_boundary, current_lifecycle = current_shell
+    current_resources = getattr(current_window, "_gridforge_resources", None)
+    if not isinstance(current_resources, dict):
+        raise RuntimeError("The active shell does not expose its owned composition resources.")
+    degraded_application = current_resources.get("application")
+    if not isinstance(degraded_application, Application):
+        raise RuntimeError("The active shell does not retain its authoritative Application.")
+
+    candidate_resources: dict[str, object] = {}
+    candidate_shell: dict[str, object] = {}
+
+    def configure_replacement(replacement: Application) -> None:
+        if not isinstance(replacement, Application):
+            raise TypeError("Recovery replacement must be an Application.")
+        bundle = _build_application_impl(
+            candidate_resources,
+            application_override=replacement,
+            staging_project_id=f"recovery-staging-{uuid4().hex}",
+            show_window=False,
+        )
+        if bundle[0] is not current_app:
+            raise RuntimeError("Recovery candidate did not reuse the active QApplication.")
+        candidate_shell["bundle"] = bundle
+        adapter = candidate_resources.get("project_workspace_adapter")
+        if not isinstance(adapter, ProjectWorkspaceApplicationAdapter):
+            raise RuntimeError("Recovery candidate has no canonical project workspace adapter.")
+
+    def synchronize_replacement(replacement: Application, context: object) -> None:
+        if candidate_resources.get("application") is not replacement:
+            raise RuntimeError("Recovery candidate resources are bound to another Application.")
+        adapter = candidate_resources.get("project_workspace_adapter")
+        if not isinstance(adapter, ProjectWorkspaceApplicationAdapter):
+            raise RuntimeError("Recovery candidate workspace adapter is unavailable.")
+        adapter.publish_recovered_project(context)
+
+    def validate_replacement(replacement: Application, context: object) -> None:
+        resources = candidate_resources
+        lifecycle = resources.get("project_workspace_lifecycle")
+        adapter = resources.get("project_workspace_adapter")
+        sld_controller = resources.get("sld_controller")
+        surface_host = resources.get("workspace_surface_host")
+        canvas_composition = resources.get("canvas_composition")
+        engineering_context = resources.get("engineering_context")
+        if not isinstance(lifecycle, ProjectWorkspaceLifecycle):
+            raise RuntimeError("Candidate ProjectWorkspaceLifecycle is unavailable.")
+        if not isinstance(adapter, ProjectWorkspaceApplicationAdapter):
+            raise RuntimeError("Candidate workspace adapter is unavailable.")
+        if not isinstance(sld_controller, SLDController):
+            raise RuntimeError("Candidate SLDController is unavailable.")
+        if not isinstance(engineering_context, EngineeringContextStore):
+            raise RuntimeError("Candidate engineering context is unavailable.")
+        if surface_host is None:
+            raise RuntimeError("Candidate workspace surface host is unavailable.")
+        if canvas_composition is None or getattr(canvas_composition, "surface", None) is None:
+            raise RuntimeError("Candidate SLD canvas surface is unavailable.")
+
+        active = replacement.presentation
+        documents = tuple(lifecycle.documents.documents())
+        configuration = replacement.project_lifecycle.capture_presentation_configuration()
+        collection_provider = configuration.collection_snapshot_provider
+        if not callable(collection_provider):
+            raise RuntimeError("Candidate presentation collection snapshot provider is unavailable.")
+        collection = collection_provider()
+        collection_documents = tuple(collection.documents)
+        document_ids = tuple(document.document_id for document in documents)
+        collection_ids = tuple(document.document_id for document in collection_documents)
+        if not documents or document_ids != collection_ids:
+            raise RuntimeError("Candidate DocumentManager does not match the restored collection order.")
+        if lifecycle.documents.active_document is not active:
+            raise RuntimeError("Candidate DocumentManager active document is not Application.presentation.")
+        if collection.active_document is not active or collection.active_document_id != active.document_id:
+            raise RuntimeError("Candidate restored collection active identity is inconsistent.")
+        if any(document.project_id != context.project_id for document in documents):
+            raise RuntimeError("Candidate DocumentManager retains a document from another project.")
+
+        views = tuple(lifecycle.views.views())
+        expected_view_ids = {f"{document.document_id}:sld" for document in documents}
+        actual_view_ids = {view.view_id for view in views}
+        if actual_view_ids != expected_view_ids:
+            raise RuntimeError("Candidate logical SLD views do not exactly cover the restored documents.")
+        if any(
+            view.document_id not in document_ids
+            or view.view_id != f"{view.document_id}:sld"
+            or view.view_type != "sld"
+            for view in views
+        ):
+            raise RuntimeError("Candidate logical SLD view references an unknown document or view type.")
+        active_view = lifecycle.active_view
+        if (
+            active_view is None
+            or active_view.view_id != f"{active.document_id}:sld"
+            or active_view.document_id != active.document_id
+        ):
+            raise RuntimeError("Candidate active logical view does not match the restored active document.")
+
+        if sld_controller.active_document is not active:
+            raise RuntimeError("Candidate SLDController is not bound to the restored active document.")
+        if replacement.sld_service.document is not active:
+            raise RuntimeError("Candidate SLDService is not bound to the restored active document.")
+        if getattr(surface_host, "sld_document", None) is not active:
+            raise RuntimeError("Candidate workspace surface is not displaying the restored active document.")
+        canvas_surface = canvas_composition.surface
+        if getattr(canvas_surface, "document_id", None) != active.document_id:
+            raise RuntimeError("Candidate SLD canvas surface is not displaying the restored active document.")
+        canvas_snapshot = getattr(canvas_surface, "sld_canvas_snapshot", None)
+        projected_node_ids = tuple(node.node_id for node in canvas_snapshot.nodes) if canvas_snapshot is not None else ()
+        projected_connection_ids = tuple(connection.connection_id for connection in canvas_snapshot.connections) if canvas_snapshot is not None else ()
+        model_node_ids = tuple(node.node_id for node in active.model.nodes)
+        model_connection_ids = tuple(connection.connection_id for connection in active.model.connections)
+        if (
+            canvas_snapshot is None
+            or projected_node_ids != model_node_ids
+            or projected_connection_ids != model_connection_ids
+        ):
+            raise RuntimeError("Candidate SLD canvas projection does not match the restored document model.")
+
+        current = engineering_context.current
+        if current.project_id != context.project_id or current.document_id != active.document_id:
+            raise RuntimeError("Candidate engineering context does not match the restored project/document.")
+        state = adapter.state
+        if state.project is None or state.project.project_id != context.project_id or state.document is not active:
+            raise RuntimeError("Candidate workspace adapter state does not match the restored project/document.")
+        if state.view_id != active_view.view_id or state.workspace_id is None:
+            raise RuntimeError("Candidate workspace state has no matching active view/workspace.")
+
+    def commit_replacement(_replacement: Application) -> None:
+        bundle = candidate_shell.get("bundle")
+        if not isinstance(bundle, tuple) or len(bundle) != 6:
+            raise RuntimeError("Recovery candidate shell was not completely constructed.")
+        candidate_app, candidate_window = bundle[0], bundle[1]
+        candidate_window.show()
+        candidate_app.processEvents()
+        if not candidate_window.isVisible():
+            raise RuntimeError("Recovery candidate window did not become visible; retaining the old shell.")
+        current_window.hide()
+
+    def dispose_replacement(_replacement: Application) -> None:
+        # Startup cleanup owns only candidate resources and never shuts down
+        # QApplication, which is shared with the still-active old shell.
+        _cleanup_startup_failure(candidate_resources)
+
+    composition = ApplicationRecoveryComposition(
+        configure_replacement=configure_replacement,
+        synchronize_replacement=synchronize_replacement,
+        validate_replacement=validate_replacement,
+        commit_replacement=commit_replacement,
+        dispose_replacement=dispose_replacement,
+    )
+    replacement = recover_application(
+        degraded_application,
+        project_path,
+        recovery_composition=composition,
+    )
+    bundle = candidate_shell.get("bundle")
+    if not isinstance(bundle, tuple) or len(bundle) != 6:
+        raise RuntimeError("Recovery returned without a candidate shell bundle.")
+
+    # Preserve the degraded Application as a read-only diagnostic reference;
+    # dispose only its UI resources after the candidate has been revealed.
+    setattr(bundle[1], "_recovered_from_application", degraded_application)
+    old_sld_controller = current_resources.get("sld_controller")
+    if isinstance(old_sld_controller, SLDController):
+        old_sld_controller.dispose()
+    try:
+        _shutdown_components(
+            ui_lifecycle=current_lifecycle,
+            workspace_controller=current_workspace,
+            ui_update_boundary=current_boundary,
+            plugin_manager=current_plugins,
+            engineering_plugin_host=current_resources.get("engineering_plugin_host"),
+            motor_dynamics_dashboard=current_resources.get("motor_dynamics_dashboard"),
+        )
+    except BaseException:
+        logging.getLogger(__name__).exception(
+            "Recovered shell is active, but old-shell resource teardown reported an error."
+        )
+    current_window.deleteLater()
+    return bundle
 
 
 def main() -> int:
