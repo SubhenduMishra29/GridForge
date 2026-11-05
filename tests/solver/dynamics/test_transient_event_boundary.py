@@ -1,6 +1,6 @@
 import numpy as np
 
-from core.solver.dynamics import DAESolver, Integrator, MultiMachineSystem, TransientStabilitySolver
+from core.solver.dynamics import DAESolver, Integrator, MultiMachineSystem, TransientStabilityError, TransientStabilitySolver
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 
 
@@ -37,3 +37,11 @@ def test_event_inside_step_is_applied_at_exact_boundary_before_recording_voltage
     assert result.terminal_voltages[boundary_index]["B1"] == 0.5 + 0.0j
     assert any(np.isclose(time, 0.15) for time in observed_times)
     assert result.events[0].event_id == "fault-on"
+    assert np.all(np.diff(result.time) > 0.0)
+    assert len(result.discontinuities) == 1
+    boundary = result.discontinuities[0]
+    assert boundary.time == 0.15
+    assert boundary.event_ids == ("fault-on",)
+    assert boundary.pre_terminal_voltages["B1"] == 1.0 + 0.0j
+    assert boundary.post_terminal_voltages["B1"] == 0.5 + 0.0j
+    assert boundary.post_status == "succeeded"
