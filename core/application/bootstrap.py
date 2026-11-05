@@ -45,6 +45,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .protection_execution_audit import ProtectionExecutionAuditStore
 from .control_dispatch import ControlTripBatchCommand
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
@@ -277,12 +278,16 @@ def create_application(
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
     command_manager, read_service, validation_service = build_runtime(network)
+    protection_execution_audit_store = ProtectionExecutionAuditStore(
+        Path.home() / ".gridforge" / "audit" / "protection-execution.sqlite3"
+    )
     application = Application(
         command_manager=command_manager,
         read_service=read_service,
         validation_service=validation_service,
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
+        protection_execution_audit_store=protection_execution_audit_store,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
     # Study outputs are durable execution artifacts, stored outside the
