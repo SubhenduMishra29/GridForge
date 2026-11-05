@@ -23,6 +23,74 @@ class TransientStabilityError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class TransientDiscontinuity:
+    """Immutable pre/post electrical sides of one effective event batch."""
+
+    time: float
+    event_ids: tuple[str, ...]
+    event_executions: tuple[EventExecution, ...]
+    pre_state: np.ndarray
+    pre_terminal_voltages: Mapping[str, complex]
+    pre_electrical_powers: Mapping[str, tuple[float, float]]
+    pre_algebraic_quality: AlgebraicNetworkSolution | None
+    pre_topology_revision: int | None
+    post_state: np.ndarray | None
+    post_terminal_voltages: Mapping[str, complex] | None
+    post_electrical_powers: Mapping[str, tuple[float, float]] | None
+    post_algebraic_quality: AlgebraicNetworkSolution | None
+    post_topology_revision: int | None
+    post_status: str
+
+    def __post_init__(self) -> None:
+        time = float(self.time)
+        if not math.isfinite(time) or time < 0.0:
+            raise ValueError("Discontinuity time must be finite and non-negative.")
+        executions = tuple(self.event_executions)
+        if not executions or any(not isinstance(item, EventExecution) for item in executions):
+            raise TypeError("A discontinuity must retain its non-empty canonical event execution batch.")
+        ids = tuple(str(value) for value in self.event_ids)
+        if ids != tuple(item.event_id for item in executions):
+            raise ValueError("Discontinuity event IDs must match ordered event executions.")
+        if self.post_status not in {"succeeded", "dispatch_failed", "post_evaluation_failed"}:
+            raise ValueError("Unsupported discontinuity post-state status.")
+        pre_state = np.asarray(self.pre_state, dtype=float).copy()
+        if pre_state.ndim != 1 or not np.all(np.isfinite(pre_state)):
+            raise ValueError("Discontinuity pre-state must be a finite vector.")
+        post_state = None if self.post_state is None else np.asarray(self.post_state, dtype=float).copy()
+        if post_state is not None and (post_state.ndim != 1 or not np.all(np.isfinite(post_state))):
+            raise ValueError("Discontinuity post-state must be a finite vector.")
+        pre_quality = self.pre_algebraic_quality
+        if pre_quality is not None and not isinstance(pre_quality, AlgebraicNetworkSolution):
+            raise TypeError("Pre-event algebraic quality must be canonical.")
+        post_quality = self.post_algebraic_quality
+        if post_quality is not None and not isinstance(post_quality, AlgebraicNetworkSolution):
+            raise TypeError("Post-event algebraic quality must be canonical.")
+        if self.post_status == "succeeded":
+            if post_state is None or self.post_terminal_voltages is None or self.post_electrical_powers is None or post_quality is None:
+                raise ValueError("Successful discontinuities require a complete post-event DAE solution.")
+        elif post_state is not None or self.post_terminal_voltages is not None or self.post_electrical_powers is not None or post_quality is not None:
+            raise ValueError("Failed discontinuities cannot claim a post-event DAE solution.")
+        for value in (pre_state, post_state):
+            if value is not None:
+                value.setflags(write=False)
+        object.__setattr__(self, "time", time)
+        object.__setattr__(self, "event_ids", ids)
+        object.__setattr__(self, "event_executions", executions)
+        object.__setattr__(self, "pre_state", pre_state)
+        object.__setattr__(self, "pre_terminal_voltages", MappingProxyType({str(k): complex(v) for k, v in self.pre_terminal_voltages.items()}))
+        object.__setattr__(self, "pre_electrical_powers", MappingProxyType({str(k): (float(v[0]), float(v[1])) for k, v in self.pre_electrical_powers.items()}))
+        object.__setattr__(self, "post_state", post_state)
+        if self.post_terminal_voltages is not None:
+            object.__setattr__(self, "post_terminal_voltages", MappingProxyType({str(k): complex(v) for k, v in self.post_terminal_voltages.items()}))
+        if self.post_electrical_powers is not None:
+            object.__setattr__(self, "post_electrical_powers", MappingProxyType({str(k): (float(v[0]), float(v[1])) for k, v in self.post_electrical_powers.items()}))
+        if self.pre_topology_revision is not None and self.pre_topology_revision < 0:
+            raise ValueError("Pre-event topology revision must be non-negative.")
+        if self.post_topology_revision is not None and self.post_topology_revision < 0:
+            raise ValueError("Post-event topology revision must be non-negative.")
+
+
+@dataclass(frozen=True, slots=True)
 class TransientStabilityResult:
     """Immutable coherent time/state/output samples."""
 
@@ -33,6 +101,7 @@ class TransientStabilityResult:
     events: tuple[EventExecution, ...] = ()
     provenance: Mapping[str, object] = field(default_factory=dict)
     algebraic_quality: tuple[AlgebraicNetworkSolution, ...] = ()
+    discontinuities: tuple[TransientDiscontinuity, ...] = ()
 
     def __post_init__(self) -> None:
         time = np.asarray(self.time, dtype=float).copy()
@@ -65,6 +134,11 @@ class TransientStabilityResult:
             raise TypeError("Transient terminal-voltage samples must be mappings.")
         if any(not isinstance(sample, Mapping) for sample in self.electrical_powers):
             raise TypeError("Transient electrical-power samples must be mappings.")
+        discontinuities = tuple(self.discontinuities)
+        if any(not isinstance(item, TransientDiscontinuity) for item in discontinuities):
+            raise TypeError("Transient discontinuities must be canonical TransientDiscontinuity records.")
+        if any(any(np.isclose(item.time, sample, rtol=0.0, atol=1e-12) for sample in time) is False for item in discontinuities):
+            raise ValueError("Every discontinuity must correspond to a base-trajectory boundary time.")
         events = tuple(self.events)
         if any(not isinstance(event, EventExecution) for event in events):
             raise TypeError("Transient result events must contain canonical EventExecution records.")
@@ -86,6 +160,7 @@ class TransientStabilityResult:
         object.__setattr__(self, "electrical_powers", immutable_powers)
         object.__setattr__(self, "algebraic_quality", tuple(self.algebraic_quality))
         object.__setattr__(self, "events", events)
+        object.__setattr__(self, "discontinuities", discontinuities)
         object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
 
     @property
