@@ -308,7 +308,7 @@ class EventTransition:
         target_kind = value.get("target_kind")
         target_id = value.get("target_id")
         if target_id is None:
-            for key, kind in (("switch_id", "switch"), ("equipment_id", "equipment"), ("fault_id", "fault")):
+            for key, kind in (("switch_id", "switch"), ("equipment_id", "equipment"), ("fault_id", "fault"), ("fault_bus_id", "fault")):
                 if value.get(key) is not None:
                     target_id = str(value[key])
                     if target_kind is None:
