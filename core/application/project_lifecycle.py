@@ -435,6 +435,7 @@ class ProjectLifecycleService:
                 "applied to the active project's baseline."
             )
         if self._protection_snapshot_provider is not None:
+            comparison_succeeded = False
             try:
                 current_protection_snapshot = self._protection_snapshot_provider(
                     context.project_id, starting_generation
@@ -442,11 +443,12 @@ class ProjectLifecycleService:
                 self._validate_protection_snapshot(
                     current_protection_snapshot, context.project_id, starting_generation
                 )
+                comparison_succeeded = True
             except Exception:
                 current_protection_snapshot = None
             # Advance the saved baseline only when the exact revision and
             # activation that were written are still current after I/O.
-            if current_protection_snapshot == protection_snapshot:
+            if comparison_succeeded and current_protection_snapshot == protection_snapshot:
                 self._protection_saved_snapshot = protection_snapshot
         if collection is not None:
             # A save only establishes a clean baseline for the exact collection
