@@ -22056,3 +22056,19 @@ V2 Protection Properties projection target routing:
   project ID and activation generation match. Runtime cycle telemetry and
   unrelated relay changes do not refresh the selected Properties target.
 - Static source inspection only; no tests or CI run.
+
+V2 collection-wide SLD validation:
+- Application.validate_project() now obtains the canonical project presentation
+  collection snapshot and validates every persisted SLD document, not only
+  Application.presentation. Collection membership, active-document identity,
+  document project ownership and collection-provider failures are surfaced as
+  fail-closed diagnostics.
+- SLDService.audit_simple_wire_projection() accepts an explicit document for
+  read-only audit, resolving endpoint node identities against that document
+  while retaining the active-document default for existing callers.
+- ValidationService aggregates node/orphan and Simple-Wire/Core endpoint
+  diagnostics across the collection and prefixes document identity so
+  same-named connection/node IDs in separate SLD documents remain traceable.
+- Core topology validation remains authoritative for terminal and Bus
+  attachment contracts; SLD audit remains read-only.
+- Static source inspection only; no tests or CI run.
