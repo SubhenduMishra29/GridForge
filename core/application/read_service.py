@@ -1676,31 +1676,32 @@ class StudyReadService:
                                 right_post_topology_revision=right_boundary.post_topology_revision,
                                 signals=boundary_signals,
                             ))
-                for signal in sorted(left_transient.signals, key=lambda item: item.signal_id):
-                    other = right_signals[signal.signal_id]
-                    deltas.append(TransientSignalDeltaReadModel(
-                        signal_id=signal.signal_id,
-                        unit=signal.unit,
-                        left_values=signal.values,
-                        right_values=other.values,
-                        deltas=tuple(b - a for a, b in zip(signal.values, other.values)),
-                    ))
-                right_by_key = {event_key(event): event for event in right_transient.events}
-                for event in left_transient.events:
-                    key = event_key(event)
-                    transition = event.transition
-                    peer = right_by_key[key]
-                    event_matches.append(TransientSemanticEventMatchReadModel(
-                        semantic_key=key,
-                        left_event_id=event.event_id,
-                        right_event_id=peer.event_id,
-                        event_time_s=event.scheduled_time,
-                        transition_type=str(transition["transition_type"]),
-                        target_kind=str(transition["target_kind"]),
-                        target_id=str(transition["target_id"]),
-                        previous_state=transition.get("previous_state"),
-                        new_state=transition.get("new_state"),
-                    ))
+                if not diagnostics:
+                    for signal in sorted(left_transient.signals, key=lambda item: item.signal_id):
+                        other = right_signals[signal.signal_id]
+                        deltas.append(TransientSignalDeltaReadModel(
+                            signal_id=signal.signal_id,
+                            unit=signal.unit,
+                            left_values=signal.values,
+                            right_values=other.values,
+                            deltas=tuple(b - a for a, b in zip(signal.values, other.values)),
+                        ))
+                    right_by_key = {event_key(event): event for event in right_transient.events}
+                    for event in left_transient.events:
+                        key = event_key(event)
+                        transition = event.transition
+                        peer = right_by_key[key]
+                        event_matches.append(TransientSemanticEventMatchReadModel(
+                            semantic_key=key,
+                            left_event_id=event.event_id,
+                            right_event_id=peer.event_id,
+                            event_time_s=event.scheduled_time,
+                            transition_type=str(transition["transition_type"]),
+                            target_kind=str(transition["target_kind"]),
+                            target_id=str(transition["target_id"]),
+                            previous_state=transition.get("previous_state"),
+                            new_state=transition.get("new_state"),
+                        ))
             compatible_transient = not diagnostics
             return StudyResultComparisonReadModel(
                 left=left,
