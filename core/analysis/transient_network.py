@@ -155,6 +155,8 @@ class PreparedTransientStability:
     model_types: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
     base_mva: float | None = None
     bus_voltage_bases_kv: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+    nominal_frequency_hz: float | None = None
+    canonical_topology_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -182,6 +184,16 @@ class PreparedTransientStability:
         if any(not np.isfinite(value) or value <= 0.0 for value in voltage_bases.values()):
             raise ValueError("Prepared transient voltage bases must be positive and finite.")
         object.__setattr__(self, "bus_voltage_bases_kv", MappingProxyType(voltage_bases))
+        if self.nominal_frequency_hz is not None:
+            frequency = float(self.nominal_frequency_hz)
+            if not np.isfinite(frequency) or frequency <= 0.0:
+                raise ValueError("Prepared transient nominal frequency must be positive and finite.")
+            object.__setattr__(self, "nominal_frequency_hz", frequency)
+        if self.canonical_topology_fingerprint is not None:
+            fingerprint = str(self.canonical_topology_fingerprint).strip()
+            if len(fingerprint) != 64 or any(character not in "0123456789abcdef" for character in fingerprint):
+                raise ValueError("Prepared canonical topology fingerprint must be a lowercase SHA-256 digest.")
+            object.__setattr__(self, "canonical_topology_fingerprint", fingerprint)
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
         if self.network.project_id != self.project_id:
             raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
@@ -296,6 +308,8 @@ class PreparedTransientStability:
             "topology_revision": self.network.topology_revision,
             "power_base_mva": self.base_mva,
             "bus_voltage_bases_kv": MappingProxyType(dict(self.bus_voltage_bases_kv)),
+            "nominal_frequency_hz": self.nominal_frequency_hz,
+            "canonical_topology_fingerprint": self.canonical_topology_fingerprint,
             "prepared_network_topology_fingerprint": MappingProxyType({
                 "schema_version": 1,
                 "algorithm": "sha256",
@@ -466,6 +480,8 @@ class PreparedTransientStability:
             {definition.machine_id: definition.model_type for definition in definitions},
             prepared_power_flow.base_mva,
             prepared_power_flow.bus_voltage_bases,
+            prepared_power_flow.nominal_frequency_hz,
+            prepared_power_flow.canonical_topology_fingerprint,
         )
 
 
