@@ -654,14 +654,15 @@ def create_application(
         project_state_activator=activate_project_state,
         project_state_validator=validate_project_candidate,
     )
-    lifecycle.configure_protection_snapshot_provider(
-        lambda project_id, generation: (
-            protection_configuration_service.configuration.create_snapshot(generation)
-            if protection_configuration_service.configuration is not None
-            and protection_configuration_service.configuration.project_id == project_id
-            else None
-        )
-    )
+    def protection_snapshot_for_project(project_id: str, generation: int):
+        configuration = protection_configuration_service.configuration
+        if configuration is None:
+            raise RuntimeError("Active project Protection configuration is unavailable.")
+        if configuration.project_id != project_id:
+            raise RuntimeError("Active Protection configuration belongs to a different project.")
+        return configuration.create_snapshot(generation)
+
+    lifecycle.configure_protection_snapshot_provider(protection_snapshot_for_project)
     application.attach_project_lifecycle(lifecycle)
     application.revision_service.initialize_from_network(
         topology_revision=network.state.topology_revision,
