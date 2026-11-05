@@ -1545,10 +1545,19 @@ def recover_application_shell(
         actual_view_ids = {view.view_id for view in views}
         if actual_view_ids != expected_view_ids:
             raise RuntimeError("Candidate logical SLD views do not exactly cover the restored documents.")
-        if any(view.document_id not in document_ids or view.view_type != "sld" for view in views):
+        if any(
+            view.document_id not in document_ids
+            or view.view_id != f"{view.document_id}:sld"
+            or view.view_type != "sld"
+            for view in views
+        ):
             raise RuntimeError("Candidate logical SLD view references an unknown document or view type.")
         active_view = lifecycle.active_view
-        if active_view is None or active_view.view_id != f"{active.document_id}:sld":
+        if (
+            active_view is None
+            or active_view.view_id != f"{active.document_id}:sld"
+            or active_view.document_id != active.document_id
+        ):
             raise RuntimeError("Candidate active logical view does not match the restored active document.")
 
         if sld_controller.active_document is not active:
@@ -1561,9 +1570,14 @@ def recover_application_shell(
         if getattr(canvas_surface, "document_id", None) != active.document_id:
             raise RuntimeError("Candidate SLD canvas surface is not displaying the restored active document.")
         canvas_snapshot = getattr(canvas_surface, "sld_canvas_snapshot", None)
-        if canvas_snapshot is None or (
-            len(canvas_snapshot.nodes) != len(active.model.nodes)
-            or len(canvas_snapshot.connections) != len(active.model.connections)
+        projected_node_ids = tuple(node.node_id for node in canvas_snapshot.nodes) if canvas_snapshot is not None else ()
+        projected_connection_ids = tuple(connection.connection_id for connection in canvas_snapshot.connections) if canvas_snapshot is not None else ()
+        model_node_ids = tuple(node.node_id for node in active.model.nodes)
+        model_connection_ids = tuple(connection.connection_id for connection in active.model.connections)
+        if (
+            canvas_snapshot is None
+            or projected_node_ids != model_node_ids
+            or projected_connection_ids != model_connection_ids
         ):
             raise RuntimeError("Candidate SLD canvas projection does not match the restored document model.")
 
