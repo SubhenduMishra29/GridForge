@@ -151,7 +151,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
                 event_type="switch_operation",
                 time=0.01,
                 scheduled_time=0.01,
-                dispatch_time=0.0101,
+                dispatch_time=0.0101 + offset,
                 status=event_status,
                 failure_type="dispatch_error" if event_status == "failed" else None,
                 failure_message="dispatch rejected" if event_status == "failed" else None,
@@ -315,6 +315,11 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     assert len(event_comparison.transient_event_matches) == 1
     assert event_comparison.transient_event_matches[0].left_event_id == "left-event"
     assert event_comparison.transient_event_matches[0].right_event_id == "right-event"
+    event_match = event_comparison.transient_event_matches[0]
+    assert event_match.event_time_s == 0.01
+    assert event_match.left_dispatch_time_s == 0.0101
+    assert event_match.right_dispatch_time_s == 0.1101
+    assert event_match.dispatch_delta_s == 0.1
     assert len(event_comparison.transient_discontinuity_deltas) == 1
     boundary = event_comparison.transient_discontinuity_deltas[0]
     assert boundary.signals[0].pre_delta == 0.1
