@@ -22,6 +22,7 @@ from ui.core.qt import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    Qt,
 )
 
 
@@ -89,15 +90,19 @@ class MapWorkspaceView(QWidget):
 
 
 class ReportsWorkspaceView(QWidget):
-    """Project published Application study results without creating a result authority."""
+    """Project published results and selectable archived transient runs."""
 
     def __init__(self, application: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._application = application
         self._list = QListWidget(self)
+        self._archive_list = QListWidget(self)
+        self._archive_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Study Reports", self))
         layout.addWidget(self._list)
+        layout.addWidget(QLabel("Archived transient runs — select exactly two to export a comparison", self))
+        layout.addWidget(self._archive_list)
         self.refresh()
 
     def refresh(self) -> None:
@@ -105,12 +110,31 @@ class ReportsWorkspaceView(QWidget):
         results = tuple(self._application.read_study_results())
         if not results:
             self._list.addItem("No published study results.")
-            return
-        for result in results:
-            self._list.addItem(
-                f"{result.study_type} — {result.status} — "
-                f"{result.message or 'No message'}"
+        else:
+            for result in results:
+                self._list.addItem(
+                    f"{result.study_type} — {result.status} — "
+                    f"{result.message or 'No message'}"
+                )
+        self._archive_list.clear()
+        archived = tuple(self._application.read_archived_study_results(study_type="transient_stability"))
+        for record in archived:
+            self._archive_list.addItem(
+                f"{record.saved_at} — {record.status} — {record.record_id}"
             )
+            item = self._archive_list.item(self._archive_list.count() - 1)
+            item.setData(Qt.ItemDataRole.UserRole, str(record.record_id))
+
+    def selected_archived_record_ids(self) -> tuple[str, ...]:
+        """Return selected archive UUIDs in visible row order."""
+        selected = []
+        for index in range(self._archive_list.count()):
+            item = self._archive_list.item(index)
+            if item.isSelected():
+                value = item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(value, str) and value.strip():
+                    selected.append(value)
+        return tuple(selected)
 
 
 class EngineeringWorkspaceTabs(QWidget):
