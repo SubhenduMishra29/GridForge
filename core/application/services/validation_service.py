@@ -126,29 +126,45 @@ class ValidationService:
                 "ENDPOINT_MISMATCH": "SLD_CONNECTION_ENDPOINT_MISMATCH",
                 "CORE_WIRE_WITHOUT_SLD_COMPANION": "SLD_CORE_WIRE_WITHOUT_SLD_COMPANION",
                 "SLD_ENDPOINT_NODE_UNRESOLVED": "SLD_ENDPOINT_NODE_UNRESOLVED",
+                "SLD_CONNECTION_AUDIT_UNAVAILABLE": "SLD_CONNECTION_AUDIT_UNAVAILABLE",
+                "SLD_PRESENTATION_COLLECTION_UNAVAILABLE": "SLD_PRESENTATION_COLLECTION_UNAVAILABLE",
+                "SLD_ACTIVE_PRESENTATION_NOT_IN_COLLECTION": "SLD_ACTIVE_PRESENTATION_NOT_IN_COLLECTION",
+                "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH": "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH",
+                "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED": "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED",
+                "SLD_DOCUMENT_PROJECT_MISMATCH": "SLD_DOCUMENT_PROJECT_MISMATCH",
             }.get(source_code, "SLD_CONNECTION_AUDIT_FAILED")
             connection_id = diagnostic.get("connection_id")
             core_connection_id = diagnostic.get("core_connection_id")
             reason = diagnostic.get("reason")
             document_id = diagnostic.get("document_id")
-            identity_prefix = f"SLD document {document_id!r}, " if document_id is not None else ""
-            identity = (
-                f"{identity_prefix}connection {connection_id!r}"
-                if connection_id is not None
-                else f"{identity_prefix}SLD/Core connection association"
-            )
-            details = []
-            if core_connection_id is not None:
-                details.append(f"Core connection {core_connection_id!r}")
-            if reason:
-                details.append(str(reason))
-            suffix = f" ({'; '.join(details)})" if details else ""
+            identity_prefix = f"SLD document {document_id!r}: " if document_id is not None else ""
+            if source_code in {
+                "SLD_PRESENTATION_COLLECTION_UNAVAILABLE",
+                "SLD_ACTIVE_PRESENTATION_NOT_IN_COLLECTION",
+                "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH",
+                "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED",
+                "SLD_DOCUMENT_PROJECT_MISMATCH",
+            }:
+                message = f"{identity_prefix}presentation collection integrity failed: {reason or source_code}."
+            else:
+                identity = (
+                    f"{identity_prefix}connection {connection_id!r}"
+                    if connection_id is not None
+                    else f"{identity_prefix}Simple-Wire/Core connection association"
+                )
+                details = []
+                if core_connection_id is not None:
+                    details.append(f"Core connection {core_connection_id!r}")
+                if reason:
+                    details.append(str(reason))
+                suffix = f" ({'; '.join(details)})" if details else ""
+                message = f"{identity} failed semantic association validation{suffix}."
             issues.append(ValidationIssue(
                 code=issue_code,
-                message=f"{identity} failed semantic association validation{suffix}.",
+                message=message,
                 severity=ValidationSeverity.ERROR,
                 element_id=str(connection_id or core_connection_id) if (connection_id or core_connection_id) else None,
-                element_type="SLD_CONNECTION",
+                element_type="SLD_CONNECTION" if connection_id is not None or core_connection_id is not None else "SLD_DOCUMENT",
             ))
 
         if self._network.topology_dirty:
