@@ -317,7 +317,7 @@ class EventTransition:
         known = {
             "transition_type", "target_kind", "target_id", "previous_state", "new_state",
             "source_topology_revision", "pre_event_revision", "post_event_revision",
-            "detached_network_revision", "switch_id", "equipment_id", "fault_id",
+            "switch_id", "equipment_id", "fault_id",
             "previous_fault_active", "new_fault_active",
         }
         previous_state = value.get("previous_state", value.get("previous_fault_active"))
