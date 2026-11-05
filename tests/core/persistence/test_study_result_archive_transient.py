@@ -357,3 +357,35 @@ def test_schema_v3_rejects_unknown_transient_result_fields(tmp_path):
 
     with pytest.raises(StudyResultArchiveError, match="TransientStabilityResult fields"):
         archive.load_all(original.project_id)
+
+
+def test_schema_v3_migrates_transient_result_without_discontinuity_collection(tmp_path):
+    archive = StudyResultArchive(tmp_path)
+    original = _study_result(_transient_result())
+    archive.save(original)
+    record_path = next(tmp_path.rglob("*.json"))
+    envelope = json.loads(record_path.read_text(encoding="utf-8"))
+    envelope["schema_version"] = 3
+    envelope["payload"]["value"]["fields"].pop("discontinuities")
+    unsigned = {key: envelope[key] for key in ("format", "schema_version", "record_id", "saved_at", "payload")}
+    envelope["record_sha256"] = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
+    record_path.write_bytes(_canonical_json(envelope))
+    restored = archive.load_latest(original.project_id, original.activation_generation, original.study_id)
+    assert restored is not None
+    assert isinstance(restored.result.value, TransientStabilityResult)
+    assert restored.result.value.discontinuities == ()
+
+
+def test_schema_v4_rejects_unknown_discontinuity_fields(tmp_path):
+    archive = StudyResultArchive(tmp_path)
+    original = _study_result(_transient_result())
+    archive.save(original)
+    record_path = next(tmp_path.rglob("*.json"))
+    envelope = json.loads(record_path.read_text(encoding="utf-8"))
+    discontinuity = envelope["payload"]["value"]["fields"]["discontinuities"][0]
+    discontinuity["fields"]["unexpected"] = "must fail closed"
+    unsigned = {key: envelope[key] for key in ("format", "schema_version", "record_id", "saved_at", "payload")}
+    envelope["record_sha256"] = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
+    record_path.write_bytes(_canonical_json(envelope))
+    with pytest.raises(StudyResultArchiveError, match="TransientDiscontinuity fields"):
+        archive.load_all(original.project_id)
