@@ -22313,3 +22313,40 @@ Verification:
 Related:
 - Issue #1003 — relay configuration projection and inspector workflow.
 ======================================================================
+
+
+======================================================================
+V2 PHYSICAL RELAY CONFIGURATION INSPECTOR
+======================================================================
+
+Date:
+    2026-11-05
+
+Correction:
+- The dedicated Protection inspector now exposes the supported physical
+  Relay fields (name, in-service, enabled and blocked) when the physical
+  Relay itself is selected. These controls are distinct from per-element
+  ANSI function settings.
+- Added an Application facade update method that compares the submitted
+  values with the immutable physical Relay read model and dispatches only
+  changed fields through UpdateRelayCommand. RelayModelService remains the
+  mutation and validation authority; transaction and undo behavior are
+  preserved.
+- Opaque plugin-specific Relay settings remain inspectable and read-only
+  until a plugin supplies a typed setting schema. Runtime pickup/trip state
+  is not exposed as editable configuration.
+
+Architecture boundary:
+- UI submits through the Application facade and does not mutate Core Relay
+  objects or plugin settings mappings.
+- Function settings continue to use the separate Protection configuration
+  command path. Generic Properties remains a summary projection.
+
+Verification:
+- Static source inspection of the Relay command, handler, model service,
+  read model and Protection inspector integration.
+- No tests or CI were run, per repository instruction.
+
+Related:
+- Issue #1003 — relay configuration projection and inspector workflow.
+======================================================================
