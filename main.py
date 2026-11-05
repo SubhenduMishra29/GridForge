@@ -88,6 +88,9 @@ def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
 
 def _cleanup_startup_failure(resources: dict[str, object]) -> None:
     errors: list[BaseException] = []
+    window = resources.get("window")
+    if isinstance(window, MainWindow):
+        _invoke_cleanup(window.hide, errors)
     sld_controller = resources.get("sld_controller")
     if isinstance(sld_controller, SLDController):
         _invoke_cleanup(sld_controller.dispose, errors)
@@ -181,6 +184,7 @@ def _build_application_impl(
     )
     startup_splash.status("Initializing SLD presentation…")
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
+    resources["sld_projection_manager"] = sld_projection_manager
 
     def serialize_sld(document: SLDDocument) -> dict:
         if not isinstance(document, SLDDocument): raise TypeError("Persistent presentation must be an SLDDocument")
@@ -199,6 +203,7 @@ def _build_application_impl(
     presentation_bootstrap = PresentationBootstrap.create(workspace_manager=workspace_manager, application=gridforge_application, sld_read_synchronizer=sld_read_synchronizer)
     equipment_registry = presentation_bootstrap.equipment_registry
     controller = Controller(application=gridforge_application); canvas_composer = CanvasComposer(); canvas_preparation = canvas_composer.prepare(controller=controller)
+    resources["controller"] = controller
     tool_registry = create_default_tool_factories(
         controller=controller,
         application=gridforge_application,
@@ -247,8 +252,11 @@ def _build_application_impl(
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
     )
+    resources["canvas_composition"] = canvas_composition
     control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, selection_manager=canvas_preparation.selection_manager, parent=None)
     protection_workspace = ProtectionWorkspace(application=gridforge_application, selection_manager=canvas_preparation.selection_manager, parent=None)
+    resources["control_workspace"] = control_workspace
+    resources["protection_workspace"] = protection_workspace
     sld_tool_definitions = contextual_tool_definitions(
         tool_manager.get_tool_ids(),
         editor_type="sld",
@@ -298,6 +306,7 @@ def _build_application_impl(
         study_runtime=study_tool_runtime,
         parent=None,
     )
+    resources["workspace_surface_host"] = workspace_surface_host
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
     canvas_entry = plugin_registry.get_entry("canvas"); panels_entry = plugin_registry.get_entry("panels")
     if canvas_entry is None: raise RuntimeError("CanvasPlugin is not registered.")
@@ -331,6 +340,7 @@ def _build_application_impl(
     action_router = UIActionRouter()
     workspace_surface_host.set_action_router(action_router)
     engineering_context = EngineeringContextStore()
+    resources["engineering_context"] = engineering_context
 
     def _editor_context_factory(workspace_id: str, area: object, editor: object, region_id: str) -> object:
         editor_type = str(getattr(editor, "editor_type", "sld"))
@@ -391,6 +401,7 @@ def _build_application_impl(
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(
         workspace_controller=workspace_controller,
     )
+    resources["project_workspace_lifecycle"] = project_workspace_lifecycle
     # Complete the canonical controller/lifecycle graph now that the workspace
     # host exists. SLDController is created earlier because Canvas composition
     # depends on it, so lifecycle ownership is attached explicitly here.
