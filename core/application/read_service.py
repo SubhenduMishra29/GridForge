@@ -1436,6 +1436,18 @@ class StudyReadService:
                     identity_b = (b.quantity, b.unit, b.machine_id, b.bus_id, b.component)
                     if identity_a != identity_b:
                         diagnostics.append(f"SIGNAL_SEMANTICS_MISMATCH:{signal_id}")
+                def semantic_value(value: Any) -> Any:
+                    if isinstance(value, Mapping):
+                        return tuple(
+                            (str(key), semantic_value(item))
+                            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+                        )
+                    if isinstance(value, (tuple, list)):
+                        return tuple(semantic_value(item) for item in value)
+                    if isinstance(value, (str, int, float, bool, type(None))):
+                        return value
+                    return (type(value).__module__, type(value).__qualname__, str(value))
+
                 def event_key(event: TransientEventReadModel) -> tuple[Any, ...] | None:
                     transition = event.transition
                     if transition is None:
@@ -1451,8 +1463,8 @@ class StudyReadService:
                         transition_type,
                         target_kind,
                         target_id,
-                        transition.get("previous_state"),
-                        transition.get("new_state"),
+                        semantic_value(transition.get("previous_state")),
+                        semantic_value(transition.get("new_state")),
                     )
                 left_event_keys = [event_key(event) for event in left_transient.events]
                 right_event_keys = [event_key(event) for event in right_transient.events]
