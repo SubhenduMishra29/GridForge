@@ -1521,15 +1521,15 @@ class StudyReadService:
             discontinuity_deltas: list[TransientDiscontinuityDeltaReadModel] = []
             if not diagnostics and left_transient is not None and right_transient is not None:
                 right_signals = {item.signal_id: item for item in right_transient.signals}
-                def boundary_key(boundary: TransientDiscontinuityReadModel) -> tuple[Any, ...] | None:
+                def boundary_key(
+                    boundary: TransientDiscontinuityReadModel,
+                    events: tuple[TransientEventReadModel, ...],
+                ) -> tuple[Any, ...] | None:
                     if boundary.post_status != "succeeded":
                         return None
                     keys = []
                     for event_id in boundary.event_ids:
-                        event = next((item for item in left_transient.events if item.event_id == event_id), None)
-                        peer = next((item for item in right_transient.events if item.event_id == event_id), None)
-                        if event is None:
-                            event = next((item for item in left_transient.events if item.event_id == event_id), None)
+                        event = next((item for item in events if item.event_id == event_id), None)
                         if event is None:
                             return None
                         key = event_key(event)
@@ -1537,8 +1537,14 @@ class StudyReadService:
                             return None
                         keys.append(key)
                     return (boundary.time_s, tuple(sorted(keys, key=repr)))
-                left_boundaries = {boundary_key(item): item for item in left_transient.discontinuities}
-                right_boundaries = {boundary_key(item): item for item in right_transient.discontinuities}
+                left_boundaries = {
+                    boundary_key(item, left_transient.events): item
+                    for item in left_transient.discontinuities
+                }
+                right_boundaries = {
+                    boundary_key(item, right_transient.events): item
+                    for item in right_transient.discontinuities
+                }
                 if None in left_boundaries or None in right_boundaries:
                     diagnostics.append("DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE")
                 elif set(left_boundaries) != set(right_boundaries):
