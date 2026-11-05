@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import hashlib
+import json
 from types import MappingProxyType
 from typing import Mapping
 
@@ -150,6 +152,7 @@ class PreparedTransientStability:
     machines: tuple[ClassicalSynchronousMachine, ...]
     mechanical_powers: Mapping[str, float]
     initial_state: tuple[float, ...]
+    model_types: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -162,6 +165,10 @@ class PreparedTransientStability:
         object.__setattr__(self, "source_revision", tuple(self.source_revision))
         object.__setattr__(self, "machines", tuple(self.machines))
         object.__setattr__(self, "mechanical_powers", MappingProxyType({str(k): float(v) for k, v in self.mechanical_powers.items()}))
+        model_types = {str(key): str(value).strip() for key, value in self.model_types.items()}
+        if any(not value for value in model_types.values()):
+            raise ValueError("Prepared transient declared model types must be non-empty.")
+        object.__setattr__(self, "model_types", MappingProxyType(model_types))
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
         if self.network.project_id != self.project_id:
             raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
@@ -180,6 +187,8 @@ class PreparedTransientStability:
             )
         if set(machine_ids) != set(self.mechanical_powers):
             raise ValueError("Prepared transient mechanical-power identities must match its machine identities.")
+        if self.model_types and set(machine_ids) != set(self.model_types):
+            raise ValueError("Prepared transient declared model types must match its machine identities.")
 
     @property
     def provenance(self) -> Mapping[str, object]:
@@ -193,7 +202,8 @@ class PreparedTransientStability:
             machine_models.append(MappingProxyType({
                 "machine_id": machine.machine_id,
                 "bus_id": machine.bus_id,
-                "model_type": model_type,
+                "declared_model_type": self.model_types.get(machine.machine_id),
+                "executable_model_type": model_type,
                 "parameters": MappingProxyType({
                     "H": parameters.H,
                     "Xd_prime": parameters.Xd_prime,
@@ -342,6 +352,7 @@ class PreparedTransientStability:
                     bus_id=association.bus_id,
                     parameters=association.parameters,
                     mechanical_power=association.mechanical_power,
+                    model_type=association.model_type,
                 )
             )
 
@@ -392,7 +403,16 @@ class PreparedTransientStability:
             },
             topology_revision=prepared_power_flow.topology_revision,
         )
-        return cls(network, project_id, activation_generation, source_revision, tuple(machines), mechanical, tuple(initial_states))
+        return cls(
+            network,
+            project_id,
+            activation_generation,
+            source_revision,
+            tuple(machines),
+            mechanical,
+            tuple(initial_states),
+            {definition.machine_id: definition.model_type for definition in definitions},
+        )
 
 
 class _PreparedTransientPassiveView:
