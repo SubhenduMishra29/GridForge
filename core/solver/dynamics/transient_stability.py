@@ -217,6 +217,7 @@ class TransientStabilitySolver:
             raise ValueError("dt must be greater than zero.")
         self._state: np.ndarray | None = None
         self._time = self.start_time
+        self._last_step_discontinuity: TransientDiscontinuity | None = None
 
     @property
     def initialized(self) -> bool:
@@ -225,6 +226,10 @@ class TransientStabilitySolver:
     @property
     def time(self) -> float:
         return self._time
+
+    @property
+    def last_step_discontinuity(self) -> TransientDiscontinuity | None:
+        return self._last_step_discontinuity
 
     def initialize(self, state: np.ndarray, *, time: float | None = None) -> np.ndarray:
         """Initialize from one detached dynamic state vector."""
@@ -236,6 +241,7 @@ class TransientStabilitySolver:
             raise ValueError("initial time must lie within [start_time, end_time].")
         self.dae_solver.evaluate(candidate, self._time)
         self._state = candidate
+        self._last_step_discontinuity = None
         return candidate.copy()
 
     def run(
@@ -428,6 +434,7 @@ class TransientStabilitySolver:
     def reset(self) -> None:
         self._state = None
         self._time = self.start_time
+        self._last_step_discontinuity = None
         self.event_manager.reset()
 
     def _algebraic_quality(self, solution: DAESolution) -> AlgebraicNetworkSolution:
