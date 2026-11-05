@@ -12,6 +12,7 @@ from collections.abc import Callable
 from uuid import uuid4
 
 from core.application.bootstrap import create_application
+from core.application import Application
 from core.application.errors import ExecutionError
 from core.application.events import ProjectLoaded
 from core.application.services.sld_service import SLDService
@@ -87,6 +88,10 @@ def _invoke_cleanup(cleanup: Cleanup, errors: list[BaseException]) -> None:
 
 def _cleanup_startup_failure(resources: dict[str, object]) -> None:
     errors: list[BaseException] = []
+    window = resources.get("window")
+    if isinstance(window, MainWindow):
+        _invoke_cleanup(window.hide, errors)
+        _invoke_cleanup(window.deleteLater, errors)
     sld_controller = resources.get("sld_controller")
     if isinstance(sld_controller, SLDController):
         _invoke_cleanup(sld_controller.dispose, errors)
@@ -126,7 +131,19 @@ def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: Wor
     if errors: raise errors[0]
 
 
-def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle]:
+def _build_application_impl(
+    resources: dict[str, object],
+    *,
+    application_override: Application | None = None,
+    staging_project_id: str | None = None,
+    show_window: bool = True,
+) -> tuple[QApplication, MainWindow, PluginManager, WorkspaceController, UIUpdateBoundary, UILifecycle]:
+    if application_override is not None and not isinstance(application_override, Application):
+        raise TypeError("application_override must be an Application or None.")
+    if staging_project_id is not None and (
+        not isinstance(staging_project_id, str) or not staging_project_id.strip()
+    ):
+        raise ValueError("staging_project_id must be a non-empty string or None.")
     app = QApplication.instance()
     if app is None: app = QApplication(sys.argv)
     branding = BrandingService()
@@ -138,15 +155,21 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
 
     startup_splash = StartupSplash(app, branding)
     resources["startup_splash"] = startup_splash
-    startup_splash.show(f"Starting {branding.PRODUCT_NAME} {branding.version}…")
-    # Give Qt a real paint cycle and enforce a short minimum splash duration
-    # so the canonical logo is actually visible before startup work proceeds.
-    startup_splash.hold()
+    if show_window:
+        startup_splash.show(f"Starting {branding.PRODUCT_NAME} {branding.version}…")
+        # Give Qt a real paint cycle and enforce a short minimum splash duration
+        # so the canonical logo is actually visible before startup work proceeds.
+        startup_splash.hold()
     style_manager = StyleManager()
     startup_splash.status("Initializing application style…")
     style_manager.apply(app)
     startup_splash.status("Initializing engineering application…")
-    network = Network(); gridforge_application = create_application(network)
+    gridforge_application = (
+        application_override
+        if application_override is not None
+        else create_application(Network())
+    )
+    resources["application"] = gridforge_application
     # Engineering plugins have a lifecycle owner separate from UI composition.
     # This composition root explicitly opts Motor Dynamics in and passes only
     # its existing Application-owned registration adapter; no services are cloned.
@@ -161,6 +184,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     )
     startup_splash.status("Initializing SLD presentation…")
     sld_projection_manager = SLDProjectionManager(); sld_read_synchronizer = SLDReadSynchronizer(sld_projection_manager, application=gridforge_application)
+    resources["sld_projection_manager"] = sld_projection_manager
 
     def serialize_sld(document: SLDDocument) -> dict:
         if not isinstance(document, SLDDocument): raise TypeError("Persistent presentation must be an SLDDocument")
@@ -179,6 +203,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     presentation_bootstrap = PresentationBootstrap.create(workspace_manager=workspace_manager, application=gridforge_application, sld_read_synchronizer=sld_read_synchronizer)
     equipment_registry = presentation_bootstrap.equipment_registry
     controller = Controller(application=gridforge_application); canvas_composer = CanvasComposer(); canvas_preparation = canvas_composer.prepare(controller=controller)
+    resources["controller"] = controller
     tool_registry = create_default_tool_factories(
         controller=controller,
         application=gridforge_application,
@@ -227,8 +252,11 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
     )
+    resources["canvas_composition"] = canvas_composition
     control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, selection_manager=canvas_preparation.selection_manager, parent=None)
     protection_workspace = ProtectionWorkspace(application=gridforge_application, selection_manager=canvas_preparation.selection_manager, parent=None)
+    resources["control_workspace"] = control_workspace
+    resources["protection_workspace"] = protection_workspace
     sld_tool_definitions = contextual_tool_definitions(
         tool_manager.get_tool_ids(),
         editor_type="sld",
@@ -278,6 +306,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         study_runtime=study_tool_runtime,
         parent=None,
     )
+    resources["workspace_surface_host"] = workspace_surface_host
     plugin_manager = PluginManager(); resources["plugin_manager"] = plugin_manager; plugin_manager.define_defaults(); plugin_manager.load_all(); plugin_registry = plugin_manager.registry
     canvas_entry = plugin_registry.get_entry("canvas"); panels_entry = plugin_registry.get_entry("panels")
     if canvas_entry is None: raise RuntimeError("CanvasPlugin is not registered.")
@@ -295,6 +324,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     root_widget = QWidget()
     root_widget.setObjectName("GridForgeShellRoot")
     window = MainWindow(controller=controller, plugin_registry=plugin_registry, central_surface=root_widget)
+    resources["window"] = window
     # The engineering plugin stays headless; the composition root explicitly
     # attaches its optional telemetry projection to the Study workspace.
     motor_dynamics_dashboard = MotorTelemetryDashboardWidget(
@@ -310,6 +340,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     action_router = UIActionRouter()
     workspace_surface_host.set_action_router(action_router)
     engineering_context = EngineeringContextStore()
+    resources["engineering_context"] = engineering_context
 
     def _editor_context_factory(workspace_id: str, area: object, editor: object, region_id: str) -> object:
         editor_type = str(getattr(editor, "editor_type", "sld"))
@@ -370,6 +401,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     project_workspace_lifecycle = ProjectWorkspaceLifecycle(
         workspace_controller=workspace_controller,
     )
+    resources["project_workspace_lifecycle"] = project_workspace_lifecycle
     # Complete the canonical controller/lifecycle graph now that the workspace
     # host exists. SLDController is created earlier because Canvas composition
     # depends on it, so lifecycle ownership is attached explicitly here.
@@ -1049,7 +1081,7 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     # Configure the presentation factory first, then perform exactly one explicit
     # initial project activation; that activation creates the authoritative SLD
     # document for the project that the UI actually opens.
-    project_id = "gridforge-project"
+    project_id = staging_project_id or "gridforge-project"
     project_context = project_workspace_adapter.new_project(
         name="GridForge Project",
         project_id=project_id,
@@ -1070,6 +1102,12 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
+    if application_override is not None:
+        # Recovery opens the package directly through Application after this
+        # shell has been staged. Reinstall the composite SLD + workspace
+        # activator because attach_sld_service() otherwise leaves only the
+        # SLD binding active.
+        project_workspace_adapter.configure_recovery_activation()
     sld_controller.register_document(sld_document)
     sld_controller.reconcile_presentation()
 
@@ -1386,10 +1424,20 @@ def _build_application_impl(resources: dict[str, object]) -> tuple[QApplication,
     controller.bind_status_plugin(status_plugin)
 
     startup_splash.status("GridForge is ready.")
-    ui_lifecycle.start(); ui_lifecycle.activate_document(); window.show()
-    app.processEvents()
-    startup_splash.finish(window)
+    ui_lifecycle.start()
+    ui_lifecycle.activate_document()
+    if show_window:
+        window.show()
+        app.processEvents()
+        startup_splash.finish(window)
+    else:
+        # A recovery candidate is fully composed and subscribed, but remains
+        # invisible until recover_application() completes every validation and
+        # invokes the composition's final commit callback.
+        window.hide()
+        startup_splash.close()
     resources.pop("startup_splash", None)
+    setattr(window, "_gridforge_resources", resources)
     # Keep the established six-item build_application() return contract.
     # The engineering host is a composition-root lifecycle resource, attached
     # to the returned window for main() to shut down without changing callers.

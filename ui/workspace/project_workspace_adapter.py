@@ -89,6 +89,38 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("bridge must be callable.")
         self._presentation_activation_bridge = bridge
 
+    def configure_recovery_activation(self) -> None:
+        """Install the complete presentation/workspace contract for staged recovery.
+
+        This configures the existing canonical deserializers, collection registry,
+        snapshot provider, and SLD/workspace activation bridge without opening a
+        project or publishing a workspace transition.
+        """
+        self._configure_presentation_transaction(
+            open_existing=True,
+            activate_workspace=False,
+        )
+
+    def publish_recovered_project(self, context: ProjectContext) -> ProjectWorkspaceState:
+        """Publish an already-committed Application recovery into UI projections.
+
+        Application.open_project() activates the configured lifecycle callbacks,
+        but does not pass through this adapter's _run_transition() publication
+        boundary. Recovery calls this method only after that activation succeeds.
+        """
+        if not isinstance(context, ProjectContext):
+            raise TypeError("context must be a ProjectContext.")
+        active_context = self._application.project_lifecycle.context
+        if active_context is None or active_context.project_id != context.project_id:
+            raise RuntimeError("Recovered project context is not Application-active.")
+        state = self._lifecycle.state
+        if state.project is None or state.project.project_id != context.project_id:
+            raise RuntimeError("Recovered project is not adopted by the workspace lifecycle.")
+        if state.document is not self._application.presentation:
+            raise RuntimeError("Recovered workspace document is not the Application-active presentation.")
+        self._publish("open", state, context.project_id)
+        return state
+
     def configure_document_transition_guard(self, guard: Callable[[], None]) -> None:
         if not callable(guard):
             raise TypeError("guard must be callable.")
