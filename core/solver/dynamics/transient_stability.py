@@ -364,6 +364,7 @@ class TransientStabilitySolver:
     def step(self, dt: float | None = None) -> DAESolution:
         if self._state is None:
             raise TransientStabilityError("Transient-stability solver must be initialized before step().")
+        self._last_step_discontinuity = None
         requested_dt = self.dt if dt is None else float(dt)
         if requested_dt <= 0.0:
             raise ValueError("dt must be greater than zero.")
