@@ -21,6 +21,10 @@ from .events import EventExecution, EventManager
 class TransientStabilityError(RuntimeError):
     """Raised when a transient-stability simulation cannot proceed."""
 
+    def __init__(self, message: str, *, partial_result: "TransientStabilityResult | None" = None) -> None:
+        super().__init__(message)
+        self.partial_result = partial_result
+
 
 @dataclass(frozen=True, slots=True)
 class TransientDiscontinuity:
@@ -249,6 +253,7 @@ class TransientStabilitySolver:
         powers: list[dict[str, tuple[float, float]]] = []
         algebraic_quality: list[AlgebraicNetworkSolution] = []
         executions: list[EventExecution] = []
+        discontinuities: list[TransientDiscontinuity] = []
 
         if not (should_cancel is not None and should_cancel()):
             executions.extend(self._process_due_events())
@@ -296,27 +301,36 @@ class TransientStabilitySolver:
             self._time = float(solution.time)
 
             if event_boundary and next_event_time is not None and abs(self._time - next_event_time) <= self.event_manager.tolerance:
-                event_batch = self.event_manager.process_interval(previous_time, self._time)
+                pre_event_solution = solution
+                history_start = len(self.event_manager.history)
+                try:
+                    event_batch = self.event_manager.process_interval(previous_time, self._time)
+                except Exception as exc:
+                    attempted = self.event_manager.history[history_start:]
+                    executions.extend(attempted)
+                    if attempted:
+                        discontinuities.append(self._make_discontinuity(pre_event_solution, attempted, None, post_status="dispatch_failed"))
+                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
+                    raise TransientStabilityError(
+                        f"Event dispatch failed at t={self._time:.12g} s; partial trajectory retained.",
+                        partial_result=partial,
+                    ) from exc
                 try:
                     solution = self.dae_solver.evaluate(self._state, self._time)
                 except Exception as exc:
-                    executions.extend(
-                        self.event_manager.annotate_post_event_re_evaluation(
-                            event_batch,
-                            succeeded=False,
-                            failure=exc,
-                        )
-                    )
+                    annotated = self.event_manager.annotate_post_event_re_evaluation(event_batch, succeeded=False, failure=exc)
+                    executions.extend(annotated)
+                    if event_batch:
+                        discontinuities.append(self._make_discontinuity(pre_event_solution, annotated, None, post_status="post_evaluation_failed"))
+                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
                     raise TransientStabilityError(
-                        f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
+                        f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s; partial trajectory retained.",
+                        partial_result=partial,
                     ) from exc
                 if event_batch:
-                    executions.extend(
-                        self.event_manager.annotate_post_event_re_evaluation(
-                            event_batch,
-                            succeeded=True,
-                        )
-                    )
+                    annotated = self.event_manager.annotate_post_event_re_evaluation(event_batch, succeeded=True)
+                    executions.extend(annotated)
+                    discontinuities.append(self._make_discontinuity(pre_event_solution, annotated, solution, post_status="succeeded"))
 
             self._record(solution, times, states, voltages, powers, algebraic_quality)
 
@@ -335,15 +349,7 @@ class TransientStabilitySolver:
             result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
             result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
 
-        return TransientStabilityResult(
-            time=np.asarray(times, dtype=float),
-            states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
-            terminal_voltages=tuple(voltages),
-            electrical_powers=tuple(powers),
-            events=tuple(executions),
-            algebraic_quality=tuple(algebraic_quality),
-            provenance=result_provenance,
-        )
+        return self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities, provenance=result_provenance)
 
     def step(self, dt: float | None = None) -> DAESolution:
         if self._state is None:
@@ -420,6 +426,80 @@ class TransientStabilitySolver:
         self._time = self.start_time
         self.event_manager.reset()
 
+    def _algebraic_quality(self, solution: DAESolution) -> AlgebraicNetworkSolution:
+        quality = solution.algebraic_quality
+        if quality is None:
+            return AlgebraicNetworkSolution(
+                bus_voltages=solution.terminal_voltages,
+                status="UNVERIFIED",
+                accepted=True,
+                quality_verified=False,
+                solver_name="legacy-DAESolution",
+                bus_ids=tuple(solution.terminal_voltages),
+                simulation_time=solution.time,
+                diagnostics=("DAESolution did not carry algebraic quality metadata.",),
+            )
+        return quality
+
+    def _make_discontinuity(
+        self,
+        pre: DAESolution,
+        executions: tuple[EventExecution, ...],
+        post: DAESolution | None,
+        *,
+        post_status: str,
+    ) -> TransientDiscontinuity:
+        pre_quality = self._algebraic_quality(pre)
+        post_quality = self._algebraic_quality(post) if post is not None else None
+        return TransientDiscontinuity(
+            time=float(pre.time),
+            event_ids=tuple(item.event_id for item in executions),
+            event_executions=executions,
+            pre_state=pre.state,
+            pre_terminal_voltages=pre.terminal_voltages,
+            pre_electrical_powers=self._electrical_powers(pre.state, pre.terminal_voltages),
+            pre_algebraic_quality=pre_quality,
+            pre_topology_revision=pre_quality.topology_revision,
+            post_state=post.state if post is not None else None,
+            post_terminal_voltages=post.terminal_voltages if post is not None else None,
+            post_electrical_powers=self._electrical_powers(post.state, post.terminal_voltages) if post is not None else None,
+            post_algebraic_quality=post_quality,
+            post_topology_revision=post_quality.topology_revision if post_quality is not None else (
+                executions[-1].post_event_revision if executions else None
+            ),
+            post_status=post_status,
+        )
+
+    def _build_result(
+        self,
+        times: list[float],
+        states: list[np.ndarray],
+        voltages: list[dict[str, complex]],
+        powers: list[dict[str, tuple[float, float]]],
+        algebraic_quality: list[AlgebraicNetworkSolution],
+        executions: list[EventExecution],
+        discontinuities: list[TransientDiscontinuity],
+        *,
+        provenance: Mapping[str, object] | None = None,
+    ) -> TransientStabilityResult:
+        result_provenance = dict(self.provenance if provenance is None else provenance)
+        runtime_owner = getattr(self.dae_solver.network_solver, "__self__", None)
+        runtime_event_state = getattr(runtime_owner, "event_state", None)
+        if runtime_event_state is not None:
+            result_provenance["final_detached_network_revision"] = runtime_event_state.topology_revision
+            result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
+            result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
+        return TransientStabilityResult(
+            time=np.asarray(times, dtype=float),
+            states=np.vstack(states) if states else np.empty((0, self.dae_solver.state_size), dtype=float),
+            terminal_voltages=tuple(voltages),
+            electrical_powers=tuple(powers),
+            events=tuple(executions),
+            algebraic_quality=tuple(algebraic_quality),
+            discontinuities=tuple(discontinuities),
+            provenance=result_provenance,
+        )
+
     def _record(
         self,
         solution: DAESolution,
@@ -471,5 +551,6 @@ class TransientStabilitySolver:
 __all__ = [
     "TransientStabilityError",
     "TransientStabilityResult",
+    "TransientDiscontinuity",
     "TransientStabilitySolver",
 ]
