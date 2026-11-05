@@ -934,43 +934,78 @@ class SnapSystem:
         # canonical presentation target kinds. A graphics item cannot become
         # an electrical endpoint merely by exposing arbitrary geometry.
         if isinstance(item, BusItem):
+            source_bus_id = getattr(item, "object_id", None)
             if terminal_id is not None or terminal_name is not None:
                 raise ValueError("Bus snap candidates must not expose terminal identity.")
-            if object_id is None or bus_id is None or attachment_id is None:
+            if (
+                object_id is None
+                or bus_id is None
+                or not isinstance(attachment_id, str)
+                or not attachment_id.strip()
+            ):
                 raise ValueError("Bus snap candidates require bus_id and attachment_id.")
+            if str(object_id) != str(source_bus_id) or str(bus_id) != str(source_bus_id):
+                raise ValueError(
+                    "Bus snap candidate identity must match its registered BusItem."
+                )
         elif isinstance(item, EquipmentItem):
-            if object_id is None:
-                raise ValueError("Equipment terminal snap candidates require object_id.")
+            if object_id is None or str(object_id) != str(getattr(item, "object_id", None)):
+                raise ValueError(
+                    "Equipment snap candidate identity must match its registered EquipmentItem."
+                )
             if terminal_id is None or terminal_name is None:
                 raise ValueError(
                     "Equipment snap candidates require terminal_id and terminal_name."
                 )
         elif bool(getattr(item, "is_draft_presentation", False)):
+            source_draft_id = getattr(item, "object_id", None)
+            source_equipment_type = str(getattr(item, "_element_type", "")).strip().lower()
             if not isinstance(draft_id, str) or not draft_id.strip():
                 raise ValueError("Draft snap candidates require a stable draft_id.")
             if not isinstance(draft_equipment_type, str) or not draft_equipment_type.strip():
                 raise ValueError("Draft snap candidates require draft_equipment_type.")
-            if draft_equipment_type.strip().lower() == "bus":
+            normalized_draft_type = draft_equipment_type.strip().lower()
+            if (
+                object_id is None
+                or str(object_id) != draft_id
+                or str(source_draft_id) != draft_id
+            ):
+                raise ValueError(
+                    "Draft snap candidate object_id and draft_id must match its source item."
+                )
+            if not source_equipment_type or source_equipment_type != normalized_draft_type:
+                raise ValueError(
+                    "Draft snap candidate equipment type must match its source item."
+                )
+            if normalized_draft_type == "bus":
                 # Draft Bus attachment points are Bus endpoints, not terminal
                 # roles. Keep this contract aligned with SymbolPreviewItem and
                 # WireTool._authoring_endpoint instead of forcing a fake role.
                 if (
-                    object_id is None
-                    or str(object_id) != draft_id
-                    or bus_id is None
+                    bus_id is None
                     or str(bus_id) != draft_id
                     or not isinstance(attachment_id, str)
                     or not attachment_id.strip()
                 ):
                     raise ValueError(
-                        "Draft Bus snap candidates require matching object_id, "
-                        "draft_id, bus_id, and attachment_id."
+                        "Draft Bus snap candidates require matching draft_id, "
+                        "bus_id, and attachment_id."
                     )
                 if terminal_id is not None or terminal_name is not None or draft_terminal_role is not None:
                     raise ValueError("Draft Bus snap candidates must not expose terminal identity.")
             else:
-                if not isinstance(draft_terminal_role, str) or not draft_terminal_role.strip():
-                    raise ValueError("Draft equipment snap candidates require draft_terminal_role.")
+                if not isinstance(terminal_id, str) or not terminal_id.strip():
+                    raise ValueError("Draft equipment snap candidates require a stable terminal_id.")
+                if not isinstance(terminal_name, str) or not terminal_name.strip():
+                    raise ValueError("Draft equipment snap candidates require terminal_name.")
+                if (
+                    not isinstance(draft_terminal_role, str)
+                    or not draft_terminal_role.strip()
+                    or draft_terminal_role != terminal_name
+                ):
+                    raise ValueError(
+                        "Draft terminal role must match the candidate terminal_name."
+                    )
         else:
             raise ValueError("Unsupported electrical snap target.")
 
