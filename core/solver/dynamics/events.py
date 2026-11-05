@@ -264,32 +264,6 @@ class SimulationEvent:
         if self.operation is not None and not isinstance(self.operation, EventOperation):
             raise EventError("operation must be an EventOperation when supplied.")
 
-    def _validate_candidate_batches(self, candidates: list[SimulationEvent]) -> None:
-        """Reject duplicate target mutations before any event in a batch executes."""
-        ordered = sorted(candidates, key=self._sort_key)
-        batches: list[list[SimulationEvent]] = []
-        for event in ordered:
-            if not batches or event.time - batches[-1][0].time > self._tolerance:
-                batches.append([event])
-            else:
-                batches[-1].append(event)
-        for batch in batches:
-            seen: dict[tuple[str, str], SimulationEvent] = {}
-            for event in batch:
-                operation = event.operation
-                if operation is None:
-                    continue
-                key = operation.conflict_key
-                previous = seen.get(key)
-                if previous is not None:
-                    raise EventBatchConflictError(
-                        f"Conflicting simultaneous operations at t={event.time:.12g} s "
-                        f"for {key[0]} target '{key[1]}': events "
-                        f"'{previous.event_id}' ({previous.operation.operation}) and "
-                        f"'{event.event_id}' ({operation.operation})."
-                    )
-                seen[key] = event
-
     def reset(
         self,
     ) -> None:
@@ -664,6 +638,7 @@ class EventManager:
             Any,
         ] | None = None,
         revision_reader: Callable[[], int | None] | None = None,
+        operation: EventOperation | None = None,
     ) -> SimulationEvent:
         """
         Register an event using the legacy method name.
@@ -686,6 +661,7 @@ class EventManager:
             priority=priority,
             metadata=metadata,
             revision_reader=revision_reader,
+            operation=operation,
         )
 
     # ==================================================================
@@ -857,6 +833,32 @@ class EventManager:
         return tuple(
             executions
         )
+
+    def _validate_candidate_batches(self, candidates: list[SimulationEvent]) -> None:
+        """Reject duplicate target mutations before any event in a batch executes."""
+        ordered = sorted(candidates, key=self._sort_key)
+        batches: list[list[SimulationEvent]] = []
+        for event in ordered:
+            if not batches or event.time - batches[-1][0].time > self._tolerance:
+                batches.append([event])
+            else:
+                batches[-1].append(event)
+        for batch in batches:
+            seen: dict[tuple[str, str], SimulationEvent] = {}
+            for event in batch:
+                operation = event.operation
+                if operation is None:
+                    continue
+                key = operation.conflict_key
+                previous = seen.get(key)
+                if previous is not None:
+                    raise EventBatchConflictError(
+                        f"Conflicting simultaneous operations at t={event.time:.12g} s "
+                        f"for {key[0]} target '{key[1]}': events "
+                        f"'{previous.event_id}' ({previous.operation.operation}) and "
+                        f"'{event.event_id}' ({operation.operation})."
+                    )
+                seen[key] = event
 
     # ==================================================================
     # RESET
