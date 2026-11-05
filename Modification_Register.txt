@@ -22153,3 +22153,45 @@ Verification:
 Related:
 - Issue #1003 — relay configuration inspector / typed settings metadata.
 ======================================================================
+
+
+======================================================================
+V2 CANONICAL PROTECTION FUNCTION SETTING METADATA
+======================================================================
+
+Date:
+    2026-11-05
+
+Correction:
+- ProtectionFunctionSpecification now carries an immutable settings
+  contract for implemented ANSI 50, 50N, 51, 51N, 27 and 59 functions.
+- Setting metadata provides stable field keys, labels, datatype, unit,
+  required/optional status and canonical choices. IEC/IEEE inverse-time
+  curve options are derived directly from the existing curve registries
+  and are conditional on curve_standard.
+- Contract construction cross-checks field identity, Python datatype and
+  required/default status against the implementation's actual settings
+  dataclass. Defaults are read from that dataclass; metadata does not
+  invent or duplicate defaults.
+- PARTIAL and NOT_IMPLEMENTED functions do not advertise editable setting
+  metadata. Existing function implementation and Application validation
+  remain the authority for accepted settings values.
+- ANSI 50N/51N residual_current_input remains a separate measurement-source
+  configuration and is not represented as a function setting.
+
+Architecture boundary:
+- The catalogue is Core-owned declarative metadata only. It adds no UI,
+  Qt, Application or persistence dependency and performs no setting-value
+  validation in place of the settings dataclasses.
+- This is a prerequisite contract for a later immutable Application
+  read-model and dedicated Protection inspector/editor. It does not itself
+  implement that inspector or make physical Relay.settings editable.
+
+Verification:
+- Static source inspection against all six settings dataclasses and the
+  canonical IEC/IEEE curve registries.
+- No tests or CI were run, per repository instruction.
+
+Related:
+- Issue #1003 — relay configuration projection and inspector workflow.
+======================================================================
