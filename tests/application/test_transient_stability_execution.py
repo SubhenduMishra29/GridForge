@@ -10,6 +10,7 @@ from scipy.sparse import csr_matrix
 from core.application.read_models import StudyResultReadModel
 from core.application.read_service import StudyReadService
 from core.application.revision import ProjectRevision
+from ui.controllers.study_case_controller import StudyCaseController
 from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 
@@ -510,3 +511,27 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
         activation_generation=4,
         current_revision=revision,
     ) == comparison
+
+
+
+def test_study_case_controller_rejects_non_string_comparison_source():
+    errors = []
+    calls = []
+    application = SimpleNamespace(
+        study_case=lambda study_id: calls.append(("study_case", study_id)),
+        execute_study_case=lambda study_id: calls.append(("execute", study_id)),
+    )
+    controller = StudyCaseController(
+        application=application,
+        error_handler=errors.append,
+    )
+
+    result = controller.export_study_comparison(
+        [], str(uuid4()), "live", str(uuid4()),
+    )
+
+    assert result is None
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+    assert "source is invalid" in str(errors[0])
+    assert calls == []
