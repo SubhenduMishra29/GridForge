@@ -8,7 +8,8 @@ from scipy.sparse import csr_matrix
 from core.application.read_models import StudyResultReadModel
 from core.application.read_service import StudyReadService
 from core.application.revision import ProjectRevision
-from core.solver.dynamics.transient_stability import TransientStabilityResult
+from core.solver.dynamics.events import EventExecution, EventTransition
+from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.analysis.power_flow_preparation import PreparedBranch, PreparedPowerFlow
@@ -132,12 +133,51 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
             "machine_id": "G1",
         },),
     }
-    def transient_result(offset):
+    def transient_result(offset, *, event_id=None, boundary_status="succeeded"):
+        events = ()
+        discontinuities = ()
+        if event_id is not None:
+            event = EventExecution(
+                event_id=event_id,
+                event_type="switch_operation",
+                time=0.01,
+                scheduled_time=0.01,
+                dispatch_time=0.0101,
+                status="succeeded",
+                post_event_re_evaluation_status="succeeded",
+                transition=EventTransition(
+                    transition_type="switch_state_change",
+                    target_kind="switch",
+                    target_id="SW1",
+                    previous_state={"closed": True},
+                    new_state={"closed": False},
+                ),
+            )
+            events = (event,)
+            successful_boundary = boundary_status == "succeeded"
+            discontinuities = (TransientDiscontinuity(
+                time=0.01,
+                event_ids=(event_id,),
+                event_executions=(event,),
+                pre_state=np.asarray([0.2 + offset]),
+                pre_terminal_voltages={"B1": 0.99 + 0.01j},
+                pre_electrical_powers={"G1": (0.79, 0.11)},
+                pre_algebraic_quality=None,
+                pre_topology_revision=2,
+                post_state=np.asarray([0.25 + offset]) if successful_boundary else None,
+                post_terminal_voltages={"B1": 0.98 + 0.02j} if successful_boundary else None,
+                post_electrical_powers={"G1": (0.78, 0.12)} if successful_boundary else None,
+                post_algebraic_quality=None,
+                post_topology_revision=3 if successful_boundary else None,
+                post_status=boundary_status,
+            ),)
         return TransientStabilityResult(
             time=np.asarray([0.0, 0.01]),
             states=np.asarray([[0.1 + offset], [0.2 + offset]]),
             terminal_voltages=({"B1": 1.0 + 0.0j}, {"B1": 0.99 + 0.01j}),
             electrical_powers=({"G1": (0.8, 0.1)}, {"G1": (0.79, 0.11)}),
+            events=events,
+            discontinuities=discontinuities,
             provenance=provenance,
         )
     archived_result = SimpleNamespace(
@@ -231,6 +271,60 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     )
     assert not revision_drift_comparison.compatible
     assert "LEFT_LIVE_RESULT_NOT_CURRENT" in revision_drift_comparison.transient_compatibility_diagnostics
+    left_event_run = StudyResultReadModel(
+        study_id=uuid4(), project_id=project_id, activation_generation=4,
+        source_revision=revision, study_type="transient_stability", status="completed",
+        value=transient_result(0.0, event_id="left-event"), current=True,
+    )
+    right_event_run = SimpleNamespace(
+        study_id=uuid4(), project_id=project_id, activation_generation=3,
+        source_revision=revision, study_type="transient_stability", status="completed",
+        value=transient_result(0.1, event_id="right-event"), message="", metadata={},
+    )
+    event_record_id = uuid4()
+    event_archive_record = SimpleNamespace(
+        record_id=event_record_id, saved_at="2026-11-05T10:00:00+00:00",
+        result=right_event_run,
+    )
+    event_archive_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (event_archive_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    event_comparison = event_archive_service.compare_study_results(
+        left_event_run, event_record_id, project_id=project_id,
+        activation_generation=4, current_revision=revision,
+    )
+    assert event_comparison.compatible
+    assert len(event_comparison.transient_event_matches) == 1
+    assert event_comparison.transient_event_matches[0].left_event_id == "left-event"
+    assert event_comparison.transient_event_matches[0].right_event_id == "right-event"
+    assert len(event_comparison.transient_discontinuity_deltas) == 1
+    boundary = event_comparison.transient_discontinuity_deltas[0]
+    assert boundary.signals[0].pre_delta == 0.1
+    assert boundary.signals[0].post_delta == 0.1
+
+    failed_boundary_result = SimpleNamespace(
+        study_id=uuid4(), project_id=project_id, activation_generation=3,
+        source_revision=revision, study_type="transient_stability", status="completed",
+        value=transient_result(0.1, event_id="failed-event", boundary_status="dispatch_failed"),
+        message="", metadata={},
+    )
+    failed_boundary_record_id = uuid4()
+    failed_boundary_record = SimpleNamespace(
+        record_id=failed_boundary_record_id, saved_at="2026-11-05T10:00:00+00:00",
+        result=failed_boundary_result,
+    )
+    failed_boundary_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (failed_boundary_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    failed_boundary_comparison = failed_boundary_service.compare_study_results(
+        left_event_run, failed_boundary_record_id, project_id=project_id,
+        activation_generation=4, current_revision=revision,
+    )
+    assert not failed_boundary_comparison.compatible
+    assert "DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE" in failed_boundary_comparison.transient_compatibility_diagnostics
+
     assert read_service.compare_archived_results(
         live_result,
         archived_record_id,
