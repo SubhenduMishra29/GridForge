@@ -540,16 +540,20 @@ class SLDModel:
                 return node
         return None
 
-    def remove_node(self, node_id: str) -> SLDNode:
-        """
-        Remove a node.
+    def remove_node(
+        self,
+        node_id: str,
+        *,
+        preserve_connection_ids: Tuple[str, ...] = (),
+    ) -> SLDNode:
+        """Remove a node and cascade-delete attached connections unless preserved.
 
-        Connections referencing the removed node are also removed
-        because they can no longer represent valid document
-        structure.
+        Preserved connections are used only for ownership-aware orphan
+        reconciliation. They remain authored presentation artifacts with
+        cleared semantic endpoints and an explicit ORPHANED lifecycle.
         """
         node = self.get_node(node_id)
-
+        preserved = {str(connection_id) for connection_id in preserve_connection_ids}
         connection_ids = [
             connection_id
             for connection_id, connection in self._connections.items()
@@ -559,8 +563,26 @@ class SLDModel:
             )
         ]
 
+        unknown_preserved = preserved.difference(connection_ids)
+        if unknown_preserved:
+            raise ValueError(
+                "Cannot preserve connections that are not attached to the removed node: "
+                + ", ".join(sorted(unknown_preserved))
+            )
+        for connection_id in preserved:
+            connection = self._connections[connection_id]
+            if (
+                str(connection.properties.get("lifecycle_state", "BOUND")).strip().upper() != "ORPHANED"
+                or connection.source_endpoint is not None
+                or connection.target_endpoint is not None
+            ):
+                raise ValueError(
+                    f"Cannot preserve SLD connection {connection_id!r} without an explicit, detached ORPHANED lifecycle."
+                )
+
         for connection_id in connection_ids:
-            del self._connections[connection_id]
+            if connection_id not in preserved:
+                del self._connections[connection_id]
 
         del self._nodes[node_id]
         return node
@@ -593,18 +615,26 @@ class SLDModel:
                 f"{connection.connection_id!r}"
             )
 
-        if connection.source_node_id not in self._nodes:
+        orphaned = (
+            str(connection.properties.get("lifecycle_state", "BOUND")).upper() == "ORPHANED"
+            and connection.source_endpoint is None
+            and connection.target_endpoint is None
+        )
+        if connection.source_node_id not in self._nodes and not orphaned:
             raise ValueError(
                 f"unknown source node: "
                 f"{connection.source_node_id!r}"
             )
 
-        if connection.target_node_id not in self._nodes:
+        if connection.target_node_id not in self._nodes and not orphaned:
             raise ValueError(
                 f"unknown target node: "
                 f"{connection.target_node_id!r}"
             )
 
+        # Only explicitly orphaned, semantically detached presentation may
+        # retain historical source/target node IDs after a Core deletion.
+        # BOUND connections remain structurally strict.
         connection.validate()
         self._connections[connection.connection_id] = connection
         return connection

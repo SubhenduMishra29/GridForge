@@ -1600,6 +1600,17 @@ class SLDService:
             target.properties.clear()
             target.properties.update(deepcopy(dict(connection_snapshot.get("properties", {}))))
 
+        def orphan_connection(connection: Any) -> None:
+            former_core_connection_id = connection.properties.pop("core_connection_id", None)
+            if former_core_connection_id is not None:
+                connection.properties["orphaned_from_core_connection_id"] = str(
+                    former_core_connection_id
+                )
+            connection.source_endpoint = None
+            connection.target_endpoint = None
+            connection.properties.pop("projection_source", None)
+            self._set_connection_lifecycle_state(connection, "ORPHANED")
+
         def preflight_restore_identities(
             node_snapshot: Mapping[str, Any],
             original_node: Any,
@@ -1680,8 +1691,20 @@ class SLDService:
             # the original live objects, recreates only absent objects, and
             # fails closed on conflicting identities rather than silently
             # skipping or deleting unrelated objects with matching IDs.
+            # Register the inverse before mutating any attached connection.
+            # Preserve engineer-authored connections as orphans; projection-owned
+            # companions are removed with the deleted projection node.
             transaction.record_undo(restore)
-            self.document.model.remove_node(node.node_id)
+            preserved_connection_ids: list[str] = []
+            for connection in attached:
+                if self.has_engineer_presentation_overrides_for_connection(connection):
+                    orphan_connection(connection)
+                    preserved_connection_ids.append(connection.connection_id)
+
+            self.document.model.remove_node(
+                node.node_id,
+                preserve_connection_ids=tuple(preserved_connection_ids),
+            )
             self.document.replace_annotation_blocks(remaining_annotations)
             self.document.mark_modified()
             return "REMOVED"
@@ -1741,18 +1764,10 @@ class SLDService:
 
         for connection in attached:
             if self.has_engineer_presentation_overrides_for_connection(connection):
-                # An orphan is retained presentation only. Clear both semantic
-                # endpoints and the active Core binding so the surviving half
-                # cannot be mistaken for a live electrical connection.
-                former_core_connection_id = connection.properties.pop("core_connection_id", None)
-                if former_core_connection_id is not None:
-                    connection.properties["orphaned_from_core_connection_id"] = str(
-                        former_core_connection_id
-                    )
-                connection.source_endpoint = None
-                connection.target_endpoint = None
-                connection.properties.pop("projection_source", None)
-                self._set_connection_lifecycle_state(connection, "ORPHANED")
+                # Authored connection presentation is independently owned from
+                # the node. Retain it as an orphan even when the node itself is
+                # removed or retained.
+                orphan_connection(connection)
             else:
                 self.document.model.remove_connection(connection.connection_id)
 

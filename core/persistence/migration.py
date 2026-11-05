@@ -529,10 +529,15 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
         connection_ids.add(connection["connection_id"])
         source, target = connection["source_node_id"], connection["target_node_id"]
         _sld_string(source, "source_node_id", context); _sld_string(target, "target_node_id", context)
-        if source not in node_ids or target not in node_ids:
-            raise SLDMigrationError("SLD " + context + " references a missing node.")
         if not isinstance(connection["properties"], Mapping):
             raise SLDMigrationError("SLD connection properties must be an object in " + context + ".")
+        orphaned_detached = (
+            str(connection["properties"].get("lifecycle_state", "BOUND")).strip().upper() == "ORPHANED"
+            and connection["source_endpoint"] is None
+            and connection["target_endpoint"] is None
+        )
+        if (source not in node_ids or target not in node_ids) and not orphaned_detached:
+            raise SLDMigrationError("SLD " + context + " references a missing node.")
         for side, expected_node in (("source_endpoint", source), ("target_endpoint", target)):
             endpoint = connection[side]
             if endpoint is None:
