@@ -42,11 +42,57 @@ class EngineeringParameterDefinition:
             raise ValueError("datatype must be non-empty")
         if self.derived and self.editable:
             raise ValueError("derived parameters cannot be editable")
-        object.__setattr__(self, "parameter_id", self.parameter_id.strip())
-        object.__setattr__(self, "display_name", self.display_name.strip())
-        object.__setattr__(self, "datatype", self.datatype.strip())
-        object.__setattr__(self, "choices", tuple(self.choices))
+        parameter_id = self.parameter_id.strip()
+        display_name = self.display_name.strip()
+        datatype = self.datatype.strip().lower()
+        if datatype not in {"float", "number", "int", "integer", "bool", "boolean", "str", "string", "enum"}:
+            raise ValueError(f"Unsupported engineering parameter datatype {datatype!r}.")
+        if self.unit is not None and (
+            not isinstance(self.unit, str) or not self.unit.strip()
+        ):
+            raise ValueError("unit must be None or a non-empty string.")
+        if not isinstance(self.validation, Mapping):
+            raise TypeError("validation must be a mapping.")
+        if self.minimum is not None or self.maximum is not None:
+            if datatype not in {"float", "number", "int", "integer"}:
+                raise ValueError("minimum/maximum bounds require a numeric datatype.")
+            for bound_name, bound in (("minimum", self.minimum), ("maximum", self.maximum)):
+                if bound is None:
+                    continue
+                if isinstance(bound, bool):
+                    raise TypeError(f"{bound_name} must be a finite numeric bound.")
+                try:
+                    numeric_bound = float(bound)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise TypeError(f"{bound_name} must be a finite numeric bound.") from exc
+                if not math.isfinite(numeric_bound):
+                    raise ValueError(f"{bound_name} must be finite.")
+                if datatype in {"int", "integer"} and not numeric_bound.is_integer():
+                    raise ValueError(f"{bound_name} must be integral for integer parameters.")
+            if (
+                self.minimum is not None and self.maximum is not None
+                and float(self.minimum) > float(self.maximum)
+            ):
+                raise ValueError("minimum cannot exceed maximum.")
+        choices = tuple(self.choices)
+        if datatype == "enum":
+            if not choices:
+                raise ValueError("enum parameters require at least one choice.")
+            normalized_choices = [str(choice).strip() for choice in choices]
+            if any(not choice for choice in normalized_choices):
+                raise ValueError("enum choices must be non-empty.")
+            if len(normalized_choices) != len(set(normalized_choices)):
+                raise ValueError("enum choices must be unique.")
+        elif choices:
+            raise ValueError("choices are supported only for enum parameters.")
+        object.__setattr__(self, "parameter_id", parameter_id)
+        object.__setattr__(self, "display_name", display_name)
+        object.__setattr__(self, "datatype", datatype)
+        object.__setattr__(self, "unit", None if self.unit is None else self.unit.strip())
+        object.__setattr__(self, "choices", choices)
         object.__setattr__(self, "validation", MappingProxyType(dict(self.validation)))
+        if self.default_value is not None:
+            _validate_parameter(self, self.default_value)
 
 
 @dataclass(frozen=True, slots=True)
