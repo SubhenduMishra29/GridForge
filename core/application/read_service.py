@@ -1418,15 +1418,36 @@ class StudyReadService:
         raise KeyError(f"Archived Study Result record '{record_id}' was not found in this project scope.")
 
     def compare_archived_results(
-        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
     ) -> StudyResultComparisonReadModel:
-        left = self.archived_result(left_record_id, project_id=project_id)
-        right = self.archived_result(right_record_id, project_id=project_id)
+        """Compare two project-scoped live and/or archived result snapshots."""
+        def resolve(reference: Any) -> StudyResultReadModel | ArchivedStudyResultReadModel:
+            if isinstance(reference, ArchivedStudyResultReadModel):
+                if reference.project_id != project_id:
+                    raise KeyError("Archived Study Result belongs to another project.")
+                return reference
+            if isinstance(reference, StudyResultReadModel):
+                if reference.project_id != project_id:
+                    raise KeyError("Live Study Result belongs to another project.")
+                if activation_generation is not None and reference.activation_generation != activation_generation:
+                    raise KeyError("Live Study Result belongs to another activation generation.")
+                return reference
+            return self.archived_result(reference, project_id=project_id)
+
+        left = resolve(left_record_id)
+        right = resolve(right_record_id)
+        left_is_historical = isinstance(left, ArchivedStudyResultReadModel)
+        right_is_historical = isinstance(right, ArchivedStudyResultReadModel)
         left_transient = self._transient_presentation(
-            left, historical=True, record_id=left.record_id, saved_at=left.saved_at
+            left, historical=left_is_historical,
+            record_id=getattr(left, "record_id", None), saved_at=getattr(left, "saved_at", None),
         )
         right_transient = self._transient_presentation(
-            right, historical=True, record_id=right.record_id, saved_at=right.saved_at
+            right, historical=right_is_historical,
+            record_id=getattr(right, "record_id", None), saved_at=getattr(right, "saved_at", None),
         )
         if left_transient is not None or right_transient is not None:
             diagnostics: list[str] = []
@@ -1730,11 +1751,15 @@ class StudyReadService:
         )
 
     def export_archived_comparison(
-        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
     ) -> str:
-        """Return a versioned, lossless JSON export of two archived transient runs."""
+        """Return a versioned lossless export for two live and/or archived transient runs."""
         comparison = self.compare_archived_results(
-            left_record_id, right_record_id, project_id=project_id
+            left_record_id, right_record_id, project_id=project_id,
+            activation_generation=activation_generation, current_revision=current_revision,
         )
         left, right = comparison.left, comparison.right
         transient_name = (
@@ -1754,7 +1779,7 @@ class StudyReadService:
             )
 
         if not (is_transient(left.value) or is_transient(right.value)):
-            raise ValueError("Archived comparison does not contain a transient-stability result.")
+            raise ValueError("Comparison does not contain a transient-stability result.")
 
         def encode(value: Any) -> Any:
             if value is None or isinstance(value, (str, bool, int)):
@@ -1815,10 +1840,11 @@ class StudyReadService:
                 f"Transient comparison export cannot encode {type(value).__module__}.{type(value).__qualname__}."
             )
 
-        def record_payload(record: ArchivedStudyResultReadModel) -> dict[str, Any]:
+        def record_payload(record: Any) -> dict[str, Any]:
             return {
-                "record_id": str(record.record_id),
-                "saved_at": record.saved_at,
+                "source_kind": "archive" if isinstance(record, ArchivedStudyResultReadModel) else "live",
+                "record_id": None if getattr(record, "record_id", None) is None else str(record.record_id),
+                "saved_at": getattr(record, "saved_at", None),
                 "study_id": str(record.study_id),
                 "project_id": record.project_id,
                 "activation_generation": record.activation_generation,
