@@ -31,7 +31,7 @@ from core.application.study import StudyResult
 from core.solver.power_flow.result import PowerFlowResult
 from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
-from core.solver.dynamics.transient_stability import TransientStabilityResult
+from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 from core.solver.short_circuit.fault_types import FaultType
 from core.solver.short_circuit.result import (
     ContributionStatus,
@@ -47,7 +47,7 @@ from core.solver.short_circuit.result import (
 
 
 ARCHIVE_FORMAT = "GridForgeStudyResult"
-ARCHIVE_SCHEMA_VERSION = 3
+ARCHIVE_SCHEMA_VERSION = 4
 
 
 class StudyResultArchiveError(RuntimeError):
@@ -121,6 +121,9 @@ _SOLVER_RESULT_TYPES = {
 _SOLVER_EVENT_TYPES = {
     f"{EventExecution.__module__}.{EventExecution.__qualname__}": EventExecution,
 }
+_SOLVER_DISCONTINUITY_TYPES = {
+    f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}": TransientDiscontinuity,
+}
 _SOLVER_TRANSITION_TYPES = {
     f"{EventTransition.__module__}.{EventTransition.__qualname__}": EventTransition,
 }
@@ -189,6 +192,8 @@ def _encode_value(value: Any) -> Any:
             tag = "event_execution"
         elif qualified in _SOLVER_TRANSITION_TYPES:
             tag = "event_transition"
+        elif qualified in _SOLVER_DISCONTINUITY_TYPES:
+            tag = "transient_discontinuity"
         elif qualified in _SOLVER_ALGEBRAIC_TYPES:
             tag = "algebraic_network_solution"
         else:
