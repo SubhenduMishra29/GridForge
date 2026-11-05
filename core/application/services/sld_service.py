@@ -92,7 +92,7 @@ class SLDService:
             raise ValueError("core_connection_id must be a non-empty string")
         return f"sld-wire-{core_connection_id}"
 
-    def audit_simple_wire_projection(self, network: Any) -> tuple[dict[str, Any], ...]:
+    def audit_simple_wire_projection(self, network: Any, *, document: Any | None = None) -> tuple[dict[str, Any], ...]:
         """Audit Core/SLD Simple-Wire consistency without mutating the document.
 
         This method is the activation/read-side counterpart to the mutating
@@ -101,13 +101,16 @@ class SLDService:
         """
         if network is None or not hasattr(network, "connectivity"):
             raise TypeError("network must expose the authoritative connectivity aggregate")
+        target_document = self.document if document is None else document
+        if target_document is None or not hasattr(target_document, "model"):
+            raise TypeError("document must expose the SLD model to audit")
 
         core_connections = tuple(network.connectivity.connections)
         core_by_id = {str(connection.connection_id): connection for connection in core_connections}
         diagnostics: list[dict[str, Any]] = []
         companions: dict[str, Any] = {}
 
-        for connection in self.document.model.connections:
+        for connection in target_document.model.connections:
             properties = connection.properties
             kind = str(properties.get("connection_kind", "")).upper()
             lifecycle = str(properties.get("lifecycle_state", "BOUND")).upper()
@@ -178,8 +181,14 @@ class SLDService:
 
             core = core_by_id[core_id]
             try:
-                expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
-                expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
+                expected_a = self._sld_endpoint_from_mapping(
+                    core.endpoint_a.to_mapping(),
+                    document=target_document,
+                )
+                expected_b = self._sld_endpoint_from_mapping(
+                    core.endpoint_b.to_mapping(),
+                    document=target_document,
+                )
             except (KeyError, TypeError, ValueError) as exc:
                 diagnostics.append({
                     "code": "SLD_ENDPOINT_NODE_UNRESOLVED",
@@ -204,6 +213,12 @@ class SLDService:
                     "code": "CORE_WIRE_WITHOUT_SLD_COMPANION",
                     "connection_id": core_id,
                 })
+        document_id = getattr(target_document, "document_id", None)
+        if document_id is not None:
+            diagnostics = [
+                {**diagnostic, "document_id": str(document_id)}
+                for diagnostic in diagnostics
+            ]
         return tuple(diagnostics)
 
     def reconcile_simple_wire_projection(self, network: Any) -> Callable[[], None]:
@@ -445,12 +460,20 @@ class SLDService:
 
         return rollback
 
-    def _sld_node_for_endpoint_mapping(self, mapping: Mapping[str, Any]) -> str:
+    def _sld_node_for_endpoint_mapping(
+        self,
+        mapping: Mapping[str, Any],
+        *,
+        document: Any | None = None,
+    ) -> str:
         object_id = str(mapping.get("object_id") or "")
         if not object_id:
             raise ValueError("Simple Wire endpoint mapping requires object_id.")
+        target_document = self.document if document is None else document
+        if target_document is None or not hasattr(target_document, "model"):
+            raise TypeError("document must expose the SLD model for endpoint resolution.")
         nodes = tuple(
-            node for node in self.document.model.nodes
+            node for node in target_document.model.nodes
             if str(getattr(node, "equipment_id", "") or "") == object_id
         )
         if len(nodes) != 1:
@@ -459,7 +482,7 @@ class SLDService:
             )
         return str(nodes[0].node_id)
 
-    def _sld_endpoint_from_mapping(self, mapping: Mapping[str, Any]) -> dict[str, Any]:
+    def _sld_endpoint_from_mapping(self, mapping: Mapping[str, Any], *, document: Any | None = None) -> dict[str, Any]:
         """Translate a topology endpoint envelope to independent SLD node identity."""
         if not isinstance(mapping, Mapping):
             raise TypeError("Core topology endpoint mapping must be a mapping.")
@@ -474,7 +497,7 @@ class SLDService:
         object_id = str(endpoint_mapping.get("object_id") or "")
         if not object_id:
             raise ValueError("Core endpoint mapping requires a non-empty object_id.")
-        node_id = self._sld_node_for_endpoint_mapping(endpoint_mapping)
+        node_id = self._sld_node_for_endpoint_mapping(endpoint_mapping, document=document)
         return {
             "kind": "bus" if kind == "bus" else "equipment",
             "node_id": node_id,
