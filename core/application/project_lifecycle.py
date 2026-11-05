@@ -222,7 +222,7 @@ class ProjectLifecycleService:
         activation_generation: int,
     ) -> None:
         if snapshot is None:
-            return
+            raise RuntimeError("An active project must provide a Protection configuration snapshot.")
         if not isinstance(snapshot, ProtectionProjectConfigurationSnapshot):
             raise TypeError("Protection snapshot provider must return ProtectionProjectConfigurationSnapshot or None.")
         if snapshot.project_id != project_id or snapshot.activation_generation != activation_generation:
