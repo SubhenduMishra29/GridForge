@@ -136,6 +136,8 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     def transient_result(
         offset, *, event_id=None, boundary_status="succeeded",
         target_id="SW1", time_samples=(0.0, 0.01), provenance_override=None,
+        event_status="succeeded", reevaluation_status="succeeded",
+        include_transition=True,
     ):
         events = ()
         discontinuities = ()
@@ -146,15 +148,23 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
                 time=0.01,
                 scheduled_time=0.01,
                 dispatch_time=0.0101,
-                status="succeeded",
-                post_event_re_evaluation_status="succeeded",
+                status=event_status,
+                failure_type="dispatch_error" if event_status == "failed" else None,
+                failure_message="dispatch rejected" if event_status == "failed" else None,
+                post_event_re_evaluation_status=reevaluation_status,
+                post_event_re_evaluation_failure_type=(
+                    "evaluation_error" if reevaluation_status == "failed" else None
+                ),
+                post_event_re_evaluation_failure_message=(
+                    "post-event evaluation failed" if reevaluation_status == "failed" else None
+                ),
                 transition=EventTransition(
                     transition_type="switch_state_change",
                     target_kind="switch",
                     target_id=target_id,
                     previous_state={"closed": True},
                     new_state={"closed": False},
-                ),
+                ) if include_transition else None,
             )
             events = (event,)
             successful_boundary = boundary_status == "succeeded"
@@ -392,6 +402,73 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     )
     assert not failed_boundary_comparison.compatible
     assert "DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE" in failed_boundary_comparison.transient_compatibility_diagnostics
+
+    def compare_event_variant(*, event_id, **event_options):
+        record_id = uuid4()
+        record = SimpleNamespace(
+            record_id=record_id,
+            saved_at="2026-11-05T10:00:00+00:00",
+            result=SimpleNamespace(
+                study_id=uuid4(), project_id=project_id, activation_generation=3,
+                source_revision=revision, study_type="transient_stability", status="completed",
+                value=transient_result(0.1, event_id=event_id, **event_options),
+                message="", metadata={},
+            ),
+        )
+        service = StudyReadService(studies, SimpleNamespace(
+            load_all=lambda *args, **kwargs: (record,),
+            load_latest=lambda *args, **kwargs: None,
+        ))
+        return service.compare_study_results(
+            left_event_run, record_id, project_id=project_id,
+            activation_generation=4, current_revision=revision,
+        )
+
+    dispatch_failure = compare_event_variant(
+        event_id="dispatch-failed", event_status="failed",
+    )
+    assert not dispatch_failure.compatible
+    assert "EVENT_DISPATCH_NOT_SUCCESSFUL" in dispatch_failure.transient_compatibility_diagnostics
+
+    reevaluation_failure = compare_event_variant(
+        event_id="reevaluation-failed", reevaluation_status="failed",
+    )
+    assert not reevaluation_failure.compatible
+    assert any(
+        item.startswith("EVENT_POST_EVALUATION_NOT_SUCCESSFUL:")
+        for item in reevaluation_failure.transient_compatibility_diagnostics
+    )
+
+    missing_transition = compare_event_variant(
+        event_id="transition-missing", include_transition=False,
+    )
+    assert not missing_transition.compatible
+    assert "EVENT_SEMANTIC_IDENTITY_UNAVAILABLE" in missing_transition.transient_compatibility_diagnostics
+
+    unsupported_export_value = object()
+    unsupported_provenance = dict(provenance)
+    unsupported_provenance["unsupported_payload"] = unsupported_export_value
+    unsupported_record_id = uuid4()
+    unsupported_record = SimpleNamespace(
+        record_id=unsupported_record_id,
+        saved_at="2026-11-05T10:00:00+00:00",
+        result=SimpleNamespace(
+            study_id=uuid4(), project_id=project_id, activation_generation=3,
+            source_revision=revision, study_type="transient_stability", status="completed",
+            value=transient_result(0.1, provenance_override=unsupported_provenance),
+            message="", metadata={},
+        ),
+    )
+    unsupported_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (unsupported_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    import pytest
+    with pytest.raises(ValueError, match="cannot encode"):
+        unsupported_service.export_study_comparison(
+            live_result, unsupported_record_id, project_id=project_id,
+            activation_generation=4, current_revision=revision,
+        )
 
     assert read_service.compare_archived_results(
         live_result,
