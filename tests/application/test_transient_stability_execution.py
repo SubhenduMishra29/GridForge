@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import numpy as np
+import pytest
 from scipy.sparse import csr_matrix
 
 from core.application.read_models import StudyResultReadModel
@@ -490,7 +491,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
         load_all=lambda *args, **kwargs: (unsupported_record,),
         load_latest=lambda *args, **kwargs: None,
     ))
-    with __import__("pytest").raises(ValueError, match="cannot encode"):
+    with pytest.raises(ValueError, match="cannot encode"):
         unsupported_service.export_study_comparison(
             live_result, unsupported_record_id, project_id=project_id,
             activation_generation=4, current_revision=revision,
