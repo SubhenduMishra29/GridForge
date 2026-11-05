@@ -224,7 +224,9 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
             raise StudyResultArchiveError(
                 f"Known transient type {qualified_hint} must use the {expected_kind!r} archive tag in schema v2."
             )
-    if schema_version >= 3 and qualified_hint == event_transition_name and kind != "event_transition":
+    if qualified_hint == event_transition_name and (
+        schema_version < 3 or kind != "event_transition"
+    ):
         raise StudyResultArchiveError("Known EventTransition must use the 'event_transition' archive tag in schema v3.")
     if kind == "event_transition" and schema_version < 3:
         raise StudyResultArchiveError("EventTransition tags require Study Result archive schema v3.")
