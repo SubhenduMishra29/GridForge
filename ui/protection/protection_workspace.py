@@ -20,7 +20,7 @@ from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteract
 from ui.core.qt import (
     QAction, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
     QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout,
 )
 from ui.core.selection_manager import SelectionManager
 from .protection_presentation import ProtectionPresentationDocument
@@ -383,7 +383,7 @@ class ProtectionExplorer(QListWidget):
 
 
 class ProtectionInspector(QGroupBox):
-    """Read-side engineering inspector; edits must use Application commands."""
+    """Dedicated Protection configuration editor over Application commands."""
 
     def __init__(self, *, application: Any, selection_manager: SelectionManager, parent: QWidget | None = None) -> None:
         super().__init__("Protection Inspector", parent)
@@ -391,8 +391,20 @@ class ProtectionInspector(QGroupBox):
         self._selection_manager = selection_manager
         self._label = QLabel("Select a protection object.", self)
         self._label.setWordWrap(True)
+        self._editor_host = QWidget(self)
+        self._editor_form = QFormLayout(self._editor_host)
+        self._apply_button = QPushButton("Apply Function Settings", self)
+        self._apply_button.setEnabled(False)
+        self._editor_status = QLabel("", self)
+        self._setting_controls: dict[str, Any] = {}
+        self._active_element_id: str | None = None
+        self._active_setting_snapshot: tuple[Any, ...] = ()
         layout = QVBoxLayout(self)
         layout.addWidget(self._label)
+        layout.addWidget(self._editor_host)
+        layout.addWidget(self._apply_button)
+        layout.addWidget(self._editor_status)
+        self._apply_button.clicked.connect(self._apply_settings)
         selection_manager.selection_changed.connect(self._on_selection_changed)
         self.refresh()
 
@@ -405,15 +417,131 @@ class ProtectionInspector(QGroupBox):
         except (RuntimeError, TypeError):
             pass
 
+    def _clear_editor(self) -> None:
+        while self._editor_form.count():
+            item = self._editor_form.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._setting_controls.clear()
+        self._active_element_id = None
+        self._active_setting_snapshot = ()
+        self._apply_button.setEnabled(False)
+        self._editor_status.setText("")
+
+    def _build_settings_editor(self, configuration: Any) -> None:
+        self._clear_editor()
+        if not configuration.settings_editable or not configuration.settings:
+            self._editor_status.setText(
+                "No implemented typed settings contract is available for this function."
+            )
+            return
+
+        self._active_element_id = str(configuration.element_id)
+        self._active_setting_snapshot = tuple(configuration.settings)
+        for setting in configuration.settings:
+            label = f"{setting.label} ({setting.unit})" if setting.unit else setting.label
+            if setting.choices or setting.choices_by_value:
+                control = QComboBox(self._editor_host)
+                if setting.choices:
+                    control.addItems(list(setting.choices))
+                    if setting.value is not None and str(setting.value) in setting.choices:
+                        control.setCurrentText(str(setting.value))
+                else:
+                    control.addItem("Select a curve…")
+                self._setting_controls[setting.key] = control
+            else:
+                control = QLineEdit(
+                    "" if setting.value is None else str(setting.value),
+                    self._editor_host,
+                )
+                control.setPlaceholderText("Enter engineering value")
+                self._setting_controls[setting.key] = control
+            self._editor_form.addRow(label, control)
+
+        # Curve options depend on the selected characteristic standard.
+        for setting in configuration.settings:
+            if not setting.choices_by or not setting.choices_by_value:
+                continue
+            selector = self._setting_controls.get(setting.choices_by)
+            dependent = self._setting_controls.get(setting.key)
+            if not isinstance(selector, QComboBox) or not isinstance(dependent, QComboBox):
+                continue
+            current_value = None if setting.value is None else str(setting.value)
+
+            def refresh_choices(
+                selected_standard: str,
+                *,
+                target: Any = dependent,
+                definition: Any = setting,
+                selected_value: str | None = current_value,
+            ) -> None:
+                options = tuple(definition.choices_by_value.get(selected_standard, ()))
+                target.blockSignals(True)
+                target.clear()
+                target.addItem("Select a curve…")
+                for option in options:
+                    target.addItem(option)
+                if selected_value in options:
+                    target.setCurrentText(selected_value)
+                target.blockSignals(False)
+
+            selector.currentTextChanged.connect(refresh_choices)
+            refresh_choices(selector.currentText())
+
+        self._apply_button.setEnabled(bool(self._setting_controls))
+
+    def _apply_settings(self) -> None:
+        if not self._active_element_id:
+            return
+        updates: dict[str, Any] = {}
+        for setting in self._active_setting_snapshot:
+            control = self._setting_controls.get(setting.key)
+            if isinstance(control, QComboBox):
+                value = control.currentText()
+                if value.startswith("Select a curve"):
+                    value = ""
+            elif isinstance(control, QLineEdit):
+                value = control.text().strip()
+            else:
+                continue
+            if not value:
+                if setting.required or setting.choices_by:
+                    self._editor_status.setText(
+                        f"Select or enter a value for {setting.label}."
+                    )
+                    return
+                continue
+            updates[setting.key] = value
+
+        try:
+            result = self._application.update_protection_function_settings(
+                element_id=self._active_element_id,
+                settings=updates,
+            )
+        except Exception as exc:
+            self._editor_status.setText(f"Settings update rejected: {exc}")
+            return
+        if not getattr(result, "success", False):
+            self._editor_status.setText(
+                getattr(result, "message", "Protection settings update was rejected.")
+            )
+            return
+        self.refresh()
+        self._editor_status.setText(
+            getattr(result, "message", "Protection function settings updated.")
+        )
+
     def refresh(self) -> None:
+        self._clear_editor()
         selected = self._selection_manager.selected_ids
         if not selected:
-            self._label.setText("Select a relay, measurement input, function or trip output.")
+            self._label.setText("Select a relay or a specific Protection function element.")
             return
         object_id = str(selected[0])
         try:
             protection = self._application.read_protection()
-            configurations = self._application.read_protection_configuration()
+            configurations = self._application.read_protection_function_configurations()
         except RuntimeError:
             self._label.setText("Protection read boundary unavailable.")
             return
@@ -490,7 +618,6 @@ class ProtectionInspector(QGroupBox):
                 f"  Residual Current Source Configuration: {dict(configuration.residual_current_input) if configuration.residual_current_input is not None else 'n/a'}",
                 f"  Settings: {', '.join(f'{item.label} ({item.key}) = {item.value!r} {item.unit}' for item in configuration.settings) or 'No typed settings metadata'}",
                 f"  Unmodelled Settings (read-only): {dict(configuration.unmodeled_settings)}",
-                f"  Settings Editable Through Application Contract: {configuration.settings_editable}",
                 f"  Enabled: {configuration.enabled}",
                 f"  Blocked: {configuration.blocked}",
             ])
@@ -529,6 +656,8 @@ class ProtectionInspector(QGroupBox):
                 "  Protection evaluation is not implied by the physical Relay function label or its settings.",
             ])
         self._label.setText("\n".join(lines))
+        if selected_configuration is not None:
+            self._build_settings_editor(selected_configuration)
 
 
 class ProtectionToolbar(QToolBar):

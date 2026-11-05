@@ -4415,6 +4415,42 @@ class Application:
             ),
         )
 
+
+    def update_protection_function_settings(
+        self, *, element_id: str, settings: Mapping[str, Any]
+    ) -> ApplicationResult:
+        """Update one function's settings through the canonical Protection command.
+
+        The Application merges submitted fields into the existing immutable
+        project configuration and delegates value validation, transaction,
+        undo and event behavior to the existing command/service.
+        """
+        if not isinstance(element_id, str) or not element_id.strip():
+            raise ValueError("element_id must be a non-empty string.")
+        if not isinstance(settings, Mapping) or not settings:
+            raise ValueError("settings must be a non-empty mapping.")
+
+        service = getattr(self, "protection_configuration_service", None)
+        project_configuration = getattr(service, "configuration", None) if service is not None else None
+        if project_configuration is None:
+            raise RuntimeError("No active project Protection configuration is available.")
+        current = project_configuration.get(element_id.strip())
+        merged_settings = dict(current.settings)
+        for key, value in settings.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError("Protection setting keys must be non-empty strings.")
+            merged_settings[key.strip()] = value
+
+        from dataclasses import replace
+        from core.application.commands.protection_configuration_commands import (
+            UpdateProtectionConfigurationCommand,
+        )
+
+        replacement = replace(current, settings=merged_settings)
+        return self.execute(
+            UpdateProtectionConfigurationCommand(configuration=replacement)
+        )
+
     def read_relay(self, relay_id: str) -> RelayReadModel:
         self._require_protection_read_service(); return self._protection_read_service.relay(relay_id)  # type: ignore[union-attr]
 
