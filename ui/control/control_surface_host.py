@@ -70,12 +70,12 @@ class ControlSurfaceHost(QWidget):
         if study_runtime is not None:
             export_action_id = "tool.study.export"
             if action_router is not None and not action_router.has(export_action_id):
-                action_router.register(export_action_id, self._export_selected_study_comparison)
+                action_router.register(export_action_id, self.export_selected_study_comparison)
             if action_router is None:
                 previous_study_activator = activators.get("study")
                 def activate_study_tool(tool_id: str) -> object:
                     if tool_id == "export":
-                        return self._export_selected_study_comparison()
+                        return self.export_selected_study_comparison()
                     if callable(previous_study_activator):
                         return previous_study_activator(tool_id)
                     return None
@@ -148,7 +148,7 @@ class ControlSurfaceHost(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._host)
 
-    def _export_selected_study_comparison(self) -> None:
+    def export_selected_study_comparison(self) -> None:
         """Save the Application-produced comparison for exactly two selected archive rows."""
         runtime = self._study_runtime
         reports = self._study_reports_view
