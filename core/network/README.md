@@ -94,9 +94,20 @@ core/network/
 ├── registry.py
 ├── indexing.py
 ├── state.py
+├── junction.py
+├── junction_registry.py
 ├── endpoint.py
-└── topology.py
+├── electrical_boundary.py
+├── connectivity.py
+├── topology_endpoint_reference.py
+├── topology_snapshot.py
+├── topology.py
+├── physical_conductor_topology.py
+├── phase_domain_conductor_network.py
+└── ct_measurement_association.py
 ```
+
+The package exports these contracts through `core.network`. The map is an ownership guide, not a requirement that callers bypass the public package API.
 
 Y-bus is deliberately outside this package:
 
@@ -214,6 +225,19 @@ Canonical model + Network membership
 ```
 
 `TopologyManager` does not own Bus, Line, Transformer, or other equipment objects and does not perform numerical solving.
+
+### 10.1 Related Network-owned contracts
+
+The package also contains supporting contracts that must remain under the same Network authority:
+
+- `connectivity.py`: Simple Wire relationship identity, storage and connectivity resolution.
+- `topology_endpoint_reference.py` and `topology_snapshot.py`: typed graph endpoints and immutable derived topology/provenance.
+- `electrical_boundary.py`: endpoint compatibility and conductive-boundary policy.
+- `physical_conductor_topology.py` and `phase_domain_conductor_network.py`: explicit physical-conductor and phase-domain study representations.
+- `ct_measurement_association.py`: CT measurement-association resolution; this is not a second power-topology graph.
+- `junction.py` and `junction_registry.py`: canonical Network-owned junction membership and identity.
+
+`core/topology/README.md` is documentation only. It points to these implementations and is not a facade or an alternate owner. No topology policy, resolver, registry or graph lifecycle is implemented under `core.topology`.
 
 ## 11. Topology and SLD Are Different
 
