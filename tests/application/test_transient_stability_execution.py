@@ -1,4 +1,10 @@
 import numpy as np
+from types import SimpleNamespace
+from uuid import uuid4
+
+from core.application.read_models import StudyResultReadModel
+from core.application.read_service import StudyReadService
+from core.application.revision import ProjectRevision
 from scipy.sparse import csr_matrix
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
@@ -100,3 +106,65 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
 
     assert result.status == "completed"
     assert result.value.number_of_steps >= 1
+
+
+def test_study_comparison_read_contract_accepts_live_and_archived_results():
+    project_id = "project-live-archive"
+    revision = ProjectRevision(model_revision=3, topology_revision=2)
+    live_study_id = uuid4()
+    archived_record_id = uuid4()
+    live_result = StudyResultReadModel(
+        study_id=live_study_id,
+        project_id=project_id,
+        activation_generation=4,
+        source_revision=revision,
+        study_type="transient_stability",
+        status="completed",
+        value=None,
+        current=True,
+    )
+    archived_result = SimpleNamespace(
+        study_id=uuid4(),
+        project_id=project_id,
+        activation_generation=3,
+        source_revision=revision,
+        study_type="transient_stability",
+        status="completed",
+        value=None,
+        message="archived run",
+        metadata={},
+    )
+    archive_record = SimpleNamespace(
+        record_id=archived_record_id,
+        saved_at="2026-11-05T10:00:00+00:00",
+        result=archived_result,
+    )
+    studies = SimpleNamespace(
+        get_result=lambda *args, **kwargs: None,
+        results=lambda **kwargs: (),
+    )
+    archive = SimpleNamespace(
+        load_all=lambda *args, **kwargs: (archive_record,),
+        load_latest=lambda *args, **kwargs: None,
+    )
+    read_service = StudyReadService(studies, archive)
+
+    comparison = read_service.compare_study_results(
+        live_result,
+        archived_record_id,
+        project_id=project_id,
+        activation_generation=4,
+        current_revision=revision,
+    )
+
+    assert comparison.left is live_result
+    assert comparison.right.record_id == archived_record_id
+    assert comparison.left.study_id == live_study_id
+    assert comparison.compatible
+    assert read_service.compare_archived_results(
+        live_result,
+        archived_record_id,
+        project_id=project_id,
+        activation_generation=4,
+        current_revision=revision,
+    ) == comparison
