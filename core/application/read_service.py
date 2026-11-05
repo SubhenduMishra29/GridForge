@@ -633,6 +633,31 @@ class StudyResultNumericDeltaReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class TransientSignalDeltaReadModel:
+    """Exact-grid per-signal transient delta; no interpolation or index pairing."""
+
+    signal_id: str
+    unit: str
+    left_values: tuple[float, ...]
+    right_values: tuple[float, ...]
+    deltas: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if not self.signal_id or not self.unit:
+            raise ValueError("Transient signal delta identity and unit must be non-empty.")
+        left = tuple(float(value) for value in self.left_values)
+        right = tuple(float(value) for value in self.right_values)
+        delta = tuple(float(value) for value in self.deltas)
+        if not (len(left) == len(right) == len(delta)):
+            raise ValueError("Transient signal delta arrays must have identical lengths.")
+        if any(not math.isfinite(value) for values in (left, right, delta) for value in values):
+            raise ValueError("Transient signal comparison values must be finite.")
+        object.__setattr__(self, "left_values", left)
+        object.__setattr__(self, "right_values", right)
+        object.__setattr__(self, "deltas", delta)
+
+
+@dataclass(frozen=True, slots=True)
 class StudyResultComparisonReadModel:
     """Two-execution comparison with only base-compatible numeric deltas."""
 
@@ -644,6 +669,8 @@ class StudyResultComparisonReadModel:
     same_activation_generation: bool
     numeric_deltas: tuple[StudyResultNumericDeltaReadModel, ...] = ()
     numeric_comparison_status: str = "NO_BASE_COMPATIBLE_VALUES"
+    transient_signal_deltas: tuple[TransientSignalDeltaReadModel, ...] = ()
+    transient_compatibility_diagnostics: tuple[str, ...] = ()
 
 
 def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
@@ -1349,6 +1376,79 @@ class StudyReadService:
     ) -> StudyResultComparisonReadModel:
         left = self.archived_result(left_record_id, project_id=project_id)
         right = self.archived_result(right_record_id, project_id=project_id)
+        left_transient = self._transient_presentation(
+            left, historical=True, record_id=left.record_id, saved_at=left.saved_at
+        )
+        right_transient = self._transient_presentation(
+            right, historical=True, record_id=right.record_id, saved_at=right.saved_at
+        )
+        if left_transient is not None or right_transient is not None:
+            diagnostics: list[str] = []
+            if left_transient is None or right_transient is None:
+                diagnostics.append("TRANSIENT_RESULT_TYPE_MISMATCH")
+            if left.project_id != right.project_id:
+                diagnostics.append("PROJECT_ID_MISMATCH")
+            if left.study_type != right.study_type:
+                diagnostics.append("STUDY_TYPE_MISMATCH")
+            if left.status != "completed" or right.status != "completed":
+                diagnostics.append("INCOMPLETE_OR_NON_SUCCESSFUL_EXECUTION")
+            if left_transient is not None and right_transient is not None:
+                if left_transient.time_s != right_transient.time_s:
+                    diagnostics.append("TIME_GRID_MISMATCH")
+                left_signals = {item.signal_id: item for item in left_transient.signals}
+                right_signals = {item.signal_id: item for item in right_transient.signals}
+                if set(left_signals) != set(right_signals):
+                    diagnostics.append("SIGNAL_IDENTITY_SET_MISMATCH")
+                required_provenance = (
+                    "nominal_frequency_hz",
+                    "power_base_mva",
+                    "bus_voltage_bases_kv",
+                    "canonical_topology_fingerprint",
+                    "prepared_network_topology_fingerprint",
+                    "machine_model_manifest",
+                )
+                for key in required_provenance:
+                    left_value = left_transient.provenance.get(key)
+                    right_value = right_transient.provenance.get(key)
+                    if left_value is None or right_value is None:
+                        diagnostics.append(f"PROVENANCE_UNAVAILABLE:{key}")
+                    elif left_value != right_value:
+                        diagnostics.append(f"PROVENANCE_MISMATCH:{key}")
+                for signal_id in sorted(set(left_signals).intersection(right_signals)):
+                    a, b = left_signals[signal_id], right_signals[signal_id]
+                    identity_a = (a.quantity, a.unit, a.machine_id, a.bus_id, a.component)
+                    identity_b = (b.quantity, b.unit, b.machine_id, b.bus_id, b.component)
+                    if identity_a != identity_b:
+                        diagnostics.append(f"SIGNAL_SEMANTICS_MISMATCH:{signal_id}")
+            deltas: list[TransientSignalDeltaReadModel] = []
+            if not diagnostics and left_transient is not None and right_transient is not None:
+                right_signals = {item.signal_id: item for item in right_transient.signals}
+                for signal in sorted(left_transient.signals, key=lambda item: item.signal_id):
+                    other = right_signals[signal.signal_id]
+                    deltas.append(TransientSignalDeltaReadModel(
+                        signal_id=signal.signal_id,
+                        unit=signal.unit,
+                        left_values=signal.values,
+                        right_values=other.values,
+                        deltas=tuple(b - a for a, b in zip(signal.values, other.values)),
+                    ))
+            compatible_transient = not diagnostics
+            return StudyResultComparisonReadModel(
+                left=left,
+                right=right,
+                compatible=compatible_transient,
+                compatibility_message=(
+                    "Transient trajectories are compatible on the exact recorded time grid."
+                    if compatible_transient else
+                    "Transient trajectory comparison rejected: " + "; ".join(diagnostics)
+                ),
+                same_source_revision=left.source_revision == right.source_revision,
+                same_activation_generation=left.activation_generation == right.activation_generation,
+                numeric_deltas=(),
+                numeric_comparison_status="TRANSIENT_COMPARABLE" if compatible_transient else "TRANSIENT_INCOMPATIBLE",
+                transient_signal_deltas=tuple(deltas),
+                transient_compatibility_diagnostics=tuple(diagnostics),
+            )
         compatible = left.project_id == right.project_id and left.study_type == right.study_type
         if left.project_id != right.project_id:
             message = "Comparison rejected: records belong to different projects."
