@@ -1037,6 +1037,10 @@ def recover_application(
             or after.activation_generation != before.activation_generation
         ):
             raise RuntimeError("The degraded Application changed during replacement composition.")
+
+        # Publish the staged shell only after every Core, presentation,
+        # workspace, and degraded-instance integrity check has passed.
+        recovery_composition.commit_replacement(replacement)
         return replacement
     except BaseException:
         # The composition owner holds UI/workspace resources that are outside
