@@ -92,10 +92,21 @@ class TransientStabilityAnalysis:
         self.solver.dt = self.configuration.dt
         self.solver.initialize(self.initial_state, time=self.configuration.start_time)
         numerical = self.solver.run(record_initial=True, should_cancel=should_cancel)
-        # Keep project/snapshot identity attached to the immutable result rather
-        # than losing it at the solver/Analysis boundary.
+        # The solver owns numerical/runtime provenance (including detached
+        # event-state and switching evidence). Analysis adds the execution
+        # context, but must never replace evidence already captured by Solver.
+        # A duplicate key is accepted only when both boundaries agree.
         from dataclasses import replace
-        self.result = replace(numerical, provenance=self.provenance)
+        result_provenance = dict(numerical.provenance)
+        for key, value in self.provenance.items():
+            if key in result_provenance:
+                if result_provenance[key] != value:
+                    raise ValueError(
+                        f"Transient solver and analysis provenance disagree for {key!r}."
+                    )
+                continue
+            result_provenance[key] = value
+        self.result = replace(numerical, provenance=result_provenance)
         return self.result
 
 
