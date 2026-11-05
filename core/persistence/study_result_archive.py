@@ -397,6 +397,13 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                     raise StudyResultArchiveError(
                         "Persisted TransientStabilityResult events must be allowlisted EventExecution records."
                     )
+                discontinuities = decoded_fields.get("discontinuities", ())
+                if not isinstance(discontinuities, (tuple, list)) or any(
+                    not isinstance(item, TransientDiscontinuity) for item in discontinuities
+                ):
+                    raise StudyResultArchiveError(
+                        "Persisted TransientStabilityResult discontinuities must be allowlisted TransientDiscontinuity records."
+                    )
             try:
                 return result_type(**decoded_fields)
             except (TypeError, ValueError) as exc:
