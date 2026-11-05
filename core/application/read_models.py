@@ -412,13 +412,12 @@ class TransientEventReadModel:
         object.__setattr__(self, "result", _freeze(self.result))
         if self.transition is not None:
             transition = dict(self.transition)
-            required_identity = ("transition_type", "target_kind", "target_id")
             if not isinstance(transition.get("transition_type"), str) or not transition["transition_type"].strip():
                 raise ValueError("Transient event transition requires a non-empty transition_type.")
-            if not isinstance(transition.get("target_kind"), str) or not transition["target_kind"].strip():
-                raise ValueError("Transient event transition requires a non-empty target_kind.")
-            if not isinstance(transition.get("target_id"), str) or not transition["target_id"].strip():
-                raise ValueError("Transient event transition requires a non-empty target_id.")
+            for key in ("target_kind", "target_id"):
+                value = transition.get(key)
+                if value is not None and (not isinstance(value, str) or not value.strip()):
+                    raise ValueError(f"Transient event transition {key} must be non-empty when supplied.")
             object.__setattr__(self, "transition", _freeze(transition))
 
     @property
