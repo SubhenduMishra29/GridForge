@@ -2753,6 +2753,8 @@ class Application:
         if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
             raise RuntimeError("An active project is required to export Study comparisons.")
         def resolve(source: str, identity: UUID) -> Any:
+            if not isinstance(source, str) or source not in {"live", "archive"}:
+                raise ValueError("Study comparison source must be 'live' or 'archive'.")
             if not isinstance(identity, UUID):
                 raise TypeError("Study execution identities must be UUID values.")
             if source == "live":
