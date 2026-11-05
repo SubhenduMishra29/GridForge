@@ -265,27 +265,23 @@ class EngineeringUpdatePreparer:
             raise KeyError(f"No Application engineering update command for {element_type!r}.")
         command_class, id_field = entry
         creation_type = _CREATION_TYPE_ALIASES.get(element_type, element_type)
-        try:
-            creation_definition = creation_definition_for(creation_type)
-        except (KeyError, TypeError, ValueError):
-            creation_definition = None
-        if creation_definition is not None:
-            parameter_updates: dict[str, Any] = {}
-            for parameter in creation_definition.parameter_definitions:
-                command_field = creation_definition.parameter_mapping.get(
-                    parameter.parameter_id,
-                    parameter.parameter_id,
-                )
-                if command_field in values:
-                    parameter_updates[parameter.parameter_id] = values[command_field]
-                elif parameter.parameter_id in values:
-                    parameter_updates[parameter.parameter_id] = values[parameter.parameter_id]
-            validation_errors = creation_definition.validate_updates(parameter_updates)
-            if validation_errors:
-                raise ValueError(
-                    f"{element_type}: engineering update violates the canonical parameter contract: "
-                    + "; ".join(validation_errors)
-                )
+        creation_definition = creation_definition_for(creation_type)
+        parameter_updates: dict[str, Any] = {}
+        for parameter in creation_definition.parameter_definitions:
+            command_field = creation_definition.parameter_mapping.get(
+                parameter.parameter_id,
+                parameter.parameter_id,
+            )
+            if command_field in values:
+                parameter_updates[parameter.parameter_id] = values[command_field]
+            elif parameter.parameter_id in values:
+                parameter_updates[parameter.parameter_id] = values[parameter.parameter_id]
+        validation_errors = creation_definition.validate_updates(parameter_updates)
+        if validation_errors:
+            raise ValueError(
+                f"{element_type}: engineering update violates the canonical parameter contract: "
+                + "; ".join(validation_errors)
+            )
         if element_type in {"transformer", "transformers"}:
             values = _prepare_transformer_values(values)
         if element_type == "generator":
