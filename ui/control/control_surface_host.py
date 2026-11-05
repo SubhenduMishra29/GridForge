@@ -149,7 +149,7 @@ class ControlSurfaceHost(QWidget):
         layout.addWidget(self._host)
 
     def export_selected_study_comparison(self) -> None:
-        """Save the Application-produced comparison for exactly two selected archive rows."""
+        """Save the Application-produced comparison for exactly two selected live/archive runs."""
         runtime = self._study_runtime
         reports = self._study_reports_view
         if runtime is None or reports is None:
