@@ -22119,3 +22119,37 @@ V2 Application engineering-update contract enforcement:
 - Specialized update transformations and Core command/domain validation remain
   in place; this adds no UI-owned engineering schema and does not replace Core
   authority. Static source inspection only; no tests or CI run.
+
+
+======================================================================
+V2 ANSI 50N PICKUP TYPE VALIDATION
+======================================================================
+
+Date:
+    2026-11-05
+
+Correction:
+- EarthInstantaneousOvercurrentSettings now rejects boolean pickup values
+  before numeric coercion, matching the ANSI 50 and IEC 51 settings
+  contracts. Python bool is an int subclass and float(True) previously
+  produced 1.0, allowing invalid engineering configuration to pass.
+- Finite-positive numeric validation and all existing residual-current
+  evaluation semantics remain unchanged.
+- The fix is confined to the Core 50N settings value object; Application
+  configuration validation and ProtectionFactory continue to use the
+  existing canonical settings constructor.
+
+Architecture boundary:
+- No UI, Application command, measurement binding, runtime decision,
+  or dispatch behavior was changed.
+- No new metadata contract or editable inspector fields are introduced
+  by this correction.
+
+Verification:
+- Static source inspection confirmed the inconsistency against the
+  ANSI 50 and IEC 51 settings constructors.
+- No tests or CI were run, per repository instruction.
+
+Related:
+- Issue #1003 — relay configuration inspector / typed settings metadata.
+======================================================================
