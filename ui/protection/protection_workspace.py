@@ -20,7 +20,7 @@ from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteract
 from ui.core.qt import (
     QAction, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
     QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout,
+    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox,
 )
 from ui.core.selection_manager import SelectionManager
 from .protection_presentation import ProtectionPresentationDocument
@@ -391,6 +391,18 @@ class ProtectionInspector(QGroupBox):
         self._selection_manager = selection_manager
         self._label = QLabel("Select a protection object.", self)
         self._label.setWordWrap(True)
+        self._physical_host = QWidget(self)
+        self._physical_form = QFormLayout(self._physical_host)
+        self._physical_name = QLineEdit(self._physical_host)
+        self._physical_enabled = QCheckBox("Enabled", self._physical_host)
+        self._physical_blocked = QCheckBox("Blocked", self._physical_host)
+        self._physical_in_service = QCheckBox("In Service", self._physical_host)
+        self._physical_form.addRow("Relay Name", self._physical_name)
+        self._physical_form.addRow(self._physical_enabled)
+        self._physical_form.addRow(self._physical_blocked)
+        self._physical_form.addRow(self._physical_in_service)
+        self._apply_physical_button = QPushButton("Apply Physical Relay Configuration", self)
+        self._apply_physical_button.setEnabled(False)
         self._editor_host = QWidget(self)
         self._editor_form = QFormLayout(self._editor_host)
         self._apply_button = QPushButton("Apply Function Settings", self)
@@ -401,10 +413,13 @@ class ProtectionInspector(QGroupBox):
         self._active_setting_snapshot: tuple[Any, ...] = ()
         layout = QVBoxLayout(self)
         layout.addWidget(self._label)
+        layout.addWidget(self._physical_host)
+        layout.addWidget(self._apply_physical_button)
         layout.addWidget(self._editor_host)
         layout.addWidget(self._apply_button)
         layout.addWidget(self._editor_status)
         self._apply_button.clicked.connect(self._apply_settings)
+        self._apply_physical_button.clicked.connect(self._apply_physical_configuration)
         selection_manager.selection_changed.connect(self._on_selection_changed)
         self.refresh()
 
@@ -416,6 +431,32 @@ class ProtectionInspector(QGroupBox):
             self._selection_manager.selection_changed.disconnect(self._on_selection_changed)
         except (RuntimeError, TypeError):
             pass
+
+    def _apply_physical_configuration(self) -> None:
+        selected = self._selection_manager.selected_ids
+        if not selected:
+            return
+        relay_id = str(selected[0]).split(":", 1)[0]
+        try:
+            result = self._application.update_physical_relay_configuration(
+                relay_id=relay_id,
+                name=self._physical_name.text(),
+                enabled=self._physical_enabled.isChecked(),
+                blocked=self._physical_blocked.isChecked(),
+                in_service=self._physical_in_service.isChecked(),
+            )
+        except Exception as exc:
+            self._editor_status.setText(f"Physical Relay update rejected: {exc}")
+            return
+        if not getattr(result, "success", False):
+            self._editor_status.setText(
+                getattr(result, "message", "Physical Relay update was rejected.")
+            )
+            return
+        self.refresh()
+        self._editor_status.setText(
+            getattr(result, "message", "Physical Relay configuration updated.")
+        )
 
     def _clear_editor(self) -> None:
         while self._editor_form.count():
@@ -537,6 +578,7 @@ class ProtectionInspector(QGroupBox):
         selected = self._selection_manager.selected_ids
         if not selected:
             self._label.setText("Select a relay or a specific Protection function element.")
+            self._apply_physical_button.setEnabled(False)
             return
         object_id = str(selected[0])
         try:
@@ -549,6 +591,7 @@ class ProtectionInspector(QGroupBox):
         relay = next((item for item in protection.relays if str(item.object_id) == relay_id), None)
         if relay is None:
             self._label.setText(f"Protection presentation object: {object_id}")
+            self._apply_physical_button.setEnabled(False)
             return
 
         relay_configurations = tuple(
@@ -595,6 +638,11 @@ class ProtectionInspector(QGroupBox):
         except (RuntimeError, KeyError):
             self._label.setText("Physical Relay configuration is no longer available; refresh the selection.")
             return
+        self._physical_name.setText(physical_configuration.name)
+        self._physical_enabled.setChecked(physical_configuration.enabled)
+        self._physical_blocked.setChecked(physical_configuration.blocked)
+        self._physical_in_service.setChecked(physical_configuration.in_service)
+        self._apply_physical_button.setEnabled(True)
         lines = [
             "Identity", f"  {relay.object_id}",
             "Relay", f"  {physical_configuration.name} ({physical_configuration.relay_type})",
