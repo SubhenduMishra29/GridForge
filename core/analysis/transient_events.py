@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from core.solver.dynamics.events import EventManager, SimulationEvent
+from core.solver.dynamics.events import EventManager, EventOperation, SimulationEvent
 
 from .transient_event_state import TransientEventState
 
@@ -27,6 +27,12 @@ def schedule_breaker_open(
         event_type="breaker_open",
         priority=priority,
         metadata={
+            "target_kind": "switch",
+            "target_id": str(breaker_id),
+            "operation": "open",
+            "target_kind": "switch",
+            "target_id": str(breaker_id),
+            "operation": "close",
             "breaker_id": str(breaker_id),
             "affected_equipment_ids": affected,
             "machine_ids": state.machines_for_switch(breaker_id),
@@ -36,6 +42,7 @@ def schedule_breaker_open(
             },
         },
         revision_reader=lambda: state.topology_revision,
+        operation=EventOperation("switch", str(breaker_id), "open"),
     )
 
 
@@ -66,6 +73,7 @@ def schedule_breaker_close(
             },
         },
         revision_reader=lambda: state.topology_revision,
+        operation=EventOperation("switch", str(breaker_id), "close"),
     )
 
 
@@ -79,6 +87,9 @@ def schedule_equipment_state(manager: EventManager, state: TransientEventState, 
         event_type="equipment_state",
         priority=priority,
         metadata={
+            "target_kind": "equipment",
+            "target_id": key,
+            "operation": "conducting" if conducting else "nonconducting",
             "equipment_id": key,
             "conducting": bool(conducting),
             "machine_ids": machine_ids,
@@ -88,6 +99,7 @@ def schedule_equipment_state(manager: EventManager, state: TransientEventState, 
             },
         },
         revision_reader=lambda: state.topology_revision,
+        operation=EventOperation("equipment", key, "conducting" if conducting else "nonconducting"),
     )
 
 
@@ -99,11 +111,15 @@ def schedule_fault_apply(manager: EventManager, state: TransientEventState, time
         event_type="fault_apply",
         priority=priority,
         metadata={
+            "target_kind": "fault",
+            "target_id": str(getattr(fault, "fault_id", "")) or str(getattr(fault, "bus_id", "")),
+            "operation": "apply",
             "fault_id": str(getattr(fault, "fault_id", "")) or None,
             "fault_bus_id": str(getattr(fault, "bus_id", "")) or None,
             "fault_type": type(fault).__name__,
         },
         revision_reader=lambda: state.topology_revision,
+        operation=EventOperation("fault", "active_fault", "apply"),
     )
 
 
@@ -114,7 +130,9 @@ def schedule_fault_clear(manager: EventManager, state: TransientEventState, time
         event_id=event_id,
         event_type="fault_clear",
         priority=priority,
+        metadata={"target_kind": "fault", "target_id": "active_fault", "operation": "clear"},
         revision_reader=lambda: state.topology_revision,
+        operation=EventOperation("fault", "active_fault", "clear"),
     )
 
 
