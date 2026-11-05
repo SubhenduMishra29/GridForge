@@ -22074,3 +22074,17 @@ V2 collection-wide SLD validation:
 - Core topology validation remains authoritative for terminal and Bus
   attachment contracts; SLD audit remains read-only.
 - Static source inspection only; no tests or CI run.
+
+V2 independent SLD node/connection ownership during Core equipment deletion:
+- Core equipment deletion now reconciles node and attached-connection ownership
+  independently. Projection-owned attached wires are removed; engineer-authored
+  wires are retained as ORPHANED presentation with semantic endpoints and
+  active Core bindings cleared, whether the associated node is removed or
+  retained as an orphan.
+- SLDModel.remove_node() accepts an explicit set of attached connection IDs to
+  preserve for orphan lifecycle handling. Its default cascade-delete behavior
+  is unchanged for existing callers.
+- The transaction inverse is registered before mutation and restores removed
+  nodes/connections plus retained orphan objects in place, preserving identity
+  and authored route/presentation state for undo/redo.
+- Static source inspection only; no tests or CI run.
