@@ -389,6 +389,7 @@ class ProtectionProjectConfiguration:
         """Store explicit schema-2 ANSI 25 breaker policies without an Application dependency."""
         if configuration is None:
             self._synchronism_check_configuration = None
+            self._mark_changed()
             return
         if not isinstance(configuration, Mapping):
             raise TypeError("ANSI 25 project configuration must be a mapping.")
