@@ -873,7 +873,6 @@ class Application:
         self,
         evaluation_time: float,
         *,
-        action_resolver: Any | None = None,
         evaluation_metadata: Mapping[str, Any] | None = None,
         evaluation_timestep: float | None = None,
         event_id: str | None = None,
@@ -1569,8 +1568,6 @@ class Application:
                 simulation_time=evaluation_time,
                 triggered_by=mapping.element_id,
             )
-        action_resolver = resolve_persisted_protection_action
-
         def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> ProtectionPostconditionVerification:
             """Verify the action-specific postcondition in the captured Core network.
 
@@ -1654,11 +1651,10 @@ class Application:
                 return verification(PostconditionStatus.MATCHED, expected_state, observed_state, "authoritative Core state matches the action-specific postcondition")
             return verification(PostconditionStatus.MISMATCHED, expected_state, observed_state, "authoritative Core state does not match the action-specific postcondition")
 
-        def resolve_explicit_protection_action(decision: Any) -> Any | None:
-            """Validate explicit or persisted action resolution against Core authority.
+        def validate_persisted_protection_action(decision: Any) -> ControlDecision | None:
+            """Validate the persisted action mapping against captured Core authority.
 
-            Persisted mappings are resolved by protection-function identity;
-            targets are never inferred from relay identity or presentation.
+            Targets are never inferred from relay identity or presentation.
             """
             ensure_current_protection_dispatch_provenance()
             resolved = resolve_persisted_protection_action(decision)
@@ -1666,7 +1662,7 @@ class Application:
             if resolved is None:
                 return None
             if not hasattr(resolved, "target_equipment_type") or not hasattr(resolved, "target_equipment_id") or not hasattr(resolved, "action_type"):
-                raise TypeError("Explicit protection action resolver must return a typed ControlDecision or None.")
+                raise TypeError("Persisted protection mapping must resolve to a typed ControlDecision or None.")
             target_type = str(resolved.target_equipment_type).strip().lower()
             target_id = resolved.target_equipment_id
             supported_target_types = {"breaker", "switch", "disconnector", "fuse", "motor"}
@@ -1684,7 +1680,7 @@ class Application:
 
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
-            action_resolver=resolve_explicit_protection_action,
+            action_resolver=validate_persisted_protection_action,
             pre_dispatch_guard=ensure_current_protection_dispatch_provenance,
             decision_guard=ensure_current_protection_decision_dependency,
             state_observer=observe_protection_command_state,
