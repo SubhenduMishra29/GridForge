@@ -24,6 +24,7 @@ class DynamicMachineModelDefinition:
     bus_id: str
     parameters: ClassicalMachineParameters
     mechanical_power: float
+    model_type: str = "classical_synchronous_machine"
 
     def __post_init__(self) -> None:
         if not isinstance(self.machine_id, str) or not self.machine_id.strip():
@@ -35,9 +36,12 @@ class DynamicMachineModelDefinition:
         value = float(self.mechanical_power)
         if not math.isfinite(value):
             raise ValueError("mechanical_power must be finite.")
+        if not isinstance(self.model_type, str) or not self.model_type.strip():
+            raise ValueError("model_type must be a non-empty persisted engineering model identity.")
         object.__setattr__(self, "machine_id", self.machine_id.strip())
         object.__setattr__(self, "bus_id", self.bus_id.strip())
         object.__setattr__(self, "mechanical_power", value)
+        object.__setattr__(self, "model_type", self.model_type.strip())
 
 
 @dataclass(frozen=True, slots=True)
