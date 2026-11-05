@@ -39,7 +39,7 @@ def test_fault_event_changes_detached_network_solution_and_clear_restores():
     assert isinstance(fault_transition, EventTransition)
     assert fault_transition.transition_type == "fault_apply"
     assert fault_transition.target_kind == "fault"
-    assert fault_transition.target_id == "TRANSIENT-FAULT" or fault_transition.target_id == str(getattr(fault, "fault_id", ""))
+    assert fault_transition.target_id == "B2"
     assert fault_transition.previous_state is False
     assert fault_transition.new_state is True
     faulted = runtime.solve(state, 0.1)
