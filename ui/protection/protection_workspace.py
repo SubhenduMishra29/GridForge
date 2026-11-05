@@ -462,7 +462,11 @@ class ProtectionInspector(QGroupBox):
             else "PICKED UP" if bool(getattr(relay, "picked_up", False))
             else "NO ACTIVE DEVICE STATE"
         )
-        physical_configuration = self._application.read_physical_relay_configuration(relay_id)
+        try:
+            physical_configuration = self._application.read_physical_relay_configuration(relay_id)
+        except (RuntimeError, KeyError):
+            self._label.setText("Physical Relay configuration is no longer available; refresh the selection.")
+            return
         lines = [
             "Identity", f"  {relay.object_id}",
             "Relay", f"  {physical_configuration.name} ({physical_configuration.relay_type})",
