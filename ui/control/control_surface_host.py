@@ -331,6 +331,11 @@ class ControlSurfaceHost(QWidget):
             if callable(refresh):
                 refresh()
 
+    @property
+    def sld_document(self) -> Any | None:
+        """Return the document currently adopted by the SLD workspace surface."""
+        return self._sld_document
+
     def set_sld_document(self, document: Any | None) -> None:
         self._sld_document = document
         context = self._host.editor_context
