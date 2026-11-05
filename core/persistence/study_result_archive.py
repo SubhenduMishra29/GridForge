@@ -235,7 +235,9 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
         raise StudyResultArchiveError("Known EventTransition must use the 'event_transition' archive tag in schema v3.")
     if kind == "event_transition" and schema_version < 3:
         raise StudyResultArchiveError("EventTransition tags require Study Result archive schema v3.")
-    if kind in {"solver_result", "event_execution", "algebraic_network_solution", "event_transition"} and set(value) != {"$type", "class", "fields"}:
+    if kind == "transient_discontinuity" and schema_version < 4:
+        raise StudyResultArchiveError("TransientDiscontinuity tags require Study Result archive schema v4.")
+    if kind in {"solver_result", "event_execution", "algebraic_network_solution", "event_transition", "transient_discontinuity"} and set(value) != {"$type", "class", "fields"}:
         raise StudyResultArchiveError(f"Persisted {kind} archive value has missing or unknown fields.")
     if kind == "ndarray":
         if schema_version < 2:
@@ -287,7 +289,7 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                 raise StudyResultArchiveError("Persisted solver enum value is invalid.") from exc
         # Unknown enums remain detached scalar values; never import archive names.
         return decoded
-    if kind in {"solver_result", "event_execution", "algebraic_network_solution", "dataclass"} and set(value) == {"$type", "class", "fields"}:
+    if kind in {"solver_result", "event_execution", "algebraic_network_solution", "event_transition", "transient_discontinuity", "dataclass"} and set(value) == {"$type", "class", "fields"}:
         payload = value["fields"]
         if not isinstance(payload, Mapping):
             raise StudyResultArchiveError("Persisted dataclass fields must be an object.")
@@ -311,6 +313,20 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                 raise StudyResultArchiveError(
                     f"Persisted AlgebraicNetworkSolution violates its result contract: {exc}"
                 ) from exc
+
+        if kind == "transient_discontinuity":
+            if schema_version < 4:
+                raise StudyResultArchiveError("TransientDiscontinuity tags require Study Result archive schema v4.")
+            discontinuity_type = _SOLVER_DISCONTINUITY_TYPES.get(qualified)
+            if discontinuity_type is None:
+                raise StudyResultArchiveError("Persisted transient discontinuity type is not allowlisted.")
+            allowed_fields = {item.name for item in fields(discontinuity_type)}
+            if set(decoded_fields) != allowed_fields:
+                raise StudyResultArchiveError("Persisted TransientDiscontinuity fields do not match its canonical contract.")
+            try:
+                return discontinuity_type(**decoded_fields)
+            except (TypeError, ValueError) as exc:
+                raise StudyResultArchiveError(f"Persisted TransientDiscontinuity violates its result contract: {exc}") from exc
 
         if kind == "event_transition":
             if schema_version < 3:
@@ -357,9 +373,13 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
             if result_type is None:
                 raise StudyResultArchiveError("Persisted solver result type is not allowlisted.")
             allowed_fields = {item.name for item in fields(result_type)}
+            if result_type is TransientStabilityResult and schema_version < 4:
+                legacy_fields = allowed_fields - {"discontinuities"}
+                if set(decoded_fields) == legacy_fields:
+                    decoded_fields["discontinuities"] = ()
             if set(decoded_fields) != allowed_fields:
                 raise StudyResultArchiveError(
-                    f"Persisted {result_type.__name__} fields do not match its canonical contract."
+                    f"Persisted {result_type.__name__} fields do not match its versioned canonical contract."
                 )
             if result_type is TransientStabilityResult:
                 algebraic_quality = decoded_fields.get("algebraic_quality")
@@ -396,6 +416,9 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
             raise StudyResultArchiveError(
                 "Known EventTransition cannot use the generic dataclass archive tag in schema v3."
             )
+        discontinuity_name = f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}"
+        if schema_version >= 4 and qualified == discontinuity_name:
+            raise StudyResultArchiveError("Known TransientDiscontinuity cannot use the generic dataclass archive tag in schema v4.")
         return {"$dataclass": qualified, "fields": decoded_fields}
     return {key: _decode_value(item, schema_version=schema_version) for key, item in value.items()}
 
@@ -522,7 +545,7 @@ class StudyResultArchive:
             if envelope.get("format") != ARCHIVE_FORMAT:
                 raise StudyResultArchiveError("Unsupported Study Result archive format.")
             schema_version = envelope.get("schema_version")
-            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2, 3}:
+            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2, 3, 4}:
                 raise StudyResultArchiveError(
                     f"Unsupported Study Result archive schema: {schema_version!r}."
                 )
