@@ -513,6 +513,28 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
             activation_generation=4, current_revision=revision,
         )
 
+    cyclic_metadata = {}
+    cyclic_metadata["self"] = cyclic_metadata
+    cyclic_record_id = uuid4()
+    cyclic_record = SimpleNamespace(
+        record_id=cyclic_record_id,
+        saved_at="2026-11-05T10:00:00+00:00",
+        result=SimpleNamespace(
+            study_id=uuid4(), project_id=project_id, activation_generation=3,
+            source_revision=revision, study_type="transient_stability", status="completed",
+            value=transient_result(0.1), message="", metadata=cyclic_metadata,
+        ),
+    )
+    cyclic_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (cyclic_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    with pytest.raises(ValueError, match="cyclic values"):
+        cyclic_service.export_study_comparison(
+            live_result, cyclic_record_id, project_id=project_id,
+            activation_generation=4, current_revision=revision,
+        )
+
     assert read_service.compare_archived_results(
         live_result,
         archived_record_id,
