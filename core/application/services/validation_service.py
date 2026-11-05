@@ -42,6 +42,7 @@ class ValidationService:
         *,
         context: Any | None = None,
         presentation: Any | None = None,
+        presentation_documents: tuple[Any, ...] | None = None,
         sld_connection_diagnostics: tuple[Mapping[str, Any], ...] = (),
     ) -> ValidationResult:
         """Validate Core state plus optional Application-owned SLD associations.
@@ -86,8 +87,27 @@ class ValidationService:
                 )
 
         if context is not None:
-            sld_validation = self.validate_sld_associations(context, self._network, presentation)
-            issues.extend(sld_validation.issues)
+            documents = (
+                tuple(presentation_documents)
+                if presentation_documents is not None
+                else ((presentation,) if presentation is not None else ())
+            )
+            seen_documents: set[int] = set()
+            for document in documents:
+                if document is None or id(document) in seen_documents:
+                    continue
+                seen_documents.add(id(document))
+                sld_validation = self.validate_sld_associations(context, self._network, document)
+                document_id = getattr(document, "document_id", None)
+                for issue in sld_validation.issues:
+                    prefix = f"SLD document {document_id!r}: " if document_id is not None else ""
+                    issues.append(ValidationIssue(
+                        code=issue.code,
+                        message=prefix + issue.message,
+                        severity=issue.severity,
+                        element_id=issue.element_id,
+                        element_type=issue.element_type,
+                    ))
 
         for diagnostic in sld_connection_diagnostics:
             if not isinstance(diagnostic, Mapping):
@@ -110,10 +130,12 @@ class ValidationService:
             connection_id = diagnostic.get("connection_id")
             core_connection_id = diagnostic.get("core_connection_id")
             reason = diagnostic.get("reason")
+            document_id = diagnostic.get("document_id")
+            identity_prefix = f"SLD document {document_id!r}, " if document_id is not None else ""
             identity = (
-                f"SLD connection {connection_id!r}"
+                f"{identity_prefix}connection {connection_id!r}"
                 if connection_id is not None
-                else "SLD/Core connection association"
+                else f"{identity_prefix}SLD/Core connection association"
             )
             details = []
             if core_connection_id is not None:
