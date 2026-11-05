@@ -21954,8 +21954,23 @@ Additional lifecycle safeguard — project-scoped Control mappings:
   The separate persistence-owner gap above remains open.
 - Static source inspection only; no tests or CI run.
 
+V2 recovery UI orchestration — staged shell handover:
+- Added recover_application_shell() to the main composition root. It builds a
+  hidden candidate shell around the exact fresh Application supplied by
+  recover_application(), publishes the restored workspace through the canonical
+  ProjectWorkspaceApplicationAdapter, validates collection/document/view and
+  SLD service/controller/surface/canvas identity, and reveals the candidate
+  before retiring old UI resources.
+- Candidate failure cleanup is scoped to candidate-owned resources and does
+  not shut down the shared QApplication. The degraded Application is retained
+  on the replacement window as a read-only diagnostic reference.
+- ControlSurfaceHost now exposes its currently adopted SLD document so the
+  composition validator can verify workspace-surface identity without
+  inspecting private widget state.
+- Static source inspection only; no tests or CI run. Runtime Qt handover,
+  event ordering, and failure-injection behavior remain to be verified.
 
-======================================================================
+
 GF-AUD-158 — SLD SEMANTIC CONNECTION VALIDATION AND ORPHAN LIFECYCLE
 ======================================================================
 
