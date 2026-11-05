@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import hashlib
+import json
 import math
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -305,6 +307,41 @@ class DifferentialProtectionSchemeConfiguration:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ProtectionProjectConfigurationSnapshot:
+    """Detached, immutable persistence snapshot for one project activation."""
+
+    project_id: str
+    activation_generation: int
+    revision: int
+    content_identity: str
+    _payload: Mapping[str, Any] = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("snapshot project_id must be a non-empty string.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 0:
+            raise ValueError("snapshot activation_generation must be a non-negative integer.")
+        if isinstance(self.revision, bool) or not isinstance(self.revision, int) or self.revision < 0:
+            raise ValueError("snapshot revision must be a non-negative integer.")
+        if not isinstance(self.content_identity, str) or not self.content_identity.strip():
+            raise ValueError("snapshot content_identity must be a non-empty string.")
+        if not isinstance(self._payload, Mapping):
+            raise TypeError("snapshot payload must be a mapping.")
+        payload = _thaw_value(self._payload)
+        if payload.get("project_id") != self.project_id:
+            raise ValueError("snapshot payload project_id does not match snapshot identity.")
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        if expected != self.content_identity:
+            raise ValueError("snapshot content_identity does not match its payload.")
+        object.__setattr__(self, "_payload", _freeze_value(payload))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a detached canonical payload for persistence."""
+        return _thaw_value(self._payload)
+
+
 class ProtectionProjectConfiguration:
     """Project-owned configuration aggregate; it owns no physical equipment."""
 
@@ -316,10 +353,32 @@ class ProtectionProjectConfiguration:
         self._bindings: dict[str, ProtectionMeasurementBinding] = {}
         self._differential_schemes: dict[str, DifferentialProtectionSchemeConfiguration] = {}
         self._synchronism_check_configuration: Mapping[str, Any] | None = None
+        self._revision = 0
 
     @property
     def project_id(self) -> str:
         return self._project_id
+
+    @property
+    def revision(self) -> int:
+        """Monotonic in-memory content revision; undo/rollback also advances it."""
+        return self._revision
+
+    def _mark_changed(self) -> None:
+        self._revision += 1
+
+    def create_snapshot(self, activation_generation: int) -> ProtectionProjectConfigurationSnapshot:
+        """Capture detached canonical content with project and activation provenance."""
+        payload = self.to_dict()
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        identity = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return ProtectionProjectConfigurationSnapshot(
+            project_id=self.project_id,
+            activation_generation=activation_generation,
+            revision=self.revision,
+            content_identity=identity,
+            _payload=payload,
+        )
 
     @property
     def synchronism_check_configuration(self) -> Mapping[str, Any] | None:
@@ -349,6 +408,7 @@ class ProtectionProjectConfiguration:
         except (TypeError, ValueError) as exc:
             raise ValueError(f"ANSI 25 project configuration is not finite JSON data: {exc}") from exc
         self._synchronism_check_configuration = _freeze_value(detached)
+        self._mark_changed()
 
     @property
     def elements(self) -> tuple[ProtectionFunctionConfiguration, ...]:
@@ -368,6 +428,7 @@ class ProtectionProjectConfiguration:
         if configuration.element_id in self._elements:
             raise ValueError(f"Protection element already configured: {configuration.element_id}")
         self._elements[configuration.element_id] = configuration
+        self._mark_changed()
 
     @staticmethod
     def _residual_binding_ids(configuration: ProtectionFunctionConfiguration) -> frozenset[str]:
@@ -408,6 +469,7 @@ class ProtectionProjectConfiguration:
         if existing - referenced:
             raise ValueError("Cannot remove a configured residual-current source while its measurement binding remains.")
         self._elements[configuration.element_id] = configuration
+        self._mark_changed()
 
     def remove(self, element_id: str) -> ProtectionFunctionConfiguration:
         if any(binding.protection_element_id == element_id for binding in self._bindings.values()):
@@ -419,9 +481,11 @@ class ProtectionProjectConfiguration:
                 f"Cannot remove protection element {element_id!r} while a differential scheme is owned by it."
             )
         try:
-            return self._elements.pop(element_id)
+            value = self._elements.pop(element_id)
         except KeyError as exc:
             raise KeyError(f"Protection element is not configured: {element_id}") from exc
+        self._mark_changed()
+        return value
 
     def get(self, element_id: str) -> ProtectionFunctionConfiguration:
         try: return self._elements[element_id]
@@ -454,6 +518,7 @@ class ProtectionProjectConfiguration:
         if residual_source and any(existing.binding_id not in self._residual_binding_ids(configuration) for existing in existing_for_input):
             raise ValueError("Residual-current input contains an unconfigured source binding.")
         self._bindings[binding.binding_id] = binding
+        self._mark_changed()
 
     def replace_measurement_binding(self, binding: ProtectionMeasurementBinding) -> None:
         if not isinstance(binding, ProtectionMeasurementBinding):
@@ -486,6 +551,7 @@ class ProtectionProjectConfiguration:
         if residual_source and any(existing.binding_id not in self._residual_binding_ids(configuration) for existing in existing_for_input):
             raise ValueError("Residual-current input contains an unconfigured source binding.")
         self._bindings[binding.binding_id] = binding
+        self._mark_changed()
 
     def get_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
         try:
@@ -509,6 +575,7 @@ class ProtectionProjectConfiguration:
             if binding.measurement_type.strip().lower() != "current":
                 raise ValueError(f"Differential scheme member {binding_id!r} must be a current measurement binding.")
         self._differential_schemes[scheme.scheme_id] = scheme
+        self._mark_changed()
 
     def replace_differential_scheme(self, scheme: DifferentialProtectionSchemeConfiguration) -> None:
         if not isinstance(scheme, DifferentialProtectionSchemeConfiguration):
@@ -526,6 +593,7 @@ class ProtectionProjectConfiguration:
             if binding.measurement_type.strip().lower() != "current":
                 raise ValueError("Differential scheme members must be current measurement bindings.")
         self._differential_schemes[scheme.scheme_id] = scheme
+        self._mark_changed()
 
     def get_differential_scheme(self, scheme_id: str) -> DifferentialProtectionSchemeConfiguration:
         try:
@@ -535,9 +603,11 @@ class ProtectionProjectConfiguration:
 
     def remove_differential_scheme(self, scheme_id: str) -> DifferentialProtectionSchemeConfiguration:
         try:
-            return self._differential_schemes.pop(scheme_id)
+            value = self._differential_schemes.pop(scheme_id)
         except KeyError as exc:
             raise KeyError(f"Differential protection scheme not found: {scheme_id}") from exc
+        self._mark_changed()
+        return value
 
     def remove_measurement_binding(self, binding_id: str) -> ProtectionMeasurementBinding:
         if any(binding_id in scheme.measurement_binding_ids for scheme in self._differential_schemes.values()):
@@ -548,9 +618,11 @@ class ProtectionProjectConfiguration:
                     f"Cannot remove residual-current source binding {binding_id!r} while its function configuration references it."
                 )
         try:
-            return self._bindings.pop(binding_id)
+            value = self._bindings.pop(binding_id)
         except KeyError as exc:
             raise KeyError(f"Protection measurement binding not found: {binding_id}") from exc
+        self._mark_changed()
+        return value
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -589,4 +661,4 @@ class ProtectionProjectConfiguration:
         return result
 
 
-__all__ = ["ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration", "ProtectionProjectConfiguration"]
+__all__ = ["ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration", "ProtectionProjectConfiguration", "ProtectionProjectConfigurationSnapshot"]
