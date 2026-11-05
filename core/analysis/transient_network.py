@@ -190,24 +190,24 @@ class PreparedTransientStability:
         for machine in self.machines:
             parameters = machine.parameters
             model_type = f"{type(machine).__module__}.{type(machine).__qualname__}"
-            machine_models.append({
+            machine_models.append(MappingProxyType({
                 "machine_id": machine.machine_id,
                 "bus_id": machine.bus_id,
                 "model_type": model_type,
-                "parameters": {
+                "parameters": MappingProxyType({
                     "H": parameters.H,
                     "Xd_prime": parameters.Xd_prime,
                     "D": parameters.D,
                     "Efd": parameters.Efd,
-                },
+                }),
                 "mechanical_power": self.mechanical_powers[machine.machine_id],
-            })
+            }))
             # The currently prepared production path constructs the classical
             # second-order model. Do not infer labels for a future model whose
             # state semantics have not been declared by its implementation.
             if type(machine) is ClassicalSynchronousMachine and machine.state_size == 2:
                 state_signals.extend((
-                    {
+                    MappingProxyType({
                         "signal_id": f"machine:{machine.machine_id}:rotor_angle",
                         "global_index": global_index,
                         "label": f"{machine.machine_id} — Rotor angle",
@@ -216,8 +216,8 @@ class PreparedTransientStability:
                         "machine_id": machine.machine_id,
                         "quantity": "rotor_angle",
                         "component": "scalar",
-                    },
-                    {
+                    }),
+                    MappingProxyType({
                         "signal_id": f"machine:{machine.machine_id}:speed_deviation",
                         "global_index": global_index + 1,
                         "label": f"{machine.machine_id} — Speed deviation",
@@ -226,7 +226,7 @@ class PreparedTransientStability:
                         "machine_id": machine.machine_id,
                         "quantity": "speed_deviation",
                         "component": "scalar",
-                    },
+                    }),
                 ))
             global_index += int(machine.state_size)
         manifest = {
@@ -249,7 +249,7 @@ class PreparedTransientStability:
             "initial_switch_states": dict(self.network.breaker_states),
             "switch_availability_states": dict(self.network.switch_available_states),
             "switch_connections": dict(self.network.switch_connections),
-            "machine_model_manifest": manifest,
+            "machine_model_manifest": MappingProxyType(manifest),
         }
         if len(state_signals) == global_index:
             result["state_signals"] = tuple(state_signals)
