@@ -22270,3 +22270,46 @@ Related:
 - PR #1103 — preserve SLD canvas across editor navigation.
 - Superseded PR #1101.
 ======================================================================
+
+
+======================================================================
+V2 DEDICATED PROTECTION FUNCTION SETTINGS EDITOR
+======================================================================
+
+Date:
+    2026-11-05
+
+Correction:
+- Added an Application facade update method for one Protection function's
+  settings. It merges submitted fields into the existing immutable
+  configuration and dispatches UpdateProtectionConfigurationCommand.
+  Validation, transaction, undo/redo and affected-relay event metadata
+  remain owned by the existing Application command/service path.
+- The dedicated Protection inspector now creates setting controls only
+  when a specific Protection element is selected and its canonical
+  IMPLEMENTED settings contract is available.
+- Numeric fields are submitted without duplicating Core validation;
+  the authoritative settings dataclass and Application service reject
+  invalid values. Choice fields use the catalogue's canonical options.
+- IEC/IEEE curve selection follows curve_standard. Switching standards
+  clears an incompatible curve choice rather than silently choosing a
+  different protection characteristic.
+- Relay-level selection remains a summary when multiple Protection
+  elements exist; the editor is scoped to one explicit element selection.
+- Runtime decisions remain read-only and outside the editor.
+
+Architecture boundary:
+- UI submits setting values through the Application facade; it does not
+  mutate ProtectionFunctionConfiguration or Core Relay objects.
+- Existing UpdateProtectionConfigurationCommand, transactional service,
+  persistence aggregate and semantic event routing are reused.
+- Physical Relay plugin settings remain read-only until a typed plugin
+  schema is exposed.
+
+Verification:
+- Static source inspection only.
+- No tests or CI were run, per repository instruction.
+
+Related:
+- Issue #1003 — relay configuration projection and inspector workflow.
+======================================================================
