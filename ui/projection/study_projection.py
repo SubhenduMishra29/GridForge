@@ -624,7 +624,7 @@ class StudyProjection:
             ))
             if str(getattr(row, "study_type", "")).strip().lower() == "transient_stability":
                 lines.append(
-                    "Complete time-series and event timeline are available by selecting this archive record; "
+                    "Complete time-series, event timeline and pre/post discontinuity sides are available by selecting this archive record; "
                     "the comparison text view does not truncate or flatten transient samples."
                 )
             else:
