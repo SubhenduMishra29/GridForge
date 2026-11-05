@@ -133,7 +133,10 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
             "machine_id": "G1",
         },),
     }
-    def transient_result(offset, *, event_id=None, boundary_status="succeeded"):
+    def transient_result(
+        offset, *, event_id=None, boundary_status="succeeded",
+        target_id="SW1", time_samples=(0.0, 0.01), provenance_override=None,
+    ):
         events = ()
         discontinuities = ()
         if event_id is not None:
@@ -148,7 +151,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
                 transition=EventTransition(
                     transition_type="switch_state_change",
                     target_kind="switch",
-                    target_id="SW1",
+                    target_id=target_id,
                     previous_state={"closed": True},
                     new_state={"closed": False},
                 ),
@@ -172,13 +175,13 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
                 post_status=boundary_status,
             ),)
         return TransientStabilityResult(
-            time=np.asarray([0.0, 0.01]),
+            time=np.asarray(time_samples),
             states=np.asarray([[0.1 + offset], [0.2 + offset]]),
             terminal_voltages=({"B1": 1.0 + 0.0j}, {"B1": 0.99 + 0.01j}),
             electrical_powers=({"G1": (0.8, 0.1)}, {"G1": (0.79, 0.11)}),
             events=events,
             discontinuities=discontinuities,
-            provenance=provenance,
+            provenance=provenance if provenance_override is None else provenance_override,
         )
     archived_result = SimpleNamespace(
         study_id=uuid4(),
@@ -302,6 +305,48 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
     boundary = event_comparison.transient_discontinuity_deltas[0]
     assert boundary.signals[0].pre_delta == 0.1
     assert boundary.signals[0].post_delta == 0.1
+
+    semantic_mismatch_record_id = uuid4()
+    semantic_mismatch_record = SimpleNamespace(
+        record_id=semantic_mismatch_record_id, saved_at="2026-11-05T10:00:00+00:00",
+        result=SimpleNamespace(
+            study_id=uuid4(), project_id=project_id, activation_generation=3,
+            source_revision=revision, study_type="transient_stability", status="completed",
+            value=transient_result(0.1, event_id="other-event", target_id="SW2"),
+            message="", metadata={},
+        ),
+    )
+    semantic_mismatch_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (semantic_mismatch_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    semantic_mismatch = semantic_mismatch_service.compare_study_results(
+        left_event_run, semantic_mismatch_record_id, project_id=project_id,
+        activation_generation=4, current_revision=revision,
+    )
+    assert not semantic_mismatch.compatible
+    assert "EVENT_SEMANTIC_SET_MISMATCH" in semantic_mismatch.transient_compatibility_diagnostics
+
+    grid_mismatch_record_id = uuid4()
+    grid_mismatch_record = SimpleNamespace(
+        record_id=grid_mismatch_record_id, saved_at="2026-11-05T10:00:00+00:00",
+        result=SimpleNamespace(
+            study_id=uuid4(), project_id=project_id, activation_generation=3,
+            source_revision=revision, study_type="transient_stability", status="completed",
+            value=transient_result(0.1, time_samples=(0.0, 0.02)),
+            message="", metadata={},
+        ),
+    )
+    grid_mismatch_service = StudyReadService(studies, SimpleNamespace(
+        load_all=lambda *args, **kwargs: (grid_mismatch_record,),
+        load_latest=lambda *args, **kwargs: None,
+    ))
+    grid_mismatch = grid_mismatch_service.compare_study_results(
+        live_result, grid_mismatch_record_id, project_id=project_id,
+        activation_generation=4, current_revision=revision,
+    )
+    assert not grid_mismatch.compatible
+    assert "TIME_GRID_MISMATCH" in grid_mismatch.transient_compatibility_diagnostics
 
     failed_boundary_result = SimpleNamespace(
         study_id=uuid4(), project_id=project_id, activation_generation=3,
