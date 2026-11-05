@@ -95,3 +95,24 @@ def test_incremental_step_exposes_event_boundary_sides():
     assert solver.last_step_discontinuity.event_ids == ("step-fault",)
     assert solver.last_step_discontinuity.pre_terminal_voltages["B1"] == 1.0 + 0.0j
     assert solver.last_step_discontinuity.post_terminal_voltages["B1"] == 0.5 + 0.0j
+
+
+def test_event_due_at_initial_time_preserves_both_sides():
+    machine = ClassicalSynchronousMachine("G1", "B1", H=3.0, Xd_prime=0.3, Efd=1.1)
+    system = MultiMachineSystem((machine,))
+    applied = {"fault": False}
+    def network_solver(state, time):
+        del state, time
+        return {"B1": 0.5 + 0.0j if applied["fault"] else 1.0 + 0.0j}
+    dae = DAESolver(system, network_solver, {"G1": 0.0}, integrator=Integrator("RK4"))
+    solver = TransientStabilitySolver(dae, start_time=0.0, end_time=0.2, dt=0.1)
+    solver.event_manager.add(0.0, lambda: applied.__setitem__("fault", True), event_id="initial-fault", event_type="fault_apply")
+    solver.initialize(np.array([0.0, 0.0]))
+    result = solver.run()
+    assert len(result.discontinuities) == 1
+    boundary = result.discontinuities[0]
+    assert boundary.time == 0.0
+    assert boundary.pre_terminal_voltages["B1"] == 1.0 + 0.0j
+    assert boundary.post_terminal_voltages["B1"] == 0.5 + 0.0j
+    assert result.terminal_voltages[0]["B1"] == 0.5 + 0.0j
+    assert np.all(np.diff(result.time) > 0.0)
