@@ -2734,6 +2734,17 @@ class Application:
             left_record_id, right_record_id, project_id=context.project_id,
         )
 
+    def export_archived_study_comparison(self, left_record_id: UUID, right_record_id: UUID) -> str:
+        """Return the Application-owned versioned JSON export for two archived transient runs."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to export archived Study Results.")
+        if not isinstance(left_record_id, UUID) or not isinstance(right_record_id, UUID):
+            raise TypeError("Archived Study Result record identities must be UUID values.")
+        return self._study_read_service.export_archived_comparison(
+            left_record_id, right_record_id, project_id=context.project_id,
+        )
+
     def verify_archived_study_results(self, *, activation_generation: int | None = None) -> Any:
         """Verify active-project archive records without modifying or deleting them."""
         context = self.project_lifecycle.context
