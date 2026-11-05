@@ -2745,6 +2745,36 @@ class Application:
             left_record_id, right_record_id, project_id=context.project_id,
         )
 
+    def export_study_comparison(
+        self, left_source: str, left_id: UUID, right_source: str, right_id: UUID,
+    ) -> str:
+        """Export a comparison between live and/or archived transient executions."""
+        context = self.project_lifecycle.context
+        if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
+            raise RuntimeError("An active project is required to export Study comparisons.")
+        def resolve(source: str, identity: UUID) -> Any:
+            if not isinstance(identity, UUID):
+                raise TypeError("Study execution identities must be UUID values.")
+            if source == "live":
+                row = self._study_read_service.result(
+                    identity, project_id=context.project_id,
+                    activation_generation=self.project_lifecycle.activation_generation,
+                    current_revision=self.revision,
+                )
+                if row is None:
+                    raise KeyError(f"Live Study Result '{identity}' is unavailable in the active project generation.")
+                return row
+            if source == "archive":
+                return self._study_read_service.archived_result(identity, project_id=context.project_id)
+            raise ValueError("Study comparison source must be 'live' or 'archive'.")
+        left = resolve(left_source, left_id)
+        right = resolve(right_source, right_id)
+        return self._study_read_service.export_archived_comparison(
+            left, right, project_id=context.project_id,
+            activation_generation=self.project_lifecycle.activation_generation,
+            current_revision=self.revision,
+        )
+
     def verify_archived_study_results(self, *, activation_generation: int | None = None) -> Any:
         """Verify active-project archive records without modifying or deleting them."""
         context = self.project_lifecycle.context
