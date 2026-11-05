@@ -2543,6 +2543,11 @@ class Application:
                 "Project activation changed during save; persisted revision baseline "
                 "and ProjectSaved event were not updated."
             )
+        if lifecycle.protection_configuration_dirty:
+            raise RuntimeError(
+                "Protection configuration changed during save; persisted project baseline "
+                "and ProjectSaved event were not updated."
+            )
 
         self._revision_service.mark_persisted(revision_snapshot)
         self._event_bus.publish(ProjectSaved(metadata={
