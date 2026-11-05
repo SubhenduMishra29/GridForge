@@ -4409,9 +4409,9 @@ class Application:
             blocked=relay.blocked,
             settings_editable=False,
             settings_editability_reason=(
-                "The active relay plugin has not supplied a typed setting schema."
+                "No plugin-declared setting schema is currently exposed through the Application read contract."
                 if relay.settings else
-                "No plugin-specific setting fields are declared."
+                "No plugin-specific setting fields are declared in the Application read contract."
             ),
         )
 
