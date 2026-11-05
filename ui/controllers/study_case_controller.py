@@ -55,7 +55,10 @@ class StudyCaseController:
             right_id = right_record_id if isinstance(right_record_id, UUID) else UUID(str(right_record_id))
         except (TypeError, ValueError) as exc:
             return self._handle_error(ValueError("Selected Study execution identity is invalid."), cause=exc)
-        if left_source not in {"live", "archive"} or right_source not in {"live", "archive"}:
+        if (
+            not isinstance(left_source, str) or left_source not in {"live", "archive"}
+            or not isinstance(right_source, str) or right_source not in {"live", "archive"}
+        ):
             return self._handle_error(ValueError("Selected Study execution source is invalid."))
         try:
             export = getattr(self._application, "export_study_comparison", None)
