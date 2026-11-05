@@ -21,7 +21,7 @@ from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.engineering_canvas_contract import CanvasInteractionContract
 from ui.canvas.preview_layer import PreviewLayer
 from ui.core.controller import Controller
-from ui.core.qt import QComboBox, QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from ui.core.qt import QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
@@ -75,6 +75,8 @@ class SLDCanvasSurface(QWidget):
             raise ValueError("sld_canvas_render_system must target the canonical GraphicsView scene.")
         self._sld_canvas_projection = sld_canvas_projection
         self._sld_canvas_render_system = sld_canvas_render_system
+        self._navigation_controller = navigation_controller
+        self._zoom_changed_listener = self._update_zoom_readout
         self._document_id: str | None = None
         self._composition: Any | None = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
@@ -95,11 +97,6 @@ class SLDCanvasSurface(QWidget):
         header_layout.addWidget(title)
         header_layout.addStretch(1)
 
-        mode = QComboBox(header)
-        mode.addItems(("Normal Mode", "Placement Mode", "Connection Mode"))
-        mode.setObjectName("SLDModeSelector")
-        mode.setToolTip("Presentation mode for the active SLD canvas.")
-        header_layout.addWidget(mode)
 
         zoom_out = QPushButton("−", header)
         zoom_out.setObjectName("SLDZoomOut")
@@ -109,6 +106,7 @@ class SLDCanvasSurface(QWidget):
 
         zoom_label = QLabel("100%", header)
         zoom_label.setObjectName("SLDZoomValue")
+        self._zoom_label = zoom_label
         header_layout.addWidget(zoom_label)
 
         zoom_in = QPushButton("+", header)
@@ -143,6 +141,21 @@ class SLDCanvasSurface(QWidget):
         plus.setToolTip("Additional SLD documents are managed by the project/document lifecycle.")
         tabs.setCornerWidget(plus)
         root.addWidget(tabs, 1)
+
+        # The navigation controller is the sole zoom authority. Subscribe once
+        # and initialize from its actual state rather than a literal default.
+        self._update_zoom_readout(navigation_controller.get_zoom_level())
+        navigation_controller.add_zoom_changed_listener(self._zoom_changed_listener)
+
+    def _update_zoom_readout(self, level: float) -> None:
+        self._zoom_label.setText(f"{int(round(float(level) * 100.0))}%")
+
+    def detach_navigation_listener(self) -> None:
+        """Detach this surface's observer before permanent canvas disposal."""
+        controller = self._navigation_controller
+        self._navigation_controller = None
+        if controller is not None:
+            controller.remove_zoom_changed_listener(self._zoom_changed_listener)
 
     def bind_composition(self, composition: Any) -> None:
         """Bind the aggregate lifecycle owner after composition is complete."""
@@ -277,6 +290,7 @@ class CanvasComposition:
             ("renderer subscriptions and graphics", self.sld_canvas_render_system.dispose),
             ("selection projection subscription", self.selection_projection.dispose),
             ("interaction manager", self.interaction_manager.dispose),
+            ("surface zoom observer", self.surface.detach_navigation_listener),
             ("navigation controller", self.navigation_controller.dispose),
             ("preview layer", self.preview_layer.dispose),
             ("snap system", self.snap_system.dispose),
