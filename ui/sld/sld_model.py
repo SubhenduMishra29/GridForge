@@ -540,16 +540,20 @@ class SLDModel:
                 return node
         return None
 
-    def remove_node(self, node_id: str) -> SLDNode:
-        """
-        Remove a node.
+    def remove_node(
+        self,
+        node_id: str,
+        *,
+        preserve_connection_ids: Tuple[str, ...] = (),
+    ) -> SLDNode:
+        """Remove a node and cascade-delete attached connections unless preserved.
 
-        Connections referencing the removed node are also removed
-        because they can no longer represent valid document
-        structure.
+        Preserved connections are used only for ownership-aware orphan
+        reconciliation. They remain authored presentation artifacts with
+        cleared semantic endpoints and an explicit ORPHANED lifecycle.
         """
         node = self.get_node(node_id)
-
+        preserved = {str(connection_id) for connection_id in preserve_connection_ids}
         connection_ids = [
             connection_id
             for connection_id, connection in self._connections.items()
@@ -559,8 +563,16 @@ class SLDModel:
             )
         ]
 
+        unknown_preserved = preserved.difference(connection_ids)
+        if unknown_preserved:
+            raise ValueError(
+                "Cannot preserve connections that are not attached to the removed node: "
+                + ", ".join(sorted(unknown_preserved))
+            )
+
         for connection_id in connection_ids:
-            del self._connections[connection_id]
+            if connection_id not in preserved:
+                del self._connections[connection_id]
 
         del self._nodes[node_id]
         return node
