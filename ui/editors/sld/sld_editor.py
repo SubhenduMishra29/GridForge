@@ -230,7 +230,17 @@ class SLDEditor(QWidget):
             self.set_region_visible(region_id, False, user=False)
 
     def deactivate_workspace(self) -> None:
-        """Clear project-scoped SLD canvas state while retaining editor infrastructure."""
+        """Release transient editor focus without clearing the mounted project canvas.
+
+        The editor host may call this during ordinary navigation between Areas
+        or Editors. The SLD document, committed projection, draft projection,
+        selection and viewport therefore remain intact while this widget is
+        hidden and later reactivated.
+        """
+        return
+
+    def clear_project_state(self) -> None:
+        """Clear SLD presentation state after an actual project transition."""
         canvas_region = self._region_widgets.get("canvas")
         canvas_surface = canvas_region.contained_widget if canvas_region is not None else None
         clear = getattr(canvas_surface, "clear_project_state", None)
