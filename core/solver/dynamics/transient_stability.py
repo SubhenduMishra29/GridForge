@@ -436,24 +436,32 @@ class TransientStabilitySolver:
         """
         if self._state is None:
             return ()
-        executions = self.event_manager.process(self._time)
-        if not executions:
+        self._last_due_discontinuity = None
+        self._last_due_post_solution = None
+        due = tuple(event for event in self.event_manager.pending_events if event.time <= self._time + self.event_manager.tolerance)
+        if not due:
             return ()
+        pre_solution = self.dae_solver.evaluate(self._state, self._time)
+        history_start = len(self.event_manager.history)
         try:
-            self.dae_solver.evaluate(self._state, self._time)
+            executions = self.event_manager.process(self._time)
         except Exception as exc:
-            failed = self.event_manager.annotate_post_event_re_evaluation(
-                executions,
-                succeeded=False,
-                failure=exc,
-            )
-            raise TransientStabilityError(
-                f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s."
-            ) from exc
-        return self.event_manager.annotate_post_event_re_evaluation(
-            executions,
-            succeeded=True,
-        )
+            attempted = self.event_manager.history[history_start:]
+            if attempted:
+                self._last_due_discontinuity = self._make_discontinuity(pre_solution, attempted, None, post_status="dispatch_failed")
+            raise TransientStabilityError(f"Current-time event dispatch failed at t={self._time:.12g} s.") from exc
+        try:
+            post_solution = self.dae_solver.evaluate(self._state, self._time)
+        except Exception as exc:
+            annotated = self.event_manager.annotate_post_event_re_evaluation(executions, succeeded=False, failure=exc)
+            if annotated:
+                self._last_due_discontinuity = self._make_discontinuity(pre_solution, annotated, None, post_status="post_evaluation_failed")
+            raise TransientStabilityError(f"Current-time post-event algebraic re-evaluation failed at t={self._time:.12g} s.") from exc
+        annotated = self.event_manager.annotate_post_event_re_evaluation(executions, succeeded=True)
+        if annotated:
+            self._last_due_discontinuity = self._make_discontinuity(pre_solution, annotated, post_solution, post_status="succeeded")
+            self._last_due_post_solution = post_solution
+        return annotated
 
     def reset(self) -> None:
         self._state = None
