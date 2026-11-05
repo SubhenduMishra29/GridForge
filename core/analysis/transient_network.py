@@ -361,6 +361,16 @@ class PreparedTransientStability:
             raise ValueError("Power Flow result bus ordering must match the prepared Power Flow snapshot.")
         if power_flow_result.snapshot_id is None or power_flow_result.snapshot_id != prepared_power_flow.input.snapshot_id:
             raise ValueError("Power Flow result must originate from the exact prepared snapshot used for transient stability.")
+        if prepared_power_flow.nominal_frequency_hz is None:
+            raise ValueError(
+                "Transient stability requires an authoritative, consistent nominal frequency "
+                "captured by Power Flow preparation."
+            )
+        if prepared_power_flow.canonical_topology_fingerprint is None:
+            raise ValueError(
+                "Transient stability requires the canonical TopologySnapshot structural fingerprint "
+                "captured by Power Flow preparation."
+            )
         # Project activation provenance must agree with the prepared operating point.
         # Optional metadata is tolerated only for legacy detached snapshots that
         # genuinely lack that field; supplied caller values never override it.
