@@ -633,6 +633,21 @@ class StudyResultNumericDeltaReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class TransientSemanticEventMatchReadModel:
+    """One event pair matched by engineering operation, not run-local event ID."""
+
+    semantic_key: tuple[Any, ...]
+    left_event_id: str
+    right_event_id: str
+    event_time_s: float
+    transition_type: str
+    target_kind: str
+    target_id: str
+    previous_state: Any
+    new_state: Any
+
+
+@dataclass(frozen=True, slots=True)
 class TransientSignalDeltaReadModel:
     """Exact-grid per-signal transient delta; no interpolation or index pairing."""
 
@@ -671,6 +686,7 @@ class StudyResultComparisonReadModel:
     numeric_comparison_status: str = "NO_BASE_COMPATIBLE_VALUES"
     transient_signal_deltas: tuple[TransientSignalDeltaReadModel, ...] = ()
     transient_compatibility_diagnostics: tuple[str, ...] = ()
+    transient_event_matches: tuple[TransientSemanticEventMatchReadModel, ...] = ()
 
 
 def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
@@ -1420,7 +1436,48 @@ class StudyReadService:
                     identity_b = (b.quantity, b.unit, b.machine_id, b.bus_id, b.component)
                     if identity_a != identity_b:
                         diagnostics.append(f"SIGNAL_SEMANTICS_MISMATCH:{signal_id}")
+                def event_key(event: TransientEventReadModel) -> tuple[Any, ...] | None:
+                    transition = event.transition
+                    if transition is None:
+                        return None
+                    transition_type = transition.get("transition_type")
+                    target_kind = transition.get("target_kind")
+                    target_id = transition.get("target_id")
+                    if not all(isinstance(value, str) and value.strip() for value in (transition_type, target_kind, target_id)):
+                        return None
+                    return (
+                        event.event_type,
+                        event.scheduled_time,
+                        transition_type,
+                        target_kind,
+                        target_id,
+                        transition.get("previous_state"),
+                        transition.get("new_state"),
+                    )
+                left_event_keys = [event_key(event) for event in left_transient.events]
+                right_event_keys = [event_key(event) for event in right_transient.events]
+                if any(key is None for key in left_event_keys + right_event_keys):
+                    diagnostics.append("EVENT_SEMANTIC_IDENTITY_UNAVAILABLE")
+                else:
+                    if len(set(left_event_keys)) != len(left_event_keys) or len(set(right_event_keys)) != len(right_event_keys):
+                        diagnostics.append("EVENT_SEMANTIC_IDENTITY_AMBIGUOUS")
+                    elif set(left_event_keys) != set(right_event_keys):
+                        diagnostics.append("EVENT_SEMANTIC_SET_MISMATCH")
+                    elif any(event.status != "succeeded" for event in left_transient.events + right_transient.events):
+                        diagnostics.append("EVENT_DISPATCH_NOT_SUCCESSFUL")
+                    else:
+                        right_by_key = {
+                            event_key(event): event for event in right_transient.events
+                        }
+                        for event, key in zip(left_transient.events, left_event_keys):
+                            peer = right_by_key[key]
+                            if (
+                                event.post_event_re_evaluation_status != "succeeded"
+                                or peer.post_event_re_evaluation_status != "succeeded"
+                            ):
+                                diagnostics.append(f"EVENT_POST_EVALUATION_NOT_SUCCESSFUL:{event.event_id}")
             deltas: list[TransientSignalDeltaReadModel] = []
+            event_matches: list[TransientSemanticEventMatchReadModel] = []
             if not diagnostics and left_transient is not None and right_transient is not None:
                 right_signals = {item.signal_id: item for item in right_transient.signals}
                 for signal in sorted(left_transient.signals, key=lambda item: item.signal_id):
@@ -1431,6 +1488,22 @@ class StudyReadService:
                         left_values=signal.values,
                         right_values=other.values,
                         deltas=tuple(b - a for a, b in zip(signal.values, other.values)),
+                    ))
+                right_by_key = {event_key(event): event for event in right_transient.events}
+                for event in left_transient.events:
+                    key = event_key(event)
+                    transition = event.transition
+                    peer = right_by_key[key]
+                    event_matches.append(TransientSemanticEventMatchReadModel(
+                        semantic_key=key,
+                        left_event_id=event.event_id,
+                        right_event_id=peer.event_id,
+                        event_time_s=event.scheduled_time,
+                        transition_type=str(transition["transition_type"]),
+                        target_kind=str(transition["target_kind"]),
+                        target_id=str(transition["target_id"]),
+                        previous_state=transition.get("previous_state"),
+                        new_state=transition.get("new_state"),
                     ))
             compatible_transient = not diagnostics
             return StudyResultComparisonReadModel(
@@ -1448,6 +1521,7 @@ class StudyReadService:
                 numeric_comparison_status="TRANSIENT_COMPARABLE" if compatible_transient else "TRANSIENT_INCOMPATIBLE",
                 transient_signal_deltas=tuple(deltas),
                 transient_compatibility_diagnostics=tuple(diagnostics),
+                transient_event_matches=tuple(event_matches),
             )
         compatible = left.project_id == right.project_id and left.study_type == right.study_type
         if left.project_id != right.project_id:
