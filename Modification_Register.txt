@@ -22083,10 +22083,11 @@ V2 independent SLD node/connection ownership during Core equipment deletion:
   retained as an orphan.
 - SLDModel.remove_node() accepts an explicit set of attached connection IDs to
   preserve for orphan lifecycle handling. Its default cascade-delete behavior
-  is unchanged for existing callers. SLDModel.add_connection() permits missing
-  historical node IDs only for ORPHANED connections whose semantic endpoints
-  are both cleared; BOUND connections remain structurally strict, allowing
-  orphaned route/presentation state to survive save/reopen safely.
+  is unchanged for existing callers. SLDModel.add_connection() and canonical
+  SLD persistence validation permit missing historical node IDs only for
+  ORPHANED connections whose semantic endpoints are both cleared; BOUND
+  connections remain structurally strict. This allows detached authored
+  route/presentation state to survive package save/reopen safely.
 - The transaction inverse is registered before mutation and restores removed
   nodes/connections plus retained orphan objects in place, preserving identity
   and authored route/presentation state for undo/redo.
