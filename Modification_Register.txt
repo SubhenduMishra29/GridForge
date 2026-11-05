@@ -22377,6 +22377,9 @@ Correction:
   remains dirty rather than being marked saved.
 - Project activation establishes a new generation-scoped Protection
   baseline and restores the prior baseline if activation rolls back.
+- Application.is_dirty now includes the lifecycle's Protection snapshot
+  comparison, so SAVE/DISCARD/CANCEL transition protection cannot overlook
+  Protection-only edits or treat a mid-save mutation as clean.
 - ProjectPersistenceService validates a rehydrated copy of the detached
   snapshot payload and serializes that same snapshot. It no longer reads
   the mutable ProtectionConfigurationService aggregate during serialization.
