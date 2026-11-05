@@ -79,6 +79,7 @@ from .study_preparation import StudyPreparationService
 from .draft import DraftNetwork, DraftCommandHandlers, CommitNetworkHandler
 from .creation_schema import creation_contracts_from_definitions
 from .services.motor_dynamics_service import MotorDynamicsComposition
+from .recovery import ApplicationRecoveryComposition
 
 
 def create_application(
@@ -893,6 +894,7 @@ def recover_application(
     measurement_clock_domain: str | None = None,
     max_measurement_source_clock_skew_seconds: float = 2.0,
     synchronism_bypass_provider: Callable[[Breaker], BypassAuthorization | None] | None = None,
+    recovery_composition: ApplicationRecoveryComposition | None = None,
 ) -> Application:
     """Compose a replacement Application from the last canonical saved package.
 
@@ -901,10 +903,12 @@ def recover_application(
     CommandHistory, services, and Application are composed first; the canonical
     package is then loaded and activated through the ordinary transactional
     project lifecycle. The replacement is returned only after its project
-    identity, lifecycle state, clean command boundary, and a project-bound
-    presentation have been verified. Callers must configure the appropriate
-    presentation contract before recovery; absent presentation restoration is
-    a hard failure, not a successful Core-only recovery.
+    identity, lifecycle state, complete presentation collection, and workspace
+    adoption have been verified. A composition owner must provide
+    `recovery_composition`; its configuration callback runs on the replacement
+    before package activation, and its validation callback runs before return.
+    Missing presentation or workspace restoration is a hard failure, not a
+    successful Core-only recovery.
 
     UI/application-shell owners must swap to the returned instance only after
     this function succeeds. On any failure the old instance remains the
@@ -920,6 +924,10 @@ def recover_application(
         raise RuntimeError(
             "Recovery requires an identified active project; refusing to activate an unrelated package."
         )
+    if not isinstance(recovery_composition, ApplicationRecoveryComposition):
+        raise TypeError(
+            "recovery_composition must provide pre-activation configuration and post-activation validation."
+        )
     target = normalize_package_path(project_path)
     if not target.is_dir():
         raise FileNotFoundError(f"Canonical GridForge project package does not exist: {target}")
@@ -933,6 +941,30 @@ def recover_application(
         synchronism_bypass_provider=synchronism_bypass_provider,
     )
     try:
+        # Install the complete presentation and fresh workspace activation
+        # contracts on this exact candidate before any package state is loaded.
+        recovery_composition.configure_replacement(replacement)
+        presentation_contract = replacement.project_lifecycle.capture_presentation_configuration()
+        required_contracts = (
+            "factory",
+            "serializer",
+            "deserializer",
+            "activator",
+            "collection_serializer",
+            "collection_deserializer",
+            "collection_activator",
+            "collection_snapshot_provider",
+        )
+        missing_contracts = tuple(
+            name for name in required_contracts
+            if getattr(presentation_contract, name, None) is None
+        )
+        if missing_contracts:
+            raise RuntimeError(
+                "Recovery composition did not configure the complete presentation contract: "
+                + ", ".join(missing_contracts)
+            )
+
         # ProjectPersistenceService.load() performs manifest/schema/migration,
         # Core deserialization, SLD association, and cross-domain validation.
         context = replacement.open_project(str(target), decision="discard")
@@ -951,6 +983,37 @@ def recover_application(
             raise RuntimeError(
                 "Replacement project presentation does not belong to the canonical project identity."
             )
+
+        # The Application's active document must be the active member of the
+        # restored canonical collection, not a newly generated default SLD.
+        collection = presentation_contract.collection_snapshot_provider()
+        documents = getattr(collection, "documents", None)
+        active_document = getattr(collection, "active_document", None)
+        active_document_id = getattr(collection, "active_document_id", None)
+        if not documents or active_document is not presentation:
+            raise RuntimeError(
+                "Replacement presentation collection is empty or its active document "
+                "does not match Application.presentation."
+            )
+        if active_document_id != getattr(presentation, "document_id", None):
+            raise RuntimeError(
+                "Replacement presentation collection active_document_id does not match "
+                "the Application-active document."
+            )
+        document_ids = tuple(getattr(item, "document_id", None) for item in documents)
+        if len(set(document_ids)) != len(document_ids) or any(
+            getattr(item, "project_id", None) != context.project_id for item in documents
+        ):
+            raise RuntimeError(
+                "Replacement presentation collection contains duplicate IDs or "
+                "documents bound to another project."
+            )
+
+        # This callback validates UI-owned adoption (DocumentManager, logical
+        # SLD views, active tab, and projection bindings) without importing UI
+        # types into the headless Application/Core packages.
+        recovery_composition.validate_replacement(replacement, context)
+
         status = replacement.recovery_status
         if status.recovery_required or status.command_integrity_state != "CLEAN":
             raise RuntimeError("Replacement Application did not establish a clean command boundary.")
