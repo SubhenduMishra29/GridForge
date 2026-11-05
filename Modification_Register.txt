@@ -22379,7 +22379,9 @@ Correction:
   baseline and restores the prior baseline if activation rolls back.
 - Application.is_dirty now includes the lifecycle's Protection snapshot
   comparison, so SAVE/DISCARD/CANCEL transition protection cannot overlook
-  Protection-only edits or treat a mid-save mutation as clean.
+  Protection-only edits or treat a mid-save mutation as clean. The Application
+  save coordinator also withholds its persisted revision baseline and
+  ProjectSaved event when Protection remains dirty after the write.
 - ProjectPersistenceService validates a rehydrated copy of the detached
   snapshot payload and serializes that same snapshot. It no longer reads
   the mutable ProtectionConfigurationService aggregate during serialization.
