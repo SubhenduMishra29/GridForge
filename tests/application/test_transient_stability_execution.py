@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
 
+from core.application.application import Application
 from core.application.read_models import StudyResultReadModel
 from core.application.read_service import StudyReadService
 from core.application.revision import ProjectRevision
@@ -535,3 +536,19 @@ def test_study_case_controller_rejects_non_string_comparison_source():
     assert isinstance(errors[0], ValueError)
     assert "source is invalid" in str(errors[0])
     assert calls == []
+
+
+
+def test_application_rejects_non_string_study_comparison_source():
+    application = Application.__new__(Application)
+    application.project_lifecycle = SimpleNamespace(
+        context=SimpleNamespace(project_id="project"),
+        has_project=True,
+        state="ACTIVE",
+        activation_generation=1,
+    )
+
+    with pytest.raises(ValueError, match="source must be"):
+        application.export_study_comparison(
+            [], uuid4(), "live", uuid4(),
+        )
