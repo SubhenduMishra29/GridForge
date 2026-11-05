@@ -91,6 +91,7 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
     window = resources.get("window")
     if isinstance(window, MainWindow):
         _invoke_cleanup(window.hide, errors)
+        _invoke_cleanup(window.deleteLater, errors)
     sld_controller = resources.get("sld_controller")
     if isinstance(sld_controller, SLDController):
         _invoke_cleanup(sld_controller.dispose, errors)
@@ -163,11 +164,10 @@ def _build_application_impl(
     startup_splash.status("Initializing application style…")
     style_manager.apply(app)
     startup_splash.status("Initializing engineering application…")
-    network = Network()
     gridforge_application = (
         application_override
         if application_override is not None
-        else create_application(network)
+        else create_application(Network())
     )
     resources["application"] = gridforge_application
     # Engineering plugins have a lifecycle owner separate from UI composition.
@@ -1102,10 +1102,12 @@ def _build_application_impl(
         serializer=serialize_sld,
         deserializer=deserialize_sld,
     )
-    # Recovery opens the package directly through Application after this shell
-    # has been staged. Reinstall the composite SLD + workspace activator now,
-    # because attach_sld_service() otherwise leaves only the SLD binding active.
-    project_workspace_adapter.configure_recovery_activation()
+    if application_override is not None:
+        # Recovery opens the package directly through Application after this
+        # shell has been staged. Reinstall the composite SLD + workspace
+        # activator because attach_sld_service() otherwise leaves only the
+        # SLD binding active.
+        project_workspace_adapter.configure_recovery_activation()
     sld_controller.register_document(sld_document)
     sld_controller.reconcile_presentation()
 
