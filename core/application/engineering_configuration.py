@@ -270,10 +270,6 @@ class EngineeringUpdatePreparer:
         except (KeyError, TypeError, ValueError):
             creation_definition = None
         if creation_definition is not None:
-            field_to_parameter = {
-                command_field: parameter_id
-                for parameter_id, command_field in creation_definition.parameter_mapping.items()
-            }
             parameter_updates: dict[str, Any] = {}
             for parameter in creation_definition.parameter_definitions:
                 command_field = creation_definition.parameter_mapping.get(
