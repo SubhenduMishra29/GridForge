@@ -118,6 +118,7 @@ class SLDService:
 
         for target_document in target_documents:
             document_id = getattr(target_document, "document_id", None)
+            document_diagnostic_start = len(diagnostics)
             for connection in target_document.model.connections:
                 properties = connection.properties
                 kind = str(properties.get("connection_kind", "")).upper()
@@ -220,6 +221,11 @@ class SLDService:
                         "core_connection_id": core_id,
                         "presentation_owner": owner,
                     })
+            for diagnostic in diagnostics[document_diagnostic_start:]:
+                diagnostic.setdefault(
+                    "document_id",
+                    None if document_id is None else str(document_id),
+                )
 
         for core_id in core_by_id:
             if core_id not in companions:
