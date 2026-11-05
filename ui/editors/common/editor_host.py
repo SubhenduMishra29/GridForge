@@ -59,6 +59,21 @@ class EngineeringEditorHost(QWidget):
         resolver = getattr(editor, "region_widget", None) if editor is not None else None
         return resolver(self._active_region_id) if callable(resolver) else None
 
+    def unregister_editor(self, editor_id: str) -> QWidget | None:
+        """Permanently remove an editor after invoking its owned teardown contract."""
+        widget = self._editors.get(editor_id)
+        if widget is None:
+            return None
+        if editor_id == self._active_editor_id:
+            self.deactivate()
+        dispose = getattr(widget, "dispose_editor", None)
+        if callable(dispose):
+            dispose()
+        self._stack.removeWidget(widget)
+        self._editors.pop(editor_id, None)
+        widget.setParent(None)
+        return widget
+
     def register_editor(self, editor_id: str, widget: QWidget) -> None:
         if not isinstance(editor_id, str) or not editor_id.strip():
             raise ValueError("editor_id must be a non-empty string.")
@@ -80,6 +95,18 @@ class EngineeringEditorHost(QWidget):
         widget = self._editors.get(editor_id)
         if widget is None:
             raise KeyError(f"Unknown editor: {editor_id!r}")
+        previous_id = self._active_editor_id
+        previous_context = self._editor_context
+        previous_widget = self._editors.get(previous_id or "")
+        previous_workspace = getattr(previous_context, "workspace", None)
+        next_workspace = getattr(context, "workspace", None)
+        if previous_widget is not None and (
+            previous_id != editor_id
+            or (previous_workspace is not None and next_workspace is not None and previous_workspace != next_workspace)
+        ):
+            deactivate = getattr(previous_widget, "deactivate_workspace", None)
+            if callable(deactivate):
+                deactivate()
         if context is not None and getattr(context, "editor", None) is not None:
             canonical_editor_id = getattr(context.editor, "editor_id", editor_id)
             if canonical_editor_id != editor_id:
@@ -140,7 +167,14 @@ class EngineeringEditorHost(QWidget):
         return str(value) if value is not None else None
 
     def deactivate(self) -> None:
-        self._active_editor_id = None
+        """Deactivate the active editor before dropping its immutable context."""
+        widget = self._editors.get(self._active_editor_id or "")
+        deactivate = getattr(widget, "deactivate_workspace", None) if widget is not None else None
+        try:
+            if callable(deactivate):
+                deactivate()
+        finally:
+            self._active_editor_id = None
         self._active_area = None
         self._active_region_id = None
         self._editor_context = None
