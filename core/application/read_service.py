@@ -1459,9 +1459,15 @@ class StudyReadService:
                 diagnostics.append("STUDY_TYPE_MISMATCH")
             if left.status != "completed" or right.status != "completed":
                 diagnostics.append("INCOMPLETE_OR_NON_SUCCESSFUL_EXECUTION")
-            if isinstance(left, StudyResultReadModel) and not left.current:
+            if isinstance(left, StudyResultReadModel) and (
+                not left.current
+                or (current_revision is not None and not left.source_revision.matches_study_state(current_revision))
+            ):
                 diagnostics.append("LEFT_LIVE_RESULT_NOT_CURRENT")
-            if isinstance(right, StudyResultReadModel) and not right.current:
+            if isinstance(right, StudyResultReadModel) and (
+                not right.current
+                or (current_revision is not None and not right.source_revision.matches_study_state(current_revision))
+            ):
                 diagnostics.append("RIGHT_LIVE_RESULT_NOT_CURRENT")
             if left_transient is not None and right_transient is not None:
                 if left_transient.time_s != right_transient.time_s:
