@@ -968,6 +968,11 @@ def recover_application(
         # ProjectPersistenceService.load() performs manifest/schema/migration,
         # Core deserialization, SLD association, and cross-domain validation.
         context = replacement.open_project(str(target), decision="discard")
+        # Application activation commits the project and presentation lifecycle,
+        # but direct Application.open_project() does not publish the UI adapter's
+        # ProjectWorkspaceChanged notification. Synchronize the hidden candidate
+        # shell before validating its projections and before publishing the shell.
+        recovery_composition.synchronize_replacement(replacement, context)
         # A clean Core command boundary is not sufficient for a usable GridForge
         # project: the canonical package also carries the engineer's SLD
         # presentation. The headless bootstrap must not silently accept a load
@@ -1037,6 +1042,10 @@ def recover_application(
             or after.activation_generation != before.activation_generation
         ):
             raise RuntimeError("The degraded Application changed during replacement composition.")
+
+        # Publish the staged shell only after every Core, presentation,
+        # workspace, and degraded-instance integrity check has passed.
+        recovery_composition.commit_replacement(replacement)
         return replacement
     except BaseException:
         # The composition owner holds UI/workspace resources that are outside

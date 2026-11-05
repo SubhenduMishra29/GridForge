@@ -44,22 +44,30 @@ class ApplicationRecoveryComposition:
     activation contracts, including the collection contract and the fresh
     workspace/SLD activation dependencies.
 
-    The validate callback runs after project activation. It must verify that the
-    newly composed workspace adopted the restored collection and persisted
-    active-document identity. The dispose callback tears down all candidate UI
-    resources if configuration, activation, or validation fails. UI-specific
-    lifecycle management stays outside Core.
+    The synchronize callback publishes the committed workspace transition to
+    candidate-shell projections after Application activation. The validate
+    callback then verifies that the workspace adopted the restored collection
+    and persisted active-document identity. The commit callback publishes the candidate shell
+    only after all recovery checks pass. The dispose callback tears down all
+    candidate UI resources if configuration, activation, validation, or commit
+    fails. UI-specific lifecycle management stays outside Core.
     """
 
     configure_replacement: Callable[["Application"], None]
+    synchronize_replacement: Callable[["Application", "ProjectContext"], None]
     validate_replacement: Callable[["Application", "ProjectContext"], None]
+    commit_replacement: Callable[["Application"], None]
     dispose_replacement: Callable[["Application"], None]
 
     def __post_init__(self) -> None:
         if not callable(self.configure_replacement):
             raise TypeError("configure_replacement must be callable.")
+        if not callable(self.synchronize_replacement):
+            raise TypeError("synchronize_replacement must be callable.")
         if not callable(self.validate_replacement):
             raise TypeError("validate_replacement must be callable.")
+        if not callable(self.commit_replacement):
+            raise TypeError("commit_replacement must be callable.")
         if not callable(self.dispose_replacement):
             raise TypeError("dispose_replacement must be callable.")
 
