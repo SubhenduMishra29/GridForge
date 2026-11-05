@@ -3693,7 +3693,31 @@ class Application:
     def validate_project(self) -> ValidationResult:
         context = self.project_lifecycle.context
         if context is None: raise RuntimeError("Validation requires an active project.")
-        result = self.validation_service.validate_project(context=context, presentation=self.presentation)
+
+        sld_connection_diagnostics = ()
+        if self.presentation is not None:
+            sld_service = getattr(self, "_sld_service", None)
+            if sld_service is None or not bool(getattr(sld_service, "is_bound", False)):
+                sld_connection_diagnostics = ({
+                    "code": "SLD_CONNECTION_AUDIT_UNAVAILABLE",
+                    "reason": "The active presentation has no bound Application SLDService.",
+                },)
+            else:
+                try:
+                    sld_connection_diagnostics = sld_service.audit_simple_wire_projection(
+                        self.project_lifecycle.network
+                    )
+                except Exception as exc:
+                    sld_connection_diagnostics = ({
+                        "code": "SLD_CONNECTION_AUDIT_FAILED",
+                        "reason": f"{type(exc).__name__}: {exc}",
+                    },)
+
+        result = self.validation_service.validate_project(
+            context=context,
+            presentation=self.presentation,
+            sld_connection_diagnostics=sld_connection_diagnostics,
+        )
         scoped = replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
         self._event_bus.publish(ValidationChanged(metadata={
             "valid": scoped.valid,
