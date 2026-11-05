@@ -681,7 +681,12 @@ class Application:
     @property
     def revision(self) -> ProjectRevision: return self._revision_service.revision
     @property
-    def is_dirty(self) -> bool: return self._revision_service.is_dirty
+    def is_dirty(self) -> bool:
+        lifecycle = self._project_lifecycle
+        return bool(
+            self._revision_service.is_dirty
+            or (lifecycle is not None and lifecycle.protection_configuration_dirty)
+        )
     @property
     def revision_service(self) -> RevisionService: return self._revision_service
     @property
