@@ -1535,6 +1535,7 @@ class Application:
             metadata=context_metadata,
         )
         decisions = runtime.system.evaluate(context)
+
         def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
             """Resolve only an explicit project-persisted function-to-target mapping."""
             try:
@@ -1667,7 +1668,7 @@ class Application:
             target_id = resolved.target_equipment_id
             supported_target_types = {"breaker", "switch", "disconnector", "fuse", "motor"}
             if target_type not in supported_target_types or not isinstance(target_id, str) or not target_id.strip():
-                raise ValueError("Explicit protection action has an unsupported target type or empty target identity.")
+                raise ValueError("Persisted protection action has an unsupported target type or empty target identity.")
             try:
                 target = captured_network.get_by_id(target_type, target_id)
             except (KeyError, ValueError):
