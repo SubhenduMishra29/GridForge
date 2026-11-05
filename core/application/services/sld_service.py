@@ -92,7 +92,7 @@ class SLDService:
             raise ValueError("core_connection_id must be a non-empty string")
         return f"sld-wire-{core_connection_id}"
 
-    def audit_simple_wire_projection(self, network: Any) -> tuple[dict[str, Any], ...]:
+    def audit_simple_wire_projection(self, network: Any, *, document: Any | None = None, documents: tuple[Any, ...] | None = None) -> tuple[dict[str, Any], ...]:
         """Audit Core/SLD Simple-Wire consistency without mutating the document.
 
         This method is the activation/read-side counterpart to the mutating
@@ -101,102 +101,131 @@ class SLDService:
         """
         if network is None or not hasattr(network, "connectivity"):
             raise TypeError("network must expose the authoritative connectivity aggregate")
+        if documents is not None:
+            target_documents = tuple(documents)
+        else:
+            target_documents = (self.document if document is None else document,)
+        if not target_documents or any(
+            target_document is None or not hasattr(target_document, "model")
+            for target_document in target_documents
+        ):
+            raise TypeError("documents must contain SLD documents exposing a model")
 
         core_connections = tuple(network.connectivity.connections)
         core_by_id = {str(connection.connection_id): connection for connection in core_connections}
         diagnostics: list[dict[str, Any]] = []
-        companions: dict[str, Any] = {}
+        companions: dict[str, tuple[str | None, Any]] = {}
 
-        for connection in self.document.model.connections:
-            properties = connection.properties
-            kind = str(properties.get("connection_kind", "")).upper()
-            lifecycle = str(properties.get("lifecycle_state", "BOUND")).upper()
-            core_id = properties.get("core_connection_id")
-            owner = str(properties.get("presentation_owner", "")).lower()
+        for target_document in target_documents:
+            document_id = getattr(target_document, "document_id", None)
+            document_diagnostic_start = len(diagnostics)
+            for connection in target_document.model.connections:
+                properties = connection.properties
+                kind = str(properties.get("connection_kind", "")).upper()
+                lifecycle = str(properties.get("lifecycle_state", "BOUND")).upper()
+                core_id = properties.get("core_connection_id")
+                owner = str(properties.get("presentation_owner", "")).lower()
 
-            if kind != "SIMPLE_WIRE" and not core_id:
-                continue
-            if kind != "SIMPLE_WIRE":
-                diagnostics.append({
-                    "code": "ENDPOINT_MISMATCH",
-                    "connection_id": str(connection.connection_id),
-                    "reason": "core_connection_mapping_on_non_simple_wire",
-                })
-                continue
-            if lifecycle == "ORPHANED":
-                continue
-            if lifecycle != "BOUND":
-                diagnostics.append({
-                    "code": "ENDPOINT_MISMATCH",
-                    "connection_id": str(connection.connection_id),
-                    "reason": f"unsupported_lifecycle_state:{lifecycle}",
-                })
-                continue
-            try:
-                connection.validate()
-            except (TypeError, ValueError) as exc:
-                diagnostics.append({
-                    "code": "ENDPOINT_MISMATCH",
-                    "connection_id": str(connection.connection_id),
-                    "core_connection_id": None if core_id is None else str(core_id),
-                    "reason": f"invalid_sld_endpoint_node_identity:{exc}",
-                })
-                continue
-            if not core_id:
-                diagnostics.append({
-                    "code": "SLD_WIRE_WITHOUT_CORE",
-                    "connection_id": str(connection.connection_id),
-                })
-                continue
+                if kind != "SIMPLE_WIRE" and not core_id:
+                    continue
+                if kind != "SIMPLE_WIRE":
+                    diagnostics.append({
+                        "code": "ENDPOINT_MISMATCH",
+                        "connection_id": str(connection.connection_id),
+                        "reason": "core_connection_mapping_on_non_simple_wire",
+                    })
+                    continue
+                if lifecycle == "ORPHANED":
+                    continue
+                if lifecycle != "BOUND":
+                    diagnostics.append({
+                        "code": "ENDPOINT_MISMATCH",
+                        "connection_id": str(connection.connection_id),
+                        "reason": f"unsupported_lifecycle_state:{lifecycle}",
+                    })
+                    continue
+                try:
+                    connection.validate()
+                except (TypeError, ValueError) as exc:
+                    diagnostics.append({
+                        "code": "ENDPOINT_MISMATCH",
+                        "connection_id": str(connection.connection_id),
+                        "core_connection_id": None if core_id is None else str(core_id),
+                        "document_id": None if document_id is None else str(document_id),
+                        "reason": f"invalid_sld_endpoint_node_identity:{exc}",
+                    })
+                    continue
+                if not core_id:
+                    diagnostics.append({
+                        "code": "SLD_WIRE_WITHOUT_CORE",
+                        "connection_id": str(connection.connection_id),
+                    })
+                    continue
 
-            core_id = str(core_id)
-            expected_presentation_id = self.presentation_connection_id(core_id)
-            if str(connection.connection_id) != expected_presentation_id:
-                diagnostics.append({
-                    "code": "PRESENTATION_ID_MISMATCH",
-                    "connection_id": str(connection.connection_id),
-                    "expected_connection_id": expected_presentation_id,
-                    "core_connection_id": core_id,
-                })
-            if core_id in companions:
-                diagnostics.append({
-                    "code": "DUPLICATE_PRESENTATION_COMPANION",
-                    "connection_id": str(connection.connection_id),
-                    "core_connection_id": core_id,
-                })
-                continue
+                core_id = str(core_id)
+                expected_presentation_id = self.presentation_connection_id(core_id)
+                if str(connection.connection_id) != expected_presentation_id:
+                    diagnostics.append({
+                        "code": "PRESENTATION_ID_MISMATCH",
+                        "connection_id": str(connection.connection_id),
+                        "expected_connection_id": expected_presentation_id,
+                        "core_connection_id": core_id,
+                    })
+                if core_id in companions:
+                    diagnostics.append({
+                        "code": "DUPLICATE_PRESENTATION_COMPANION",
+                        "connection_id": str(connection.connection_id),
+                        "core_connection_id": core_id,
+                        "document_id": None if document_id is None else str(document_id),
+                        "first_document_id": companions[core_id][0],
+                    })
+                    continue
 
-            companions[core_id] = connection
-            if core_id not in core_by_id:
-                diagnostics.append({
-                    "code": "SLD_WIRE_WITHOUT_CORE",
-                    "connection_id": str(connection.connection_id),
-                    "core_connection_id": core_id,
-                    "presentation_owner": owner,
-                })
-                continue
+                companions[core_id] = (
+                    None if document_id is None else str(document_id),
+                    connection,
+                )
+                if core_id not in core_by_id:
+                    diagnostics.append({
+                        "code": "SLD_WIRE_WITHOUT_CORE",
+                        "connection_id": str(connection.connection_id),
+                        "core_connection_id": core_id,
+                        "presentation_owner": owner,
+                    })
+                    continue
 
-            core = core_by_id[core_id]
-            try:
-                expected_a = self._sld_endpoint_from_mapping(core.endpoint_a.to_mapping())
-                expected_b = self._sld_endpoint_from_mapping(core.endpoint_b.to_mapping())
-            except (KeyError, TypeError, ValueError) as exc:
-                diagnostics.append({
-                    "code": "SLD_ENDPOINT_NODE_UNRESOLVED",
-                    "connection_id": str(connection.connection_id),
-                    "core_connection_id": core_id,
-                    "reason": str(exc),
-                })
-                continue
-            actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
-            actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
-            if actual_a != expected_a or actual_b != expected_b:
-                diagnostics.append({
-                    "code": "ENDPOINT_MISMATCH",
-                    "connection_id": str(connection.connection_id),
-                    "core_connection_id": core_id,
-                    "presentation_owner": owner,
-                })
+                core = core_by_id[core_id]
+                try:
+                    expected_a = self._sld_endpoint_from_mapping(
+                        core.endpoint_a.to_mapping(),
+                        document=target_document,
+                    )
+                    expected_b = self._sld_endpoint_from_mapping(
+                        core.endpoint_b.to_mapping(),
+                        document=target_document,
+                    )
+                except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                    diagnostics.append({
+                        "code": "SLD_ENDPOINT_NODE_UNRESOLVED",
+                        "connection_id": str(connection.connection_id),
+                        "core_connection_id": core_id,
+                        "reason": str(exc),
+                    })
+                    continue
+                actual_a = connection.source_endpoint.to_dict() if connection.source_endpoint is not None else None
+                actual_b = connection.target_endpoint.to_dict() if connection.target_endpoint is not None else None
+                if actual_a != expected_a or actual_b != expected_b:
+                    diagnostics.append({
+                        "code": "ENDPOINT_MISMATCH",
+                        "connection_id": str(connection.connection_id),
+                        "core_connection_id": core_id,
+                        "presentation_owner": owner,
+                    })
+            for diagnostic in diagnostics[document_diagnostic_start:]:
+                diagnostic.setdefault(
+                    "document_id",
+                    None if document_id is None else str(document_id),
+                )
 
         for core_id in core_by_id:
             if core_id not in companions:
@@ -445,12 +474,20 @@ class SLDService:
 
         return rollback
 
-    def _sld_node_for_endpoint_mapping(self, mapping: Mapping[str, Any]) -> str:
+    def _sld_node_for_endpoint_mapping(
+        self,
+        mapping: Mapping[str, Any],
+        *,
+        document: Any | None = None,
+    ) -> str:
         object_id = str(mapping.get("object_id") or "")
         if not object_id:
             raise ValueError("Simple Wire endpoint mapping requires object_id.")
+        target_document = self.document if document is None else document
+        if target_document is None or not hasattr(target_document, "model"):
+            raise TypeError("document must expose the SLD model for endpoint resolution.")
         nodes = tuple(
-            node for node in self.document.model.nodes
+            node for node in target_document.model.nodes
             if str(getattr(node, "equipment_id", "") or "") == object_id
         )
         if len(nodes) != 1:
@@ -459,7 +496,7 @@ class SLDService:
             )
         return str(nodes[0].node_id)
 
-    def _sld_endpoint_from_mapping(self, mapping: Mapping[str, Any]) -> dict[str, Any]:
+    def _sld_endpoint_from_mapping(self, mapping: Mapping[str, Any], *, document: Any | None = None) -> dict[str, Any]:
         """Translate a topology endpoint envelope to independent SLD node identity."""
         if not isinstance(mapping, Mapping):
             raise TypeError("Core topology endpoint mapping must be a mapping.")
@@ -474,7 +511,7 @@ class SLDService:
         object_id = str(endpoint_mapping.get("object_id") or "")
         if not object_id:
             raise ValueError("Core endpoint mapping requires a non-empty object_id.")
-        node_id = self._sld_node_for_endpoint_mapping(endpoint_mapping)
+        node_id = self._sld_node_for_endpoint_mapping(endpoint_mapping, document=document)
         return {
             "kind": "bus" if kind == "bus" else "equipment",
             "node_id": node_id,

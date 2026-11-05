@@ -3694,29 +3694,111 @@ class Application:
         context = self.project_lifecycle.context
         if context is None: raise RuntimeError("Validation requires an active project.")
 
-        sld_connection_diagnostics = ()
-        if self.presentation is not None:
-            sld_service = getattr(self, "_sld_service", None)
+        sld_connection_diagnostics: list[dict[str, Any]] = []
+        presentation_configuration = self.project_lifecycle.capture_presentation_configuration()
+        collection_provider = presentation_configuration.collection_snapshot_provider
+        if callable(collection_provider):
+            try:
+                collection = collection_provider()
+                presentation_documents = tuple(getattr(collection, "documents", ()))
+                if not presentation_documents and self.presentation is not None:
+                    sld_connection_diagnostics.append({
+                        "code": "SLD_PRESENTATION_COLLECTION_UNAVAILABLE",
+                        "reason": "The presentation collection is empty while an active presentation exists.",
+                    })
+                    presentation_documents = (self.presentation,)
+                if self.presentation is not None and not any(
+                    document is self.presentation for document in presentation_documents
+                ):
+                    sld_connection_diagnostics.append({
+                        "code": "SLD_ACTIVE_PRESENTATION_NOT_IN_COLLECTION",
+                        "document_id": str(getattr(self.presentation, "document_id", "")),
+                        "reason": "Application.presentation is not a member of the project presentation collection.",
+                    })
+                    presentation_documents = (*presentation_documents, self.presentation)
+                collection_active = getattr(collection, "active_document", None)
+                if self.presentation is not None and collection_active is not self.presentation:
+                    sld_connection_diagnostics.append({
+                        "code": "SLD_ACTIVE_PRESENTATION_COLLECTION_MISMATCH",
+                        "document_id": str(getattr(self.presentation, "document_id", "")),
+                        "reason": "The collection active document does not match Application.presentation.",
+                    })
+            except Exception as exc:
+                presentation_documents = (self.presentation,) if self.presentation is not None else ()
+                sld_connection_diagnostics.append({
+                    "code": "SLD_PRESENTATION_COLLECTION_AUDIT_FAILED",
+                    "reason": f"{type(exc).__name__}: {exc}",
+                })
+        else:
+            presentation_documents = (self.presentation,) if self.presentation is not None else ()
+            if self.presentation is not None:
+                sld_connection_diagnostics.append({
+                    "code": "SLD_PRESENTATION_COLLECTION_UNAVAILABLE",
+                    "document_id": str(getattr(self.presentation, "document_id", "")),
+                    "reason": "The Application presentation contract has no collection snapshot provider.",
+                })
+
+        valid_presentation_documents: list[Any] = []
+        seen_document_ids: set[str] = set()
+        for document in presentation_documents:
+            document_id = str(getattr(document, "document_id", "") or "")
+            if not document_id:
+                sld_connection_diagnostics.append({
+                    "code": "SLD_DOCUMENT_ID_INVALID",
+                    "reason": "A project presentation document has no stable document_id.",
+                })
+                continue
+            if document_id in seen_document_ids:
+                sld_connection_diagnostics.append({
+                    "code": "SLD_PRESENTATION_DOCUMENT_ID_DUPLICATE",
+                    "document_id": document_id,
+                    "reason": "The project presentation collection contains duplicate document identities.",
+                })
+            else:
+                seen_document_ids.add(document_id)
+            if getattr(document, "project_id", None) != context.project_id:
+                sld_connection_diagnostics.append({
+                    "code": "SLD_DOCUMENT_PROJECT_MISMATCH",
+                    "document_id": document_id,
+                    "reason": "Presentation document belongs to a different project identity.",
+                })
+                continue
+            valid_presentation_documents.append(document)
+        presentation_documents = tuple(valid_presentation_documents)
+
+        sld_service = getattr(self, "_sld_service", None)
+        if presentation_documents:
             if sld_service is None or not bool(getattr(sld_service, "is_bound", False)):
-                sld_connection_diagnostics = ({
-                    "code": "SLD_CONNECTION_AUDIT_UNAVAILABLE",
-                    "reason": "The active presentation has no bound Application SLDService.",
-                },)
+                for document in presentation_documents:
+                    sld_connection_diagnostics.append({
+                        "code": "SLD_CONNECTION_AUDIT_UNAVAILABLE",
+                        "document_id": str(document.document_id),
+                        "reason": "No bound Application SLDService is available for the presentation collection.",
+                    })
             else:
                 try:
-                    sld_connection_diagnostics = sld_service.audit_simple_wire_projection(
-                        self.project_lifecycle.network
+                    sld_connection_diagnostics.extend(
+                        sld_service.audit_simple_wire_projection(
+                            self.project_lifecycle.network,
+                            documents=presentation_documents,
+                        )
                     )
                 except Exception as exc:
-                    sld_connection_diagnostics = ({
+                    sld_connection_diagnostics.append({
                         "code": "SLD_CONNECTION_AUDIT_FAILED",
                         "reason": f"{type(exc).__name__}: {exc}",
-                    },)
+                    })
+        elif self.presentation is None:
+            sld_connection_diagnostics.append({
+                "code": "SLD_PRESENTATION_COLLECTION_UNAVAILABLE",
+                "reason": "The active project has no presentation document to validate.",
+            })
 
         result = self.validation_service.validate_project(
             context=context,
             presentation=self.presentation,
-            sld_connection_diagnostics=sld_connection_diagnostics,
+            presentation_documents=tuple(presentation_documents),
+            sld_connection_diagnostics=tuple(sld_connection_diagnostics),
         )
         scoped = replace(result, project_id=context.project_id, activation_generation=self.project_lifecycle.activation_generation)
         self._event_bus.publish(ValidationChanged(metadata={
