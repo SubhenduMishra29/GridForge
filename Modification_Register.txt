@@ -22866,3 +22866,42 @@ Verification:
     toolbar and Explorer widget composition. No tests or CI were run.
 
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: DISCIPLINE PANEL VISIBILITY CONSISTENCY
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-discipline-panel-visibility
+
+Changed:
+    ui/editors/control/control_editor.py
+        Hide empty Explorer, Overlay and Diagnostics placeholders when
+        no real widget is supplied.
+        Keep Tool Settings hidden until the active tool has settings.
+
+    ui/editors/protection/protection_editor.py
+        Keep Tool Settings hidden until the active tool has settings.
+
+    ui/editors/study/study_editor.py
+        Keep Tool Settings hidden until the active tool has settings.
+
+Outcome:
+    Control, Protection and Study workspaces no longer reserve empty
+    contextual-settings space. The Control workspace does not display
+    placeholder Explorer/Overlay/Diagnostics regions when those regions
+    have no actual content.
+
+Boundaries:
+    Presentation visibility only. Existing tools, Application commands,
+    read models, workspace ownership and engineering state are unchanged.
+
+Verification:
+    Source-level review of editor construction and EditorContext updates.
+    No tests or CI were run.
+
+======================================================================
