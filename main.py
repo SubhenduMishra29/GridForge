@@ -1169,17 +1169,11 @@ def _build_application_impl(
         _attempt_workspace_sync_step("engineering context", update_context, change)
         if isinstance(document, SLDDocument):
             _attempt_workspace_sync_step("SLD presentation reconciliation", sld_controller.reconcile_presentation, change)
-            _attempt_workspace_sync_step(
-                "active SLD surface",
-                lambda: workspace_surface_host.set_sld_document(document),
-                change,
-            )
-        else:
-            _attempt_workspace_sync_step(
-                "clear active SLD surface",
-                lambda: workspace_surface_host.set_sld_document(None),
-                change,
-            )
+
+        # The adapter's presentation-activation bridge already adopted this
+        # document (or None on close) before publishing the committed change.
+        # Do not call set_sld_document() again here: it is a transactional
+        # participant with rollback semantics, not a post-commit projection.
 
         _attempt_workspace_sync_step("SLD document tabs", workspace_surface_host.refresh_sld_document_tabs, change)
         _attempt_workspace_sync_step("canvas synchronization", synchronize_canvas, change)
