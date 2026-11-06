@@ -1137,10 +1137,20 @@ def _build_application_impl(
         project = change.state.project
         next_document_id = document.document_id if isinstance(document, SLDDocument) else None
 
+        def clear_previous_canvas_state() -> None:
+            current_context = engineering_context.current
+            if (
+                current_context.document_id != next_document_id
+                or current_context.project_id != getattr(project, "project_id", None)
+                or change.operation == "replace_document"
+            ):
+                # Run only after the Application transition commits. A failed
+                # transition therefore keeps the previous document's transient
+                # interaction state available for rollback.
+                canvas_composition.clear_project_state()
+
         def update_context() -> None:
             current_context = engineering_context.current
-            if current_context.document_id != next_document_id or current_context.project_id != getattr(project, "project_id", None):
-                canvas_composition.selection_manager.clear()
             engineering_context.update(
                 project_id=getattr(project, "project_id", None),
                 project_name=getattr(project, "name", None),
@@ -1156,20 +1166,15 @@ def _build_application_impl(
         # These are independent projection steps after the Application transition
         # commits. A failure in one step must not prevent the remaining surfaces
         # from attempting to synchronize to the authoritative workspace state.
+        _attempt_workspace_sync_step("previous canvas document state", clear_previous_canvas_state, change)
         _attempt_workspace_sync_step("engineering context", update_context, change)
         if isinstance(document, SLDDocument):
             _attempt_workspace_sync_step("SLD presentation reconciliation", sld_controller.reconcile_presentation, change)
-            _attempt_workspace_sync_step(
-                "active SLD surface",
-                lambda: workspace_surface_host.set_sld_document(document),
-                change,
-            )
-        else:
-            _attempt_workspace_sync_step(
-                "clear active SLD surface",
-                lambda: workspace_surface_host.set_sld_document(None),
-                change,
-            )
+
+        # The adapter's presentation-activation bridge already adopted this
+        # document (or None on close) before publishing the committed change.
+        # Do not call set_sld_document() again here: it is a transactional
+        # participant with rollback semantics, not a post-commit projection.
 
         _attempt_workspace_sync_step("SLD document tabs", workspace_surface_host.refresh_sld_document_tabs, change)
         _attempt_workspace_sync_step("canvas synchronization", synchronize_canvas, change)
@@ -1378,12 +1383,18 @@ def _build_application_impl(
     # UILifecycle.shutdown. Shutdown must only release remaining presentation
     # document state; it must never re-run the Application project transition
     # and accidentally prompt/save a dirty project a second time.
+    def _dispose_sld_editor() -> None:
+        # Workspace teardown deactivates the retained editor first. Permanent
+        # unregistration then invokes SLDEditor.dispose_editor(), which releases
+        # the CanvasComposition and its renderer/navigation/interaction owners.
+        workspace_surface_host.editor_host.unregister_editor("sld-editor")
+
     ui_lifecycle = UILifecycle(
         workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
         document_ready=lambda: project_workspace_adapter.state.document is not None,
         document_close=project_workspace_lifecycle.close_document,
         workspace_teardown=workspace_controller.close,
-        cleanup=lambda: None,
+        cleanup=_dispose_sld_editor,
     ); resources["ui_lifecycle"] = ui_lifecycle
 
     def project_transition_decision(context: object) -> object:

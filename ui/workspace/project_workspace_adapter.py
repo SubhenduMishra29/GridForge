@@ -144,10 +144,35 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("project transition guard must return a callable recovery or None.")
         return recovery
 
-    @staticmethod
-    def _restore_interaction_after_failure(recovery: Callable[[], None] | None) -> None:
+    def _restore_interaction_after_failure(
+        self,
+        recovery: Callable[[], None] | None,
+        *,
+        operation: str,
+    ) -> None:
+        """Restore safe interaction, then reconcile projections from restored Application state."""
         if recovery is not None:
-            recovery()
+            try:
+                recovery()
+            except BaseException:
+                _logger.exception(
+                    "Interaction recovery failed after workspace transition rollback: operation=%s",
+                    operation,
+                )
+
+        state = self._lifecycle.state
+        if self._application.presentation is not state.document:
+            _logger.error(
+                "Skipping rollback projection reconciliation because Application and workspace "
+                "presentations disagree: operation=%s application_document=%r workspace_document=%r",
+                operation,
+                getattr(self._application.presentation, "document_id", None),
+                getattr(state.document, "document_id", None),
+            )
+            return
+
+        project_id = state.project.project_id if state.project is not None else ""
+        self._publish(f"rollback_{operation}", state, project_id)
 
     def configure_save_as_path_provider(self, provider: Callable[[object], str | None]) -> None:
         """Bind the existing UI Save As path-selection workflow for unsaved projects."""
@@ -488,7 +513,7 @@ class ProjectWorkspaceApplicationAdapter:
                 decision=decision,
             )
         except BaseException:
-            self._restore_interaction_after_failure(recovery)
+            self._restore_interaction_after_failure(recovery, operation="new")
             raise
         if context is None:
             raise RuntimeError("New project transition did not return a project context.")
@@ -519,7 +544,7 @@ class ProjectWorkspaceApplicationAdapter:
                 decision=decision,
             )
         except BaseException:
-            self._restore_interaction_after_failure(recovery)
+            self._restore_interaction_after_failure(recovery, operation="open")
             raise
         if context is None:
             raise RuntimeError("Open project transition did not return a project context.")
@@ -543,7 +568,14 @@ class ProjectWorkspaceApplicationAdapter:
                         f"{type(recovery_error).__name__}: {recovery_error}"
                     )
 
-    def activate_document(self, document_id: str) -> ProjectWorkspaceState:
+    def activate_document(
+        self,
+        document_id: str,
+        *,
+        _reconcile_rollback: bool = True,
+        _run_transition_guard: bool = True,
+        _publish_change: bool = True,
+    ) -> ProjectWorkspaceState:
         """Atomically activate one canonical workspace document and presentation."""
         document = self._lifecycle.documents.require(document_id)
         if not isinstance(document, SLDDocument):
@@ -551,13 +583,14 @@ class ProjectWorkspaceApplicationAdapter:
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         try:
-            if self._document_transition_guard is not None:
+            if _run_transition_guard and self._document_transition_guard is not None:
                 self._document_transition_guard()
             self._lifecycle.activate_document_id(document_id)
             self._application.activate_presentation(document)
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(document)
-            self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
+            if _publish_change:
+                self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
             recovery: list[tuple[str, Callable[[], None]]] = [
@@ -572,6 +605,42 @@ class ProjectWorkspaceApplicationAdapter:
                         ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
                     )
             self._recover_independently(primary, tuple(recovery))
+            if _reconcile_rollback:
+                self._restore_interaction_after_failure(None, operation="activate_document")
+            raise
+
+    def replace_document(self, document: SLDDocument) -> ProjectWorkspaceState:
+        """Replace one registered SLD document through the Application presentation boundary."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Only SLDDocument replacement is supported by the SLD document lifecycle.")
+        existing = self._lifecycle.documents.require(document.document_id)
+        if not isinstance(existing, SLDDocument):
+            raise TypeError("Only an existing SLDDocument can be replaced by this adapter.")
+        snapshot = self._lifecycle.capture_transition_state()
+        previous = self._lifecycle.document
+        try:
+            if self._document_transition_guard is not None:
+                self._document_transition_guard()
+            self._lifecycle.replace_document(document)
+            self._application.activate_presentation(document)
+            if self._presentation_activation_bridge is not None:
+                self._presentation_activation_bridge(document)
+            self._publish("replace_document", self._lifecycle.state, self._lifecycle.project.project_id)
+            return self._lifecycle.state
+        except BaseException as primary:
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
+            ]
+            if previous is not None:
+                recovery.append(
+                    ("Application presentation restoration", lambda: self._application.activate_presentation(previous))
+                )
+            if self._presentation_activation_bridge is not None:
+                recovery.append(
+                    ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
+                )
+            self._recover_independently(primary, tuple(recovery))
+            self._restore_interaction_after_failure(None, operation="replace_document")
             raise
 
     def new_sld_document(self, name: str | None = None) -> SLDDocument:
@@ -581,8 +650,12 @@ class ProjectWorkspaceApplicationAdapter:
             raise RuntimeError("Cannot create an SLD document without an active project.")
         previous = self._lifecycle.document
         snapshot = self._lifecycle.capture_transition_state()
-        if self._document_transition_guard is not None:
-            self._document_transition_guard()
+        try:
+            if self._document_transition_guard is not None:
+                self._document_transition_guard()
+        except BaseException:
+            self._restore_interaction_after_failure(None, operation="new_sld_document_guard")
+            raise
         document: SLDDocument | None = None
         try:
             document_name = name or f"SLD-{len(tuple(self._lifecycle.documents.documents())) + 1:02d}"
@@ -600,7 +673,11 @@ class ProjectWorkspaceApplicationAdapter:
                 document_id=document.document_id,
                 view_type="sld",
             ))
-            self.activate_document(document.document_id)
+            self.activate_document(
+                document.document_id,
+                _reconcile_rollback=False,
+                _run_transition_guard=False,
+            )
             return document
         except BaseException as primary:
             recovery: list[tuple[str, Callable[[], None]]] = []
@@ -620,6 +697,7 @@ class ProjectWorkspaceApplicationAdapter:
                         ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
                     )
             self._recover_independently(primary, tuple(recovery))
+            self._restore_interaction_after_failure(None, operation="new_sld_document")
             raise
 
     def close_document(
@@ -642,8 +720,12 @@ class ProjectWorkspaceApplicationAdapter:
         # must not produce persistence side effects or clear dirty state.
         if len(self._lifecycle.documents) <= 1:
             raise RuntimeError("The active project must retain at least one SLD document.")
-        if self._document_transition_guard is not None:
-            self._document_transition_guard()
+        try:
+            if self._document_transition_guard is not None:
+                self._document_transition_guard()
+        except BaseException:
+            self._restore_interaction_after_failure(None, operation="close_document_guard")
+            raise
         if self._lifecycle.documents.is_dirty(document_id):
             if decision == "save":
                 previous_active = self._lifecycle.document
@@ -662,11 +744,28 @@ class ProjectWorkspaceApplicationAdapter:
                         return self._lifecycle.state
                 try:
                     if previous_active is not document:
-                        self.activate_document(document_id)
+                        self.activate_document(
+                            document_id,
+                            _reconcile_rollback=False,
+                            _run_transition_guard=False,
+                            _publish_change=False,
+                        )
                     if context is not None and getattr(context, "path", None) is not None:
                         self._application.save_project()
                     else:
                         self._application.save_project_as(str(save_path))
+                    # Saving a non-active document is an internal step of this
+                    # close transaction, not a separately committed workspace
+                    # transition. Restore the original active document silently;
+                    # the eventual close event is the single public projection
+                    # synchronization for the whole operation.
+                    if previous_active is not None and previous_active is not document:
+                        self.activate_document(
+                            previous_active.document_id,
+                            _reconcile_rollback=False,
+                            _run_transition_guard=False,
+                            _publish_change=False,
+                        )
                 except BaseException as primary:
                     recovery: list[tuple[str, Callable[[], None]]] = [
                         ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(previous_snapshot)),
@@ -680,6 +779,7 @@ class ProjectWorkspaceApplicationAdapter:
                                 ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous_active))
                             )
                     self._recover_independently(primary, tuple(recovery))
+                    self._restore_interaction_after_failure(None, operation="close_document_save")
                     raise
             elif decision == "discard":
                 # Discard authorizes removal; do not clear dirty state before
@@ -711,8 +811,9 @@ class ProjectWorkspaceApplicationAdapter:
                         ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
                     )
             self._recover_independently(primary, tuple(recovery))
+            self._restore_interaction_after_failure(None, operation="close_document")
             raise
-
+       
     def is_document_dirty(self, document_id: str) -> bool:
         return self._lifecycle.documents.is_dirty(document_id)
 
@@ -746,7 +847,7 @@ class ProjectWorkspaceApplicationAdapter:
                 decision=decision,
             )
         except BaseException:
-            self._restore_interaction_after_failure(recovery)
+            self._restore_interaction_after_failure(recovery, operation="close")
             raise
 
     def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
