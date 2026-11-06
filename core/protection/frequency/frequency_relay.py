@@ -184,9 +184,9 @@ class FrequencyProtectionRelay(RelayBase):
         return timestamp, sequence, frequency, domain
 
     def evaluate(self, context: ProtectionContext) -> ProtectionDecision:
-        timestamp = None if context is None else context.time
         if not isinstance(context, ProtectionContext):
-            return self.invalid_decision(reason="ANSI 81 requires a valid ProtectionContext.", timestamp=timestamp)
+            return self.invalid_decision(reason="ANSI 81 requires a valid ProtectionContext.")
+        timestamp = context.time
         if not self.operational:
             self._reset_sample_state()
             return self.no_operation(reason=self._inactive_reason(), timestamp=timestamp)
