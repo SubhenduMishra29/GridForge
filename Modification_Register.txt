@@ -1,4 +1,73 @@
 ======================================================================
+GF-AUD-169 — DEFAULT APPLICATION TRANSIENT STUDY HANDLER RECONCILIATION
+======================================================================
+
+Audit date: 2026-11-06
+Repository baseline: main @ 2f576d0174a50db11e1559f79f39cede3dfb7862
+Issue reconciled: #987
+
+FETCH / AUDIT:
+- core/application/bootstrap.py defines the canonical run_transient_stability
+  StudyService handler and registers it in the default create_application()
+  composition alongside Power Flow, Contingency and Short Circuit.
+- The handler consumes the typed TransientStabilityStudyConfiguration.
+  It accepts a prepared Power Flow input/result only as an explicitly supplied
+  matched pair; otherwise it requires the persisted typed
+  power_flow_configuration, prepares and solves that operating point, and
+  refuses to begin dynamics when Power Flow does not converge.
+- StudyPreparationService.prepare_transient_stability() verifies project,
+  activation, model/topology revision and topology snapshot identity, and
+  prepares the detached transient network and dynamic-machine model registry.
+- The handler constructs the detached TransientEventState, TransientNetworkRuntime,
+  EventManager, DAE solver and TransientStabilityAnalysis. Typed event inputs
+  are validated against the configured interval and detached equipment/bus
+  identities. Unsupported event types and invalid fault ordering fail closed.
+- The handler passes StudyCancellationToken.cancelled into the solver's
+  cooperative should_cancel callback and does not publish a result after
+  cancellation.
+- StudyService owns the execution lifecycle and terminal result persistence.
+  create_application() configures StudyResultArchive under
+  ~/.gridforge/study-results through Application.configure_study_result_archive().
+- Application.create_study_case() requires a registered handler and a typed
+  Study Case configuration. execute_study_case() checks project, activation
+  and source revision before rebuilding the StudyRequest and capturing the
+  detached ProjectSnapshot/TopologySnapshot.
+- ProjectPersistenceService serializes/restores typed
+  TransientStabilityStudyConfiguration, including start/end/dt, event metadata
+  and the initial Power Flow configuration. It rejects a transient Study Case
+  without a persisted Power Flow initialization configuration at save time,
+  and validates referenced Bus identities on load.
+- bootstrap.save_project() passes application.study_cases into the canonical
+  ProjectPersistenceService.save() boundary. The project-state activator
+  restores loaded Study Cases and rebinds their activation generation.
+- Existing source coverage is present in
+  tests/application/test_transient_stability_registration.py and
+  tests/application/test_transient_stability_execution.py.
+
+RECONCILE:
+- The issue's original claim that default Application composition does not
+  register transient_stability is stale. Registration is in bootstrap.py,
+  not Application.__init__, so inspection of Application alone was incomplete.
+- The typed handler, detached preparation, cancellation path, durable archive
+  and Study Case project save/load path are present on current main.
+- No production source correction was required for #987.
+
+BOUNDARIES / REMAINING:
+- StudyService.execute() is synchronous. UI-thread blocking and canonical
+  asynchronous study scheduling remain separately tracked by #946; this
+  closure does not claim asynchronous execution or UI responsiveness.
+- Numerical execution manifest, complete event scenario provenance and
+  transient result presentation remain separately tracked by #971/#972/#959.
+- No tests, CI, runtime study or archive write/read were executed in this audit.
+
+DISPOSITION:
+- #987 closed as completed based on current-main source and existing focused
+  source coverage.
+- No duplicate solver, lifecycle, event bus or result authority was added.
+
+======================================================================
+
+======================================================================
 GF-AUD-168 — TRANSIENT STUDY RESULT ARCHIVE TYPED ROUND-TRIP RECONCILIATION
 ======================================================================
 
