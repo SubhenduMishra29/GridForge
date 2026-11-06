@@ -7,11 +7,13 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 from types import MappingProxyType
-from typing import Mapping
+from typing import Callable, Mapping
 
 import numpy as np
 
 from core.analysis.dynamic_initial_state import (
+    CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE,
+    DynamicInitialState,
     DynamicInitialStatePreparation,
     DynamicMachineModelDefinition,
 )
@@ -28,6 +30,32 @@ from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
 from core.solver.power_flow.result import PowerFlowResult
+
+
+def _build_classical_synchronous_machine(
+    definition: DynamicMachineModelDefinition,
+    initial_state: DynamicInitialState,
+) -> ClassicalSynchronousMachine:
+    """Construct the solver implementation explicitly registered for the classical model identity."""
+    return ClassicalSynchronousMachine(
+        definition.machine_id,
+        definition.bus_id,
+        H=definition.parameters.H,
+        Xd_prime=definition.parameters.Xd_prime,
+        D=definition.parameters.D,
+        Efd=definition.parameters.Efd,
+        initial_delta=initial_state.rotor_angle,
+        initial_omega=initial_state.speed_deviation,
+    )
+
+
+# New dynamic model identities must be added here with an explicit solver
+# factory; unknown persisted identities are rejected before any machine exists.
+_TRANSIENT_MACHINE_MODEL_FACTORIES: Mapping[
+    str, Callable[[DynamicMachineModelDefinition, DynamicInitialState], ClassicalSynchronousMachine]
+] = MappingProxyType({
+    CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE: _build_classical_synchronous_machine,
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,9 +292,13 @@ class PreparedTransientStability:
                     }),
                 ))
             global_index += int(machine.state_size)
-        # Fingerprint the prepared electrical topology, not project revision
-        # counters or mutable UI state. Numerical parameters and PU bases are
-        # intentionally excluded: those are separate compatibility dimensions.
+        # These fingerprints have deliberately different authority and input domains:
+        # canonical_topology_fingerprint comes from the canonical Core TopologySnapshot
+        # captured at Power Flow preparation; prepared_network_topology_fingerprint
+        # describes this detached solver-ready network, including captured equipment
+        # and switching state. They are not interchangeable and are not expected to
+        # be equal. Numerical parameters and PU bases remain separate compatibility
+        # dimensions.
         topology_payload = {
             "schema_version": 1,
             "bus_ids": tuple(sorted(self.network.bus_ids)),
@@ -391,6 +423,21 @@ class PreparedTransientStability:
             raise ValueError("Power Flow voltage magnitudes must be positive for transient initialization.")
 
         associations = dynamic_models.all()
+        unsupported_models = tuple(
+            (association.machine_id, association.model_type)
+            for association in associations
+            if association.model_type not in _TRANSIENT_MACHINE_MODEL_FACTORIES
+        )
+        if unsupported_models:
+            details = ", ".join(
+                f"{machine_id}={model_type!r}"
+                for machine_id, model_type in unsupported_models
+            )
+            supported = ", ".join(sorted(_TRANSIENT_MACHINE_MODEL_FACTORIES))
+            raise ValueError(
+                "Transient stability cannot dispatch unsupported persisted dynamic machine models; "
+                f"supported={supported!r}, received: {details}."
+            )
         expected_machine_ids = {association.machine_id for association in associations}
         if set(machine_connection_paths) != expected_machine_ids:
             raise ValueError(
@@ -441,18 +488,8 @@ class PreparedTransientStability:
                 prepared_power_flow.input,
                 definition,
             )
-            machines.append(
-                ClassicalSynchronousMachine(
-                    definition.machine_id,
-                    definition.bus_id,
-                    H=definition.parameters.H,
-                    Xd_prime=definition.parameters.Xd_prime,
-                    D=definition.parameters.D,
-                    Efd=definition.parameters.Efd,
-                    initial_delta=prepared_initial.rotor_angle,
-                    initial_omega=prepared_initial.speed_deviation,
-                )
-            )
+            machine_factory = _TRANSIENT_MACHINE_MODEL_FACTORIES[definition.model_type]
+            machines.append(machine_factory(definition, prepared_initial))
             initial_states.extend(prepared_initial.state_vector)
             mechanical[definition.machine_id] = definition.mechanical_power
 
