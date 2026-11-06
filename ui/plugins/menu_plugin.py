@@ -97,8 +97,10 @@ class MenuPlugin(QObject):
                 menu = menu_bar.addMenu(spec.title)
                 menu.setObjectName(f"menu.{spec.menu_id}")
                 self._menus[spec.menu_id] = menu
-                self._populate_menu(menu, spec.actions, router)
-            self._populate_tool_menu(menu_bar, router)
+                if spec.menu_id == "tools":
+                    self._populate_tool_menu(menu, router)
+                else:
+                    self._populate_menu(menu, spec.actions, router)
             self._initialized = True
             return menu_bar
         except Exception:
@@ -145,7 +147,7 @@ class MenuPlugin(QObject):
             menu.addAction(action)
             self._actions[item.action_id] = action
 
-    def _populate_tool_menu(self, menu_bar: QMenuBar, router: UIActionRouter) -> None:
+    def _populate_tool_menu(self, menu: QMenu, router: UIActionRouter) -> None:
         """Build discipline/category submenus from canonical routed tool actions."""
         grouped: dict[str, dict[str, list[ActionDefinition]]] = {}
         for definition in router.definitions.values():
@@ -201,9 +203,6 @@ class MenuPlugin(QObject):
                 )
             )
 
-        menu = menu_bar.addMenu("Tools")
-        menu.setObjectName("menu.tools")
-        self._menus["tools"] = menu
         self._populate_menu(menu, tuple(editor_items), router)
 
     @staticmethod
@@ -313,6 +312,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
                 a("view.map", "Geographic / Layout Map"),
             ),
         )),
+        MenuSpec("tools", "Tools", ()),
         MenuSpec("network", "Network", (
             a("network.commit_draft", "Commit Network Draft", "Ctrl+Shift+Enter"),
             a("view.topology", "Network Topology"),
