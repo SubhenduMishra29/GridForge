@@ -111,6 +111,17 @@ class EndpointIdentityAdapter:
                 raise ValueError("Draft terminal snap identity requires a terminal role.")
             if str(draft_role) != str(terminal_name):
                 raise ValueError("Draft terminal role does not match the snap result.")
+            source_terminal_names = tuple(
+                str(role) for role in getattr(source, "_terminal_names", ())
+            )
+            expected_terminal_id = f"{draft_id}:{terminal_name}"
+            if terminal_name not in source_terminal_names or terminal_id != expected_terminal_id:
+                raise ValueError(
+                    "Draft terminal identity must match a terminal declared by its source preview item."
+                )
+            source_equipment_type = str(getattr(source, "_element_type", "")).strip().lower()
+            if source_equipment_type != str(draft_equipment_type).strip().lower():
+                raise ValueError("Draft equipment type does not match its source presentation item.")
             canonical_type = next(
                 (candidate for candidate in EquipmentType if candidate.value == str(draft_equipment_type).strip().lower()),
                 None,
