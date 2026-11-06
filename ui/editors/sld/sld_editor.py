@@ -500,8 +500,10 @@ class SLDEditor(QWidget):
         selected = getattr(getattr(self._editor_context, "engineering", None), "selected_ids", ()) or ()
         # Selection is a useful reason to surface the inspector. An explicit
         # user visibility choice always wins over contextual automation.
-        if "sidebar" not in self._region_user_overrides:
-            self.set_region_visible("sidebar", bool(selected), user=False)
+        if "sidebar" not in self._region_user_overrides and selected:
+            # Keep the default Inspector dock visible when selection clears.
+            # A deliberate user hide remains authoritative.
+            self.set_region_visible("sidebar", True, user=False)
         self._sync_panel_buttons()
 
     def _sync_panel_buttons(self) -> None:

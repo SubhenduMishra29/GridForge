@@ -22681,3 +22681,47 @@ Verification:
     remain separate follow-up work.
 
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: DEFAULT SLD ENGINEERING WORKSPACE
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-sld-workspace-layout
+
+Changed:
+    ui/workspace/workspace_defaults.py
+        Made Project Explorer, Inspector and Messages/Diagnostics visible
+        in the default SLD workspace, with practical minimum and preferred
+        dimensions. The contextual Tool Settings region remains hidden
+        until an active tool supplies settings.
+
+    ui/editors/sld/sld_editor.py
+        Preserved the default Inspector visibility after selection clears.
+        Explicit user visibility choices continue to take precedence.
+
+    main.py
+        Composed Project, Equipment and Elements as tabs in the SLD
+        Explorer Region. The Equipment Browser command now explicitly
+        opens the Explorer and selects the Equipment tab instead of
+        toggling the entire Region closed.
+
+Presentation outcome:
+    Left: Project / Equipment / Elements tabs.
+    Centre: SLD engineering canvas and compact tool shelf.
+    Right: Properties Inspector.
+    Bottom: Messages / Events.
+
+Boundaries:
+    Existing panel widgets, workspace regions and ControlSurfaceHost APIs
+    are reused. No Core/Application engineering behavior changed.
+
+Verification:
+    Source-level composition and visibility paths inspected.
+    No tests or CI were run.
+
+======================================================================
