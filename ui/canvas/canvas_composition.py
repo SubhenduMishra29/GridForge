@@ -101,7 +101,9 @@ class SLDCanvasSurface(QWidget):
         zoom_out = QPushButton("−", header)
         zoom_out.setObjectName("SLDZoomOut")
         zoom_out.setToolTip("Zoom out")
-        zoom_out.clicked.connect(navigation_controller.zoom_out)
+        self._zoom_out_button = zoom_out
+        self._zoom_out_callback = navigation_controller.zoom_out
+        zoom_out.clicked.connect(self._zoom_out_callback)
         header_layout.addWidget(zoom_out)
 
         zoom_label = QLabel("100%", header)
@@ -112,17 +114,19 @@ class SLDCanvasSurface(QWidget):
         zoom_in = QPushButton("+", header)
         zoom_in.setObjectName("SLDZoomIn")
         zoom_in.setToolTip("Zoom in")
-        zoom_in.clicked.connect(navigation_controller.zoom_in)
+        self._zoom_in_button = zoom_in
+        self._zoom_in_callback = navigation_controller.zoom_in
+        zoom_in.clicked.connect(self._zoom_in_callback)
         header_layout.addWidget(zoom_in)
 
         fit = QPushButton("Fit", header)
         fit.setObjectName("SLDFit")
         fit.setToolTip("Fit the SLD content in the viewport")
         # QPushButton.clicked emits a bool; do not pass that signal payload as
-        # the numeric fit margin.
-        fit.clicked.connect(
-            lambda _checked=False: navigation_controller.fit_content()
-        )
+        # the numeric fit margin. Retain the exact slot for deterministic teardown.
+        self._fit_button = fit
+        self._fit_callback = lambda _checked=False: navigation_controller.fit_content()
+        fit.clicked.connect(self._fit_callback)
         header_layout.addWidget(fit)
 
         root.addWidget(header)
@@ -151,11 +155,36 @@ class SLDCanvasSurface(QWidget):
         self._zoom_label.setText(f"{int(round(float(level) * 100.0))}%")
 
     def detach_navigation_listener(self) -> None:
-        """Detach this surface's observer before permanent canvas disposal."""
+        """Detach every surface callback that retains navigation before disposal."""
         controller = self._navigation_controller
         self._navigation_controller = None
         if controller is not None:
-            controller.remove_zoom_changed_listener(self._zoom_changed_listener)
+            try:
+                controller.remove_zoom_changed_listener(self._zoom_changed_listener)
+            except Exception:
+                _LOGGER.exception("Failed to detach SLD surface zoom readout listener")
+
+        # QPushButton connections retain bound methods (and the Fit closure)
+        # even after GraphicsView releases its navigation reference. Disconnect
+        # the exact slots installed by this surface so a retained editor cannot
+        # keep the disposed NavigationController alive.
+        for button_name, callback_name in (
+            ("_zoom_out_button", "_zoom_out_callback"),
+            ("_zoom_in_button", "_zoom_in_callback"),
+            ("_fit_button", "_fit_callback"),
+        ):
+            button = getattr(self, button_name, None)
+            callback = getattr(self, callback_name, None)
+            setattr(self, callback_name, None)
+            setattr(self, button_name, None)
+            if button is None or callback is None:
+                continue
+            try:
+                button.clicked.disconnect(callback)
+            except Exception:
+                # Continue releasing the remaining callbacks if Qt rejects one
+                # disconnect because the button/signal is already being torn down.
+                _LOGGER.exception("Failed to disconnect SLD surface navigation callback: %s", button_name)
 
     def bind_composition(self, composition: Any) -> None:
         """Bind the aggregate lifecycle owner after composition is complete."""
@@ -211,6 +240,10 @@ class SLDCanvasSurface(QWidget):
     def clear_document(self) -> None:
         """Clear canonical SLD graphics without mutating Core/Application state."""
         self._sld_canvas_render_system.clear()
+        self.reset_document_state()
+
+    def reset_document_state(self) -> None:
+        """Reset surface metadata after the renderer has independently cleared its scene."""
         self._document_id = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
 
@@ -264,8 +297,7 @@ class CanvasComposition:
             failures.append((label, exc))
             _LOGGER.exception("Canvas composition cleanup failed: %s", label)
 
-    def clear_project_state(self) -> None:
-        """Clear project/document presentation state without disposing shared services."""
+    def _clear_project_state(self, *, clear_sld_graphics: bool) -> None:
         if self._disposed:
             return
         failures: list[tuple[str, BaseException]] = []
@@ -276,15 +308,23 @@ class CanvasComposition:
         self._run_cleanup("route edit state", self.route_edit_controller.cancel, failures)
         self._run_cleanup("selection state", self.selection_manager.clear, failures)
         self._run_cleanup("preview graphics", self.preview_layer.clear, failures)
-        self._run_cleanup("SLD graphics and snap registrations", self.surface.clear_document, failures)
+        if clear_sld_graphics:
+            self._run_cleanup("SLD graphics and snap registrations", self.surface.clear_document, failures)
         if failures:
             _LOGGER.warning("Canvas project-state clear completed with %d cleanup failure(s): %s", len(failures), ", ".join(label for label, _ in failures))
+
+    def clear_project_state(self) -> None:
+        """Clear project/document presentation state without disposing shared services."""
+        self._clear_project_state(clear_sld_graphics=True)
 
     def dispose(self) -> None:
         """Idempotently release canvas-owned resources, never shared Application/ToolManager."""
         if self._disposed:
             return
-        self.clear_project_state()
+        # Let renderer.dispose() own the one graphics/snap clear on this path;
+        # project-state cleanup still cancels interaction and clears selection
+        # and preview state without invoking renderer.clear() a second time.
+        self._clear_project_state(clear_sld_graphics=False)
         failures: list[tuple[str, BaseException]] = []
         steps = (
             ("renderer subscriptions and graphics", self.sld_canvas_render_system.dispose),
@@ -298,6 +338,7 @@ class CanvasComposition:
         )
         for label, operation in steps:
             self._run_cleanup(label, operation, failures)
+        self._run_cleanup("surface document metadata", self.surface.reset_document_state, failures)
         self.surface._composition = None
         self._disposed = True
         if failures:
