@@ -48,11 +48,11 @@ SLD_EDITOR_REGIONS = (
     RegionDefinition(HEADER_REGION, HEADER_REGION, minimum_size=34, preferred_size=38),
     RegionDefinition(TOOL_SHELF_REGION, TOOL_SHELF_REGION, minimum_size=44, preferred_size=52),
     RegionDefinition(TOOL_SETTINGS_REGION, TOOL_SETTINGS_REGION, visible=False, minimum_size=0, preferred_size=42),
-    RegionDefinition("explorer", "explorer", visible=False, minimum_size=0, preferred_size=220),
+    RegionDefinition("explorer", "explorer", visible=True, minimum_size=190, preferred_size=250),
     RegionDefinition(CANVAS_REGION, CANVAS_REGION, minimum_size=120),
-    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION, visible=False, minimum_size=0, preferred_size=280),
+    RegionDefinition(SIDEBAR_REGION, SIDEBAR_REGION, visible=True, minimum_size=260, preferred_size=300),
     RegionDefinition(OVERLAY_REGION, OVERLAY_REGION, visible=False, minimum_size=0, preferred_size=0),
-    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION, visible=False, minimum_size=0, preferred_size=180),
+    RegionDefinition(DIAGNOSTICS_REGION, DIAGNOSTICS_REGION, visible=True, minimum_size=110, preferred_size=160),
     RegionDefinition(STATUS_REGION, STATUS_REGION, minimum_size=24, preferred_size=26),
 )
 
