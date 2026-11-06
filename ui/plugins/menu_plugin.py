@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Optional, TypeAlias
 
 from ui.core.qt import QAction, QMainWindow, QMenu, QMenuBar, QObject
+from ui.core.action_definition import ActionDefinition
 from ui.core.action_router import UIActionRouter
 from ui.plugins.plugin_context import PluginContext
 
@@ -97,6 +98,7 @@ class MenuPlugin(QObject):
                 menu.setObjectName(f"menu.{spec.menu_id}")
                 self._menus[spec.menu_id] = menu
                 self._populate_menu(menu, spec.actions, router)
+            self._populate_tool_menu(menu_bar, router)
             self._initialized = True
             return menu_bar
         except Exception:
@@ -142,6 +144,73 @@ class MenuPlugin(QObject):
             )
             menu.addAction(action)
             self._actions[item.action_id] = action
+
+    def _populate_tool_menu(self, menu_bar: QMenuBar, router: UIActionRouter) -> None:
+        """Build discipline/category submenus from canonical routed tool actions."""
+        grouped: dict[str, dict[str, list[ActionDefinition]]] = {}
+        for definition in router.definitions.values():
+            if not definition.action_id.startswith("tool."):
+                continue
+            if not router.has(definition.action_id):
+                continue
+            editor_type = str(definition.metadata.get("editor_type") or definition.scope or "general")
+            category = str(definition.category or "General")
+            grouped.setdefault(editor_type, {}).setdefault(category, []).append(definition)
+
+        if not grouped:
+            return
+
+        editor_titles = {
+            "sld": "SLD",
+            "control": "Control",
+            "protection": "Protection",
+            "study": "Study",
+            "editor": "General",
+            "global": "General",
+        }
+        editor_order = ("sld", "control", "protection", "study", "editor", "global")
+        editor_types = sorted(
+            grouped,
+            key=lambda value: editor_order.index(value) if value in editor_order else len(editor_order),
+        )
+        editor_items: list[MenuSubmenuSpec] = []
+        for editor_type in editor_types:
+            category_items: list[MenuSubmenuSpec] = []
+            categories = grouped[editor_type]
+            for category, definitions in categories.items():
+                actions = tuple(
+                    MenuActionSpec(
+                        action_id=definition.action_id,
+                        text=definition.title,
+                        shortcut=definition.shortcut,
+                    )
+                    for definition in definitions
+                )
+                category_items.append(
+                    MenuSubmenuSpec(
+                        menu_id=f"tools.{self._menu_slug(editor_type)}.{self._menu_slug(category)}",
+                        title=category,
+                        items=actions,
+                    )
+                )
+            editor_items.append(
+                MenuSubmenuSpec(
+                    menu_id=f"tools.{self._menu_slug(editor_type)}",
+                    title=editor_titles.get(editor_type, editor_type.replace("_", " ").title()),
+                    items=tuple(category_items),
+                )
+            )
+
+        menu = menu_bar.addMenu("Tools")
+        menu.setObjectName("menu.tools")
+        self._menus["tools"] = menu
+        self._populate_menu(menu, tuple(editor_items), router)
+
+    @staticmethod
+    def _menu_slug(value: str) -> str:
+        """Create a stable menu ID fragment from a human-readable category."""
+        normalized = "".join(character.lower() if character.isalnum() else "_" for character in value)
+        return "_".join(part for part in normalized.split("_") if part)
 
     def shutdown(self) -> None:
         if self._menu_bar is not None:
@@ -239,11 +308,6 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("view.maximize_editor", "Maximize Editor", "Ctrl+Space"),
         )),
         MenuSpec("design", "Design", (
-            sub("design.sld", "Single-Line Diagram",
-                a("tool.sld.select", "Select"),
-                a("tool.sld.bus", "Place Bus"),
-                a("tool.sld.wire", "Wire"),
-            ),
             sub("design.workspace", "Workspace",
                 a("view.sld_workspace", "SLD Workspace"),
                 a("view.map", "Geographic / Layout Map"),
