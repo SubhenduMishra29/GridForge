@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal
+from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -92,6 +92,38 @@ class GraphicsView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
+        # Transient, selection-aware presentation controls. This overlay is a
+        # viewport child and never becomes part of the persistent SLD scene.
+        self._contextual_strip = QWidget(self.viewport())
+        self._contextual_strip.setObjectName("SLDContextualToolStrip")
+        self._contextual_strip.setStyleSheet(
+            "QWidget#SLDContextualToolStrip { background: #263442; "
+            "border: 1px solid #526579; border-radius: 5px; } "
+            "QToolButton { color: #f2f5f8; padding: 4px 7px; border: 0; } "
+            "QToolButton:hover { background: #40566b; }"
+        )
+        strip_layout = QHBoxLayout(self._contextual_strip)
+        strip_layout.setContentsMargins(4, 3, 4, 3)
+        strip_layout.setSpacing(2)
+        for label, tooltip, operation in (
+            ("↶", "Rotate selected symbol 90° counter-clockwise", "rotate_ccw"),
+            ("↷", "Rotate selected symbol 90° clockwise", "rotate_cw"),
+            ("Flip H", "Mirror selected symbol horizontally", "flip_h"),
+            ("Flip V", "Mirror selected symbol vertically", "flip_v"),
+        ):
+            button = QToolButton(self._contextual_strip)
+            button.setText(label)
+            button.setToolTip(tooltip)
+            button.setAccessibleName(tooltip)
+            button.clicked.connect(
+                lambda _checked=False, op=operation: self._apply_contextual_symbol_action(op)
+            )
+            strip_layout.addWidget(button)
+        self._contextual_strip.hide()
+        self._scene.selectionChanged.connect(self._refresh_contextual_tool_strip)
+        self.horizontalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
+        self.verticalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
+
     def bind_services(
         self,
         *,
@@ -116,6 +148,67 @@ class GraphicsView(QGraphicsView):
     @property
     def last_cursor_scene_position(self) -> tuple[float, float] | None:
         return self._last_cursor_scene_position
+
+    def _selected_presentation_node(self):
+        """Return the sole selected SLD node and its symbol graphics item."""
+        document = getattr(self.controller, "active_document", None)
+        if document is None:
+            return None, None
+        selected = tuple(
+            item for item in self._scene.selectedItems()
+            if getattr(item, "object_id", None) is not None
+            and getattr(item, "symbol_instance", None) is not None
+        )
+        if len(selected) != 1:
+            return None, None
+        item = selected[0]
+        node_id = str(item.object_id)
+        model = getattr(document, "model", None)
+        if model is None or not model.has_node(node_id):
+            return None, None
+        node = model.get_node(node_id)
+        if node.presentation is None and getattr(item, "symbol_instance", None) is None:
+            return None, None
+        return node, item
+
+    def _refresh_contextual_tool_strip(self, *_args) -> None:
+        """Anchor the transient strip to the selected symbol in viewport space."""
+        node, item = self._selected_presentation_node()
+        if node is None or item is None:
+            self._contextual_strip.hide()
+            return
+        bounds = item.mapRectToScene(item.boundingRect())
+        anchor = self.mapFromScene(bounds.topRight())
+        self._contextual_strip.adjustSize()
+        width = self._contextual_strip.sizeHint().width()
+        height = self._contextual_strip.sizeHint().height()
+        x = min(max(4, anchor.x() + 8), max(4, self.viewport().width() - width - 4))
+        y = min(max(4, anchor.y() - height - 8), max(4, self.viewport().height() - height - 4))
+        self._contextual_strip.move(x, y)
+        self._contextual_strip.show()
+        self._contextual_strip.raise_()
+
+    def _apply_contextual_symbol_action(self, operation: str) -> None:
+        """Persist a symbol-only transform through the SLD Application command."""
+        from ui.equipment.symbol.symbol_base import SymbolBase
+
+        node, item = self._selected_presentation_node()
+        if node is None:
+            return
+        source = node.presentation or item.symbol_instance
+        presentation = SymbolBase.from_dict(source.to_dict())
+        if operation == "rotate_ccw":
+            presentation.rotation = (presentation.rotation - 90.0) % 360.0
+        elif operation == "rotate_cw":
+            presentation.rotation = (presentation.rotation + 90.0) % 360.0
+        elif operation == "flip_h":
+            presentation.set_property("mirror_x", not bool(presentation.get_property("mirror_x", False)))
+        elif operation == "flip_v":
+            presentation.set_property("mirror_y", not bool(presentation.get_property("mirror_y", False)))
+        else:
+            raise ValueError(f"Unsupported contextual symbol action: {operation}")
+        self.controller.set_node_presentation(node.node_id, presentation)
+        self._refresh_contextual_tool_strip()
 
     def mousePressEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_press(event):
@@ -146,13 +239,17 @@ class GraphicsView(QGraphicsView):
         self._last_cursor_scene_position = (float(point.x()), float(point.y()))
         self.cursor_scene_position.emit(self._last_cursor_scene_position)
         if self.interaction_manager is not None and self.interaction_manager.mouse_move(event):
+            self._refresh_contextual_tool_strip()
             return
         super().mouseMoveEvent(event)
+        self._refresh_contextual_tool_strip()
 
     def mouseReleaseEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_release(event):
+            self._refresh_contextual_tool_strip()
             return
         super().mouseReleaseEvent(event)
+        self._refresh_contextual_tool_strip()
 
     def mouseDoubleClickEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_double_click(event):
@@ -161,8 +258,10 @@ class GraphicsView(QGraphicsView):
 
     def wheelEvent(self, event: Any) -> None:
         if self.navigation_controller is not None and self.navigation_controller.handle_wheel(event):
+            self._refresh_contextual_tool_strip()
             return
         super().wheelEvent(event)
+        self._refresh_contextual_tool_strip()
 
     def keyPressEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.key_press(event):
@@ -176,10 +275,12 @@ class GraphicsView(QGraphicsView):
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
+        self._refresh_contextual_tool_strip()
 
     def dispose(self) -> None:
         self.interaction_manager = None
         self.navigation_controller = None
+        self._contextual_strip.hide()
         self.controller = None
         self.tool_manager = None
 
