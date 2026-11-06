@@ -22802,3 +22802,39 @@ Verification:
     category mapping and style selectors. No tests or CI were run.
 
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: DYNAMIC ENGINEERING TOOLS MENU
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-dynamic-tool-menus
+
+Changed:
+    ui/plugins/menu_plugin.py
+        Added a dynamic Tools menu populated from canonical routed
+        ActionDefinition records. Actions are grouped by editor discipline
+        (SLD, Control, Protection, Study) and then by ToolDefinition
+        engineering category.
+        Tool labels, descriptions and shortcuts are sourced from the
+        canonical action definitions. Every leaf remains dispatched
+        through UIActionRouter.
+        Removed the manually duplicated Select/Bus/Wire entries from
+        Design; those actions remain available in the quick toolbar,
+        full ToolShelf and dynamic Tools menu.
+
+Boundaries:
+    No new action IDs, handlers, tool runtimes or engineering behavior.
+    The dynamic menu reads only registered canonical tool actions.
+    No Core/Application behavior changed.
+
+Verification:
+    Source-level inspection confirms tool actions are registered before
+    PluginManager initializes MenuPlugin, and category/action construction
+    uses ActionDefinition metadata. No tests or CI were run.
+
+======================================================================
