@@ -20,7 +20,7 @@ def normalize_tool_id(tool_id: str) -> str:
 
 
 GENERIC_TOOL_GLYPHS: Mapping[str, str] = {
-    "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁",
+    "select": "↖", "move": "✥", "pan": "✋", "wire": "⌁", "orthogonal-routing": "⌁",
     "snap": "⊙", "delete": "×", "zoom_in": "+", "zoom_out": "−", "fit": "□",
     "electrical-insertion": "EI", "connect_measurement": "CM",
     "inspect": "I", "diagnostics": "!", "run": "▶", "run_study": "▶",
@@ -125,6 +125,7 @@ _TOOL_CATEGORY_BY_ID: Mapping[str, str] = {
     "select": "Selection",
     "bus": "Drawing",
     "wire": "Drawing",
+    "orthogonal-routing": "Drawing",
     "line": "Conductors",
     "cable": "Conductors",
     "switch": "Switchgear",
@@ -183,7 +184,7 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
             continue
         seen.add(tool_id)
         shortcut_map = {
-            "select": "S", "move": "M", "pan": "H", "wire": "W", "bus": "B",
+            "select": "S", "move": "M", "pan": "H", "wire": "W", "bus": "B", "orthogonal-routing": "O",
             "snap": "N", "delete": "Delete", "zoom_in": "Ctrl+=", "zoom_out": "Ctrl+-", "fit": "F",
         }
         generic_tool_ids = GENERIC_TOOL_GLYPHS.keys()
