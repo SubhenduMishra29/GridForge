@@ -771,25 +771,16 @@ def create_application(
                     f"{typed_configuration.end_time:.12g}] s."
                 )
             if kind in {"breaker_open", "breaker_close"}:
-                breaker_id = str(event["breaker_id"])
-                affected_equipment_ids = tuple(
-                    str(value) for value in event.get("affected_equipment_ids", ())
-                )
+                breaker_id = event["breaker_id"]
+                affected_equipment_ids = tuple(event.get("affected_equipment_ids", ()))
                 if not affected_equipment_ids:
                     raise ValueError(
                         f"Transient event {event_id!r} ({kind}) must provide "
                         "affected_equipment_ids to change the detached network."
                     )
-                known_ids = {
-                    item.branch_id
-                    for item in (*event_state.snapshot.branches, *event_state.snapshot.transformers)
-                } | {item.shunt_id for item in event_state.snapshot.shunts}
-                unknown_ids = sorted(set(affected_equipment_ids) - known_ids)
-                if unknown_ids:
-                    raise ValueError(
-                        f"Transient breaker event {event_id!r} references unknown "
-                        f"network equipment IDs: {unknown_ids!r}."
-                    )
+                breaker_id, affected_equipment_ids = event_state.validate_switch_target(
+                    breaker_id, affected_equipment_ids
+                )
                 scheduler = schedule_breaker_open if kind == "breaker_open" else schedule_breaker_close
                 scheduler(
                     event_manager, event_state, time, breaker_id,
@@ -798,7 +789,14 @@ def create_application(
                     priority=int(event.get("priority", 0)),
                 )
             elif kind == "equipment_state":
-                schedule_equipment_state(event_manager, event_state, time, str(event["equipment_id"]), bool(event["conducting"]), event_id=event_id, priority=int(event.get("priority", 0)))
+                equipment_id = event_state.validate_equipment_target(event["equipment_id"])
+                conducting = event["conducting"]
+                if not isinstance(conducting, bool):
+                    raise TypeError("Transient equipment_state event conducting must be an explicit bool.")
+                schedule_equipment_state(
+                    event_manager, event_state, time, equipment_id, conducting,
+                    event_id=event_id, priority=int(event.get("priority", 0))
+                )
             elif kind == "fault_apply":
                 fault = TransientFault(
                     fault_type=FaultType.from_value(event["fault_type"]),
