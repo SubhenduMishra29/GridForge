@@ -1,0 +1,228 @@
+# ============================================================
+# File: ui/tools/endpoint_identity_adapter.py
+# GridForge V2 — SLD Endpoint Identity Adapter
+# Author: Subhendu Mishra
+# ============================================================
+"""
+Translate presentation snap identity into Application endpoint intent.
+
+Architecture
+------------
+
+    SnapResult
+        |
+        v
+    EndpointIdentityAdapter
+        |
+        v
+    EndpointReference
+        |
+        v
+    Application Command
+
+This module is a presentation/application boundary helper.
+It never resolves Core objects, mutates Core, or performs topology.
+
+BusItem and LineItem remain unchanged. The adapter uses existing
+presentation identity and type information only.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from core.model import EndpointReference, EquipmentType
+from ui.equipment.terminal import EquipmentTerminal
+from ui.items.bus_item import BusItem
+from ui.items.equipment_item import EquipmentItem
+from ui.core.snap_system import SnapType
+
+
+class EndpointIdentityAdapter:
+    """Convert a snapped presentation endpoint into an immutable reference."""
+
+    @staticmethod
+    def from_equipment_terminal(
+        terminal: EquipmentTerminal,
+        equipment_type: EquipmentType,
+    ) -> EndpointReference:
+        """Adapt a UI terminal to the canonical Core endpoint identity.
+
+        ``EquipmentTerminal.terminal_id`` is only the UI registry identity.
+        It is deliberately not copied into ``EndpointReference``. The Core
+        endpoint identity is ``equipment_id + terminal_role``; here
+        ``terminal_name`` is the presentation-side terminal role.
+        """
+        if not isinstance(terminal, EquipmentTerminal):
+            raise TypeError("terminal must be an EquipmentTerminal.")
+        if not isinstance(equipment_type, EquipmentType):
+            raise TypeError("equipment_type must be an EquipmentType.")
+        return EndpointReference.terminal(
+            equipment_type=equipment_type,
+            equipment_id=terminal.equipment_id,
+            terminal_role=terminal.terminal_name,
+        )
+    @staticmethod
+    def from_snap_result(result: Any) -> EndpointReference:
+        """Return an EndpointReference for a supported object snap."""
+        if result is None:
+            raise ValueError("Snap result must not be None.")
+
+        object_id = getattr(result, "object_id", None)
+        source = getattr(result, "source", None)
+        snap_type = getattr(result, "snap_type", None)
+
+        # The canonical SnapSystem carries object_id on SnapResult.  Retain
+        # the presentation source as a safe fallback for legacy/adapter
+        # paths that omit the duplicated field: only canonical electrical
+        # presentation items may supply this identity.
+        if object_id is None and isinstance(source, (BusItem, EquipmentItem)):
+            object_id = getattr(source, "object_id", None)
+        if object_id is None:
+            raise ValueError(
+                "Simple Wire connection requires an object snap with a stable object_id."
+            )
+
+        if snap_type is not None and snap_type is not SnapType.OBJECT:
+            raise ValueError(
+                "Simple Wire connection requires an object endpoint snap."
+            )
+
+        if bool(getattr(source, "is_draft_presentation", False)):
+            draft_id = getattr(source, "object_id", None)
+            if str(draft_id) != str(object_id):
+                raise ValueError("Draft terminal snap identity does not match its presentation item.")
+            draft_type = str(getattr(source, "_element_type", "")).strip().lower()
+            if draft_type == "bus":
+                attachment_id = getattr(result, "attachment_id", None)
+                bus_id = getattr(result, "bus_id", object_id)
+                if not isinstance(attachment_id, str) or not attachment_id:
+                    raise ValueError("Draft Bus snap identity requires a stable attachment_id.")
+                if str(bus_id) != str(object_id):
+                    raise ValueError("Draft Bus snap bus_id does not match the snapped object identity.")
+                return EndpointReference.bus(str(object_id), attachment_id)
+            terminal_id = getattr(result, "terminal_id", None)
+            terminal_name = getattr(result, "terminal_name", None)
+            draft_role = getattr(result, "draft_terminal_role", None)
+            draft_equipment_type = getattr(result, "draft_equipment_type", None)
+            if not isinstance(terminal_id, str) or not terminal_id.strip():
+                raise ValueError("Draft terminal snap identity requires a stable terminal_id.")
+            if not isinstance(terminal_name, str) or not terminal_name.strip():
+                raise ValueError("Draft terminal snap identity requires a terminal role.")
+            if str(draft_role) != str(terminal_name):
+                raise ValueError("Draft terminal role does not match the snap result.")
+            source_terminal_names = tuple(
+                str(role) for role in getattr(source, "_terminal_names", ())
+            )
+            expected_terminal_id = f"{draft_id}:{terminal_name}"
+            if terminal_name not in source_terminal_names or terminal_id != expected_terminal_id:
+                raise ValueError(
+                    "Draft terminal identity must match a terminal declared by its source preview item."
+                )
+            source_equipment_type = str(getattr(source, "_element_type", "")).strip().lower()
+            if source_equipment_type != str(draft_equipment_type).strip().lower():
+                raise ValueError("Draft equipment type does not match its source presentation item.")
+            canonical_type = next(
+                (candidate for candidate in EquipmentType if candidate.value == str(draft_equipment_type).strip().lower()),
+                None,
+            )
+            if canonical_type is None:
+                raise ValueError(f"Unsupported draft snapped equipment type: {draft_equipment_type!r}")
+            return EndpointReference.terminal(
+                equipment_type=canonical_type,
+                equipment_id=str(object_id),
+                terminal_role=str(terminal_name),
+            )
+
+        if isinstance(source, BusItem):
+            # A Bus is an endpoint kind of its own. Never manufacture a
+            # terminal role for a Bus snap.
+            attachment_id = getattr(result, "attachment_id", None)
+            if not isinstance(attachment_id, str) or not attachment_id:
+                raise ValueError("Bus snap identity requires a stable attachment_id.")
+            bus_id = getattr(result, "bus_id", object_id)
+            if str(bus_id) != str(object_id):
+                raise ValueError("Bus snap bus_id does not match the snapped object identity.")
+            return EndpointReference.bus(str(object_id), attachment_id)
+
+        terminal_id = getattr(result, "terminal_id", None)
+        terminal_name = getattr(result, "terminal_name", None)
+        if not isinstance(terminal_id, str) or not terminal_id.strip():
+            raise ValueError("Terminal snap identity requires a stable presentation terminal_id.")
+        if not isinstance(terminal_name, str) or not terminal_name.strip():
+            raise ValueError("Terminal snap identity requires a canonical terminal role.")
+
+        endpoint_reference = getattr(source, "endpoint_reference", None)
+        if endpoint_reference is not None:
+            # A presentation source may already carry the canonical immutable
+            # reference. Reuse it, but never trust it blindly: the snap result
+            # must still agree with the snapped object kind and, for terminals,
+            # with the presentation terminal role/equipment identity.
+            if not isinstance(endpoint_reference, EndpointReference):
+                raise TypeError(
+                    "Presentation endpoint_reference must be an EndpointReference."
+                )
+            if endpoint_reference.is_bus:
+                if terminal_id is not None or terminal_name is not None:
+                    raise ValueError(
+                        "A Bus endpoint reference cannot be combined with terminal snap identity."
+                    )
+                return endpoint_reference
+            if not endpoint_reference.is_terminal:
+                raise ValueError("Unsupported endpoint reference kind on presentation source.")
+            if str(endpoint_reference.equipment_id) != str(object_id):
+                raise ValueError(
+                    "Presentation EndpointReference equipment identity does not match the snap object."
+                )
+            if str(endpoint_reference.terminal_role) != str(terminal_name):
+                raise ValueError(
+                    "Presentation EndpointReference terminal role does not match the snap result."
+                )
+
+        equipment = getattr(source, "equipment", None)
+        equipment_type = getattr(equipment, "equipment_type", None)
+        if not isinstance(equipment_type, str) or not equipment_type.strip():
+            raise ValueError("Terminal snap source does not expose canonical equipment_type.")
+
+        # The presentation terminal role is valid only when it resolves to
+        # exactly one terminal owned by the snapped presentation equipment.
+        # terminal_id is only a presentation/registry identity and is never
+        # promoted into EndpointReference.
+        terminals = tuple(getattr(equipment, "terminals", ()) or ())
+        matches = [
+            terminal
+            for terminal in terminals
+            if terminal.equipment_id == str(object_id)
+            and terminal.terminal_name == str(terminal_name)
+            and terminal.terminal_id == str(terminal_id)
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Terminal snap identity must resolve to exactly one presentation terminal: "
+                f"equipment_id={object_id!r}, terminal_id={terminal_id!r}, "
+                f"terminal_role={terminal_name!r}, matches={len(matches)}."
+            )
+
+        if endpoint_reference is not None:
+            return endpoint_reference
+
+        canonical_type = next(
+            (
+                candidate
+                for candidate in EquipmentType
+                if candidate.value == equipment_type.strip().lower()
+            ),
+            None,
+        )
+        if canonical_type is None:
+            raise ValueError(
+                f"Unsupported snapped equipment type: {equipment_type!r}"
+            )
+        return EndpointReference.terminal(
+            equipment_type=canonical_type,
+            equipment_id=str(object_id),
+            terminal_role=matches[0].terminal_name,
+        )
+
+
+__all__ = ["EndpointIdentityAdapter"]

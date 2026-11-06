@@ -1,0 +1,178 @@
+# ============================================================
+# File: core/analysis/dynamic_model_association.py
+# GridForge V2 — Dynamic Machine Model Association
+# Author: Subhendu Mishra
+# ============================================================
+"""Persistent application-level association of synchronous machines to dynamic models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from core.solver.dynamics.machine_models import ClassicalMachineParameters
+
+
+def _freeze_metadata_value(value: Any) -> Any:
+    """Recursively freeze built-in metadata containers without coercing typed objects."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_metadata_value(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_metadata_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_metadata_value(item) for item in value)
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class DynamicMachineModelAssociation:
+    """Immutable project-owned dynamic model binding for one machine identity."""
+
+    machine_id: str
+    bus_id: str
+    model_type: str
+    parameters: ClassicalMachineParameters
+    connection_path: tuple[str, ...] = ()
+    mechanical_power: float = 0.0
+    disconnected_rotor_policy: str = "continue_with_zero_electrical_power"
+    metadata: Mapping[str, Any] = MappingProxyType({})
+    project_id: str = ""
+    activation_generation: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.machine_id, str) or not self.machine_id.strip():
+            raise ValueError("machine_id must be a non-empty string.")
+        if not isinstance(self.bus_id, str) or not self.bus_id.strip():
+            raise ValueError("bus_id must be a non-empty string.")
+        if not isinstance(self.model_type, str) or not self.model_type.strip():
+            raise ValueError("model_type must be a non-empty string.")
+        if not isinstance(self.parameters, ClassicalMachineParameters):
+            raise TypeError("parameters must be ClassicalMachineParameters.")
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if not isinstance(self.activation_generation, int) or isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        object.__setattr__(self, "project_id", self.project_id.strip())
+        object.__setattr__(self, "machine_id", self.machine_id.strip())
+        object.__setattr__(self, "bus_id", self.bus_id.strip())
+        object.__setattr__(self, "model_type", self.model_type.strip())
+        if isinstance(self.connection_path, (str, bytes)):
+            raise TypeError("connection_path must be an ordered sequence of switching-equipment IDs.")
+        raw_path = tuple(self.connection_path)
+        if any(not isinstance(item, str) for item in raw_path):
+            raise TypeError("connection_path entries must be canonical string equipment IDs.")
+        path = tuple(item.strip() for item in raw_path)
+        if any(not item for item in path):
+            raise ValueError(
+                f"Dynamic machine '{self.machine_id}' connection_path contains an empty equipment ID."
+            )
+        if len(path) != len(set(path)):
+            raise ValueError(
+                f"Dynamic machine '{self.machine_id}' connection_path contains duplicate equipment IDs."
+            )
+        object.__setattr__(self, "connection_path", path)
+        policy = str(self.disconnected_rotor_policy).strip()
+        if policy != "continue_with_zero_electrical_power":
+            raise ValueError(
+                f"Dynamic machine '{self.machine_id}' has unsupported disconnected_rotor_policy "
+                f"{policy!r}; the supported policy is 'continue_with_zero_electrical_power'."
+            )
+        object.__setattr__(self, "disconnected_rotor_policy", policy)
+        object.__setattr__(self, "mechanical_power", float(self.mechanical_power))
+        object.__setattr__(self, "metadata", _freeze_metadata_value(self.metadata))
+
+    def to_dict(self) -> dict[str, Any]:
+        p = self.parameters
+        return {
+            "project_id": self.project_id,
+            "activation_generation": self.activation_generation,
+            "machine_id": self.machine_id,
+            "bus_id": self.bus_id,
+            "connection_path": list(self.connection_path),
+            "disconnected_rotor_policy": self.disconnected_rotor_policy,
+            "model_type": self.model_type,
+            "mechanical_power": self.mechanical_power,
+            "parameters": {"H": p.H, "Xd_prime": p.Xd_prime, "D": p.D, "Efd": p.Efd,
+                           "initial_delta": p.initial_delta, "initial_omega": p.initial_omega},
+            "metadata": dict(self.metadata),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any], *, project_id: str | None = None, activation_generation: int | None = None) -> "DynamicMachineModelAssociation":
+        if not isinstance(data, Mapping):
+            raise TypeError("Dynamic machine model association must be a mapping.")
+        parameters = data.get("parameters")
+        if not isinstance(parameters, Mapping):
+            raise ValueError("Dynamic machine model parameters are required.")
+        return cls(
+            project_id=str(project_id if project_id is not None else data.get("project_id", "")),
+            activation_generation=int(activation_generation if activation_generation is not None else data.get("activation_generation", 0)),
+            machine_id=str(data.get("machine_id", "")),
+            bus_id=str(data.get("bus_id", "")),
+            connection_path=data.get("connection_path", ()),
+            disconnected_rotor_policy=str(data.get("disconnected_rotor_policy", "continue_with_zero_electrical_power")),
+            model_type=str(data.get("model_type", "")),
+            mechanical_power=float(data.get("mechanical_power", 0.0)),
+            parameters=ClassicalMachineParameters(
+                H=float(parameters["H"]), Xd_prime=float(parameters["Xd_prime"]),
+                D=float(parameters.get("D", 0.0)), Efd=float(parameters.get("Efd", 1.0)),
+                initial_delta=float(parameters.get("initial_delta", 0.0)),
+                initial_omega=float(parameters.get("initial_omega", 0.0)),
+            ),
+            metadata=data.get("metadata", {}),
+        )
+
+
+class DynamicMachineModelRegistry:
+    """Project-scoped binding store; never part of Network topology."""
+
+    def __init__(self, associations: tuple[DynamicMachineModelAssociation, ...] = ()) -> None:
+        self._associations: dict[str, DynamicMachineModelAssociation] = {}
+        self.replace(tuple(associations))
+
+    @property
+    def project_id(self) -> str | None:
+        values = self.all()
+        return values[0].project_id if values else None
+
+    @property
+    def activation_generation(self) -> int | None:
+        values = self.all()
+        return values[0].activation_generation if values else None
+
+    def bind(self, association: DynamicMachineModelAssociation) -> None:
+        if not isinstance(association, DynamicMachineModelAssociation):
+            raise TypeError("association must be DynamicMachineModelAssociation.")
+        if self._associations:
+            current = next(iter(self._associations.values()))
+            if association.project_id != current.project_id or association.activation_generation != current.activation_generation:
+                raise ValueError(
+                    "Dynamic model association scope does not match the active registry "
+                    f"({current.project_id!r}, {current.activation_generation})."
+                )
+        self._associations[association.machine_id] = association
+
+    def snapshot(self) -> tuple[DynamicMachineModelAssociation, ...]:
+        return self.all()
+
+    def replace(self, associations: tuple[DynamicMachineModelAssociation, ...]) -> None:
+        values = tuple(associations)
+        if any(not isinstance(item, DynamicMachineModelAssociation) for item in values):
+            raise TypeError("associations contains an invalid dynamic model association.")
+        scopes = {(item.project_id, item.activation_generation) for item in values}
+        if len(scopes) > 1:
+            raise ValueError("Dynamic model associations cannot mix project IDs or activation generations.")
+        self._associations = {item.machine_id: item for item in values}
+
+    def remove(self, machine_id: str) -> None:
+        self._associations.pop(str(machine_id), None)
+
+    def get(self, machine_id: str) -> DynamicMachineModelAssociation | None:
+        return self._associations.get(str(machine_id))
+
+    def all(self) -> tuple[DynamicMachineModelAssociation, ...]:
+        return tuple(self._associations[key] for key in sorted(self._associations))
+
+
+__all__ = ["DynamicMachineModelAssociation", "DynamicMachineModelRegistry"]

@@ -1,0 +1,32 @@
+Not yet implemented as V2 core functionality
+IEC 60909 methodology
+ANSI/IEEE short-circuit methodology
+sequence-specific network assembly from every equipment type
+generator subtransient models
+motor fault contribution
+transformer grounding/zero-sequence detailed models
+breaker interrupting/duty calculations
+DC decrement
+asymmetrical peak current
+time-domain fault-current decay
+protection clearing interaction
+
+These should remain future scope rather than being forced into the current subsystem.
+We should not hold the subsystem open merely because future industrial functionality could include:
+
+sparse Zbus methods
+sequence Ybus/Zbus
+multi-source fault contribution
+breaker interrupting current
+DC offset
+X/R calculations
+IEC 60909
+ANSI short-circuit
+generator subtransient/transient reactance
+motor contribution
+transformer zero-sequence grounding
+fault resistance
+arc impedance
+time-dependent fault current
+
+Those are future engineering extensions, not reasons to keep the current V2 subsystem unfrozen.

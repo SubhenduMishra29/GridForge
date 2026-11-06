@@ -92,16 +92,15 @@ class GraphicsView(QGraphicsView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        # Selection-aware, presentation-only quick actions. The strip is a
-        # viewport child (never a scene item) and delegates every persistent
-        # change to SLDController/Application.
+        # Transient, selection-aware presentation controls. This overlay is a
+        # viewport child and never becomes part of the persistent SLD scene.
         self._contextual_strip = QWidget(self.viewport())
         self._contextual_strip.setObjectName("SLDContextualToolStrip")
         self._contextual_strip.setStyleSheet(
             "QWidget#SLDContextualToolStrip { background: #263442; "
             "border: 1px solid #526579; border-radius: 5px; } "
-            "QToolButton { color: #f2f5f8; padding: 4px 7px; "
-            "border: 0; } QToolButton:hover { background: #40566b; }"
+            "QToolButton { color: #f2f5f8; padding: 4px 7px; border: 0; } "
+            "QToolButton:hover { background: #40566b; }"
         )
         strip_layout = QHBoxLayout(self._contextual_strip)
         strip_layout.setContentsMargins(4, 3, 4, 3)
@@ -151,9 +150,8 @@ class GraphicsView(QGraphicsView):
         return self._last_cursor_scene_position
 
     def _selected_presentation_node(self):
-        """Return the sole selected SLD node and graphics item, if eligible."""
-        controller = self.controller
-        document = getattr(controller, "active_document", None)
+        """Return the sole selected SLD node and its symbol graphics item."""
+        document = getattr(self.controller, "active_document", None)
         if document is None:
             return None, None
         selected = tuple(
@@ -174,7 +172,7 @@ class GraphicsView(QGraphicsView):
         return node, item
 
     def _refresh_contextual_tool_strip(self, *_args) -> None:
-        """Keep the transient strip anchored to the selected symbol in viewport space."""
+        """Anchor the transient strip to the selected symbol in viewport space."""
         node, item = self._selected_presentation_node()
         if node is None or item is None:
             self._contextual_strip.hide()
@@ -194,23 +192,19 @@ class GraphicsView(QGraphicsView):
         """Persist a symbol-only transform through the SLD Application command."""
         from ui.equipment.symbol.symbol_base import SymbolBase
 
-        node, _item = self._selected_presentation_node()
+        node, item = self._selected_presentation_node()
         if node is None:
             return
-        source_presentation = node.presentation or _item.symbol_instance
-        presentation = SymbolBase.from_dict(source_presentation.to_dict())
+        source = node.presentation or item.symbol_instance
+        presentation = SymbolBase.from_dict(source.to_dict())
         if operation == "rotate_ccw":
             presentation.rotation = (presentation.rotation - 90.0) % 360.0
         elif operation == "rotate_cw":
             presentation.rotation = (presentation.rotation + 90.0) % 360.0
         elif operation == "flip_h":
-            presentation.set_property(
-                "mirror_x", not bool(presentation.get_property("mirror_x", False))
-            )
+            presentation.set_property("mirror_x", not bool(presentation.get_property("mirror_x", False)))
         elif operation == "flip_v":
-            presentation.set_property(
-                "mirror_y", not bool(presentation.get_property("mirror_y", False))
-            )
+            presentation.set_property("mirror_y", not bool(presentation.get_property("mirror_y", False)))
         else:
             raise ValueError(f"Unsupported contextual symbol action: {operation}")
         self.controller.set_node_presentation(node.node_id, presentation)

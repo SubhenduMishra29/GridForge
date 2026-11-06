@@ -1,0 +1,178 @@
+# ============================================================
+# File: ui/canvas/symbol_preview_item.py
+# GridForge V2 — Transient Symbol Preview Item
+# Author: Subhendu Mishra
+# ============================================================
+"""Transient Qt realization of canonical renderer-neutral SLD symbols."""
+
+from __future__ import annotations
+
+from math import isfinite
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from ui.core.qt import QBrush, QGraphicsItem, QLineF, QPainter, QPen, QRectF, QTransform, Qt
+from ui.equipment.symbol.symbol_definition import SymbolDefinition
+from ui.styling.presentation_style import VisualState, visual_brush, visual_pen, visual_font
+from ui.sld.bus_presentation import DEFAULT_SLD_BUS_PRESENTATION
+
+
+class SymbolPreviewItem(QGraphicsItem):
+    """Temporary canvas realization driven exclusively by SymbolDefinition."""
+
+    def __init__(
+        self,
+        definition: SymbolDefinition,
+        *,
+        position: Any,
+        rotation: float = 0.0,
+        presentation_state: Mapping[str, Any] | None = None,
+        draft_id: str | None = None,
+        terminal_names: tuple[str, ...] = (),
+        element_type: str = "",
+    ) -> None:
+        if not isinstance(definition, SymbolDefinition):
+            raise TypeError("definition must be a SymbolDefinition.")
+        super().__init__()
+        self._definition = definition
+        self._draft_id = draft_id
+        self._terminal_names = tuple(terminal_names)
+        self._element_type = str(element_type)
+        self._presentation_state = MappingProxyType(dict(presentation_state or {}))
+        self._visual_state = VisualState.PREVIEW
+        state = self._presentation_state
+        mirror_x = bool(state.get("mirror_x", False))
+        mirror_y = bool(state.get("mirror_y", False))
+        scale = float(state.get("scale", 1.0))
+        if not isfinite(scale) or scale <= 0.0:
+            raise ValueError("Draft symbol scale must be finite and greater than zero.")
+        self.setPos(self._point(position))
+        self.setTransform(
+            QTransform.fromScale(
+                -1.0 if mirror_x else 1.0,
+                -1.0 if mirror_y else 1.0,
+            )
+        )
+        self.setScale(scale)
+        self.setRotation(float(rotation))
+        self.setVisible(bool(state.get("visible", True)))
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        # Draft symbols must receive left-clicks so QGraphicsScene can select
+        # them and the SelectionProjectionCoordinator can populate the inspector.
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+
+    @property
+    def object_id(self) -> str | None:
+        return self._draft_id
+
+    @property
+    def is_draft_presentation(self) -> bool:
+        return self._draft_id is not None
+
+    def snap_points(self):
+        if self._draft_id is None:
+            return ()
+        from ui.core.qt import QPointF
+
+        if self._element_type.strip().lower() == "bus":
+            # Bus placement is represented by electrical attachment
+            # boundaries, not by the Core Bus terminal role "bus".
+            definition = DEFAULT_SLD_BUS_PRESENTATION
+            points = []
+            for index in range(definition.attachment_count):
+                attachment_id = f"attachment-{index}"
+                anchor = definition.attachment_position(attachment_id)
+                point = self.mapToScene(
+                    QPointF(float(anchor[0]), float(anchor[1]))
+                )
+                points.append({
+                    "position": point,
+                    "object_id": self._draft_id,
+                    "draft_id": self._draft_id,
+                    "draft_equipment_type": self._element_type,
+                    "bus_id": self._draft_id,
+                    "attachment_id": attachment_id,
+                })
+            return tuple(points)
+
+        points = []
+        for role in self._terminal_names:
+            anchor = self._definition.get_terminal_anchor(role)
+            point = self.mapToScene(QPointF(float(anchor[0]), float(anchor[1])))
+            points.append({
+                "position": point,
+                "object_id": self._draft_id,
+                "draft_id": self._draft_id,
+                "terminal_id": f"{self._draft_id}:{role}",
+                "terminal_name": role,
+                "draft_terminal_role": role,
+                "draft_equipment_type": self._element_type,
+            })
+        return tuple(points)
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(
+            -self._definition.width / 2.0,
+            -self._definition.height / 2.0,
+            self._definition.width,
+            self._definition.height,
+        )
+
+    def paint(self, painter: QPainter, option: Any, widget: Any = None) -> None:
+        del option, widget
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        visual_state = VisualState.SELECTED if self.isSelected() else self._visual_state
+        painter.setBrush(visual_brush("symbol", visual_state))
+        painter.setFont(visual_font("engineering"))
+        for primitive in self._definition.primitives:
+            # Honour the renderer-neutral catalogue's per-primitive stroke
+            # width (e.g. the heavier IEEE/ANSI busbar), while preserving the
+            # common visual-state pen styling for every primitive.
+            stroke_width = float(primitive.get("stroke_width", 1.8))
+            painter.setPen(visual_pen("symbol", visual_state, width=stroke_width))
+            kind = primitive.get("kind")
+            if kind == "line":
+                painter.drawLine(
+                    QLineF(
+                        float(primitive["x1"]), float(primitive["y1"]),
+                        float(primitive["x2"]), float(primitive["y2"]),
+                    )
+                )
+            elif kind == "rect":
+                painter.drawRect(
+                    QRectF(
+                        float(primitive["x"]), float(primitive["y"]),
+                        float(primitive["width"]), float(primitive["height"]),
+                    )
+                )
+            elif kind == "circle":
+                radius = float(primitive["r"])
+                painter.drawEllipse(
+                    QRectF(
+                        float(primitive["cx"]) - radius,
+                        float(primitive["cy"]) - radius,
+                        radius * 2.0,
+                        radius * 2.0,
+                    )
+                )
+            elif kind == "text":
+                painter.drawText(
+                    QRectF(float(primitive["x"]), float(primitive["y"]), float(primitive["width"]), float(primitive["height"])),
+                    Qt.AlignmentFlag.AlignCenter,
+                    str(primitive["text"]),
+                )
+
+    @staticmethod
+    def _point(value: Any):
+        if hasattr(value, "x") and hasattr(value, "y"):
+            x = value.x() if callable(value.x) else value.x
+            y = value.y() if callable(value.y) else value.y
+            from ui.core.qt import QPointF
+            return QPointF(float(x), float(y))
+        if isinstance(value, (tuple, list)) and len(value) >= 2:
+            from ui.core.qt import QPointF
+            return QPointF(float(value[0]), float(value[1]))
+        raise TypeError("Preview position must expose x/y coordinates.")
+
+
+__all__ = ["SymbolPreviewItem"]

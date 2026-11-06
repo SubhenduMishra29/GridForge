@@ -1,0 +1,259 @@
+"""Control orchestration over the existing deterministic LogicEngine."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Mapping
+
+from .action import ControlActionBinding
+from .configuration import ControlConfiguration
+from .context import ControlExecutionContext
+from .decision import ControlActionType, ControlDecision
+from .interlock import ControlInterlock
+from .logic.engine import LogicEngine, LogicEngineResult
+
+
+_ACTION_PRIORITY = {ControlActionType.TRIP:900, ControlActionType.BLOW:850, ControlActionType.OPEN:800, ControlActionType.STOP:700, ControlActionType.CLOSE:600, ControlActionType.START:550, ControlActionType.TAKE_OUT_OF_SERVICE:500, ControlActionType.RESET:400, ControlActionType.PUT_IN_SERVICE:300}
+
+
+@dataclass(frozen=True, slots=True)
+class ControlEvaluationResult:
+    """Immutable result of one Control evaluation cycle."""
+
+    simulation_time: float
+    decisions: tuple[ControlDecision, ...] = ()
+    blocked_actions: tuple[ControlDecision, ...] = ()
+    diagnostics: tuple[str, ...] = ()
+    logic_result: LogicEngineResult | None = None
+    metadata: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        simulation_time = float(self.simulation_time)
+        if not __import__("math").isfinite(simulation_time):
+            raise ValueError("simulation_time must be finite.")
+
+        decisions = tuple(self.decisions)
+        blocked_actions = tuple(self.blocked_actions)
+        if any(not decision.valid for decision in decisions):
+            raise ValueError("decisions must contain only valid ControlDecision instances.")
+        if any(decision.valid for decision in blocked_actions):
+            raise ValueError("blocked_actions must contain only invalid ControlDecision instances.")
+
+        decision_ids = {decision.control_id for decision in decisions}
+        blocked_ids = {decision.control_id for decision in blocked_actions}
+        if decision_ids & blocked_ids:
+            raise ValueError("A ControlDecision control_id cannot appear in both decisions and blocked_actions.")
+
+        object.__setattr__(self, "simulation_time", simulation_time)
+        object.__setattr__(self, "decisions", decisions)
+        object.__setattr__(self, "blocked_actions", blocked_actions)
+        object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+        object.__setattr__(self, "metadata", dict(self.metadata))
+
+
+class ControlEngine:
+    """Coordinate logic evaluation, interlocks, and equipment-action intents.
+
+    Control remains intent-only: this class does not mutate Core, access
+    Network, execute commands, or touch UI. Project/runtime ownership stays in
+    the Application layer; this object only holds the currently committed
+    Control runtime binding.
+    """
+
+    def __init__(self, logic_engine: LogicEngine | None = None, configuration: ControlConfiguration | None = None) -> None:
+        if logic_engine is not None and not isinstance(logic_engine, LogicEngine):
+            raise TypeError("logic_engine must be a LogicEngine or None.")
+        self._logic_engine = logic_engine
+        self._bindings: tuple[ControlActionBinding, ...] = ()
+        self._interlocks: dict[str, ControlInterlock] = {}
+        self._configuration = None
+        self._activation_generation = 0
+        if configuration is not None:
+            self.configure(configuration)
+
+    @property
+    def configuration(self) -> ControlConfiguration | None:
+        return self._configuration
+
+    @property
+    def activation_generation(self) -> int:
+        return self._activation_generation
+
+    def configure(self, configuration: ControlConfiguration, *, activation_generation: int | None = None) -> None:
+        """Atomically commit a validated configuration and its canonical LogicEngine.
+
+        Candidate bindings/interlocks are built entirely off to the side. The
+        current runtime is not changed unless every validation step succeeds.
+        """
+        if not isinstance(configuration, ControlConfiguration):
+            raise TypeError("configuration must be a ControlConfiguration.")
+        if activation_generation is not None and int(activation_generation) < 1:
+            raise ValueError("activation_generation must be positive when provided.")
+        configuration.validate()
+        logic_engine = configuration.program.engine
+        bindings: list[ControlActionBinding] = []
+        interlocks: dict[str, ControlInterlock] = {}
+
+        for item in configuration.interlocks:
+            interlock = item.runtime()
+            if interlock.interlock_id in interlocks and interlocks[interlock.interlock_id] != interlock:
+                raise ValueError(f"Interlock '{interlock.interlock_id}' is already bound.")
+            interlocks[interlock.interlock_id] = interlock
+
+        for binding in configuration.action_bindings:
+            if not isinstance(binding, ControlActionBinding):
+                raise TypeError("configuration action_bindings must contain ControlActionBinding values.")
+            if binding in bindings:
+                continue
+            component = logic_engine.get(binding.source_component)
+            if binding.source_output not in set(component.output_names):
+                raise ValueError(
+                    f"Unknown Control output '{binding.source_component}.{binding.source_output}'."
+                )
+            if binding.interlock_id is not None and binding.interlock_id not in interlocks:
+                raise ValueError(f"Unknown Control interlock '{binding.interlock_id}'.")
+            bindings.append(binding)
+
+        self._logic_engine = logic_engine
+        self._bindings = tuple(bindings)
+        self._interlocks = interlocks
+        self._configuration = configuration
+        if activation_generation is not None:
+            self._activation_generation = int(activation_generation)
+
+    def deactivate(self) -> None:
+        """Clear the committed runtime so a closed project cannot execute it."""
+        self._logic_engine = None
+        self._bindings = ()
+        self._interlocks = {}
+        self._configuration = None
+        self._activation_generation = 0
+
+    @property
+    def logic_engine(self) -> LogicEngine | None:
+        return self._logic_engine
+
+    @property
+    def bindings(self) -> tuple[ControlActionBinding, ...]:
+        return self._bindings
+
+    def bind_interlock(self, interlock: ControlInterlock) -> None:
+        """Register a named headless interlock gate."""
+        if not isinstance(interlock, ControlInterlock):
+            raise TypeError("interlock must be a ControlInterlock.")
+        existing = self._interlocks.get(interlock.interlock_id)
+        if existing is not None and existing != interlock:
+            raise ValueError(f"Interlock '{interlock.interlock_id}' is already bound.")
+        self._interlocks[interlock.interlock_id] = interlock
+
+    def bind_action(self, binding: ControlActionBinding) -> None:
+        """Register one output-to-action binding and validate its source/interlock."""
+        if not isinstance(binding, ControlActionBinding):
+            raise TypeError("binding must be a ControlActionBinding.")
+        if binding in self._bindings:
+            return
+        existing = next(
+            (item for item in self._bindings if item.control_id == binding.control_id),
+            None,
+        )
+        if existing is not None:
+            raise ValueError(
+                f"Control action binding ID '{binding.control_id}' is already bound "
+                "to a different action."
+            )
+        if self._logic_engine is None:
+            raise RuntimeError("Control runtime is inactive; no LogicEngine is configured.")
+        component = self._logic_engine.get(binding.source_component)
+        if binding.source_output not in set(component.output_names):
+            raise ValueError(
+                f"Unknown Control output '{binding.source_component}.{binding.source_output}'."
+            )
+        if binding.interlock_id is not None and binding.interlock_id not in self._interlocks:
+            raise ValueError(f"Unknown Control interlock '{binding.interlock_id}'.")
+        self._bindings = (*self._bindings, binding)
+
+    def evaluate(
+        self,
+        *,
+        simulation_time: float | None = None,
+        external_inputs: Mapping[str, Mapping[str, Any]] | None = None,
+        context: ControlExecutionContext | None = None,
+        interlock_inputs: Mapping[str, Any] | None = None,
+    ) -> ControlEvaluationResult:
+        """Evaluate logic, gate asserted actions, and emit deterministic intents."""
+        if self._configuration is None or self._logic_engine is None:
+            raise RuntimeError("Control runtime is inactive; no project Control configuration is committed.")
+        if context is not None:
+            if simulation_time is not None or external_inputs is not None:
+                raise ValueError("context cannot be combined with simulation_time or external_inputs.")
+        else:
+            if simulation_time is None:
+                raise ValueError("simulation_time or context is required.")
+            context = ControlExecutionContext(simulation_time=simulation_time, external_inputs=external_inputs or {})
+
+        logic_result = self._logic_engine.evaluate(time=context.simulation_time, external_inputs=context.external_inputs)
+        candidates: list[ControlDecision] = []
+        blocked: list[ControlDecision] = []
+        diagnostics: list[str] = []
+        supplied_interlocks = interlock_inputs
+
+        for binding in self._bindings:
+            outputs = logic_result.signals.get(binding.source_component, {})
+            if outputs.get(binding.source_output) is not True:
+                continue
+            decision = binding.decision(simulation_time=context.simulation_time)
+            if binding.interlock_id is not None:
+                interlock_values: Any
+                if not isinstance(supplied_interlocks, Mapping):
+                    interlock_values = supplied_interlocks
+                else:
+                    interlock_values = supplied_interlocks.get(binding.interlock_id, {})
+                result = self._interlocks[binding.interlock_id].evaluate(
+                    interlock_values,
+                    context.simulation_time,
+                    timestamp_domain=context.metadata.get("timestamp_domain"),
+                )
+                if not result.allowed:
+                    blocked.append(
+                        ControlDecision.blocked(
+                            control_id=decision.control_id,
+                            action_type=decision.action_type,
+                            target_equipment_id=decision.target_equipment_id,
+                            reason=decision.reason,
+                            simulation_time=context.simulation_time,
+                            diagnostic=result.diagnostic,
+                        )
+                    )
+                    diagnostics.append(result.diagnostic)
+                    continue
+            candidates.append(decision)
+
+        decisions: list[ControlDecision] = []
+        winners: dict[str, ControlDecision] = {}
+        for decision in sorted(candidates, key=lambda item: (-_ACTION_PRIORITY[item.action_type], item.control_id, item.triggered_by or "")):
+            current = winners.get(decision.target_equipment_id)
+            if current is None:
+                winners[decision.target_equipment_id] = decision
+                decisions.append(decision)
+                continue
+            blocked.append(ControlDecision.blocked(
+                control_id=decision.control_id,
+                action_type=decision.action_type,
+                target_equipment_id=decision.target_equipment_id,
+                reason=decision.reason,
+                simulation_time=context.simulation_time,
+                diagnostic=f"Action conflicts with {current.control_id}; {current.action_type.value} has higher priority.",
+            ))
+            diagnostics.append(f"{decision.target_equipment_id}: {decision.action_type.value} blocked by {current.action_type.value} from {current.control_id}.")
+
+        return ControlEvaluationResult(
+            simulation_time=context.simulation_time,
+            decisions=tuple(decisions),
+            blocked_actions=tuple(blocked),
+            diagnostics=tuple(diagnostics),
+            logic_result=logic_result,
+            metadata=context.metadata,
+        )
+
+
+__all__ = ["ControlEngine", "ControlEvaluationResult"]

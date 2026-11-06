@@ -1,0 +1,256 @@
+# ============================================================
+# File: ui/editors/common/editor_host.py
+# GridForge V2 — Engineering Editor Host
+# Author: Subhendu Mishra
+# ============================================================
+
+"""Qt realization of the canonical Area → Editor → Region composition."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from ui.core.qt import QFrame, QGraphicsView, QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
+
+
+class EngineeringEditorHost(QWidget):
+    """Presentation-only host for active Area, Editor and Region context."""
+
+    def __init__(self, *, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._editors: dict[str, QWidget] = {}
+        self._editor_context: Any | None = None
+        self._active_area: Any | None = None
+        self._active_editor_id: str | None = None
+        self._active_region_id: str | None = None
+        self._maximized_area_id: str | None = None
+        self._stack = QStackedWidget(self)
+        self._stack.setObjectName("GridForgeEditorStack")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._stack)
+
+    @property
+    def editor_ids(self) -> tuple[str, ...]:
+        return tuple(self._editors)
+
+    @property
+    def active_editor_id(self) -> str | None:
+        return self._active_editor_id
+
+    @property
+    def active_area(self) -> Any | None:
+        return self._active_area
+
+    @property
+    def editor_context(self) -> Any | None:
+        return self._editor_context
+
+    @property
+    def maximized_area_id(self) -> str | None:
+        return self._maximized_area_id
+
+    @property
+    def active_region_widget(self) -> QWidget | None:
+        """Return the realized widget for the active Region, when available."""
+        if self._active_editor_id is None or self._active_region_id is None:
+            return None
+        editor = self._editors.get(self._active_editor_id)
+        resolver = getattr(editor, "region_widget", None) if editor is not None else None
+        return resolver(self._active_region_id) if callable(resolver) else None
+
+    def unregister_editor(self, editor_id: str) -> QWidget | None:
+        """Permanently remove an editor after invoking its owned teardown contract."""
+        widget = self._editors.get(editor_id)
+        if widget is None:
+            return None
+        if editor_id == self._active_editor_id:
+            self.deactivate()
+        dispose = getattr(widget, "dispose_editor", None)
+        if callable(dispose):
+            dispose()
+        self._stack.removeWidget(widget)
+        self._editors.pop(editor_id, None)
+        widget.setParent(None)
+        return widget
+
+    def register_editor(self, editor_id: str, widget: QWidget) -> None:
+        if not isinstance(editor_id, str) or not editor_id.strip():
+            raise ValueError("editor_id must be a non-empty string.")
+        if not isinstance(widget, QWidget):
+            raise TypeError("widget must be QWidget.")
+        if editor_id in self._editors:
+            raise ValueError(f"Editor already registered: {editor_id!r}")
+        self._editors[editor_id] = widget
+        self._stack.addWidget(widget)
+
+    def activate(
+        self,
+        editor_id: str,
+        *,
+        area: Any | None = None,
+        region_id: str | None = None,
+        context: Any | None = None,
+    ) -> None:
+        widget = self._editors.get(editor_id)
+        if widget is None:
+            raise KeyError(f"Unknown editor: {editor_id!r}")
+        previous_id = self._active_editor_id
+        previous_context = self._editor_context
+        previous_widget = self._editors.get(previous_id or "")
+        previous_workspace = getattr(previous_context, "workspace", None)
+        next_workspace = getattr(context, "workspace", None)
+        # Project-scoped canvas cleanup belongs to the committed
+        # ProjectWorkspaceChanged projection handler. Editor activation can
+        # still be part of a transition that later rolls back, so clearing
+        # state here would both duplicate cleanup and break rollback semantics.
+        if previous_widget is not None and (
+            previous_id != editor_id
+            or (previous_workspace is not None and next_workspace is not None and previous_workspace != next_workspace)
+        ):
+            deactivate = getattr(previous_widget, "deactivate_workspace", None)
+            if callable(deactivate):
+                deactivate()
+        if context is not None and getattr(context, "editor", None) is not None:
+            canonical_editor_id = getattr(context.editor, "editor_id", editor_id)
+            if canonical_editor_id != editor_id:
+                raise ValueError(f"Editor activation ID {editor_id!r} does not match context editor {canonical_editor_id!r}.")
+            if area is not None and getattr(context, "area", None) is not area and getattr(context.area, "area_id", None) != getattr(area, "area_id", None):
+                raise ValueError("EditorContext area does not match the activated Area.")
+            if region_id is not None and getattr(context, "region", None) is not None and getattr(context.region, "region_id", None) != region_id:
+                raise ValueError("EditorContext region does not match the activated Region.")
+            workspace_id = getattr(context, "workspace", None)
+            if workspace_id is None or not isinstance(workspace_id, str) or not workspace_id.strip():
+                raise ValueError("EditorContext must identify the active workspace.")
+        resolved_region_id = region_id or self._default_region_id(widget)
+        if resolved_region_id is not None:
+            resolver = getattr(widget, "region_widget", None)
+            if not callable(resolver) or resolver(resolved_region_id) is None:
+                raise KeyError(f"Editor {editor_id!r} does not realize Region {resolved_region_id!r}.")
+        if context is not None and callable(getattr(context, "with_updates", None)):
+            context = context.with_updates(view_state=self._read_view_state(widget))
+        self._stack.setCurrentWidget(widget)
+        configure = getattr(widget, "apply_editor_definition", None)
+        if callable(configure) and context is not None and getattr(context, "editor", None) is not None:
+            configure(context.editor)
+        self._active_editor_id = editor_id
+        self._active_area = area
+        self._active_region_id = resolved_region_id
+        self._editor_context = context
+        apply_context = getattr(widget, "set_editor_context", None)
+        if callable(apply_context):
+            apply_context(context)
+
+    @staticmethod
+    def _read_view_state(widget: QWidget) -> dict[str, object]:
+        view = widget if isinstance(widget, QGraphicsView) else widget.findChild(QGraphicsView)
+        if view is None:
+            return {
+                "zoom": None,
+                "pan": None,
+                "grid_visibility": getattr(widget, "grid_visible", None),
+                "snap_state": getattr(widget, "snap_enabled", None),
+                "overlay_state": getattr(widget, "overlay_state", None),
+                "routing_preferences": getattr(widget, "routing_preferences", None),
+                "display_preferences": getattr(widget, "display_preferences", None),
+            }
+        return {
+            "zoom": float(view.transform().m11()),
+            "pan": (int(view.horizontalScrollBar().value()), int(view.verticalScrollBar().value())),
+            "grid_visibility": getattr(widget, "grid_visible", None),
+            "snap_state": getattr(widget, "snap_enabled", None),
+            "overlay_state": getattr(widget, "overlay_state", None),
+            "routing_preferences": getattr(widget, "routing_preferences", None),
+            "display_preferences": getattr(widget, "display_preferences", None),
+        }
+
+    @staticmethod
+    def _default_region_id(widget: QWidget) -> str | None:
+        resolver = getattr(widget, "default_region_id", None)
+        value = resolver() if callable(resolver) else getattr(widget, "DEFAULT_REGION_ID", None)
+        return str(value) if value is not None else None
+
+    def deactivate(self) -> None:
+        """Deactivate the active editor before dropping its immutable context."""
+        widget = self._editors.get(self._active_editor_id or "")
+        deactivate = getattr(widget, "deactivate_workspace", None) if widget is not None else None
+        try:
+            if callable(deactivate):
+                deactivate()
+        finally:
+            self._active_editor_id = None
+        self._active_area = None
+        self._active_region_id = None
+        self._editor_context = None
+        self._maximized_area_id = None
+
+    def set_editor_context(self, context: Any | None) -> None:
+        """Install the current immutable EditorContext snapshot."""
+        self._editor_context = context
+
+    def set_area_maximized(self, area_id: str | None, maximized: bool) -> None:
+        if maximized:
+            if not isinstance(area_id, str) or not area_id.strip():
+                raise ValueError("area_id is required when maximizing an Area.")
+            if self._active_area is not None and getattr(self._active_area, "area_id", area_id) != area_id:
+                raise RuntimeError(f"Area {area_id!r} is not the active Area.")
+            self._maximized_area_id = area_id
+            self.setProperty("gridforge_area_maximized", True)
+        else:
+            self._maximized_area_id = None
+            self.setProperty("gridforge_area_maximized", False)
+
+        # Maximization is a presentation operation on the already-realized
+        # editor. The editor remains mounted; no scene/document is recreated.
+        editor = self._editors.get(self._active_editor_id or "")
+        apply_presentation_state = getattr(editor, "set_presentation_maximized", None)
+        if callable(apply_presentation_state):
+            apply_presentation_state(bool(maximized))
+
+    def widget(self, editor_id: str) -> QWidget | None:
+        return self._editors.get(editor_id)
+
+
+class EditorRegionFrame(QFrame):
+    """Reusable Qt realization of one logical Region."""
+
+    def __init__(self, title: str = "", *, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName(f"GridForgeRegion_{title.lower().replace(' ', '_') or 'region'}")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        self._title_label = None
+        if title:
+            label = QLabel(title, self)
+            label.setObjectName("GridForgeRegionTitle")
+            layout.addWidget(label)
+            self._title_label = label
+        self._content = QVBoxLayout()
+        layout.addLayout(self._content)
+
+    @property
+    def contained_widget(self) -> QWidget | None:
+        """Return the widget currently mounted in this Region frame."""
+        for index in range(self._content.count()):
+            item = self._content.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                return widget
+        return None
+
+    def set_title_visible(self, visible: bool) -> None:
+        if self._title_label is not None:
+            self._title_label.setVisible(bool(visible))
+
+    def set_widget(self, widget: QWidget) -> None:
+        if not isinstance(widget, QWidget):
+            raise TypeError("widget must be QWidget.")
+        while self._content.count():
+            item = self._content.takeAt(0)
+            old = item.widget()
+            if old is not None:
+                old.setParent(None)
+        self._content.addWidget(widget)
+
+
+__all__ = ["EngineeringEditorHost", "EditorRegionFrame"]

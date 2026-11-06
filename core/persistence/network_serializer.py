@@ -1,0 +1,266 @@
+# ============================================================
+# File: core/persistence/network_serializer.py
+# GridForge V2 — Network Persistence Reconstruction
+# Author: Subhendu Mishra
+# ============================================================
+
+"""Canonical serialization of Network membership and connectivity."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from core.model.terminal import Terminal
+from core.network import Junction, Network, SimpleWireConnection, PhaseDomainConductorNode, PhaseDomainConnection
+
+from .model_dto import ModelDTO, model_to_dto, resolve_state_references, restore_state
+from .project_package import CONNECTIVITY_SERIALIZATION_VERSION, CORE_SERIALIZATION_VERSION
+from .type_registry import ModelTypeRegistry, network_adder_name
+
+
+class NetworkSerializationError(ValueError):
+    """Raised when a Network cannot be reconstructed without loss."""
+
+
+_COLLECTIONS = (
+    "buses", "grids", "generators", "synchronous_machines", "loads", "motors", "shunts",
+    "capacitors", "reactors", "solar", "batteries", "current_transformers",
+    "capacitive_voltage_transformers", "potential_transformers", "relays", "lines", "cables",
+    "transformers", "breakers", "switches", "disconnectors", "fuses",
+)
+
+def serialize_network(network: Network) -> dict[str, Any]:
+    """Return the complete canonical engineering Network representation."""
+    if not isinstance(network, Network): raise TypeError("network must be a Network.")
+    try:
+        network.validate()
+    except Exception as exc:
+        raise NetworkSerializationError(f"Cannot serialize an invalid Network: {exc}") from exc
+    elements: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for collection_name in _COLLECTIONS:
+        for element in getattr(network, collection_name):
+            identity = id(element)
+            if identity in seen: continue
+            seen.add(identity)
+            elements.append(model_to_dto(element).to_dict())
+    elements.sort(key=lambda item: (item["type"], item["id"]))
+    simple_wires = sorted(
+        (connection.to_dict() for connection in network.connectivity.connections),
+        key=lambda item: item["connection_id"],
+    )
+    junctions = [
+        {"junction_id": junction.junction_id}
+        for junction in sorted(network.junctions, key=lambda item: item.junction_id)
+    ]
+    return {
+        "schema": CORE_SERIALIZATION_VERSION,
+        "elements": elements,
+        "connectivity": {
+            "schema": CONNECTIVITY_SERIALIZATION_VERSION,
+            "junctions": junctions,
+            "simple_wires": simple_wires,
+            "phase_domain_nodes": [item.to_dict() for item in network.phase_domain_nodes],
+            "phase_domain_connections": [item.to_dict() for item in network.phase_domain_connections],
+        },
+    }
+
+
+def deserialize_network(data: dict[str, Any], *, registry: ModelTypeRegistry | None = None) -> Network:
+    """Reconstruct a Network from canonical persisted engineering data."""
+    if not isinstance(data, dict): raise TypeError("Persisted project state must be an object.")
+    if data.get("schema") != CORE_SERIALIZATION_VERSION: raise NetworkSerializationError(f"Unsupported project network schema: {data.get('schema')!r}")
+    type_registry = registry or ModelTypeRegistry()
+    network = Network()
+    pending_terminals: list[tuple[Any, dict[str, Any]]] = []
+    for raw in data.get("elements", ()):
+        dto = ModelDTO.from_dict(raw)
+        model_type = type_registry.resolve(dto.type)
+        if dto.id.strip() == "": raise NetworkSerializationError("Persisted model ID cannot be empty.")
+        model = object.__new__(model_type)
+        restore_state(model, dto.state)
+        if getattr(model, "id", None) != dto.id:
+            object.__setattr__(model, "_id", dto.id)
+        for terminal_data in dto.terminals:
+            terminal = Terminal(owner=model, role=terminal_data.role)
+            setattr(model, terminal_data.attribute, terminal)
+            if terminal_data.endpoint_type is not None:
+                pending_terminals.append(
+                    (terminal, {"type": terminal_data.endpoint_type, "id": terminal_data.endpoint_id})
+                )
+        try:
+            model.validate()
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Invalid reconstructed {model_type.__name__} '{dto.id}': {exc}"
+            ) from exc
+        try:
+            getattr(network, network_adder_name(model_type))(model)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise NetworkSerializationError(
+                f"Unable to register reconstructed {model_type.__name__} '{dto.id}': {exc}"
+            ) from exc
+
+    def resolve_reference(reference: dict[str, Any]) -> Any:
+        reference_type = reference.get("type")
+        reference_id = reference.get("id")
+        if not isinstance(reference_type, str) or not reference_type.strip():
+            raise NetworkSerializationError("Persisted object reference type cannot be empty.")
+        if not isinstance(reference_id, str) or not reference_id.strip():
+            raise NetworkSerializationError("Persisted object reference ID cannot be empty.")
+        try:
+            expected_type = type_registry.resolve(reference_type)
+            resolved = network.get_by_identity(reference_id)
+        except (KeyError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Persisted object reference does not exist: {reference_type}:{reference_id}"
+            ) from exc
+        if not isinstance(resolved, expected_type):
+            raise NetworkSerializationError(
+                f"Persisted object reference type mismatch for {reference_id}: "
+                f"persisted={reference_type}, actual={type(resolved).__name__}"
+            )
+        return resolved
+
+    # All canonical objects are now registered. Resolve every deferred state
+    # reference through the single Network identity authority before terminals
+    # or topology can observe the reconstructed graph.
+    for model in tuple(network.registry._objects.values()):
+        try:
+            resolve_state_references(model, resolve_reference)
+            model.validate()
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Unable to resolve persisted state references for '{model.id}': {exc}"
+            ) from exc
+
+    for terminal, endpoint_ref in pending_terminals:
+        endpoint_id = endpoint_ref["id"]
+        endpoint_type_name = endpoint_ref["type"]
+        if endpoint_id is None:
+            raise NetworkSerializationError("Terminal endpoint ID cannot be null.")
+        try:
+            endpoint_type = type_registry.resolve(endpoint_type_name)
+            endpoint = network.get_by_identity(endpoint_id)
+        except (KeyError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Terminal endpoint does not exist: {endpoint_type_name}:{endpoint_id}"
+            ) from exc
+        if not isinstance(endpoint, endpoint_type):
+            raise NetworkSerializationError(
+                f"Terminal endpoint type mismatch for {endpoint_id}: "
+                f"persisted={endpoint_type_name}, actual={type(endpoint).__name__}"
+            )
+        if isinstance(endpoint, Terminal):
+            raise NetworkSerializationError(
+                "Terminal-to-Terminal connectivity is not supported."
+            )
+        try:
+            terminal.attach(endpoint)
+        except (TypeError, ValueError) as exc:
+            raise NetworkSerializationError(
+                f"Invalid terminal endpoint relationship for '{terminal.role}': {exc}"
+            ) from exc
+
+    connectivity_data = data.get("connectivity", {})
+    if connectivity_data is None:
+        connectivity_data = {}
+    if not isinstance(connectivity_data, dict):
+        raise NetworkSerializationError("Persisted connectivity payload must be an object.")
+    connectivity_schema = connectivity_data.get("schema", 1)
+    if isinstance(connectivity_schema, bool) or not isinstance(connectivity_schema, int):
+        raise NetworkSerializationError(
+            f"Connectivity schema must be an integer, got {connectivity_schema!r}."
+        )
+    if connectivity_schema not in {1, 2, 3, CONNECTIVITY_SERIALIZATION_VERSION}:
+        raise NetworkSerializationError(
+            f"Unsupported project connectivity schema: {connectivity_schema!r}"
+        )
+
+    raw_junctions = connectivity_data.get("junctions", [])
+    if connectivity_schema == 1:
+        if "junctions" in connectivity_data:
+            raise NetworkSerializationError(
+                "Connectivity schema 1 must not contain a Junction collection."
+            )
+        raw_junctions = []
+    elif not isinstance(raw_junctions, list):
+        raise NetworkSerializationError(
+            "Persisted connectivity.junctions payload must be an array."
+        )
+
+    seen_junction_ids: set[str] = set()
+    for raw_junction in raw_junctions:
+        if not isinstance(raw_junction, dict):
+            raise NetworkSerializationError(
+                "Every persisted Junction record must be an object."
+            )
+        if set(raw_junction) != {"junction_id"}:
+            raise NetworkSerializationError(
+                "Persisted Junction records must contain exactly junction_id."
+            )
+        junction_id = raw_junction.get("junction_id")
+        if not isinstance(junction_id, str):
+            raise NetworkSerializationError("Persisted Junction junction_id must be a string.")
+        if not junction_id.strip():
+            raise NetworkSerializationError("Persisted Junction junction_id cannot be empty.")
+        if junction_id != junction_id.strip():
+            raise NetworkSerializationError(
+                f"Persisted Junction ID is not canonical: {junction_id!r}."
+            )
+        if junction_id in seen_junction_ids:
+            raise NetworkSerializationError(
+                f"Duplicate persisted Junction ID: {junction_id!r}."
+            )
+        seen_junction_ids.add(junction_id)
+        try:
+            network.add_junction(Junction(junction_id))
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Unable to register persisted Junction '{junction_id}': {exc}"
+            ) from exc
+
+    simple_wires = connectivity_data.get("simple_wires", ())
+    if not isinstance(simple_wires, list):
+        raise NetworkSerializationError(
+            "Persisted connectivity.simple_wires payload must be an array."
+        )
+    for raw_connection in simple_wires:
+        try:
+            connection = SimpleWireConnection.from_dict(raw_connection)
+            network.add_simple_wire_connection(connection)
+        except Exception as exc:
+            raise NetworkSerializationError(
+                f"Invalid persisted Simple Wire relationship: {exc}"
+            ) from exc
+
+    if connectivity_schema >= 3:
+        raw_nodes = connectivity_data.get("phase_domain_nodes")
+        raw_connections = connectivity_data.get("phase_domain_connections")
+        if not isinstance(raw_nodes, list) or not isinstance(raw_connections, list):
+            raise NetworkSerializationError("Connectivity schema 3 requires phase_domain_nodes and phase_domain_connections arrays.")
+        for raw_node in raw_nodes:
+            try:
+                network.add_phase_domain_node(PhaseDomainConductorNode.from_dict(raw_node))
+            except Exception as exc:
+                raise NetworkSerializationError(f"Invalid persisted phase-domain conductor node: {exc}") from exc
+        for raw_edge in raw_connections:
+            try:
+                network.add_phase_domain_connection(PhaseDomainConnection.from_dict(raw_edge))
+            except Exception as exc:
+                raise NetworkSerializationError(f"Invalid persisted phase-domain conductor connection: {exc}") from exc
+    else:
+        if "phase_domain_nodes" in connectivity_data or "phase_domain_connections" in connectivity_data:
+            raise NetworkSerializationError("Legacy connectivity schemas cannot contain phase-domain graph records.")
+
+    try:
+        network.rebuild_topology()
+        network.validate()
+    except Exception as exc:
+        raise NetworkSerializationError(
+            f"Reconstructed Network failed final integrity validation: {exc}"
+        ) from exc
+    return network
+
+
+__all__ = ["NetworkSerializationError", "deserialize_network", "serialize_network"]

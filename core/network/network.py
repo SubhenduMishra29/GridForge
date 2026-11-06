@@ -1,0 +1,570 @@
+# ============================================================
+# File: core/network/network.py
+# GridForge V2 — Authoritative Network Aggregate
+# Author: Subhendu Mishra
+# ============================================================
+
+"""Authoritative electrical Network aggregate."""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from .connectivity import ConnectivityError, ConnectivityStore, SimpleWireConnection
+from .electrical_boundary import EndpointCompatibility, conduction_state
+from .indexing import BusIndex
+from .junction import Junction
+from .junction_registry import JunctionRegistry
+from .registry import NetworkRegistry
+from .state import NetworkState
+from .topology import TopologyManager
+from .topology_endpoint_reference import (
+    TopologyEndpointReference,
+    TopologyEndpointReferenceKind,
+)
+
+from .phase_domain_conductor_network import PhaseDomainConductorNode, PhaseDomainConnection, build_phase_domain_conductor_network, build_phase_domain_conductor_network_from_sld
+
+
+class Network:
+    """Authoritative electrical network aggregate."""
+
+    def __init__(self, *, registry: Optional[NetworkRegistry] = None, junctions: Optional[JunctionRegistry] = None, state: Optional[NetworkState] = None, index: Optional[BusIndex] = None, topology: Optional[TopologyManager] = None, connectivity: Optional[ConnectivityStore] = None) -> None:
+        self.registry = registry or NetworkRegistry()
+        if junctions is not None and not isinstance(junctions, JunctionRegistry):
+            raise TypeError("junctions must be a JunctionRegistry.")
+        self._junctions = junctions if junctions is not None else JunctionRegistry()
+        self._junctions._bind_network(self)
+        self._junctions.validate(self)
+        self.state = state or NetworkState()
+        self.index = index or BusIndex()
+        self.connectivity = connectivity or ConnectivityStore()
+        self._phase_domain_nodes = {}
+        self._phase_domain_connections = {}
+        if topology is None:
+            self.topology = TopologyManager(self)
+        else:
+            owner = getattr(topology, "network", None)
+            if owner is not None and owner is not self:
+                raise ValueError("TopologyManager belongs to another Network.")
+            self.topology = topology
+
+    @property
+    def buses(self) -> tuple[Any, ...]: return self.registry.buses
+    @property
+    def grids(self) -> tuple[Any, ...]: return self.registry.grids
+    @property
+    def generators(self) -> tuple[Any, ...]: return self.registry.generators
+    @property
+    def synchronous_machines(self) -> tuple[Any, ...]: return self.registry.synchronous_machines
+    @property
+    def loads(self) -> tuple[Any, ...]: return self.registry.loads
+    @property
+    def motors(self) -> tuple[Any, ...]: return self.registry.motors
+    @property
+    def shunts(self) -> tuple[Any, ...]: return self.registry.shunts
+    @property
+    def capacitors(self) -> tuple[Any, ...]: return self.registry.capacitors
+    @property
+    def reactors(self) -> tuple[Any, ...]: return self.registry.reactors
+    @property
+    def solar(self) -> tuple[Any, ...]: return self.registry.solar
+    @property
+    def batteries(self) -> tuple[Any, ...]: return self.registry.batteries
+    @property
+    def current_transformers(self) -> tuple[Any, ...]: return self.registry.current_transformers
+    @property
+    def capacitive_voltage_transformers(self) -> tuple[Any, ...]: return self.registry.capacitive_voltage_transformers
+    @property
+    def potential_transformers(self) -> tuple[Any, ...]: return self.registry.potential_transformers
+    @property
+    def relays(self) -> tuple[Any, ...]: return self.registry.relays
+    @property
+    def lines(self) -> tuple[Any, ...]: return self.registry.lines
+    @property
+    def cables(self) -> tuple[Any, ...]: return self.registry.cables
+    @property
+    def transformers(self) -> tuple[Any, ...]: return self.registry.transformers
+    @property
+    def branches(self) -> tuple[Any, ...]: return self.registry.branches
+    @property
+    def breakers(self) -> tuple[Any, ...]: return self.registry.breakers
+    @property
+    def switches(self) -> tuple[Any, ...]: return self.registry.switches
+    @property
+    def disconnectors(self) -> tuple[Any, ...]: return self.registry.disconnectors
+    @property
+    def fuses(self) -> tuple[Any, ...]: return self.registry.fuses
+    @property
+    def junctions(self) -> tuple[Junction, ...]: return self._junctions.snapshot
+    @property
+    def phase_domain_nodes(self):
+        return tuple(self._phase_domain_nodes[key] for key in sorted(self._phase_domain_nodes))
+
+    @property
+    def phase_domain_connections(self):
+        return tuple(self._phase_domain_connections[key] for key in sorted(self._phase_domain_connections))
+
+
+    def get_by_id(self, element_type: str, object_id: str) -> Any:
+        return self.registry.get_by_id(element_type, object_id)
+
+    def get_by_identity(self, object_id: str) -> Any:
+        """Resolve one canonical electrical object by NetworkRegistry identity."""
+        return self.registry.get_by_identity(object_id)
+
+    def get_junction(self, junction_id: str) -> Junction:
+        """Resolve one Junction through the Network-owned topology registry."""
+        return self._junctions.get(junction_id)
+
+    def contains_junction(self, junction_id: str) -> bool:
+        return self._junctions.contains(junction_id)
+
+    def validate(self) -> bool:
+        """Validate the complete authoritative Network membership and endpoint graph."""
+        registered = {element.id: element for element in self.registry._objects.values()}
+        if len(registered) != len(self.registry._objects):
+            raise ValueError("Network contains duplicate canonical identities.")
+        self._junctions.validate()
+        conductor_node_keys: set[tuple[str, str, str]] = set()
+        bus_conductor_keys: set[tuple[str, str]] = set()
+        equipment_terminal_conductor_keys: set[tuple[str, str, str]] = set()
+        for node in self._phase_domain_nodes.values():
+            if node.bus_id is not None:
+                bus = registered.get(node.bus_id)
+                if bus is None or str(getattr(bus, "element_type", "")).strip().lower() not in {"bus", "buses"}:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references a missing or non-Bus identity '{node.bus_id}'.")
+            if node.kind.value == "BUS_CONDUCTOR":
+                if node.bus_id is None or node.conductor_id is None:
+                    raise ValueError(f"Bus conductor node '{node.node_id}' lacks canonical Bus/conductor identity.")
+                key = (node.bus_id, node.conductor_id)
+                if key in bus_conductor_keys:
+                    raise ValueError(f"Duplicate Bus conductor node identity {key!r}.")
+                bus_conductor_keys.add(key)
+            if node.kind.value == "EQUIPMENT_TERMINAL":
+                key = (node.equipment_id, node.terminal_role, node.conductor_id)
+                if key in equipment_terminal_conductor_keys:
+                    raise ValueError(f"Duplicate equipment terminal conductor node {key!r}.")
+                equipment_terminal_conductor_keys.add(key)
+            if node.equipment_id is not None:
+                owner = registered.get(node.equipment_id)
+                if owner is None:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references unregistered equipment '{node.equipment_id}'.")
+                roles = {str(getattr(item, "role", "")).strip().upper() for item in getattr(owner, "terminals", ())}
+                if node.terminal_role not in roles:
+                    raise ValueError(f"Phase-domain node '{node.node_id}' references unknown terminal role on '{node.equipment_id}'.")
+                if node.kind.value == "BRANCH_TERMINAL":
+                    system = getattr(owner, "conductor_system", None)
+                    if system is None:
+                        raise ValueError(f"Branch terminal node '{node.node_id}' has no explicit Core conductor inventory.")
+                    declared = {item.conductor_id: item.role.value for item in system.conductors}
+                    if declared.get(node.conductor_id) != node.conductor_role:
+                        raise ValueError(f"Branch terminal node '{node.node_id}' contradicts the Core conductor inventory.")
+                    key = (node.equipment_id, node.terminal_role, node.conductor_id)
+                    if key in conductor_node_keys:
+                        raise ValueError(f"Duplicate branch terminal conductor node {key!r}.")
+                    conductor_node_keys.add(key)
+        for edge in self._phase_domain_connections.values():
+            if edge.from_node_id not in self._phase_domain_nodes or edge.to_node_id not in self._phase_domain_nodes:
+                raise ValueError("Phase-domain graph contains a dangling connection.")
+        if self.topology_snapshot is not None and (self._phase_domain_nodes or self._phase_domain_connections):
+            self.build_phase_domain_conductor_snapshot()
+
+        from core.model.base import ElectricalObject
+
+        for element in self.registry._objects.values():
+            if not isinstance(element, ElectricalObject):
+                raise TypeError("Network contains a non-Core electrical object.")
+            element.validate()
+            if getattr(element, "_gridforge_network_token", None) is not self.registry._network_token:
+                raise ValueError(f"Network membership token is invalid for '{element.id}'.")
+
+            for terminal in getattr(element, "terminals", ()):
+                if terminal.owner is not element:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' is not owned by '{element.id}'."
+                    )
+                endpoint = terminal.endpoint
+                if endpoint is None:
+                    continue
+                if getattr(endpoint, "_gridforge_network_token", None) is not self.registry._network_token:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' references an object outside this Network."
+                    )
+                if registered.get(endpoint.id) is not endpoint:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' references an unregistered object '{endpoint.id}'."
+                    )
+
+        self.connectivity.validate(self)
+        from .connectivity import ConnectivityResolver
+        resolver = ConnectivityResolver(self)
+        for element in self.registry._objects.values():
+            # Bus attachment slots are explicit Bus topology vertices, not
+            # equipment-terminal EndpointReferences. They are resolved through
+            # ConnectivityResolver's BUS endpoint kind.
+            if str(getattr(element, "element_type", "")).strip().lower() in {"bus", "buses"}:
+                continue
+            for terminal in getattr(element, "terminals", ()):
+                reference = self._reference_for_terminal(element, terminal.role)
+                buses = resolver.bus_ids_for_terminal(reference)
+                if len(buses) > 1:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' reaches multiple Bus endpoints: {buses!r}."
+                    )
+                physical = getattr(terminal.endpoint, "id", None)
+                if physical is not None and buses and str(physical) != buses[0]:
+                    raise ValueError(
+                        f"Terminal '{terminal.role}' on '{element.id}' has contradictory physical/Simple Wire Bus identities."
+                    )
+        return True
+
+    @staticmethod
+    def _reference_for_terminal(element: Any, role: str):
+        from core.model.endpoint_reference import EndpointReference, EquipmentType
+        raw = str(getattr(element, "element_type", "")).strip().lower()
+        if raw == "electrical_object":
+            raw = type(element).__name__.strip().lower()
+        return EndpointReference.terminal(
+            equipment_type=EquipmentType(raw),
+            equipment_id=element.id,
+            terminal_role=role,
+        )
+
+    def _invalidate_topology(self, *, bus_membership: bool = False) -> None:
+        self.state.invalidate_topology()
+        self.topology.invalidate()
+        if bus_membership:
+            self.index.invalidate()
+
+    def invalidate_topology(self) -> None:
+        self._invalidate_topology()
+
+    def _add(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
+        method(element)
+        if affects_topology:
+            self._invalidate_topology(bus_membership=affects_bus_index)
+
+    def _remove(self, method: Any, element: Any, *, affects_topology: bool = False, affects_bus_index: bool = False) -> None:
+        dependencies = self.connectivity.connections_for_equipment(getattr(element, "id", ""))
+        if dependencies:
+            raise ValueError(
+                f"Cannot remove '{getattr(element, 'id', element)}': dependent Simple Wire relationships exist."
+            )
+        method(element)
+        if affects_topology:
+            self._invalidate_topology(bus_membership=affects_bus_index)
+
+    @staticmethod
+    def _has_physical_bus_attachment(element: Any) -> bool:
+        return any(getattr(terminal, "endpoint", None) is not None for terminal in getattr(element, "terminals", ()))
+
+    def add_bus(self, bus: Any) -> None: self._add(self.registry.add_bus, bus, affects_topology=True, affects_bus_index=True)
+    def remove_bus(self, bus: Any) -> None: self._remove(self.registry.remove_bus, bus, affects_topology=True, affects_bus_index=True)
+    def add_grid(self, grid: Any) -> None: self._add(self.registry.add_grid, grid, affects_topology=self._has_physical_bus_attachment(grid))
+    def remove_grid(self, grid: Any) -> None: self._remove(self.registry.remove_grid, grid, affects_topology=self._has_physical_bus_attachment(grid))
+    def add_generator(self, generator: Any) -> None: self._add(self.registry.add_generator, generator, affects_topology=self._has_physical_bus_attachment(generator))
+    def remove_generator(self, generator: Any) -> None: self._remove(self.registry.remove_generator, generator, affects_topology=self._has_physical_bus_attachment(generator))
+    def add_synchronous_machine(self, machine: Any) -> None: self._add(self.registry.add_synchronous_machine, machine, affects_topology=self._has_physical_bus_attachment(machine))
+    def remove_synchronous_machine(self, machine: Any) -> None: self._remove(self.registry.remove_synchronous_machine, machine, affects_topology=self._has_physical_bus_attachment(machine))
+    def add_load(self, load: Any) -> None: self._add(self.registry.add_load, load, affects_topology=self._has_physical_bus_attachment(load))
+    def remove_load(self, load: Any) -> None: self._remove(self.registry.remove_load, load, affects_topology=self._has_physical_bus_attachment(load))
+    def add_motor(self, motor: Any) -> None: self._add(self.registry.add_motor, motor, affects_topology=self._has_physical_bus_attachment(motor))
+    def remove_motor(self, motor: Any) -> None: self._remove(self.registry.remove_motor, motor, affects_topology=self._has_physical_bus_attachment(motor))
+    def add_shunt(self, shunt: Any) -> None: self._add(self.registry.add_shunt, shunt, affects_topology=self._has_physical_bus_attachment(shunt))
+    def remove_shunt(self, shunt: Any) -> None: self._remove(self.registry.remove_shunt, shunt, affects_topology=self._has_physical_bus_attachment(shunt))
+    def add_capacitor(self, capacitor: Any) -> None: self._add(self.registry.add_capacitor, capacitor, affects_topology=self._has_physical_bus_attachment(capacitor))
+    def remove_capacitor(self, capacitor: Any) -> None: self._remove(self.registry.remove_capacitor, capacitor, affects_topology=self._has_physical_bus_attachment(capacitor))
+    def add_reactor(self, reactor: Any) -> None: self._add(self.registry.add_reactor, reactor, affects_topology=self._has_physical_bus_attachment(reactor))
+    def remove_reactor(self, reactor: Any) -> None: self._remove(self.registry.remove_reactor, reactor, affects_topology=self._has_physical_bus_attachment(reactor))
+    def add_solar(self, solar: Any) -> None: self._add(self.registry.add_solar, solar, affects_topology=self._has_physical_bus_attachment(solar))
+    def remove_solar(self, solar: Any) -> None: self._remove(self.registry.remove_solar, solar, affects_topology=self._has_physical_bus_attachment(solar))
+    def add_battery(self, battery: Any) -> None: self._add(self.registry.add_battery, battery, affects_topology=self._has_physical_bus_attachment(battery))
+    def remove_battery(self, battery: Any) -> None: self._remove(self.registry.remove_battery, battery, affects_topology=self._has_physical_bus_attachment(battery))
+    def add_current_transformer(self, transformer: Any) -> None: self._add(self.registry.add_current_transformer, transformer, affects_topology=False)
+    def remove_current_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_current_transformer, transformer, affects_topology=False)
+    def add_capacitive_voltage_transformer(self, transformer: Any) -> None: self._add(self.registry.add_capacitive_voltage_transformer, transformer, affects_topology=False)
+    def remove_capacitive_voltage_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_capacitive_voltage_transformer, transformer, affects_topology=False)
+    def add_potential_transformer(self, transformer: Any) -> None: self._add(self.registry.add_potential_transformer, transformer, affects_topology=False)
+    def remove_potential_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_potential_transformer, transformer, affects_topology=False)
+    def add_relay(self, relay: Any) -> None: self._add(self.registry.add_relay, relay, affects_topology=False)
+    def remove_relay(self, relay: Any) -> None: self._remove(self.registry.remove_relay, relay, affects_topology=False)
+    def add_line(self, line: Any) -> None: self._add(self.registry.add_line, line, affects_topology=True)
+    def remove_line(self, line: Any) -> None: self._remove(self.registry.remove_line, line, affects_topology=True)
+    def add_cable(self, cable: Any) -> None: self._add(self.registry.add_cable, cable, affects_topology=True)
+    def remove_cable(self, cable: Any) -> None: self._remove(self.registry.remove_cable, cable, affects_topology=True)
+    def add_transformer(self, transformer: Any) -> None: self._add(self.registry.add_transformer, transformer, affects_topology=True)
+    def remove_transformer(self, transformer: Any) -> None: self._remove(self.registry.remove_transformer, transformer, affects_topology=True)
+    def add_breaker(self, breaker: Any) -> None: self._add(self.registry.add_breaker, breaker, affects_topology=True)
+    def remove_breaker(self, breaker: Any) -> None: self._remove(self.registry.remove_breaker, breaker, affects_topology=True)
+    def add_switch(self, switch: Any) -> None: self._add(self.registry.add_switch, switch, affects_topology=True)
+    def remove_switch(self, switch: Any) -> None: self._remove(self.registry.remove_switch, switch, affects_topology=True)
+    def add_disconnector(self, disconnector: Any) -> None: self._add(self.registry.add_disconnector, disconnector, affects_topology=True)
+    def remove_disconnector(self, disconnector: Any) -> None: self._remove(self.registry.remove_disconnector, disconnector, affects_topology=True)
+    def add_fuse(self, fuse: Any) -> None: self._add(self.registry.add_fuse, fuse, affects_topology=True)
+    def remove_fuse(self, fuse: Any) -> None: self._remove(self.registry.remove_fuse, fuse, affects_topology=True)
+
+    def build_phase_domain_conductor_snapshot(self):
+        """Freeze explicit conductor graph against current canonical topology."""
+        snapshot = self.topology_snapshot
+        if snapshot is None:
+            raise ValueError("Phase-domain conductor graph requires a current rebuilt topology snapshot.")
+        return build_phase_domain_conductor_network_from_sld(
+            self,
+            snapshot,
+            additional_nodes=self.phase_domain_nodes,
+            additional_connections=self.phase_domain_connections,
+        )
+
+    def add_phase_domain_node(self, node: PhaseDomainConductorNode) -> None:
+        """Register one physical-conductor node after validating its Core ownership.
+
+        Validate the complete candidate graph and all canonical Bus/equipment
+        references before mutating Network state. This keeps invalid graph
+        records from entering the authoritative aggregate through an
+        Application command and makes transaction rollback deterministic.
+        """
+        if not isinstance(node, PhaseDomainConductorNode):
+            raise TypeError("node must be a PhaseDomainConductorNode.")
+        if node.node_id in self._phase_domain_nodes:
+            raise ValueError("Duplicate phase-domain node identity.")
+
+        candidate_nodes = tuple(sorted((*self.phase_domain_nodes, node), key=lambda item: item.node_id))
+        from .phase_domain_conductor_network import PhaseDomainConductorNetwork
+        PhaseDomainConductorNetwork(
+            project_id="NETWORK_VALIDATION",
+            activation_generation=1,
+            topology_revision=self.topology_revision,
+            nodes=candidate_nodes,
+            connections=self.phase_domain_connections,
+        )
+
+        registered = {element.id: element for element in self.registry._objects.values()}
+        if node.bus_id is not None:
+            bus = registered.get(node.bus_id)
+            if bus is None or str(getattr(bus, "element_type", "")).strip().lower() not in {"bus", "buses"}:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references a missing or non-Bus identity '{node.bus_id}'."
+                )
+        if node.equipment_id is not None:
+            owner = registered.get(node.equipment_id)
+            if owner is None:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references unregistered equipment '{node.equipment_id}'."
+                )
+            roles = {
+                str(getattr(item, "role", "")).strip().upper()
+                for item in getattr(owner, "terminals", ())
+            }
+            if node.terminal_role not in roles:
+                raise ValueError(
+                    f"Phase-domain node '{node.node_id}' references unknown terminal role on '{node.equipment_id}'."
+                )
+            if node.kind.value == "BRANCH_TERMINAL":
+                system = getattr(owner, "conductor_system", None)
+                if system is None:
+                    raise ValueError(
+                        f"Branch terminal node '{node.node_id}' has no explicit Core conductor inventory."
+                    )
+                declared = {item.conductor_id: item.role.value for item in system.conductors}
+                if declared.get(node.conductor_id) != node.conductor_role:
+                    raise ValueError(
+                        f"Branch terminal node '{node.node_id}' contradicts the Core conductor inventory."
+                    )
+
+        self._phase_domain_nodes[node.node_id] = node
+        self._invalidate_topology()
+
+    def remove_phase_domain_node(self, node_id: str) -> PhaseDomainConductorNode:
+        if any(node_id in {edge.from_node_id, edge.to_node_id} for edge in self._phase_domain_connections.values()):
+            raise ValueError("Cannot remove a phase-domain node while connections reference it.")
+        node = self._phase_domain_nodes.pop(node_id)
+        self._invalidate_topology()
+        return node
+
+    def add_phase_domain_connection(self, connection: PhaseDomainConnection) -> None:
+        if not isinstance(connection, PhaseDomainConnection):
+            raise TypeError("connection must be a PhaseDomainConnection.")
+        if connection.connection_id in self._phase_domain_connections:
+            raise ValueError("Duplicate phase-domain connection identity.")
+        if connection.from_node_id not in self._phase_domain_nodes or connection.to_node_id not in self._phase_domain_nodes:
+            raise ValueError("Phase-domain connection references an unregistered node.")
+        candidate = tuple(sorted((*self.phase_domain_connections, connection), key=lambda item: item.connection_id))
+        from .phase_domain_conductor_network import PhaseDomainConductorNetwork
+        PhaseDomainConductorNetwork(
+            project_id="NETWORK_VALIDATION", activation_generation=1,
+            topology_revision=self.topology_revision,
+            nodes=self.phase_domain_nodes, connections=candidate,
+        )
+        self._phase_domain_connections[connection.connection_id] = connection
+        self._invalidate_topology()
+
+    def remove_phase_domain_connection(self, connection_id: str) -> PhaseDomainConnection:
+        connection = self._phase_domain_connections.pop(connection_id)
+        self._invalidate_topology()
+        return connection
+
+    def add_junction(self, junction: Junction) -> None:
+        """Add one Junction through the authoritative Network lifecycle."""
+        if not isinstance(junction, Junction):
+            raise ConnectivityError("junction must be a Junction.")
+        try:
+            self._junctions.add(junction)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConnectivityError(
+                f"Cannot add Junction '{getattr(junction, 'junction_id', junction)}'."
+            ) from exc
+        self._invalidate_topology()
+
+    def remove_junction(self, junction: Junction) -> None:
+        """Remove one Junction without leaving topology relationships dangling."""
+        if not isinstance(junction, Junction):
+            raise ConnectivityError("junction must be a Junction.")
+
+        endpoint = TopologyEndpointReference.from_junction(junction.junction_id)
+        dependencies = self.connectivity.connections_for_endpoint(endpoint)
+        if dependencies:
+            raise ConnectivityError(
+                f"Cannot remove Junction '{junction.junction_id}': dependent "
+                "Simple Wire relationships exist."
+            )
+
+        try:
+            self._junctions.remove(junction)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ConnectivityError(
+                f"Junction '{junction.junction_id}' is not registered on this Network."
+            ) from exc
+        self._invalidate_topology()
+
+    def add_simple_wire_connection(self, connection: SimpleWireConnection) -> None:
+        """Add one binary Simple Wire after complete endpoint validation."""
+        if not isinstance(connection, SimpleWireConnection):
+            raise ConnectivityError(
+                "connection must be a SimpleWireConnection."
+            )
+
+        endpoints = (connection.endpoint_a, connection.endpoint_b)
+        if connection.endpoint_a == connection.endpoint_b:
+            raise ConnectivityError(
+                "A Simple Wire cannot connect a topology endpoint to itself."
+            )
+
+        # Validate every endpoint before ConnectivityStore mutation. Terminal
+        # identities continue through EndpointCompatibility; Junction identities
+        # are validated against this Network's authoritative JunctionRegistry.
+        for endpoint in endpoints:
+            if endpoint.kind is TopologyEndpointReferenceKind.TERMINAL:
+                try:
+                    EndpointCompatibility.validate_reference(
+                        endpoint.terminal_reference,
+                        self,
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Invalid terminal topology endpoint: {endpoint}"
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.BUS:
+                try:
+                    EndpointCompatibility.validate_reference(endpoint.bus_reference, self)
+                except (TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Invalid Bus topology endpoint: {endpoint}"
+                    ) from exc
+                continue
+
+            if endpoint.kind is TopologyEndpointReferenceKind.JUNCTION:
+                junction_id = endpoint.junction_id
+                try:
+                    junction = self.get_junction(junction_id)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ConnectivityError(
+                        f"Junction '{junction_id}' is not registered on this Network."
+                    ) from exc
+
+                registry_token = getattr(
+                    self._junctions,
+                    "_network_token",
+                    None,
+                )
+                junction_token = getattr(
+                    junction,
+                    "_gridforge_network_token",
+                    None,
+                )
+                if registry_token is None or junction_token is not registry_token:
+                    raise ConnectivityError(
+                        f"Junction '{junction_id}' is not owned by this Network."
+                    )
+                continue
+
+            raise ConnectivityError(
+                f"Unsupported topology endpoint kind: {endpoint.kind!r}."
+            )
+
+        if (
+            connection.endpoint_a.is_terminal
+            and connection.endpoint_b.is_terminal
+        ):
+            try:
+                EndpointCompatibility.validate_pair(
+                    connection.endpoint_a.terminal_reference,
+                    connection.endpoint_b.terminal_reference,
+                    self,
+                )
+            except (TypeError, ValueError) as exc:
+                raise ConnectivityError(
+                    "Simple Wire terminal compatibility validation failed."
+                ) from exc
+
+        # ConnectivityStore performs duplicate detection, endpoint indexing,
+        # and terminal-vs-Junction cardinality checks only after all of the
+        # above Network-level validation has succeeded.
+        self.connectivity.add(connection, self)
+        self._invalidate_topology()
+
+    def remove_simple_wire_connection(self, connection_id: str) -> SimpleWireConnection:
+        connection = self.connectivity.remove(connection_id)
+        self._invalidate_topology()
+        return connection
+
+    def get_simple_wire_connection(self, connection_id: str) -> SimpleWireConnection:
+        return self.connectivity.get(connection_id)
+
+    def rebuild_topology(self) -> dict[Any, set[Any]]:
+        graph = self.topology._build()
+        if self.topology.snapshot is None:
+            self.state.topology_rebuilt(valid=False)
+            raise RuntimeError("TopologyManager did not produce a valid TopologySnapshot.")
+        self.state.topology_rebuilt(valid=True)
+        return graph
+
+    @property
+    def topology_snapshot(self):
+        """Return the current immutable runtime-derived topology snapshot."""
+        if self.topology_dirty:
+            return None
+        return self.topology.snapshot
+
+    def conduction_state(self, element: Any) -> bool:
+        return conduction_state(element)
+
+    def ensure_bus_index(self) -> None:
+        self.index.ensure(self.buses)
+
+    @property
+    def topology_revision(self) -> int: return self.state.topology_revision
+    @property
+    def topology_valid(self) -> bool: return self.state.topology_valid
+    @property
+    def topology_dirty(self) -> bool: return self.state.topology_dirty
+    @property
+    def index_valid(self) -> bool: return self.index.valid
+
+    def __repr__(self) -> str:
+        return ("Network(" f"buses={len(self.buses)}, " f"branches={len(self.branches)}, " f"junctions={len(self.junctions)}, " f"simple_wires={len(self.connectivity.connections)}, " f"relays={len(self.relays)}, " f"topology_revision={self.topology_revision}, " f"topology_valid={self.topology_valid}, " f"index_valid={self.index_valid}" ")")
+
+
+__all__ = ["Network"]

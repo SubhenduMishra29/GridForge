@@ -1,0 +1,755 @@
+/* ============================================================
+   File: ui/styling/stylesheet.qss
+   GridForge V2 — Canonical Engineering UI Stylesheet
+   Author: Subhendu Mishra
+   ============================================================ */
+
+/* Theme tokens are resolved by StyleManager before QApplication
+   receives this stylesheet. Keep semantic state in the UI layer. */
+
+QWidget {
+    background: {{window_background}};
+    color: {{text_primary}};
+    font-family: "{{font_family}}";
+    font-size: {{font_size_pt}}pt;
+}
+
+QMainWindow {
+    background: {{window_background}};
+}
+
+QMainWindow::separator {
+    background: {{separator}};
+    width: 4px;
+    height: 4px;
+}
+QMainWindow::separator:hover {
+    background: {{accent_focus}};
+}
+
+QMenuBar {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border-bottom: 1px solid {{panel_border}};
+    padding: 2px 4px;
+}
+QMenuBar::item {
+    background: transparent;
+    padding: 6px 9px;
+    border-radius: 3px;
+}
+QMenuBar::item:selected { background: {{hover_background}}; }
+QMenuBar::item:pressed { background: {{pressed_background}}; }
+
+QMenu {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    padding: 4px;
+}
+QMenu::item {
+    background: transparent;
+    padding: 6px 28px 6px 10px;
+    border-radius: 3px;
+}
+QMenu::item:selected {
+    background: {{selection_background}};
+    color: {{text_primary}};
+}
+QMenu::item:disabled { color: {{text_disabled}}; }
+QMenu::separator {
+    height: 1px;
+    background: {{separator}};
+    margin: 4px 8px;
+}
+
+QToolBar {
+    background: {{panel_surface}};
+    border: none;
+    border-bottom: 1px solid {{panel_border}};
+    spacing: 5px;
+    padding: 5px 7px;
+}
+QToolBar::separator {
+    background: {{separator}};
+    width: 1px;
+    margin: 4px 5px;
+}
+QToolButton {
+    background: transparent;
+    color: {{text_primary}};
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px;
+    min-width: 28px;
+    min-height: 28px;
+}
+QToolButton:hover {
+    background: {{hover_background}};
+    border-color: {{panel_border}};
+}
+QToolButton:checked,
+QToolButton:pressed {
+    background: {{selection_background}};
+    border-color: {{selection_border}};
+    color: {{text_primary}};
+}
+QToolButton:disabled { color: {{text_disabled}}; }
+
+QPushButton {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    border-radius: 4px;
+    padding: 6px 12px;
+    min-height: 22px;
+}
+QPushButton:hover {
+    background: {{hover_background}};
+    border-color: {{accent_primary}};
+}
+QPushButton:focus {
+    border-color: {{accent_focus}};
+}
+QPushButton:pressed {
+    background: {{pressed_background}};
+    border-color: {{accent_active}};
+}
+QPushButton:checked {
+    background: {{selection_background}};
+    border-color: {{selection_border}};
+}
+QPushButton:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+    border-color: {{separator}};
+}
+
+QLabel { background: transparent; color: {{text_primary}}; }
+QLabel:disabled { color: {{text_disabled}}; }
+
+/* Semantic engineering editors: never inherit the white SLD canvas surface. */
+QLineEdit, QPlainTextEdit, QTextEdit,
+QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit,
+QComboBox, QListWidget, QTreeWidget, QTableWidget {
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border: 1px solid {{editor_border}};
+    border-radius: 4px;
+}
+QComboBox QAbstractItemView,
+QListWidget, QTreeWidget, QTableWidget {
+    selection-background-color: {{selection_background}};
+    selection-color: {{text_primary}};
+}
+QTableWidget::item, QListWidget::item, QTreeWidget::item {
+    color: {{editor_foreground}};
+}
+QHeaderView::section {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    padding: 5px 7px;
+}
+QAbstractSpinBox:disabled, QComboBox:disabled,
+QLineEdit:disabled, QPlainTextEdit:disabled,
+QTextEdit:disabled, QListWidget:disabled,
+QTreeWidget:disabled, QTableWidget:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+}
+QLineEdit, QPlainTextEdit, QTextEdit {
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border: 1px solid {{editor_border}};
+    border-radius: 4px;
+    padding: 5px 7px;
+    selection-background-color: {{selection_background}};
+    selection-color: {{text_primary}};
+}
+QLineEdit:hover, QPlainTextEdit:hover, QTextEdit:hover {
+    border-color: {{separator}};
+}
+QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus {
+    border-color: {{accent_focus}};
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+}
+
+QComboBox {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    border-radius: 4px;
+    padding: 5px 8px;
+    min-height: 22px;
+}
+QComboBox:hover { border-color: {{accent_primary}}; }
+QComboBox:focus { border-color: {{accent_focus}}; }
+QComboBox:disabled { color: {{text_disabled}}; background: {{panel_background}}; }
+QComboBox QAbstractItemView {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    selection-background-color: {{selection_background}};
+    selection-color: {{text_primary}};
+}
+
+QCheckBox, QRadioButton {
+    background: transparent;
+    color: {{text_primary}};
+    spacing: 7px;
+}
+QCheckBox:focus, QRadioButton:focus { color: {{accent_focus}}; }
+QCheckBox:disabled, QRadioButton:disabled { color: {{text_disabled}}; }
+
+QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit {
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border: 1px solid {{editor_border}};
+    border-radius: 4px;
+    padding: 5px 7px;
+    min-height: 22px;
+}
+QSpinBox:focus, QDoubleSpinBox:focus, QDateEdit:focus, QTimeEdit:focus {
+    border-color: {{accent_focus}};
+}
+QSpinBox:disabled, QDoubleSpinBox:disabled, QDateEdit:disabled, QTimeEdit:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+}
+
+QListWidget, QListView, QTreeWidget, QTreeView, QTableWidget, QTableView {
+    background: {{list_background}};
+    color: {{list_foreground}};
+    border: 1px solid {{editor_border}};
+    alternate-background-color: {{table_alternate_background}};
+    selection-background-color: {{selection_background}};
+    selection-color: {{text_primary}};
+    outline: none;
+}
+QListWidget::item, QListView::item, QTreeWidget::item, QTreeView::item,
+QTableWidget::item, QTableView::item {
+    padding: 4px 6px;
+}
+QListWidget::item:hover, QListView::item:hover, QTreeWidget::item:hover,
+QTreeView::item:hover, QTableWidget::item:hover, QTableView::item:hover {
+    background: {{hover_background}};
+}
+QListWidget::item:selected:!active, QListView::item:selected:!active,
+QTreeWidget::item:selected:!active, QTreeView::item:selected:!active,
+QTableWidget::item:selected:!active, QTableView::item:selected:!active {
+    background: {{selection_background}};
+}
+QHeaderView::section {
+    background: {{panel_surface}};
+    color: {{text_secondary}};
+    border: none;
+    border-right: 1px solid {{separator}};
+    border-bottom: 1px solid {{panel_border}};
+    padding: 6px 7px;
+    font-weight: 600;
+}
+
+QGroupBox {
+    background: {{panel_background}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    border-radius: 5px;
+    margin-top: 12px;
+    padding: 10px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 9px;
+    padding: 0 5px;
+    color: {{text_secondary}};
+    background: {{panel_background}};
+}
+
+QDockWidget {
+    background: {{panel_background}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+}
+QDockWidget::title {
+    background: {{panel_surface}};
+    color: {{text_secondary}};
+    padding: 7px 9px;
+    border-bottom: 1px solid {{panel_border}};
+    font-weight: 600;
+}
+
+QTabWidget::pane {
+    background: {{panel_background}};
+    border: 1px solid {{panel_border}};
+}
+QTabBar::tab {
+    background: {{window_background}};
+    color: {{text_secondary}};
+    border: 1px solid {{panel_border}};
+    padding: 6px 12px;
+    margin-right: 2px;
+}
+QTabBar::tab:hover { background: {{hover_background}}; color: {{text_primary}}; }
+QTabBar::tab:selected {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-bottom-color: {{accent_active}};
+}
+
+QStatusBar {
+    background: {{window_background}};
+    color: {{text_secondary}};
+    border-top: 1px solid {{panel_border}};
+    padding: 2px 6px;
+}
+QStatusBar::item { border: none; }
+
+QToolTip {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    padding: 5px 7px;
+}
+
+QMessageBox {
+    background: {{panel_background}};
+    color: {{text_primary}};
+}
+QMessageBox QLabel { color: {{text_primary}}; }
+QMessageBox QPushButton { min-width: 78px; }
+
+QScrollBar:vertical {
+    background: {{window_background}};
+    width: 10px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: {{separator}};
+    min-height: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+QScrollBar::handle:vertical:hover { background: {{text_muted}}; }
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0; border: none; background: transparent;
+}
+QScrollBar:horizontal {
+    background: {{window_background}};
+    height: 10px;
+    border: none;
+}
+QScrollBar::handle:horizontal {
+    background: {{separator}};
+    min-width: 24px;
+    border-radius: 4px;
+    margin: 2px;
+}
+QScrollBar::handle:horizontal:hover { background: {{text_muted}}; }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0; border: none; background: transparent;
+}
+
+QSplitter::handle { background: {{separator}}; }
+QSplitter::handle:hover { background: {{accent_primary}}; }
+
+QProgressBar {
+    background: {{editor_background}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    border-radius: 4px;
+    text-align: center;
+}
+QProgressBar::chunk { background: {{accent_primary}}; border-radius: 3px; }
+
+QSlider::groove:horizontal {
+    background: {{separator}};
+    height: 4px;
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    background: {{accent_primary}};
+    border: 1px solid {{accent_focus}};
+    width: 12px;
+    height: 12px;
+    margin: -5px 0;
+    border-radius: 6px;
+}
+
+/* Canonical engineering panel surfaces. */
+QWidget#GridForgeShellRoot,
+QWidget#GridForgePanel_project,
+QWidget#GridForgePanel_equipment,
+QWidget#GridForgePanel_properties,
+QWidget#GridForgePanel_messages,
+QWidget#GridForgePanel_study_cases {
+    background: {{panel_background}};
+    color: {{text_primary}};
+}
+
+QWidget#GridForgePanel_equipment QLabel[role="panelTitle"],
+QWidget#GridForgePanel_properties QLabel[role="panelTitle"],
+QWidget#GridForgePanel_project QLabel[role="panelTitle"],
+QWidget#GridForgePanel_messages QLabel[role="panelTitle"] {
+    color: {{text_secondary}};
+    font-weight: 600;
+}
+
+QWidget[role="engineeringSection"] {
+    background: {{panel_surface}};
+    border: 1px solid {{panel_border}};
+    border-radius: 4px;
+}
+
+QLabel[role="engineeringUnit"] { color: {{text_muted}}; }
+QLabel[role="required"] { color: {{accent_active}}; font-weight: 600; }
+QLabel[role="validationError"] { color: {{state_invalid}}; font-weight: 600; }
+QLabel[role="validationWarning"] { color: {{state_warning}}; font-weight: 600; }
+QLabel[role="validationInfo"] { color: {{state_info}}; }
+QLabel[role="validationSuccess"] { color: {{state_valid}}; font-weight: 600; }
+
+QLineEdit[validation="invalid"], QComboBox[validation="invalid"],
+QSpinBox[validation="invalid"], QDoubleSpinBox[validation="invalid"] {
+    border: 1px solid {{state_invalid}};
+}
+QLineEdit[validation="warning"], QComboBox[validation="warning"],
+QSpinBox[validation="warning"], QDoubleSpinBox[validation="warning"] {
+    border: 1px solid {{state_warning}};
+}
+QLineEdit[validation="valid"], QComboBox[validation="valid"],
+QSpinBox[validation="valid"], QDoubleSpinBox[validation="valid"] {
+    border: 1px solid {{state_valid}};
+}
+
+QPushButton[role="primaryAction"] {
+    background: {{accent_primary}};
+    color: {{text_inverse}};
+    border-color: {{accent_primary}};
+    font-weight: 600;
+}
+QPushButton[role="primaryAction"]:hover { background: {{accent_active}}; }
+QPushButton[role="primaryAction"]:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+    border-color: {{separator}};
+}
+QPushButton[role="destructive"] {
+    background: transparent;
+    color: {{state_invalid}};
+    border-color: {{state_invalid}};
+}
+QPushButton[role="commitAction"] {
+    background: {{state_valid}};
+    color: {{text_inverse}};
+    border-color: {{state_valid}};
+    font-weight: 600;
+}
+QPushButton[role="commitAction"]:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+    border-color: {{separator}};
+}
+
+/* Engineering palette hierarchy. */
+QListWidget#EquipmentPalette {
+    background: {{panel_surface}};
+    border: 1px solid {{panel_border}};
+}
+QListWidget#EquipmentPalette::item {
+    min-height: 46px;
+    padding: 6px 8px;
+}
+QListWidget#EquipmentPalette::item:hover { background: {{hover_background}}; }
+QListWidget#EquipmentPalette::item:selected {
+    background: {{selection_background}};
+    border-left: 3px solid {{accent_active}};
+}
+
+/* Control/Ladder engineering workspace. */
+QWidget#ControlToolPalette,
+QWidget#ControlInspector,
+QWidget#ControlToolbar {
+    background: {{panel_background}};
+    color: {{text_primary}};
+}
+QWidget#ControlToolPalette QLabel,
+QWidget#ControlInspector QLabel,
+QWidget#ControlToolbar QLabel {
+    color: {{text_primary}};
+}
+QPushButton#ControlToolButton {
+    text-align: left;
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    padding: 6px 8px;
+    min-height: 28px;
+}
+QPushButton#ControlToolButton:hover {
+    background: {{hover_background}};
+    border-color: {{accent_primary}};
+}
+QPushButton#ControlToolButton:pressed,
+QPushButton#ControlToolButton:checked {
+    background: {{selection_background}};
+    border-color: {{selection_border}};
+}
+QGraphicsView#ControlLadderView {
+    background: {{canvas_background}};
+    border: 1px solid {{panel_border}};
+}
+
+/* Canvas host. */
+QGraphicsView#SLDCanvasView {
+    background: {{canvas_background}};
+    border: none;
+}
+
+
+/* SLD document/editor chrome. */
+QWidget#SLDCanvasSurface {
+    background: {{canvas_background}};
+}
+QWidget#SLDCanvasHeader {
+    background: {{panel_surface}};
+    border-bottom: 1px solid {{panel_border}};
+}
+QLabel#SLDDocumentTitle {
+    color: {{text_primary}};
+    font-weight: 600;
+    padding: 2px 8px;
+}
+QComboBox#SLDModeSelector {
+    min-width: 120px;
+}
+QPushButton#SLDZoomOut,
+QPushButton#SLDZoomIn,
+QPushButton#SLDFit,
+QPushButton#SLDNewDocumentButton {
+    min-width: 30px;
+    padding: 4px 8px;
+}
+QLabel#SLDZoomValue {
+    color: {{text_secondary}};
+    min-width: 42px;
+    qproperty-alignment: AlignCenter;
+}
+QTabWidget#SLDDocumentTabs::pane {
+    border: none;
+}
+QTabWidget#SLDDocumentTabs QTabBar::tab {
+    padding: 7px 14px;
+}
+
+/* Project explorer hierarchy. */
+QTreeWidget#ProjectHierarchyTree {
+    background: {{panel_surface}};
+    border: 1px solid {{panel_border}};
+}
+QTreeWidget#ProjectHierarchyTree::item {
+    padding: 3px 4px;
+}
+QTreeWidget#ProjectHierarchyTree::item:selected {
+    background: {{selection_background}};
+    border-left: 2px solid {{accent_active}};
+}
+
+/* Structured engineering element list. */
+QTableWidget#ElementListTable {
+    background: {{table_background}};
+    border: 1px solid {{panel_border}};
+    gridline-color: {{separator}};
+}
+QTableWidget#ElementListTable::item:selected {
+    background: {{selection_background}};
+}
+
+/* Equipment search/category presentation. */
+QLineEdit#EquipmentSearch {
+    background: {{editor_background}};
+    color: {{editor_foreground}};
+    border-color: {{editor_border}};
+}
+QListWidget#EquipmentPalette::item {
+    min-height: 38px;
+    padding: 5px 7px;
+}
+
+
+/* Application header and shared engineering workspace tabs. */
+QWidget#GridForgeApplicationHeader {
+    background: {{window_background}};
+    color: {{text_primary}};
+    border-bottom: 1px solid {{panel_border}};
+}
+QLabel#GridForgeBrand {
+    color: {{text_primary}};
+    font-weight: 700;
+    padding-right: 12px;
+}
+QLabel#GridForgeProjectContext,
+QLabel#GridForgeUserContext {
+    color: {{text_secondary}};
+}
+QLineEdit#GridForgeProjectSearch {
+    min-width: 280px;
+    background: {{panel_surface}};
+    border: 1px solid {{panel_border}};
+    padding: 5px 8px;
+}
+QPushButton#GridForgeNotifications,
+QPushButton#GridForgeHelp {
+    padding: 5px 10px;
+}
+QTabWidget#EngineeringWorkspaceTabs::pane {
+    border: none;
+}
+QTabWidget#EngineeringWorkspaceTabs QTabBar::tab {
+    padding: 7px 18px;
+}
+QTableWidget {
+    background: {{panel_surface}};
+    color: {{text_primary}};
+    border: 1px solid {{panel_border}};
+    gridline-color: {{separator}};
+}
+
+QWidget#GridForgePanel_properties QLineEdit,
+QWidget#GridForgePanel_properties QPlainTextEdit,
+QWidget#GridForgePanel_properties QTextEdit,
+QWidget#GridForgePanel_properties QComboBox,
+QWidget#GridForgePanel_properties QSpinBox,
+QWidget#GridForgePanel_properties QDoubleSpinBox,
+QWidget#GridForgePanel_properties QDateEdit,
+QWidget#GridForgePanel_properties QTimeEdit { background: {{editor_background}}; color: {{editor_foreground}}; border-color: {{editor_border}}; }
+QWidget#GridForgePanel_messages QListWidget,
+QWidget#GridForgePanel_element_list QTableWidget { background: {{table_background}}; color: {{editor_foreground}}; }
+
+
+/* ============================================================
+   SLD workspace composition
+   ============================================================ */
+#GridForgeApplicationHeader {
+    min-height: 30px;
+    max-height: 38px;
+}
+#GridForgeSLDTitle {
+    font-weight: 700;
+    padding-right: 8px;
+}
+#GridForgeToolShelf {
+    background: {{panel_surface}};
+    border-right: 1px solid {{panel_border}};
+}
+#GridForgeToolShelfScrollArea,
+#GridForgeToolShelfScrollArea QWidget#GridForgeToolShelfContent {
+    background: transparent;
+    border: none;
+}
+#GridForgeToolShelfCategory {
+    background: transparent;
+    color: {{text_secondary}};
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 4px 5px 2px;
+}
+#GridForgeToolShelfSeparator {
+    color: {{separator}};
+    max-height: 1px;
+    margin: 3px 5px;
+}
+#SLDEditor QSplitter::handle {
+    background: {{separator}};
+}
+#SLDEditor QSplitter::handle:hover {
+    background: {{accent_primary}};
+}
+#SLDEditor QLabel {
+    padding: 1px 4px;
+}
+
+/* Tool shelf controls use explicit scoped foregrounds so platform and
+   inherited widget palettes cannot turn labels/icons dark on blue states. */
+#GridForgeToolShelf QToolButton {
+    background: transparent;
+    color: {{text_primary}};
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 6px;
+    min-width: 30px;
+    min-height: 30px;
+}
+#GridForgeToolShelf QToolButton:hover {
+    background: {{hover_background}};
+    color: {{text_primary}};
+    border-color: {{accent_primary}};
+}
+#GridForgeToolShelf QToolButton:checked,
+#GridForgeToolShelf QToolButton:pressed,
+#GridForgeToolShelf QToolButton:checked:hover {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-color: {{selection_border}};
+}
+#GridForgeToolShelf QToolButton:focus {
+    color: {{text_primary}};
+    border: 1px solid {{accent_focus}};
+}
+#GridForgeToolShelf QToolButton:disabled {
+    background: {{panel_background}};
+    color: {{text_disabled}};
+    border-color: {{separator}};
+}
+
+
+
+/* Compact global engineering command bar. */
+QToolBar#gridforge_tool_bar {
+    min-height: 34px;
+    max-height: 42px;
+    padding: 3px 6px;
+    spacing: 4px;
+}
+QToolBar#gridforge_tool_bar QToolButton {
+    color: {{text_primary}};
+    min-height: 24px;
+    max-height: 30px;
+    padding: 3px 7px;
+    border-radius: 3px;
+}
+QToolBar#gridforge_tool_bar QToolButton:hover {
+    background: {{hover_background}};
+    border-color: {{accent_primary}};
+}
+QToolBar#gridforge_tool_bar QToolButton:checked,
+QToolBar#gridforge_tool_bar QToolButton:pressed {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-color: {{selection_border}};
+}
+
+/* The SLD Explorer uses compact, clearly selected navigation tabs. */
+QTabWidget#GridForgeExplorerTabs::pane {
+    background: {{panel_surface}};
+    border: none;
+    border-top: 1px solid {{panel_border}};
+}
+QTabWidget#GridForgeExplorerTabs QTabBar::tab {
+    background: {{window_background}};
+    color: {{text_secondary}};
+    padding: 5px 10px;
+    min-width: 54px;
+    margin-right: 1px;
+}
+QTabWidget#GridForgeExplorerTabs QTabBar::tab:selected {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-bottom: 2px solid {{accent_active}};
+}
+QTabWidget#GridForgeExplorerTabs QTabBar::tab:hover:!selected {
+    background: {{hover_background}};
+    color: {{text_primary}};
+}
