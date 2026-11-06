@@ -1479,6 +1479,10 @@ class StudyReadService:
                 right_signals = {item.signal_id: item for item in right_transient.signals}
                 if set(left_signals) != set(right_signals):
                     diagnostics.append("SIGNAL_IDENTITY_SET_MISMATCH")
+                # Compare provenance only within the same named semantic dimension.
+                # The canonical Core topology fingerprint and detached prepared-network
+                # fingerprint have different authorities/input domains; neither is
+                # compared to, nor substituted for, the other.
                 required_provenance = (
                     "nominal_frequency_hz",
                     "power_base_mva",
