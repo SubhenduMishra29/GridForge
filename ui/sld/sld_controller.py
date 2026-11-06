@@ -25,6 +25,7 @@ from core.application.commands.sld_commands import (
     RemoveSLDConnectionCommand,
     RemoveSLDNodeCommand,
     SetSLDNodePositionCommand,
+    SetSLDNodePresentationCommand,
     SetSLDNodePropertiesCommand,
     SetSLDAnnotationBlocksCommand,
     SetSLDConnectionRouteCommand,
@@ -209,6 +210,21 @@ class SLDController:
         result = self.application.execute(AddSLDNodeCommand(
             node_id=node.node_id, equipment_id=node.equipment_id, x=node.x, y=node.y,
         ))
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
+    def set_node_presentation(self, node_id: str, presentation: Any) -> None:
+        """Persist a presentation-only symbol change through Application history."""
+        self._require_active_document()
+        result = self.application.execute(
+            SetSLDNodePresentationCommand(
+                node_id=node_id,
+                presentation=presentation.to_dict()
+                if callable(getattr(presentation, "to_dict", None))
+                else dict(presentation),
+            )
+        )
         if not result.success:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
