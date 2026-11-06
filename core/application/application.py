@@ -732,6 +732,7 @@ class Application:
         self,
         evaluation_time: float,
         *,
+        evaluation_time_domain: str,
         evaluation_metadata: Mapping[str, Any] | None = None,
         evaluation_timestep: float | None = None,
         event_id: str | None = None,
@@ -747,6 +748,21 @@ class Application:
         a valid evaluation timestamp and active project are available.
         """
         with self._execution_lock:
+            trusted_clock_domain = self.measurement_channel_service.clock_domain
+            if not isinstance(trusted_clock_domain, str) or not trusted_clock_domain.strip():
+                raise RuntimeError(
+                    "Live Protection evaluation requires a configured trusted MeasurementChannel clock domain."
+                )
+            if (
+                not isinstance(evaluation_time_domain, str)
+                or not evaluation_time_domain.strip()
+                or evaluation_time_domain != evaluation_time_domain.strip()
+            ):
+                raise ValueError("evaluation_time_domain must be a canonical non-empty string.")
+            if evaluation_time_domain != trusted_clock_domain:
+                raise ValueError(
+                    "Protection evaluation_time_domain does not match the trusted MeasurementChannel clock domain."
+                )
             cycle_id = (
                 event_id.strip()
                 if isinstance(event_id, str) and event_id.strip()
@@ -833,6 +849,7 @@ class Application:
                 "project_id": None if project is None else str(project.project_id),
                 "activation_generation": generation,
                 "evaluation_time": audit_time,
+                "evaluation_time_domain": evaluation_time_domain,
                 "event_id": event_id,
                 "event_type": event_type,
                 "configuration_revision": getattr(configuration_snapshot, "revision", None),
@@ -887,6 +904,7 @@ class Application:
             try:
                 result = self._evaluate_protection_cycle_unlocked(
                     evaluation_time,
+                    evaluation_time_domain=evaluation_time_domain,
                     evaluation_metadata=evaluation_metadata,
                     evaluation_timestep=evaluation_timestep,
                     event_id=event_id,
@@ -1073,8 +1091,11 @@ class Application:
                 if isinstance(sample_sequence, int) and not isinstance(sample_sequence, bool)
                 and sample_sequence >= 0 else None
             )
+            if measurement_service is None:
+                raise RuntimeError("MeasurementChannelService is unavailable for live Protection evaluation.")
             return self.evaluate_protection_cycle(
                 float(trusted_evaluation_time),
+                evaluation_time_domain=measurement_service.clock_domain,
                 event_id=sample_event_id,
                 event_type="measurement_sample",
             )
@@ -1168,6 +1189,7 @@ class Application:
         self,
         evaluation_time: float,
         *,
+        evaluation_time_domain: str,
         evaluation_metadata: Mapping[str, Any] | None = None,
         evaluation_timestep: float | None = None,
         event_id: str | None = None,
@@ -1198,6 +1220,15 @@ class Application:
             raise ValueError("evaluation_time must be finite and non-negative.")
 
         service = self.measurement_channel_service
+        trusted_clock_domain = service.clock_domain
+        if not isinstance(trusted_clock_domain, str) or not trusted_clock_domain.strip():
+            raise RuntimeError(
+                "Live Protection evaluation requires a configured trusted MeasurementChannel clock domain."
+            )
+        if evaluation_time_domain != trusted_clock_domain:
+            raise ValueError(
+                "Protection evaluation_time_domain does not match the trusted MeasurementChannel clock domain."
+            )
         runtime = getattr(self, "protection_runtime", None)
         configuration = getattr(self, "protection_configuration_service", None)
         if runtime is None or configuration is None:
@@ -1419,6 +1450,12 @@ class Application:
                 # window. When a producer supplies a sequence, any change means
                 # the fields cannot be treated as one coherent measurement.
                 sample_sequence_before = getattr(channel, "sample_sequence", None)
+                sample_domain_before = getattr(channel, "timestamp_domain", None)
+                if sample_domain_before != evaluation_time_domain:
+                    diagnostics.append(
+                        f"{prefix}: sample timestamp domain is absent or differs from the live Protection evaluation clock domain."
+                    )
+                    continue
                 timestamp = getattr(channel, "timestamp", None)
                 if timestamp is None:
                     diagnostics.append(f"{prefix}: sample timestamp is missing; freshness cannot be established.")
@@ -1491,6 +1528,7 @@ class Application:
                     and bool(getattr(channel, "available", False)) == available
                     and bool(getattr(channel, "is_usable", False)) == usable
                     and sample_sequence_before == sample_sequence_after
+                    and sample_domain_before == getattr(channel, "timestamp_domain", None)
                 )
                 if not sample_fields_stable:
                     diagnostics.append(
@@ -1508,6 +1546,7 @@ class Application:
                     "channel_identity": id(channel),
                     "value": value,
                     "timestamp": timestamp,
+                    "timestamp_domain": sample_domain_before,
                     "quality": quality,
                     "available": available,
                     "usable": usable,
@@ -1795,6 +1834,7 @@ class Application:
         context_metadata.update({
             "project_id": project.project_id,
             "activation_generation": lifecycle.activation_generation,
+            "evaluation_time_domain": evaluation_time_domain,
         })
         # RelayInput bindings consume these immutable Application-validated
         # samples for this cycle instead of rereading mutable channels while
