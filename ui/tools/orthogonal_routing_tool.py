@@ -107,8 +107,8 @@ class OrthogonalRoutingTool(WireTool):
         source_id = str(getattr(self._start_snap, "object_id", "") or "")
         target_id = str(getattr(target_snap, "object_id", "") or "")
         excluded_ids = {value for value in (source_id, target_id) if value}
-        obstacles, existing_routes = self._routing_context(excluded_ids)
         try:
+            obstacles, existing_routes = self._routing_context(excluded_ids)
             self._route_points = self._router.route(
                 self._start_position,
                 target_position,
@@ -207,6 +207,19 @@ class OrthogonalRoutingTool(WireTool):
                 scale = abs(float(transform_getter().m11()))
                 if scale > 1e-9:
                     return scale
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                pass
+        layer = self._preview_layer
+        scene_getter = getattr(layer, "get_scene", None)
+        scene = scene_getter() if callable(scene_getter) else getattr(layer, "scene", None)
+        views_getter = getattr(scene, "views", None)
+        if callable(views_getter):
+            try:
+                views = tuple(views_getter())
+                if views:
+                    scale = abs(float(views[0].transform().m11()))
+                    if scale > 1e-9:
+                        return scale
             except (AttributeError, TypeError, ValueError, RuntimeError):
                 pass
         zoom_getter = getattr(controller, "get_zoom_level", None)
