@@ -22759,3 +22759,46 @@ Verification:
     No tests or CI were run.
 
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: SCROLLABLE CATEGORIZED ENGINEERING TOOL SHELF
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-scrollable-engineering-tool-shelf
+
+Changed:
+    ui/core/qt.py
+        Exposed QScrollArea through the single Qt compatibility boundary.
+
+    ui/editors/common/tool_shelf.py
+        Added a scrollable content surface so the full tool inventory
+        remains reachable at normal workstation heights.
+        Added visible category headings and separators.
+        Retained canonical ToolDefinition, UIActionRouter, icon-provider
+        and ToolManager ownership paths.
+
+    ui/tools/tool_definition.py
+        Added engineering categories and stable category ordering for
+        SLD tools: Selection, Drawing, Conductors, Switchgear,
+        Transformers, Generation, Loads & Drives, Reactive Power,
+        Energy Storage, Sources, Measurements, Protection and Placement.
+
+    ui/styling/stylesheet.qss
+        Added scoped styles for scroll area, category headings and
+        readable foregrounds on the dark tool shelf.
+
+Boundaries:
+    Presentation metadata and UI composition only. Tool IDs, handlers,
+    runtime lifecycle, Application commands and Core engineering models
+    remain unchanged.
+
+Verification:
+    Source-level review of the Qt boundary, ToolShelf composition,
+    category mapping and style selectors. No tests or CI were run.
+
+======================================================================
