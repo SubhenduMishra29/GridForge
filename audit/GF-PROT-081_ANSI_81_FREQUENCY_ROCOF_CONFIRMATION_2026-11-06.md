@@ -32,8 +32,11 @@ frequency smoothing.
   linear regression of frequency against sample time; the slope is RoCoF in
   Hz/s.
 - Requires a complete configured window before RoCoF confirmation is
-  available.
-- Requires finite positive frequency, valid/usable/available GOOD-quality
+  available. The estimator window starts at the first sample of each
+  continuous under/over-frequency pickup episode; pre-pickup frequency
+  trends cannot confirm a later pickup.
+- Requires finite non-negative frequency (zero remains a valid under-frequency
+  pickup value), valid/usable/available GOOD-quality
   samples, producer sequence numbers, strictly increasing timestamps,
   consecutive sample sequence numbers, configured sample-rate cadence,
   configured freshness, and an exact trusted timestamp-domain match.
