@@ -229,6 +229,13 @@ class StudyCasesPanelWidget(QWidget):
         if self._archive_selection_handler is not None:
             self._archive_selection_handler(self.selected_archived_record_id())
 
+    def bind_sld_view(self, view: object) -> None:
+        """Connect exact-sample playback frames to the active SLD viewport."""
+        bind = getattr(view, "bind_transient_playback", None)
+        if not callable(bind):
+            raise TypeError("view must expose bind_transient_playback().")
+        bind(self._transient_result_view)
+
     def set_transient_result(self, result: TransientResultPresentationReadModel) -> None:
         """Display complete aligned transient samples and their event timeline."""
         self._result_heading.setText(

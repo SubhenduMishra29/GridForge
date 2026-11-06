@@ -61,6 +61,7 @@ from .read_models import (
     TransientEventReadModel,
     TransientResultPresentationReadModel,
 )
+from .transient_playback import TransientPlaybackFrameReadModel, build_transient_playback_frame
 from .read_service import (
     ArchivedStudyResultReadModel,
     MeasurementChannelReadService,
@@ -138,6 +139,8 @@ __all__ = [
     "TransientAlgebraicQualityReadModel",
     "TransientEventReadModel",
     "TransientResultPresentationReadModel",
+    "TransientPlaybackFrameReadModel",
+    "build_transient_playback_frame",
     "ArchivedStudyResultReadModel",
     "StudyResultComparisonReadModel",
     "StudyResultNumericDeltaReadModel",

@@ -22990,3 +22990,34 @@ Follow-up source review tightened ANSI 81 pickup confirmation:
 - Accept a finite zero-Hz measurement as an under-frequency sample;
   zero is not rejected merely for being zero.
 
+
+
+======================================================================
+GRIDFORGE V2 — TRANSIENT RESULT PLAYBACK (#833)
+======================================================================
+
+Date: 2026-11-06
+Branch: feat/issue-833-transient-playback
+
+Implemented an immutable Application TransientPlaybackFrameReadModel and
+exact-sample frame builder. Added play/pause/stop, single-step, seek, playback
+rate selection, wall-clock scheduling, and lifecycle stop/clear behavior to
+the transient result view. Frames retain project/study identity, activation
+generation, source revision, archive identity, exact source sample values,
+same-time event dispatch order, and matching discontinuity evidence. Playback
+does not interpolate samples or invoke solver work.
+
+Connected the Study Cases panel to the already-composed canvas viewport. The
+viewport displays transient read-only machine/bus sample labels and explicit
+event-transition labels only for the current live project, activation and
+source revision. Historical and stale frames are never projected onto the
+live SLD. Playback is a presentation-only overlay and performs no Core
+mutation or protection/control actuation.
+
+Remaining issue scope: current transient results do not provide complete
+per-sample branch/conductor current and temperature/thermal-gradient channels.
+The renderer therefore does not claim animated line flow or thermal gradients.
+Breaker transition labels are shown only when explicit typed event targets
+are recorded; unrecorded switch states are not inferred. Issue #833 remains
+open until those numerical channels and their verified SLD encodings exist.
+No tests or CI were run.

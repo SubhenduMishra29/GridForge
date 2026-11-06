@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
+from time import monotonic
+
 from core.application.read_models import TransientResultPresentationReadModel
+from core.application.transient_playback import (
+    TransientPlaybackFrameReadModel,
+    build_transient_playback_frame,
+)
 from ui.core.qt import (
     QChart,
     QChartView,
@@ -12,6 +19,10 @@ from ui.core.qt import (
     QLineSeries,
     QListWidget,
     QValueAxis,
+    QPushButton,
+    QSlider,
+    QTimer,
+    Signal,
     QVBoxLayout,
     Qt,
     QWidget,
@@ -19,6 +30,7 @@ from ui.core.qt import (
 
 
 class TransientResultViewWidget(QWidget):
+    playback_frame_changed = Signal(object)
     """Inspect complete transient signals and ordered event history.
 
     The widget renders every source sample. It does not down-sample, interpolate,
@@ -29,6 +41,28 @@ class TransientResultViewWidget(QWidget):
         super().__init__(parent)
         self.setObjectName("GridForgeTransientResultView")
         self._model: TransientResultPresentationReadModel | None = None
+        self._playback_index = 0
+        self._playing = False
+        self._last_tick = 0.0
+        self._playback_clock_s = 0.0
+        self._play_timer = QTimer(self)
+        self._play_timer.setInterval(33)
+        self._play_timer.timeout.connect(self._advance_playback)
+        self._play_button = QPushButton("Play", self)
+        self._pause_button = QPushButton("Pause", self)
+        self._stop_button = QPushButton("Stop", self)
+        self._previous_button = QPushButton("Step −", self)
+        self._next_button = QPushButton("Step +", self)
+        self._rate_combo = QComboBox(self)
+        for label, rate in (("0.25×", 0.25), ("0.5×", 0.5), ("1×", 1.0), ("2×", 2.0), ("4×", 4.0)):
+            self._rate_combo.addItem(label, rate)
+        self._rate_combo.setCurrentIndex(2)
+        self._timeline = QSlider(Qt.Orientation.Horizontal, self)
+        self._timeline.setRange(0, 0)
+        self._timeline.setEnabled(False)
+        self._time_label = QLabel("t = — s", self)
+        self._cursor_series = None
+        self._cursor_y_range = (0.0, 1.0)
         self._signal_combo = QComboBox(self)
         self._provenance = QLabel(self)
         self._provenance.setWordWrap(True)
@@ -56,6 +90,17 @@ class TransientResultViewWidget(QWidget):
         layout.addWidget(self._provenance)
         layout.addWidget(self._solver_provenance)
         layout.addLayout(signal_row)
+        playback_row = QHBoxLayout()
+        playback_row.addWidget(self._play_button)
+        playback_row.addWidget(self._pause_button)
+        playback_row.addWidget(self._stop_button)
+        playback_row.addWidget(self._previous_button)
+        playback_row.addWidget(self._next_button)
+        playback_row.addWidget(QLabel("Rate", self))
+        playback_row.addWidget(self._rate_combo)
+        playback_row.addWidget(self._time_label)
+        layout.addLayout(playback_row)
+        layout.addWidget(self._timeline)
         layout.addWidget(self._chart_view)
         layout.addWidget(QLabel("Event timeline (solver dispatch order)", self))
         layout.addWidget(self._event_list)
@@ -69,6 +114,17 @@ class TransientResultViewWidget(QWidget):
         layout.addWidget(self._message)
 
         self._signal_combo.currentIndexChanged.connect(self._render_selected_signal)
+        self._play_button.clicked.connect(self.play)
+        self._pause_button.clicked.connect(self.pause)
+        self._stop_button.clicked.connect(self.stop)
+        self._previous_button.clicked.connect(lambda: self.step(-1))
+        self._next_button.clicked.connect(lambda: self.step(1))
+        self._timeline.valueChanged.connect(self.seek)
+        self._play_button.setEnabled(False)
+        self._pause_button.setEnabled(False)
+        self._stop_button.setEnabled(False)
+        self._previous_button.setEnabled(False)
+        self._next_button.setEnabled(False)
         self._event_list.currentRowChanged.connect(self._show_selected_event_details)
         self._quality_list.currentRowChanged.connect(self._show_selected_quality_details)
         self._discontinuity_list.currentRowChanged.connect(self._show_selected_discontinuity_details)
@@ -77,7 +133,19 @@ class TransientResultViewWidget(QWidget):
     def set_result(self, model: TransientResultPresentationReadModel) -> None:
         if not isinstance(model, TransientResultPresentationReadModel):
             raise TypeError("TransientResultViewWidget requires TransientResultPresentationReadModel.")
+        self.pause()
+        self.playback_frame_changed.emit(None)
         self._model = model
+        playable = model.status == "completed" and model.sample_count > 0
+        slider_blocked = self._timeline.blockSignals(True)
+        try:
+            self._timeline.setRange(0, max(0, model.sample_count - 1))
+        finally:
+            self._timeline.blockSignals(slider_blocked)
+        self._timeline.setEnabled(playable)
+        for control in (self._play_button, self._stop_button, self._previous_button, self._next_button):
+            control.setEnabled(playable)
+        self._pause_button.setEnabled(False)
 
         blocked = self._signal_combo.blockSignals(True)
         try:
@@ -203,14 +271,23 @@ class TransientResultViewWidget(QWidget):
             )
         else:
             self._message.setText(
-                "All source samples are rendered in original order. Event markers use recorded dispatch times."
+                "All source samples are rendered in original order. Playback steps exact recorded samples without interpolation; event markers use recorded dispatch times."
             )
 
         self.setVisible(True)
         self._render_selected_signal()
+        if playable:
+            self._set_playback_index(0, emit_frame=True)
 
     def clear(self) -> None:
+        self.pause()
+        self.playback_frame_changed.emit(None)
         self._model = None
+        self._timeline.setRange(0, 0)
+        self._timeline.setEnabled(False)
+        self._time_label.setText("t = — s")
+        for control in (self._play_button, self._pause_button, self._stop_button, self._previous_button, self._next_button):
+            control.setEnabled(False)
         self._signal_combo.clear()
         self._event_list.clear()
         self._event_details.clear()
@@ -222,7 +299,97 @@ class TransientResultViewWidget(QWidget):
         self._solver_provenance.clear()
         self._message.setText("Select a transient result to inspect its time series.")
         self._chart_view.setChart(QChart())
+        self._cursor_series = None
         self.setVisible(False)
+
+    def play(self) -> None:
+        """Start wall-clock playback over recorded samples only."""
+        model = self._model
+        if model is None or model.status != "completed" or model.sample_count == 0:
+            return
+        if self._playback_index >= model.sample_count - 1:
+            self._set_playback_index(0, emit_frame=True)
+        self._playing = True
+        self._playback_clock_s = model.time_s[self._playback_index]
+        self._last_tick = monotonic()
+        self._play_timer.start()
+        self._play_button.setEnabled(False)
+        self._pause_button.setEnabled(True)
+
+    def pause(self) -> None:
+        self._play_timer.stop()
+        self._playing = False
+        self._play_button.setEnabled(self._model is not None and self._model.status == "completed" and self._model.sample_count > 0)
+        self._pause_button.setEnabled(False)
+
+    def stop(self) -> None:
+        self.pause()
+        if self._model is not None and self._model.sample_count:
+            self._set_playback_index(0, emit_frame=True)
+
+    def seek(self, sample_index: int) -> None:
+        if self._model is None or not self._model.sample_count:
+            return
+        self._set_playback_index(int(sample_index), emit_frame=True)
+        self._playback_clock_s = self._model.time_s[self._playback_index]
+        self._last_tick = monotonic()
+
+    def step(self, offset: int) -> None:
+        self.pause()
+        if self._model is None or not self._model.sample_count:
+            return
+        self._set_playback_index(self._playback_index + int(offset), emit_frame=True)
+
+    def _set_playback_index(self, sample_index: int, *, emit_frame: bool) -> None:
+        model = self._model
+        if model is None or not model.sample_count:
+            return
+        index = max(0, min(int(sample_index), model.sample_count - 1))
+        self._playback_index = index
+        blocked = self._timeline.blockSignals(True)
+        try:
+            self._timeline.setValue(index)
+        finally:
+            self._timeline.blockSignals(blocked)
+        time_s = model.time_s[index]
+        self._playback_clock_s = time_s
+        self._time_label.setText(f"Sample {index + 1}/{model.sample_count}  |  t = {time_s:.9g} s")
+        if self._cursor_series is not None:
+            self._cursor_series.clear()
+            self._cursor_series.append(time_s, self._cursor_y_range[0])
+            self._cursor_series.append(time_s, self._cursor_y_range[1])
+        if emit_frame:
+            frame = build_transient_playback_frame(model, index)
+            self.playback_frame_changed.emit(frame)
+
+    def _advance_playback(self) -> None:
+        model = self._model
+        if not self._playing or model is None or not model.sample_count:
+            self.pause()
+            return
+        now = monotonic()
+        elapsed = max(0.0, now - self._last_tick)
+        self._last_tick = now
+        rate = float(self._rate_combo.currentData() or 1.0)
+        self._playback_clock_s += elapsed * rate
+        target_time = self._playback_clock_s
+        if target_time >= model.time_s[-1]:
+            self._set_playback_index(model.sample_count - 1, emit_frame=True)
+            self.pause()
+            return
+        index = max(0, bisect_right(model.time_s, target_time) - 1)
+        if index != self._playback_index:
+            self._set_playback_index(index, emit_frame=True)
+
+    def hideEvent(self, event) -> None:
+        self.pause()
+        self.playback_frame_changed.emit(None)
+        super().hideEvent(event)
+
+    def closeEvent(self, event) -> None:
+        self.pause()
+        self.playback_frame_changed.emit(None)
+        super().closeEvent(event)
 
     def _show_selected_event_details(self, row: int) -> None:
         model = self._model
@@ -378,6 +545,17 @@ class TransientResultViewWidget(QWidget):
                 chart.addSeries(marker)
                 marker.attachAxis(x_axis)
                 marker.attachAxis(y_axis)
+
+        cursor = QLineSeries()
+        cursor.setName("Playback cursor")
+        cursor_time = model.time_s[self._playback_index]
+        cursor.append(cursor_time, y_min)
+        cursor.append(cursor_time, y_max)
+        chart.addSeries(cursor)
+        cursor.attachAxis(x_axis)
+        cursor.attachAxis(y_axis)
+        self._cursor_series = cursor
+        self._cursor_y_range = (y_min, y_max)
 
         chart.setTitle(signal.label)
         chart.legend().hide()

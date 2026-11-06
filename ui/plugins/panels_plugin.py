@@ -106,6 +106,15 @@ class PanelsPlugin(QObject):
                 getattr(context.tool_manager, "creation_context", None),
                 context.controller,
             )
+            # Playback overlays are wired only to the already-composed active
+            # canvas view; panels do not create or discover a second canvas.
+            study_panel = self._panels.get("study_cases")
+            bind_sld_view = getattr(study_panel, "bind_sld_view", None)
+            canvas_view = context.service("graphics_view") or context.service("canvas_view")
+            if canvas_view is None and context.interaction_manager is not None:
+                canvas_view = getattr(context.interaction_manager, "view", None)
+            if callable(bind_sld_view) and canvas_view is not None:
+                bind_sld_view(canvas_view)
         except BaseException as exc:
             failures: list[BaseException] = []
             for panel_id in reversed(created_ids):

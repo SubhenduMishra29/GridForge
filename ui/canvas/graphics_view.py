@@ -35,7 +35,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
+from ui.core.qt import QBrush, QColor, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
+from core.application.transient_playback import TransientPlaybackFrameReadModel
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -68,6 +69,8 @@ class GraphicsView(QGraphicsView):
         self.tool_manager = tool_manager
         self._scene = scene
         self._last_cursor_scene_position: tuple[float, float] | None = None
+        self._playback_source = None
+        self._playback_overlays: list[QGraphicsTextItem] = []
         self.interaction_manager = interaction_manager
         self.navigation_controller = navigation_controller
 
@@ -123,6 +126,88 @@ class GraphicsView(QGraphicsView):
         self._scene.selectionChanged.connect(self._refresh_contextual_tool_strip)
         self.horizontalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
         self.verticalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
+
+    def bind_transient_playback(self, source: Any) -> None:
+        """Bind the result widget's frame signal to a read-only SLD overlay."""
+        signal = getattr(source, "playback_frame_changed", None)
+        if signal is None or not callable(getattr(signal, "connect", None)):
+            raise TypeError("source must expose playback_frame_changed(object).")
+        if self._playback_source is source:
+            return
+        self.unbind_transient_playback()
+        signal.connect(self.set_transient_playback_frame)
+        self._playback_source = source
+
+    def unbind_transient_playback(self) -> None:
+        source = self._playback_source
+        self._playback_source = None
+        signal = getattr(source, "playback_frame_changed", None)
+        if signal is not None:
+            try:
+                signal.disconnect(self.set_transient_playback_frame)
+            except (RuntimeError, TypeError):
+                pass
+        self.set_transient_playback_frame(None)
+
+    def set_transient_playback_frame(self, frame: TransientPlaybackFrameReadModel | None) -> None:
+        """Render recorded values and explicit event labels without mutating SLD/Core."""
+        for overlay in self._playback_overlays:
+            scene = overlay.scene()
+            if scene is not None:
+                scene.removeItem(overlay)
+        self._playback_overlays.clear()
+        if frame is None or not isinstance(frame, TransientPlaybackFrameReadModel):
+            return
+        # Archived and stale results are playable in their own result view but
+        # must never be projected onto the currently active live SLD.
+        if not frame.live_projection_eligible:
+            return
+        application = getattr(self.tool_manager, "application", None)
+        try:
+            lifecycle = getattr(application, "project_lifecycle", None)
+            context = getattr(lifecycle, "context", None)
+            eligible = (
+                application is not None
+                and context is not None
+                and context.project_id == frame.project_id
+                and getattr(lifecycle, "activation_generation", None) == frame.activation_generation
+                and getattr(application, "revision", None) == frame.source_revision
+            )
+        except (RuntimeError, AttributeError):
+            eligible = False
+        if not eligible:
+            return
+        items_by_id = {
+            str(getattr(item, "object_id", "")): item
+            for item in self._scene.items()
+            if getattr(item, "object_id", None) is not None
+        }
+        labels: dict[str, list[str]] = {}
+        for signal_id, value in frame.sample_values.items():
+            target = frame.signal_targets.get(signal_id, {})
+            object_id = target.get("machine_id") or target.get("bus_id")
+            if not object_id or str(object_id) not in items_by_id:
+                continue
+            label = str(target.get("label") or target.get("quantity") or signal_id)
+            unit = str(target.get("unit") or "")
+            labels.setdefault(str(object_id), []).append(f"{label}: {value:.6g} {unit}".strip())
+        for event in frame.events:
+            transition = event.transition or {}
+            target_id = transition.get("target_id")
+            transition_type = transition.get("transition_type")
+            if target_id and transition_type and str(target_id) in items_by_id:
+                labels.setdefault(str(target_id), []).append(
+                    f"{transition_type} [{event.status}]"
+                )
+        for object_id, lines in labels.items():
+            item = items_by_id[object_id]
+            overlay = QGraphicsTextItem("\n".join(lines))
+            overlay.setDefaultTextColor(QColor("#ffd166"))
+            overlay.setZValue(10000.0)
+            anchor = item.mapToScene(item.boundingRect().bottomLeft())
+            overlay.setPos(anchor.x() + 5.0, anchor.y() + 5.0)
+            self._scene.addItem(overlay)
+            self._playback_overlays.append(overlay)
 
     def bind_services(
         self,
@@ -278,6 +363,7 @@ class GraphicsView(QGraphicsView):
         self._refresh_contextual_tool_strip()
 
     def dispose(self) -> None:
+        self.unbind_transient_playback()
         self.interaction_manager = None
         self.navigation_controller = None
         self._contextual_strip.hide()
