@@ -22529,3 +22529,37 @@ STATUS:
     ISSUE #874 REMAINS OPEN PENDING RUNTIME REPRODUCTION.
 
 ======================================================================
+
+
+======================================================================
+GF-AUD-159 FOLLOW-UP — DRAFT TERMINAL SOURCE-REGISTRY VALIDATION
+======================================================================
+
+Date:
+    2026-11-06
+
+Correction:
+- Draft terminal snap candidates are now checked against the terminal names
+  declared by their source SymbolPreviewItem, not merely against a non-empty
+  terminal ID and a self-consistent role/name pair.
+- The stable draft terminal ID must equal the source preview contract's
+  deterministic identity: <draft_id>:<terminal_name>.
+- EndpointIdentityAdapter repeats this source-item check at the identity
+  boundary, so a fabricated or bypassed SnapResult cannot promote an
+  unregistered draft terminal into an Application endpoint reference.
+- The adapter also verifies that candidate equipment type matches the source
+  presentation item's declared element type.
+- Draft Bus attachment identity remains a separate contract and is unchanged.
+
+Architecture:
+- All validation remains in UI identity/presentation adapters. Core
+  EndpointReference semantics and Application DraftEndpointReference commit
+  translation remain unchanged.
+
+Verification:
+- Static source/diff inspection only; no tests or CI run.
+- Issue #874 remains open pending the actual snap-to-commit interaction trace.
+
+Status:
+    CORRECTED ON fix/sld-snap-candidate-identity-874; RECONCILIATION PENDING.
+======================================================================
