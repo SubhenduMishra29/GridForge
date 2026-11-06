@@ -240,6 +240,10 @@ class SLDCanvasSurface(QWidget):
     def clear_document(self) -> None:
         """Clear canonical SLD graphics without mutating Core/Application state."""
         self._sld_canvas_render_system.clear()
+        self.reset_document_state()
+
+    def reset_document_state(self) -> None:
+        """Reset surface metadata after the renderer has independently cleared its scene."""
         self._document_id = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
 
@@ -293,8 +297,7 @@ class CanvasComposition:
             failures.append((label, exc))
             _LOGGER.exception("Canvas composition cleanup failed: %s", label)
 
-    def clear_project_state(self) -> None:
-        """Clear project/document presentation state without disposing shared services."""
+    def _clear_project_state(self, *, clear_sld_graphics: bool) -> None:
         if self._disposed:
             return
         failures: list[tuple[str, BaseException]] = []
@@ -305,15 +308,23 @@ class CanvasComposition:
         self._run_cleanup("route edit state", self.route_edit_controller.cancel, failures)
         self._run_cleanup("selection state", self.selection_manager.clear, failures)
         self._run_cleanup("preview graphics", self.preview_layer.clear, failures)
-        self._run_cleanup("SLD graphics and snap registrations", self.surface.clear_document, failures)
+        if clear_sld_graphics:
+            self._run_cleanup("SLD graphics and snap registrations", self.surface.clear_document, failures)
         if failures:
             _LOGGER.warning("Canvas project-state clear completed with %d cleanup failure(s): %s", len(failures), ", ".join(label for label, _ in failures))
+
+    def clear_project_state(self) -> None:
+        """Clear project/document presentation state without disposing shared services."""
+        self._clear_project_state(clear_sld_graphics=True)
 
     def dispose(self) -> None:
         """Idempotently release canvas-owned resources, never shared Application/ToolManager."""
         if self._disposed:
             return
-        self.clear_project_state()
+        # Let renderer.dispose() own the one graphics/snap clear on this path;
+        # project-state cleanup still cancels interaction and clears selection
+        # and preview state without invoking renderer.clear() a second time.
+        self._clear_project_state(clear_sld_graphics=False)
         failures: list[tuple[str, BaseException]] = []
         steps = (
             ("renderer subscriptions and graphics", self.sld_canvas_render_system.dispose),
@@ -327,6 +338,7 @@ class CanvasComposition:
         )
         for label, operation in steps:
             self._run_cleanup(label, operation, failures)
+        self._run_cleanup("surface document metadata", self.surface.reset_document_state, failures)
         self.surface._composition = None
         self._disposed = True
         if failures:
