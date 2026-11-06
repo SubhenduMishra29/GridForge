@@ -121,6 +121,51 @@ class ToolDefinition:
 
 
 
+_TOOL_CATEGORY_BY_ID: Mapping[str, str] = {
+    "select": "Selection",
+    "bus": "Drawing",
+    "wire": "Drawing",
+    "line": "Conductors",
+    "cable": "Conductors",
+    "switch": "Switchgear",
+    "breaker": "Switchgear",
+    "disconnector": "Switchgear",
+    "fuse": "Switchgear",
+    "transformer": "Transformers",
+    "load": "Loads & Drives",
+    "motor": "Loads & Drives",
+    "generator": "Generation",
+    "synchronous_machine": "Generation",
+    "solar": "Generation",
+    "shunt": "Reactive Power",
+    "capacitor": "Reactive Power",
+    "reactor": "Reactive Power",
+    "battery": "Energy Storage",
+    "grid": "Sources",
+    "current_transformer": "Measurements",
+    "potential_transformer": "Measurements",
+    "cvt": "Measurements",
+    "relay": "Protection",
+    "electrical-insertion": "Placement",
+}
+
+_TOOL_CATEGORY_ORDER = (
+    "Selection",
+    "Drawing",
+    "Conductors",
+    "Switchgear",
+    "Transformers",
+    "Generation",
+    "Loads & Drives",
+    "Reactive Power",
+    "Energy Storage",
+    "Sources",
+    "Measurements",
+    "Protection",
+    "Placement",
+)
+
+
 def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor_type: str) -> tuple[ToolDefinition, ...]:
     """Build presentation metadata from an authoritative runtime tool-ID set.
 
@@ -149,10 +194,12 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
                 icon_id=None if lookup_id in generic_tool_ids else tool_id,
                 editor_types=(editor_type,),
                 shortcuts=((shortcut_map[lookup_id],) if lookup_id in shortcut_map else ()),
-                category="navigation" if lookup_id in {"select", "move", "pan", "zoom_in", "zoom_out", "fit"} else "engineering",
+                category=_TOOL_CATEGORY_BY_ID.get(lookup_id, "Engineering"),
                 metadata={"icon_kind": "tool"},
             )
         )
+    category_rank = {name: index for index, name in enumerate(_TOOL_CATEGORY_ORDER)}
+    definitions.sort(key=lambda item: category_rank.get(item.category, len(category_rank)))
     return tuple(definitions)
 
 

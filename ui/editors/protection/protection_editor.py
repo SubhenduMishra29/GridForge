@@ -36,7 +36,7 @@ class ProtectionEditor(QWidget):
         shelf_widget = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "connect_measurement", "inspect", "fit", "diagnostics"), editor_type="protection"), editor_type="protection", parent=self)
         shelf.set_widget(shelf_widget)
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
-        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
+        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget); settings.setVisible(False)
         explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Protection Explorer", self))
         inspector_region = EditorRegionFrame("Inspector", parent=self); inspector_region.set_widget(inspector or QLabel("Select a protection object.", self))
 
@@ -149,6 +149,9 @@ class ProtectionEditor(QWidget):
         self._tool_shelf.refresh_runtime_state()
         settings = getattr(self._tool_settings, "set_context", None)
         if callable(settings): settings(context)
+        tool_settings = getattr(context, "tool_settings", None) if context is not None else None
+        has_tool_settings = bool(tool_settings is not None and getattr(tool_settings, "values", {}))
+        self._region_widgets["tool_settings"].setVisible(has_tool_settings)
         self._tool_shelf.set_active_tool(getattr(context, "active_tool", None) if context is not None else None)
 
 

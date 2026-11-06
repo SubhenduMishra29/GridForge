@@ -22642,3 +22642,266 @@ Verification:
 Status:
     CORRECTED ON feat/protection-execution-audit-1008; RECONCILED WITH AUTHORITATIVE MAIN; MERGE COMMIT CREATED.
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: HIERARCHICAL ENGINEERING MENUS
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-menu-hierarchy
+
+Changed:
+    ui/plugins/menu_plugin.py
+        Added recursive submenu specifications while preserving leaf
+        action routing through the canonical UIActionRouter.
+        Added stable lookup for top-level menus and nested submenus.
+        Reorganized existing canonical actions into File, Edit, View,
+        Design, Network, Studies, Protection & Control, Reports, and Help.
+        Grouped panel visibility and canvas navigation under View.
+        Grouped SLD tools under Design and network draft/topology actions
+        under Network.
+
+    ui/plugins/__init__.py
+        Exported MenuItemSpec and MenuSubmenuSpec through the public
+        plugin API.
+
+Boundaries:
+    Presentation-only change. No Core or Application domain behavior
+    changed. Existing action IDs and handlers were reused; no parallel
+    action framework or new action handlers were introduced.
+
+Verification:
+    Source-level review completed. Menu action IDs were checked for
+    duplicates. No tests or CI were run.
+    Default SLD workspace panel visibility and toolbar simplification
+    remain separate follow-up work.
+
+======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: DEFAULT SLD ENGINEERING WORKSPACE
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-sld-workspace-layout
+
+Changed:
+    ui/workspace/workspace_defaults.py
+        Made Project Explorer, Inspector and Messages/Diagnostics visible
+        in the default SLD workspace, with practical minimum and preferred
+        dimensions. The contextual Tool Settings region remains hidden
+        until an active tool supplies settings.
+
+    ui/editors/sld/sld_editor.py
+        Preserved the default Inspector visibility after selection clears.
+        Explicit user visibility choices continue to take precedence.
+
+    main.py
+        Composed Project, Equipment and Elements as tabs in the SLD
+        Explorer Region. The Equipment Browser command now explicitly
+        opens the Explorer and selects the Equipment tab instead of
+        toggling the entire Region closed.
+
+Presentation outcome:
+    Left: Project / Equipment / Elements tabs.
+    Centre: SLD engineering canvas and compact tool shelf.
+    Right: Properties Inspector.
+    Bottom: Messages / Events.
+
+Boundaries:
+    Existing panel widgets, workspace regions and ControlSurfaceHost APIs
+    are reused. No Core/Application engineering behavior changed.
+
+Verification:
+    Source-level composition and visibility paths inspected.
+    No tests or CI were run.
+
+======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: COMPACT ENGINEERING COMMAND TOOLBAR
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-compact-command-toolbar
+
+Changed:
+    ui/plugins/toolbar_plugin.py
+        Reduced the global toolbar to thirteen commands: Select, Bus, Wire,
+        Undo, Redo, Delete, Commit, Equipment, Zoom Out, Zoom In, Fit,
+        Pan and Studies.
+        Added separators to distinguish command groups and constrained
+        toolbar height/button presentation.
+        Removed duplicate SLD tool selection and workspace navigation
+        actions from the global toolbar; the complete discipline-specific
+        tool inventory remains in the contextual editor ToolShelf and
+        the engineering menus.
+
+Boundaries:
+    All retained actions continue through the canonical UIActionRouter.
+    No handlers or action IDs were added. No Core/Application behavior
+    changed.
+
+Verification:
+    Source-level inspection confirmed ten unique retained action IDs.
+    No tests or CI were run.
+
+======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: SCROLLABLE CATEGORIZED ENGINEERING TOOL SHELF
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-scrollable-engineering-tool-shelf
+
+Changed:
+    ui/core/qt.py
+        Exposed QScrollArea through the single Qt compatibility boundary.
+
+    ui/editors/common/tool_shelf.py
+        Added a scrollable content surface so the full tool inventory
+        remains reachable at normal workstation heights.
+        Added visible category headings and separators.
+        Retained canonical ToolDefinition, UIActionRouter, icon-provider
+        and ToolManager ownership paths.
+
+    ui/tools/tool_definition.py
+        Added engineering categories and stable category ordering for
+        SLD tools: Selection, Drawing, Conductors, Switchgear,
+        Transformers, Generation, Loads & Drives, Reactive Power,
+        Energy Storage, Sources, Measurements, Protection and Placement.
+
+    ui/styling/stylesheet.qss
+        Added scoped styles for scroll area, category headings and
+        readable foregrounds on the dark tool shelf.
+
+Boundaries:
+    Presentation metadata and UI composition only. Tool IDs, handlers,
+    runtime lifecycle, Application commands and Core engineering models
+    remain unchanged.
+
+Verification:
+    Source-level review of the Qt boundary, ToolShelf composition,
+    category mapping and style selectors. No tests or CI were run.
+
+======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: DYNAMIC ENGINEERING TOOLS MENU
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-dynamic-tool-menus
+
+Changed:
+    ui/plugins/menu_plugin.py
+        Added a dynamic Tools menu populated from canonical routed
+        ActionDefinition records. Actions are grouped by editor discipline
+        (SLD, Control, Protection, Study) and then by ToolDefinition
+        engineering category.
+        Tool labels, descriptions and shortcuts are sourced from the
+        canonical action definitions. Every leaf remains dispatched
+        through UIActionRouter.
+        Removed the manually duplicated Select/Bus/Wire entries from
+        Design; those actions remain available in the quick toolbar,
+        full ToolShelf and dynamic Tools menu.
+
+Boundaries:
+    No new action IDs, handlers, tool runtimes or engineering behavior.
+    The dynamic menu reads only registered canonical tool actions.
+    No Core/Application behavior changed.
+
+Verification:
+    Source-level inspection confirms tool actions are registered before
+    PluginManager initializes MenuPlugin, and category/action construction
+    uses ActionDefinition metadata. No tests or CI were run.
+
+======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: COMMAND BAR AND EXPLORER VISUAL POLISH
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-engineering-ui-polish
+
+Changed:
+    ui/styling/stylesheet.qss
+        Added scoped compact sizing and interaction states for the
+        global engineering command toolbar.
+        Added a dedicated Explorer tab treatment with readable inactive,
+        hover and selected states.
+
+Boundaries:
+    Presentation styling only. Existing theme tokens, action behavior,
+    workspace layout and panel ownership are unchanged.
+
+Verification:
+    Source-level selector/objectName alignment inspected against the
+    toolbar and Explorer widget composition. No tests or CI were run.
+
+======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: DISCIPLINE PANEL VISIBILITY CONSISTENCY
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-discipline-panel-visibility
+
+Changed:
+    ui/editors/control/control_editor.py
+        Hide empty Explorer, Overlay and Diagnostics placeholders when
+        no real widget is supplied.
+        Keep Tool Settings hidden until the active tool has settings.
+
+    ui/editors/protection/protection_editor.py
+        Keep Tool Settings hidden until the active tool has settings.
+
+    ui/editors/study/study_editor.py
+        Keep Tool Settings hidden until the active tool has settings.
+
+Outcome:
+    Control, Protection and Study workspaces no longer reserve empty
+    contextual-settings space. The Control workspace does not display
+    placeholder Explorer/Overlay/Diagnostics regions when those regions
+    have no actual content.
+
+Boundaries:
+    Presentation visibility only. Existing tools, Application commands,
+    read models, workspace ownership and engineering state are unchanged.
+
+Verification:
+    Source-level review of editor construction and EditorContext updates.
+    No tests or CI were run.
+
+======================================================================

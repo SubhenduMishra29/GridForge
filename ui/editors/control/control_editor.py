@@ -30,8 +30,8 @@ class ControlEditor(QWidget):
         shelf_widget = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "move", "wire", "contact", "coil", "relay", "timer", "interlock"), editor_type="control"), editor_type="control", parent=self)
         shelf.set_widget(shelf_widget)
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
-        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget)
-        explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Control Explorer", self))
+        settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget); settings.setVisible(False)
+        explorer_region = EditorRegionFrame("Explorer", parent=self); explorer_region.set_widget(explorer or QLabel("Control Explorer", self)); explorer_region.setVisible(explorer is not None)
         inspector_region = EditorRegionFrame("Inspector", parent=self); inspector_region.set_widget(inspector or QLabel("Select a control object.", self))
 
         left = QSplitter(Qt.Orientation.Vertical, self)
@@ -46,6 +46,7 @@ class ControlEditor(QWidget):
         sidebar.addWidget(inspector_region)
         overlay_region = EditorRegionFrame("Overlay", parent=self)
         overlay_region.set_widget(overlay or QLabel("Overlay", self))
+        overlay_region.setVisible(overlay is not None)
         sidebar.addWidget(overlay_region)
         sidebar.setStretchFactor(0, 3); sidebar.setStretchFactor(1, 1)
 
@@ -59,6 +60,7 @@ class ControlEditor(QWidget):
         bottom = QSplitter(Qt.Orientation.Vertical, self)
         diagnostics_region = EditorRegionFrame("Diagnostics", parent=self)
         diagnostics_region.set_widget(diagnostics or QLabel("Diagnostics", self))
+        diagnostics_region.setVisible(diagnostics is not None)
         bottom.addWidget(diagnostics_region)
         status_region = EditorRegionFrame("Status", parent=self)
         status_region.set_widget(status or QLabel("Status", self))
@@ -113,6 +115,9 @@ class ControlEditor(QWidget):
         self._tool_shelf.refresh_runtime_state()
         settings = getattr(self._tool_settings, "set_context", None)
         if callable(settings): settings(context)
+        tool_settings = getattr(context, "tool_settings", None) if context is not None else None
+        has_tool_settings = bool(tool_settings is not None and getattr(tool_settings, "values", {}))
+        self._region_widgets["tool_settings"].setVisible(has_tool_settings)
         self._tool_shelf.set_active_tool(getattr(context, "active_tool", None) if context is not None else None)
 
 

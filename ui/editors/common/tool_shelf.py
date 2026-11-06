@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable
 from typing import Any
 import logging
 
-from ui.core.qt import QFormLayout, QFrame, QIcon, QLabel, QToolButton, QVBoxLayout, QWidget, Qt, QSize
+from ui.core.qt import QFormLayout, QFrame, QIcon, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget, Qt, QSize
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
 
@@ -41,11 +41,24 @@ class ToolShelf(QWidget):
         self._compact_mode = bool(compact_mode)
         self._definitions: dict[str, ToolDefinition] = {}
         self._buttons: dict[str, QToolButton] = {}
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(2, 2, 2, 2)
-        self._layout.setSpacing(2)
         self.setObjectName("GridForgeToolShelf")
         self.setMinimumWidth(44 if self._compact_mode else 132)
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setObjectName("GridForgeToolShelfScrollArea")
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._content_widget = QWidget(self._scroll_area)
+        self._content_widget.setObjectName("GridForgeToolShelfContent")
+        self._layout = QVBoxLayout(self._content_widget)
+        self._layout.setContentsMargins(2, 2, 2, 2)
+        self._layout.setSpacing(2)
+        self._scroll_area.setWidget(self._content_widget)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        root_layout.addWidget(self._scroll_area)
         self.set_action_router(action_router)
         self.set_definitions(definitions)
 
@@ -116,15 +129,19 @@ class ToolShelf(QWidget):
         self._buttons.clear()
         previous_category = None
         for definition in self._definitions.values():
-            if previous_category is not None and definition.category != previous_category:
-                separator = QFrame(self)
-                separator.setFrameShape(QFrame.Shape.HLine)
-                separator.setFrameShadow(QFrame.Shadow.Plain)
-                separator.setObjectName("GridForgeToolShelfSeparator")
-                self._layout.addWidget(separator)
+            if definition.category != previous_category:
+                if previous_category is not None:
+                    separator = QFrame(self._content_widget)
+                    separator.setFrameShape(QFrame.Shape.HLine)
+                    separator.setFrameShadow(QFrame.Shadow.Plain)
+                    separator.setObjectName("GridForgeToolShelfSeparator")
+                    self._layout.addWidget(separator)
+                category_label = QLabel(definition.category.title(), self._content_widget)
+                category_label.setObjectName("GridForgeToolShelfCategory")
+                self._layout.addWidget(category_label)
             previous_category = definition.category
 
-            button = QToolButton(self)
+            button = QToolButton(self._content_widget)
             button.setObjectName(f"GridForgeTool_{definition.tool_id}")
             button.setToolTip(
                 f"{definition.display_name}"

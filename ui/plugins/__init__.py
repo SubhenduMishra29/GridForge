@@ -241,8 +241,15 @@ __all__ = [
     "ToolbarPlugin",
     "create_toolbar_plugin",
     "default_tool_actions",
+    "MenuActionSpec",
+    "MenuItemSpec",
+    "MenuPlugin",
+    "MenuSpec",
+    "MenuSubmenuSpec",
+    "create_menu_plugin",
+    "default_menus",
     "StatusPlugin",
     "create_status_plugin",
 ]
 
-from .menu_plugin import MenuActionSpec, MenuPlugin, MenuSpec, create_menu_plugin, default_menus
+from .menu_plugin import MenuActionSpec, MenuItemSpec, MenuPlugin, MenuSpec, MenuSubmenuSpec, create_menu_plugin, default_menus

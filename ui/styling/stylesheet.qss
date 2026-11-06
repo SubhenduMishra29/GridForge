@@ -644,6 +644,18 @@ QWidget#GridForgePanel_element_list QTableWidget { background: {{table_backgroun
     background: {{panel_surface}};
     border-right: 1px solid {{panel_border}};
 }
+#GridForgeToolShelfScrollArea,
+#GridForgeToolShelfScrollArea QWidget#GridForgeToolShelfContent {
+    background: transparent;
+    border: none;
+}
+#GridForgeToolShelfCategory {
+    background: transparent;
+    color: {{text_secondary}};
+    font-size: 8pt;
+    font-weight: 600;
+    padding: 4px 5px 2px;
+}
 #GridForgeToolShelfSeparator {
     color: {{separator}};
     max-height: 1px;
@@ -692,3 +704,52 @@ QWidget#GridForgePanel_element_list QTableWidget { background: {{table_backgroun
     border-color: {{separator}};
 }
 
+
+
+/* Compact global engineering command bar. */
+QToolBar#gridforge_tool_bar {
+    min-height: 34px;
+    max-height: 42px;
+    padding: 3px 6px;
+    spacing: 4px;
+}
+QToolBar#gridforge_tool_bar QToolButton {
+    color: {{text_primary}};
+    min-height: 24px;
+    max-height: 30px;
+    padding: 3px 7px;
+    border-radius: 3px;
+}
+QToolBar#gridforge_tool_bar QToolButton:hover {
+    background: {{hover_background}};
+    border-color: {{accent_primary}};
+}
+QToolBar#gridforge_tool_bar QToolButton:checked,
+QToolBar#gridforge_tool_bar QToolButton:pressed {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-color: {{selection_border}};
+}
+
+/* The SLD Explorer uses compact, clearly selected navigation tabs. */
+QTabWidget#GridForgeExplorerTabs::pane {
+    background: {{panel_surface}};
+    border: none;
+    border-top: 1px solid {{panel_border}};
+}
+QTabWidget#GridForgeExplorerTabs QTabBar::tab {
+    background: {{window_background}};
+    color: {{text_secondary}};
+    padding: 5px 10px;
+    min-width: 54px;
+    margin-right: 1px;
+}
+QTabWidget#GridForgeExplorerTabs QTabBar::tab:selected {
+    background: {{selection_background}};
+    color: {{text_primary}};
+    border-bottom: 2px solid {{accent_active}};
+}
+QTabWidget#GridForgeExplorerTabs QTabBar::tab:hover:!selected {
+    background: {{hover_background}};
+    color: {{text_primary}};
+}
