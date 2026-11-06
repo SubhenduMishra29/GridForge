@@ -30,12 +30,13 @@ from ui.core.qt import (
 
 
 class TransientResultViewWidget(QWidget):
-    playback_frame_changed = Signal(object)
     """Inspect complete transient signals and ordered event history.
 
     The widget renders every source sample. It does not down-sample, interpolate,
     reorder or regenerate solver data.
     """
+
+    playback_frame_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -136,6 +137,8 @@ class TransientResultViewWidget(QWidget):
         self.pause()
         self.playback_frame_changed.emit(None)
         self._model = model
+        self._playback_index = 0
+        self._playback_clock_s = model.time_s[0] if model.sample_count else 0.0
         playable = model.status == "completed" and model.sample_count > 0
         slider_blocked = self._timeline.blockSignals(True)
         try:
