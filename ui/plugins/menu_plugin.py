@@ -3,12 +3,12 @@
 # GridForge V2 — Application Menu Composition
 # Author: Subhendu Mishra
 # ============================================================
-"""Canonical application menu composition boundary."""
+"""Canonical, hierarchical application menu composition boundary."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, TypeAlias
 
 from ui.core.qt import QAction, QMainWindow, QMenu, QMenuBar, QObject
 from ui.core.action_router import UIActionRouter
@@ -17,6 +17,8 @@ from ui.plugins.plugin_context import PluginContext
 
 @dataclass(frozen=True, slots=True)
 class MenuActionSpec:
+    """One leaf menu entry routed through the canonical action router."""
+
     action_id: str
     text: str
     shortcut: str | None = None
@@ -24,19 +26,32 @@ class MenuActionSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class MenuSubmenuSpec:
+    """A named submenu containing further menu entries."""
+
+    menu_id: str
+    title: str
+    items: tuple["MenuItemSpec", ...]
+    separator_before: bool = False
+
+
+MenuItemSpec: TypeAlias = MenuActionSpec | MenuSubmenuSpec
+
+
+@dataclass(frozen=True, slots=True)
 class MenuSpec:
     menu_id: str
     title: str
-    actions: tuple[MenuActionSpec, ...]
+    actions: tuple[MenuItemSpec, ...]
 
 
 class MenuPlugin(QObject):
-    """Compose menus and route every action through UIActionRouter."""
+    """Compose hierarchical menus; route every leaf through UIActionRouter."""
 
     plugin_id = "menu"
     plugin_name = "Menu"
-    plugin_version = "1.0"
-    plugin_description = "Canonical GridForge application menu composition."
+    plugin_version = "1.1"
+    plugin_description = "Canonical hierarchical GridForge application menu composition."
     plugin_dependencies: tuple[str, ...] = ()
     plugin_optional = False
 
@@ -81,35 +96,52 @@ class MenuPlugin(QObject):
                 menu = menu_bar.addMenu(spec.title)
                 menu.setObjectName(f"menu.{spec.menu_id}")
                 self._menus[spec.menu_id] = menu
-                for action_spec in spec.actions:
-                    router.require(action_spec.action_id)
-                    definition = router.definition(action_spec.action_id)
-                    if action_spec.separator_before:
-                        menu.addSeparator()
-                    # MenuActionSpec owns the menu-specific label; the
-                    # canonical definition supplies shared descriptive metadata.
-                    action = QAction(action_spec.text, self)
-                    action.setObjectName(action_spec.action_id)
-                    action.setToolTip(definition.description)
-                    action.setStatusTip(definition.description)
-                    action.setEnabled(router.is_enabled(action_spec.action_id))
-                    # MenuActionSpec declares the shortcut for this concrete menu
-                    # entry. Fall back to canonical action metadata only when the
-                    # menu intentionally leaves the shortcut unspecified.
-                    shortcut = action_spec.shortcut or definition.shortcut
-                    if shortcut:
-                        action.setShortcut(shortcut)
-                    action.triggered.connect(
-                        lambda _checked=False, action_id=action_spec.action_id:
-                            self._dispatch_action(action_id)
-                    )
-                    menu.addAction(action)
-                    self._actions[action_spec.action_id] = action
+                self._populate_menu(menu, spec.actions, router)
             self._initialized = True
             return menu_bar
         except Exception:
             self.shutdown()
             raise
+
+    def _populate_menu(
+        self,
+        menu: QMenu,
+        items: tuple[MenuItemSpec, ...],
+        router: UIActionRouter,
+    ) -> None:
+        for item in items:
+            if item.separator_before:
+                menu.addSeparator()
+            if isinstance(item, MenuSubmenuSpec):
+                if not item.menu_id.strip() or not item.title.strip():
+                    raise ValueError("Submenu IDs and titles must be non-empty.")
+                if item.menu_id in self._menus:
+                    raise ValueError(f"Duplicate menu ID: {item.menu_id!r}")
+                submenu = menu.addMenu(item.title)
+                submenu.setObjectName(f"menu.{item.menu_id}")
+                self._menus[item.menu_id] = submenu
+                self._populate_menu(submenu, item.items, router)
+                continue
+
+            if not isinstance(item, MenuActionSpec):
+                raise TypeError("Menu entries must be MenuActionSpec or MenuSubmenuSpec.")
+            if item.action_id in self._actions:
+                raise ValueError(f"Duplicate menu action ID: {item.action_id!r}")
+            router.require(item.action_id)
+            definition = router.definition(item.action_id)
+            action = QAction(item.text, self)
+            action.setObjectName(item.action_id)
+            action.setToolTip(definition.description)
+            action.setStatusTip(definition.description)
+            action.setEnabled(router.is_enabled(item.action_id))
+            shortcut = item.shortcut or definition.shortcut
+            if shortcut:
+                action.setShortcut(shortcut)
+            action.triggered.connect(
+                lambda _checked=False, action_id=item.action_id: self._dispatch_action(action_id)
+            )
+            menu.addAction(action)
+            self._actions[item.action_id] = action
 
     def shutdown(self) -> None:
         if self._menu_bar is not None:
@@ -129,7 +161,7 @@ class MenuPlugin(QObject):
             action.setEnabled(router.is_enabled(action_id))
 
     def _dispatch_action(self, action_id: str) -> None:
-        """Recheck canonical availability and refresh menu presentation around dispatch."""
+        """Recheck canonical availability and refresh presentation around dispatch."""
         if self._context is None:
             return
         router = self._context.action_router
@@ -144,6 +176,10 @@ class MenuPlugin(QObject):
     def action(self, action_id: str) -> QAction | None:
         return self._actions.get(action_id)
 
+    def menu(self, menu_id: str) -> QMenu | None:
+        """Return a top-level menu or nested submenu by its stable ID."""
+        return self._menus.get(menu_id)
+
     def _require_menu_bar(self) -> QMenuBar:
         if self._menu_bar is None:
             raise RuntimeError("MenuPlugin is initialized without a menu bar.")
@@ -151,9 +187,22 @@ class MenuPlugin(QObject):
 
 
 def default_menus() -> tuple[MenuSpec, ...]:
-    """Return the engineer-oriented application menu taxonomy."""
-    def a(action_id: str, text: str, shortcut: str | None = None, separator_before: bool = False) -> MenuActionSpec:
+    """Return a compact engineering menu taxonomy using existing action IDs."""
+    def a(
+        action_id: str,
+        text: str,
+        shortcut: str | None = None,
+        separator_before: bool = False,
+    ) -> MenuActionSpec:
         return MenuActionSpec(action_id, text, shortcut, separator_before)
+
+    def sub(
+        menu_id: str,
+        title: str,
+        *items: MenuItemSpec,
+        separator_before: bool = False,
+    ) -> MenuSubmenuSpec:
+        return MenuSubmenuSpec(menu_id, title, tuple(items), separator_before)
 
     return (
         MenuSpec("file", "File", (
@@ -174,36 +223,46 @@ def default_menus() -> tuple[MenuSpec, ...]:
             a("edit.cut", "Cut", "Ctrl+X"),
         )),
         MenuSpec("view", "View", (
+            sub("view.panels", "Panels",
+                a("view.toggle_explorer", "Project Explorer"),
+                a("view.equipment_browser", "Equipment Browser"),
+                a("view.toggle_inspector", "Inspector"),
+                a("view.toggle_tool_settings", "Tool Settings"),
+                a("view.toggle_messages", "Messages & Diagnostics"),
+            ),
+            sub("view.navigation", "Canvas Navigation",
+                a("view.fit", "Fit SLD View"),
+                a("view.zoom_in", "Zoom In"),
+                a("view.zoom_out", "Zoom Out"),
+                a("view.pan", "Pan"),
+            ),
             a("view.maximize_editor", "Maximize Editor", "Ctrl+Space"),
-            a("view.toggle_explorer", "Explorer"),
-            a("view.toggle_inspector", "Inspector"),
-            a("view.toggle_messages", "Messages"),
-            a("view.toggle_tool_settings", "Tool Settings"),
-            a("view.fit", "Fit SLD View", None, True),
-            a("view.zoom_in", "Zoom In"),
-            a("view.zoom_out", "Zoom Out"),
-            a("view.pan", "Pan"),
-            a("view.equipment_browser", "Equipment Browser", None, True),
         )),
-        MenuSpec("sld", "SLD", (
-            a("tool.sld.select", "Select"),
-            a("tool.sld.bus", "Place Bus"),
-            a("tool.sld.wire", "Wire"),
-            a("network.commit_draft", "Commit Draft", "Ctrl+Shift+Enter", True),
+        MenuSpec("design", "Design", (
+            sub("design.sld", "Single-Line Diagram",
+                a("tool.sld.select", "Select"),
+                a("tool.sld.bus", "Place Bus"),
+                a("tool.sld.wire", "Wire"),
+            ),
+            sub("design.workspace", "Workspace",
+                a("view.sld_workspace", "SLD Workspace"),
+                a("view.map", "Geographic / Layout Map"),
+            ),
         )),
-        MenuSpec("study", "Study", (
+        MenuSpec("network", "Network", (
+            a("network.commit_draft", "Commit Network Draft", "Ctrl+Shift+Enter"),
+            a("view.topology", "Network Topology"),
+        )),
+        MenuSpec("study", "Studies", (
             a("study.cases", "Study Cases"),
+            a("view.study_workspace", "Study Workspace"),
+        )),
+        MenuSpec("protection_control", "Protection & Control", (
+            a("view.protection_workspace", "Protection Workspace"),
+            a("view.control_workspace", "Control Workspace"),
         )),
         MenuSpec("reports", "Reports", (
             a("view.reports", "Study Reports"),
-        )),
-        MenuSpec("window", "Window", (
-            a("view.sld_workspace", "SLD"),
-            a("view.control_workspace", "Control"),
-            a("view.protection_workspace", "Protection"),
-            a("view.study_workspace", "Study"),
-            a("view.topology", "Topology", None, True),
-            a("view.map", "Map"),
         )),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
@@ -215,4 +274,12 @@ def create_menu_plugin(parent: Optional[QObject] = None) -> MenuPlugin:
     return MenuPlugin(parent=parent)
 
 
-__all__ = ["MenuActionSpec", "MenuPlugin", "MenuSpec", "create_menu_plugin", "default_menus"]
+__all__ = [
+    "MenuActionSpec",
+    "MenuItemSpec",
+    "MenuPlugin",
+    "MenuSpec",
+    "MenuSubmenuSpec",
+    "create_menu_plugin",
+    "default_menus",
+]

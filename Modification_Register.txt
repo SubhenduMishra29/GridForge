@@ -22642,3 +22642,42 @@ Verification:
 Status:
     CORRECTED ON feat/protection-execution-audit-1008; RECONCILED WITH AUTHORITATIVE MAIN; MERGE COMMIT CREATED.
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: HIERARCHICAL ENGINEERING MENUS
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-menu-hierarchy
+
+Changed:
+    ui/plugins/menu_plugin.py
+        Added recursive submenu specifications while preserving leaf
+        action routing through the canonical UIActionRouter.
+        Added stable lookup for top-level menus and nested submenus.
+        Reorganized existing canonical actions into File, Edit, View,
+        Design, Network, Studies, Protection & Control, Reports, and Help.
+        Grouped panel visibility and canvas navigation under View.
+        Grouped SLD tools under Design and network draft/topology actions
+        under Network.
+
+    ui/plugins/__init__.py
+        Exported MenuItemSpec and MenuSubmenuSpec through the public
+        plugin API.
+
+Boundaries:
+    Presentation-only change. No Core or Application domain behavior
+    changed. Existing action IDs and handlers were reused; no parallel
+    action framework or new action handlers were introduced.
+
+Verification:
+    Source-level review completed. Menu action IDs were checked for
+    duplicates. No tests or CI were run.
+    Default SLD workspace panel visibility and toolbar simplification
+    remain separate follow-up work.
+
+======================================================================
