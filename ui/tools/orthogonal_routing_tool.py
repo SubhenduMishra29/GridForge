@@ -88,6 +88,16 @@ class OrthogonalRoutingTool(WireTool):
         self._show_preview()
         return super().on_mouse_press(event)
 
+    def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
+        if not self._route_valid or len(self._route_points) < 2:
+            raise ValueError("Orthogonal routing cannot commit without a valid computed route.")
+        return super()._execute_connection(
+            endpoint_from,
+            endpoint_to,
+            source_snap=source_snap,
+            target_snap=target_snap,
+        )
+
     def on_mouse_move(self, event: Any) -> bool:
         handled = super().on_mouse_move(event)
         if self._preview.source_endpoint is None or self._current_position is None:
