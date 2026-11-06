@@ -92,7 +92,7 @@ def test_application_executes_transient_stability_from_detached_pf_snapshot():
     application.dynamic_models.bind(DynamicMachineModelAssociation(
         machine_id="G1",
         bus_id="B1",
-        model_type="classical",
+        model_type="classical_synchronous_machine",
         parameters=ClassicalMachineParameters(H=3.0, Xd_prime=0.3, Efd=1.1),
         mechanical_power=0.0,
         project_id=application.project_lifecycle.context.project_id,
@@ -127,7 +127,7 @@ def test_study_comparison_read_contract_accepts_live_and_archived_results():
         "bus_voltage_bases_kv": {"B1": 11.0},
         "canonical_topology_fingerprint": "topology-sha256",
         "prepared_network_topology_fingerprint": "prepared-sha256",
-        "machine_model_manifest": (("G1", "classical"),),
+        "machine_model_manifest": (("G1", "classical_synchronous_machine"),),
         "state_signals": ({
             "signal_id": "machine:G1:rotor_angle",
             "global_index": 0,
