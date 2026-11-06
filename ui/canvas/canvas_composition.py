@@ -326,6 +326,12 @@ class CanvasComposition:
         # and preview state without invoking renderer.clear() a second time.
         self._clear_project_state(clear_sld_graphics=False)
         failures: list[tuple[str, BaseException]] = []
+        if self.draft_sld_projection is not None:
+            self._run_cleanup(
+                "draft SLD projection",
+                self.draft_sld_projection.dispose,
+                failures,
+            )
         steps = (
             ("renderer subscriptions and graphics", self.sld_canvas_render_system.dispose),
             ("selection projection subscription", self.selection_projection.dispose),
