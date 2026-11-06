@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 from ui.core.qt import QBrush, QColor, QGraphicsScene, QGraphicsTextItem, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
 from core.application.transient_playback import TransientPlaybackFrameReadModel
+from core.application.events import ApplicationEvent
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -70,6 +71,10 @@ class GraphicsView(QGraphicsView):
         self._scene = scene
         self._last_cursor_scene_position: tuple[float, float] | None = None
         self._playback_source = None
+        self._active_playback_frame: TransientPlaybackFrameReadModel | None = None
+        self._application_event_bus = getattr(getattr(tool_manager, "application", None), "event_bus", None)
+        if callable(getattr(self._application_event_bus, "subscribe", None)):
+            self._application_event_bus.subscribe(ApplicationEvent, self._on_application_event)
         self._playback_overlays: list[QGraphicsTextItem] = []
         self.interaction_manager = interaction_manager
         self.navigation_controller = navigation_controller
@@ -156,27 +161,16 @@ class GraphicsView(QGraphicsView):
             if scene is not None:
                 scene.removeItem(overlay)
         self._playback_overlays.clear()
+        self._active_playback_frame = None
         if frame is None or not isinstance(frame, TransientPlaybackFrameReadModel):
             return
         # Archived and stale results are playable in their own result view but
         # must never be projected onto the currently active live SLD.
         if not frame.live_projection_eligible:
             return
-        application = getattr(self.tool_manager, "application", None)
-        try:
-            lifecycle = getattr(application, "project_lifecycle", None)
-            context = getattr(lifecycle, "context", None)
-            eligible = (
-                application is not None
-                and context is not None
-                and context.project_id == frame.project_id
-                and getattr(lifecycle, "activation_generation", None) == frame.activation_generation
-                and getattr(application, "revision", None) == frame.source_revision
-            )
-        except (RuntimeError, AttributeError):
-            eligible = False
-        if not eligible:
+        if not self._playback_frame_matches_active_project(frame):
             return
+        self._active_playback_frame = frame
         items_by_id = {
             str(getattr(item, "object_id", "")): item
             for item in self._scene.items()
@@ -208,6 +202,31 @@ class GraphicsView(QGraphicsView):
             overlay.setPos(anchor.x() + 5.0, anchor.y() + 5.0)
             self._scene.addItem(overlay)
             self._playback_overlays.append(overlay)
+
+    def _playback_frame_matches_active_project(self, frame: TransientPlaybackFrameReadModel) -> bool:
+        application = getattr(self.tool_manager, "application", None)
+        try:
+            lifecycle = getattr(application, "project_lifecycle", None)
+            context = getattr(lifecycle, "context", None)
+            return bool(
+                application is not None
+                and context is not None
+                and context.project_id == frame.project_id
+                and getattr(lifecycle, "activation_generation", None) == frame.activation_generation
+                and getattr(application, "revision", None) == frame.source_revision
+            )
+        except (RuntimeError, AttributeError):
+            return False
+
+    def _on_application_event(self, _event: ApplicationEvent) -> None:
+        frame = self._active_playback_frame
+        if frame is None or self._playback_frame_matches_active_project(frame):
+            return
+        source = self._playback_source
+        pause = getattr(source, "pause", None)
+        if callable(pause):
+            pause()
+        self.set_transient_playback_frame(None)
 
     def bind_services(
         self,
@@ -364,6 +383,9 @@ class GraphicsView(QGraphicsView):
 
     def dispose(self) -> None:
         self.unbind_transient_playback()
+        if callable(getattr(self._application_event_bus, "unsubscribe", None)):
+            self._application_event_bus.unsubscribe(ApplicationEvent, self._on_application_event)
+        self._application_event_bus = None
         self.interaction_manager = None
         self.navigation_controller = None
         self._contextual_strip.hide()

@@ -380,6 +380,9 @@ class TransientResultViewWidget(QWidget):
         index = max(0, bisect_right(model.time_s, target_time) - 1)
         if index != self._playback_index:
             self._set_playback_index(index, emit_frame=True)
+            # Keep the fractional wall-clock remainder after snapping the
+            # visible cursor to the preceding exact solver sample.
+            self._playback_clock_s = target_time
 
     def hideEvent(self, event) -> None:
         self.pause()
