@@ -328,7 +328,16 @@ class CanvasComposer:
             grid_system=grid_system,
             scene=scene,
         )
-        preview_layer = PreviewLayer(scene=scene)
+        try:
+            preview_layer = PreviewLayer(scene=scene)
+        except BaseException:
+            # SnapSystem is already acquired even though the preparation
+            # aggregate has not yet been returned to the composition root.
+            try:
+                snap_system.dispose()
+            except BaseException:
+                _LOGGER.exception("Canvas preparation rollback failed: snap system")
+            raise
 
         return CanvasCompositionPreparation(
             selection_manager=selection_manager,
@@ -354,6 +363,17 @@ class CanvasComposer:
     ) -> CanvasComposition:
         """Compose the canvas and unwind every acquired resource on failure."""
         cleanup_stack: list[tuple[str, Any]] = []
+        if isinstance(preparation, CanvasCompositionPreparation):
+            # Preparation is part of this composition transaction: it was
+            # created specifically for this compose call and must not survive
+            # a failure before CanvasComposition becomes the lifecycle owner.
+            for label, resource in (
+                ("prepared snap system", preparation.snap_system),
+                ("prepared preview layer", preparation.preview_layer),
+            ):
+                dispose = getattr(resource, "dispose", None)
+                if callable(dispose):
+                    cleanup_stack.append((label, dispose))
         try:
             return self._compose(
                 controller=controller,
