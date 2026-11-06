@@ -22725,3 +22725,37 @@ Verification:
     No tests or CI were run.
 
 ======================================================================
+
+
+======================================================================
+2026-11-06 — UI PHASE 2: COMPACT ENGINEERING COMMAND TOOLBAR
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Branch:
+    ui/phase-2-compact-command-toolbar
+
+Changed:
+    ui/plugins/toolbar_plugin.py
+        Reduced the global toolbar to thirteen commands: Select, Bus, Wire,
+        Undo, Redo, Delete, Commit, Equipment, Zoom Out, Zoom In, Fit,
+        Pan and Studies.
+        Added separators to distinguish command groups and constrained
+        toolbar height/button presentation.
+        Removed duplicate SLD tool selection and workspace navigation
+        actions from the global toolbar; the complete discipline-specific
+        tool inventory remains in the contextual editor ToolShelf and
+        the engineering menus.
+
+Boundaries:
+    All retained actions continue through the canonical UIActionRouter.
+    No handlers or action IDs were added. No Core/Application behavior
+    changed.
+
+Verification:
+    Source-level inspection confirmed ten unique retained action IDs.
+    No tests or CI were run.
+
+======================================================================

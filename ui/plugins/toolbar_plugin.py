@@ -87,6 +87,7 @@ from ui.core.qt import (
     QMainWindow,
     QObject,
     QToolBar,
+    QSize,
     Qt,
     Signal,
 )
@@ -554,6 +555,10 @@ class ToolbarPlugin(QObject):
 
         toolbar.setMovable(False)
         toolbar.setFloatable(False)
+        toolbar.setIconSize(QSize(16, 16))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        toolbar.setMinimumHeight(34)
+        toolbar.setMaximumHeight(42)
 
         main_window.addToolBar(
             Qt.ToolBarArea.TopToolBarArea,
@@ -862,9 +867,9 @@ class ToolbarPlugin(QObject):
             self._clear_tool_presentation()
             return
 
-        # Equipment-specific placement tools are owned by ToolManager but are
-        # intentionally outside this compact Select/Bus/Wire toolbar. Do not
-        # let a valid active placement tool break toolbar presentation sync.
+        # The editor ToolShelf owns the complete tool inventory. The global
+        # command toolbar may intentionally omit the active tool; do not let
+        # that valid tool state break toolbar presentation synchronization.
         if tool_id not in self._tool_action_ids:
             self._clear_tool_presentation()
             return
@@ -1193,37 +1198,87 @@ class ToolbarPlugin(QObject):
 
 
 def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
-    """Return the canonical engineer-entry toolbar workflow."""
+    """Return a compact global command bar; discipline tools remain in ToolShelf."""
     return (
-        ToolbarActionSpec(action_id="tool.sld.select", text="Select", tool_id="select", tooltip="Select and inspect objects.", checkable=True, checked=True),
-        ToolbarActionSpec(action_id="tool.sld.bus", text="Bus", tool_id="bus", tooltip="Create a bus.", checkable=True),
-        ToolbarActionSpec(action_id="tool.sld.wire", text="Wire", tool_id="wire", tooltip="Create a terminal-to-terminal connection.", checkable=True),
-        ToolbarActionSpec(action_id="edit.box_select", text="Box Select", tooltip="Select objects inside a rectangle.", separator_before=True),
-        ToolbarActionSpec(action_id="edit.move", text="Move", tooltip="Move selected SLD objects through the Select tool."),
-        ToolbarActionSpec(action_id="edit.drag_move", text="Drag Move", tooltip="Drag selected SLD objects through the Select tool."),
-        ToolbarActionSpec(action_id="edit.rotate", text="Rotate", tooltip="Rotate selected symbols by 90 degrees."),
-        ToolbarActionSpec(action_id="edit.mirror_horizontal", text="Mirror H", tooltip="Mirror selected symbols horizontally."),
-        ToolbarActionSpec(action_id="edit.mirror_vertical", text="Mirror V", tooltip="Mirror selected symbols vertically."),
-        ToolbarActionSpec(action_id="view.equipment_browser", text="Equipment", tooltip="Open the catalogue-driven Equipment Browser.", separator_before=True),
-        ToolbarActionSpec(action_id="view.zoom_out", text="Zoom −", tooltip="Zoom out of the SLD view."),
-        ToolbarActionSpec(action_id="view.zoom_in", text="Zoom +", tooltip="Zoom into the SLD view."),
-        ToolbarActionSpec(action_id="view.fit", text="Fit", tooltip="Fit the SLD view."),
-        ToolbarActionSpec(action_id="view.pan", text="Pan", tooltip="Pan the SLD viewport with the navigation controller."),
-        ToolbarActionSpec(action_id="edit.undo", text="Undo", tooltip="Undo the last application command.", separator_before=True),
-        ToolbarActionSpec(action_id="edit.redo", text="Redo", tooltip="Redo the last application command."),
-        ToolbarActionSpec(action_id="edit.delete_selection", text="Delete", tooltip="Delete the selected engineering object."),
-        ToolbarActionSpec(action_id="edit.select_all", text="Select All", tooltip="Select all visible SLD objects."),
-        ToolbarActionSpec(action_id="edit.copy", text="Copy", tooltip="Copy the selected SLD representation."),
-        ToolbarActionSpec(action_id="edit.paste", text="Paste", tooltip="Paste the copied SLD representation."),
-        ToolbarActionSpec(action_id="edit.cut", text="Cut", tooltip="Copy and remove the selected SLD representation."),
-        ToolbarActionSpec(action_id="study.cases", text="Studies", tooltip="Open Study Cases.", separator_before=True),
-        ToolbarActionSpec(action_id="view.sld_workspace", text="SLD", tooltip="Activate the SLD engineering workspace."),
-        ToolbarActionSpec(action_id="view.topology", text="Topology", tooltip="Show the Application topology projection."),
-        ToolbarActionSpec(action_id="view.map", text="Map", tooltip="Show persisted SLD geometry."),
-        ToolbarActionSpec(action_id="view.reports", text="Reports", tooltip="Show published study results."),
-        ToolbarActionSpec(action_id="view.control_workspace", text="Control", tooltip="Activate the Control workspace."),
-        ToolbarActionSpec(action_id="view.protection_workspace", text="Protection", tooltip="Activate the Protection workspace."),
+        ToolbarActionSpec(
+            action_id="tool.sld.select",
+            text="Select",
+            tool_id="select",
+            tooltip="Select and inspect engineering objects.",
+            checkable=True,
+            checked=True,
+        ),
+        ToolbarActionSpec(
+            action_id="tool.sld.bus",
+            text="Bus",
+            tool_id="bus",
+            tooltip="Place a bus in the SLD.",
+            checkable=True,
+        ),
+        ToolbarActionSpec(
+            action_id="tool.sld.wire",
+            text="Wire",
+            tool_id="wire",
+            tooltip="Connect two compatible SLD terminals.",
+            checkable=True,
+        ),
+        ToolbarActionSpec(
+            action_id="edit.undo",
+            text="Undo",
+            tooltip="Undo the last application command.",
+        ),
+        ToolbarActionSpec(
+            action_id="edit.redo",
+            text="Redo",
+            tooltip="Redo the last application command.",
+        ),
+        ToolbarActionSpec(
+            action_id="edit.delete_selection",
+            text="Delete",
+            tooltip="Delete the selected engineering object.",
+            separator_before=True,
+        ),
+        ToolbarActionSpec(
+            action_id="network.commit_draft",
+            text="Commit",
+            tooltip="Commit the active validated network draft.",
+            separator_before=True,
+        ),
+        ToolbarActionSpec(
+            action_id="view.equipment_browser",
+            text="Equipment",
+            tooltip="Open the Equipment tab in the SLD Explorer.",
+            separator_before=True,
+        ),
+        ToolbarActionSpec(
+            action_id="view.zoom_out",
+            text="Zoom −",
+            tooltip="Zoom out of the SLD view.",
+            separator_before=True,
+        ),
+        ToolbarActionSpec(
+            action_id="view.zoom_in",
+            text="Zoom +",
+            tooltip="Zoom into the SLD view.",
+        ),
+        ToolbarActionSpec(
+            action_id="view.fit",
+            text="Fit",
+            tooltip="Fit the SLD view.",
+        ),
+        ToolbarActionSpec(
+            action_id="view.pan",
+            text="Pan",
+            tooltip="Pan the SLD viewport.",
+        ),
+        ToolbarActionSpec(
+            action_id="study.cases",
+            text="Studies",
+            tooltip="Open Study Cases.",
+            separator_before=True,
+        ),
     )
+
 
 
 # ============================================================
