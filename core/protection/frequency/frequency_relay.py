@@ -7,7 +7,6 @@ Application-validated MeasurementChannel snapshot path.
 """
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
 import math
 from numbers import Real
@@ -218,8 +217,11 @@ class FrequencyProtectionRelay(RelayBase):
             complete_window = len(updated) == expected_samples
             if complete_window:
                 span = updated[-1][0] - updated[0][0]
+                accumulated_tolerance = (
+                    settings.sample_interval_tolerance_seconds * (expected_samples - 1)
+                )
                 if abs(span - settings.estimation_window_seconds) > max(
-                    settings.sample_interval_tolerance_seconds,
+                    accumulated_tolerance,
                     1e-9 * settings.estimation_window_seconds,
                 ):
                     raise ValueError("Frequency samples do not span the complete configured estimation window.")
