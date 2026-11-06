@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 from typing import Callable, Iterable
 
 from core.application.command import Command
@@ -57,6 +58,8 @@ class ProtectionPostconditionVerification:
     expected_state: str | None = None
     observed_state: str | None = None
     diagnostic: str = ""
+    observed_at: float | None = None
+    timestamp_domain: str = "protection_evaluation"
 
     def __post_init__(self) -> None:
         for name in ("command_id", "target_equipment_type", "target_equipment_id", "action_type"):
@@ -67,6 +70,14 @@ class ProtectionPostconditionVerification:
             object.__setattr__(self, "status", PostconditionStatus(self.status))
         if not isinstance(self.diagnostic, str):
             raise TypeError("diagnostic must be a string.")
+        if self.observed_at is not None and (
+            isinstance(self.observed_at, bool)
+            or not isinstance(self.observed_at, (int, float))
+            or not math.isfinite(self.observed_at)
+        ):
+            raise ValueError("observed_at must be a finite timestamp or None.")
+        if not isinstance(self.timestamp_domain, str) or not self.timestamp_domain.strip():
+            raise ValueError("timestamp_domain must be a non-empty string.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +121,8 @@ class ProtectionExecutionResult:
     application_results: tuple[ApplicationResult, ...] = ()
     diagnostics: tuple[str, ...] = ()
     outcomes: tuple[ProtectionActionOutcome, ...] = ()
+    cycle_id: str | None = None
+    audit_persistence_status: str = "not_configured"
 
     def __post_init__(self) -> None:
         sequence_fields = (
@@ -134,6 +147,10 @@ class ProtectionExecutionResult:
         if any(not isinstance(value, str) for value in normalized_diagnostics):
             raise TypeError("diagnostics must contain only strings.")
         object.__setattr__(self, "diagnostics", normalized_diagnostics)
+        if self.cycle_id is not None and (not isinstance(self.cycle_id, str) or not self.cycle_id.strip()):
+            raise ValueError("cycle_id must be a non-empty string or None.")
+        if not isinstance(self.audit_persistence_status, str) or not self.audit_persistence_status.strip():
+            raise ValueError("audit_persistence_status must be a non-empty string.")
 
 
 class ProtectionExecutionService:
@@ -151,6 +168,7 @@ class ProtectionExecutionService:
         pre_dispatch_guard: Callable[[], None] | None = None,
         decision_guard: Callable[[ProtectionDecision, ControlDecision | None], None] | None = None,
         state_observer: Callable[[ControlDecision, Command, ApplicationResult], ProtectionPostconditionVerification | str] | None = None,
+        dispatch_observer: Callable[[ProtectionDecision, ControlDecision, Command], None] | None = None,
     ) -> None:
         if not isinstance(dispatcher, ControlCommandDispatcher):
             raise TypeError("dispatcher must be a ControlCommandDispatcher.")
@@ -167,6 +185,9 @@ class ProtectionExecutionService:
         if state_observer is not None and not callable(state_observer):
             raise TypeError("state_observer must be callable or None.")
         self._state_observer = state_observer
+        if dispatch_observer is not None and not callable(dispatch_observer):
+            raise TypeError("dispatch_observer must be callable or None.")
+        self._dispatch_observer = dispatch_observer
 
     @property
     def dispatcher(self) -> ControlCommandDispatcher:
@@ -407,6 +428,14 @@ class ProtectionExecutionService:
             # the outcome is indeterminate; a second action could conflict with
             # a command that crossed the commit boundary.
             dispatched_targets.add(target_key)
+            if self._dispatch_observer is not None:
+                try:
+                    self._dispatch_observer(protection_decision, control_decision, command)
+                except Exception as exc:
+                    diagnostics.append(
+                        f"Protection dispatch audit observer failed for command "
+                        f"'{command.command_id}': {type(exc).__name__}: {exc}"
+                    )
             try:
                 result = self._dispatcher.execute_command(command)
             except StaleProtectionExecutionError as exc:

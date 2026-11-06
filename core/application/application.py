@@ -79,6 +79,7 @@ from .protection_execution import (
     StaleProtectionExecutionError,
     StaleProtectionDecisionError,
 )
+from .protection_execution_audit import ProtectionExecutionAuditStore, ProtectionExecutionAuditRecord
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
 from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
@@ -114,7 +115,8 @@ class Application:
                  sld_service: SLDService | None = None,
                  measurement_channel_service: MeasurementChannelService | None = None,
                  control_service: ControlApplicationService | None = None,
-                 control_signal_mapping: ControlSignalMapping | None = None) -> None:
+                 control_signal_mapping: ControlSignalMapping | None = None,
+                 protection_execution_audit_store: ProtectionExecutionAuditStore | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
         if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping): raise TypeError("Application control_signal_mapping must be a ControlSignalMapping or None.")
@@ -124,6 +126,9 @@ class Application:
         if validation_service is not None and not isinstance(validation_service, ValidationService): raise TypeError("Application validation_service must be a ValidationService.")
         if sld_service is not None and not isinstance(sld_service, SLDService): raise TypeError("Application sld_service must be an SLDService.")
         if measurement_channel_service is not None and not isinstance(measurement_channel_service, MeasurementChannelService): raise TypeError("Application measurement_channel_service must be a MeasurementChannelService.")
+        if protection_execution_audit_store is not None and not isinstance(protection_execution_audit_store, ProtectionExecutionAuditStore):
+            raise TypeError("protection_execution_audit_store must be a ProtectionExecutionAuditStore or None.")
+        self._protection_execution_audit_store = protection_execution_audit_store
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
@@ -734,25 +739,225 @@ class Application:
         supervision: Mapping[str, Any] | None = None,
         network_state: TopologySnapshot | None = None,
     ) -> ProtectionExecutionResult:
-        """Serialize one protection cycle and publish its read-side change event."""
+        """Execute one Protection cycle and durably correlate its evidence.
+
+        Audit persistence is best-effort for operational continuity: a storage
+        outage is returned as an explicit diagnostic and never suppresses a
+        Protection trip. A cycle is claimed before evaluation/dispatch whenever
+        a valid evaluation timestamp and active project are available.
+        """
         with self._execution_lock:
-            result = self._evaluate_protection_cycle_unlocked(
-                evaluation_time,
-                evaluation_metadata=evaluation_metadata,
-                evaluation_timestep=evaluation_timestep,
-                event_id=event_id,
-                event_type=event_type,
-                supervision=supervision,
-                network_state=network_state,
+            cycle_id = (
+                event_id.strip()
+                if isinstance(event_id, str) and event_id.strip()
+                else str(uuid4())
             )
             lifecycle = self.project_lifecycle
             project = lifecycle.context
+            generation = lifecycle.activation_generation
+            audit_time: float | None = None
+            try:
+                candidate_time = float(evaluation_time)
+                if not isinstance(evaluation_time, bool) and isfinite(candidate_time) and candidate_time >= 0.0:
+                    audit_time = candidate_time
+            except (TypeError, ValueError, OverflowError):
+                audit_time = None
+
+            configuration_service = getattr(self, "protection_configuration_service", None)
+            configuration = getattr(configuration_service, "configuration", None)
+            configuration_snapshot = None
+            if configuration is not None:
+                try:
+                    configuration_snapshot = configuration.create_snapshot(generation)
+                except Exception:
+                    configuration_snapshot = None
+            audit_errors: list[str] = []
+            measurement_sample_provenance = []
+            try:
+                configured_channel_ids = set()
+                if configuration is not None:
+                    for element in configuration.elements:
+                        if element.enabled:
+                            configured_channel_ids.update(element.input_channel_ids.values())
+                active_channels = (
+                    self._measurement_channel_service.channels
+                    if self._measurement_channel_service is not None else {}
+                )
+                for channel_id in sorted(configured_channel_ids):
+                    channel = active_channels.get(channel_id)
+                    if channel is None:
+                        measurement_sample_provenance.append({
+                            "channel_id": channel_id, "sample_state": "unavailable"
+                        })
+                        continue
+                    source_terminal = getattr(channel, "source_terminal", None)
+                    measurement_sample_provenance.append({
+                        "channel_id": channel_id,
+                        "producer_id": getattr(channel, "producer_id", None),
+                        "source_equipment_id": getattr(getattr(channel, "source", None), "id", None),
+                        "source_terminal": (
+                            {
+                                "equipment_id": getattr(source_terminal, "equipment_id", None),
+                                "terminal_role": getattr(source_terminal, "terminal_role", None),
+                                "equipment_type": getattr(
+                                    getattr(source_terminal, "equipment_type", None),
+                                    "value",
+                                    getattr(source_terminal, "equipment_type", None),
+                                ),
+                            } if source_terminal is not None else None
+                        ),
+                        "signal_type": getattr(getattr(channel, "signal_type", None), "value", getattr(channel, "signal_type", None)),
+                        "phase": getattr(getattr(channel, "phase", None), "value", getattr(channel, "phase", None)),
+                        "unit": getattr(channel, "unit", None),
+                        "raw_value": getattr(channel, "raw_value", None),
+                        "timestamp": getattr(channel, "timestamp", None),
+                        "timestamp_domain": getattr(channel, "timestamp_domain", None),
+                        "sample_sequence": getattr(channel, "sample_sequence", None),
+                        "quality": getattr(getattr(channel, "quality", None), "value", getattr(channel, "quality", None)),
+                        "available": getattr(channel, "available", None),
+                    })
+            except Exception as exc:
+                audit_errors.append(
+                    f"Protection measurement provenance capture failed: {type(exc).__name__}: {exc}"
+                )
+            try:
+                configuration_payload = (
+                    configuration_snapshot.to_dict() if configuration_snapshot is not None else None
+                )
+            except Exception as exc:
+                configuration_payload = None
+                audit_errors.append(
+                    f"Protection configuration snapshot audit capture failed: {type(exc).__name__}: {exc}"
+                )
+            audit_metadata = {
+                "project_id": None if project is None else str(project.project_id),
+                "activation_generation": generation,
+                "evaluation_time": audit_time,
+                "event_id": event_id,
+                "event_type": event_type,
+                "configuration_revision": getattr(configuration_snapshot, "revision", None),
+                "configuration_content_identity": getattr(configuration_snapshot, "content_identity", None),
+                "configuration_snapshot": configuration_payload,
+                "measurement_sample_provenance": tuple(measurement_sample_provenance),
+            }
+            audit_status = "not_configured"
+            audit_store = self._protection_execution_audit_store
+            if audit_store is not None and project is not None and audit_time is not None:
+                try:
+                    claimed = audit_store.begin_cycle(
+                        project_id=str(project.project_id),
+                        activation_generation=generation,
+                        cycle_id=cycle_id,
+                        occurred_at=audit_time,
+                        metadata=audit_metadata,
+                    )
+                    if not claimed:
+                        duplicate_result = ProtectionExecutionResult(
+                            diagnostics=(
+                                f"Duplicate Protection cycle identity {cycle_id!r} "
+                                "was already claimed; redispatch was suppressed.",
+                            ),
+                            cycle_id=cycle_id,
+                            audit_persistence_status="duplicate",
+                        )
+                        self._event_bus.publish(ProtectionChanged(
+                            operation="cycle_evaluated",
+                            metadata={
+                                "project_id": str(project.project_id),
+                                "activation_generation": generation,
+                                "evaluation_time": audit_time,
+                                "cycle_id": cycle_id,
+                                "audit_persistence_status": "duplicate",
+                                "decision_count": 0,
+                                "command_count": 0,
+                                "outcome_statuses": (),
+                                "physical_acknowledgement": "unknown/unavailable",
+                            },
+                        ))
+                        return duplicate_result
+                    audit_status = "claimed"
+                except Exception as exc:
+                    audit_status = "claim_failed"
+                    audit_errors.append(
+                        f"Protection audit cycle claim failed: {type(exc).__name__}: {exc}"
+                    )
+            audit_metadata["audit_claim_status"] = audit_status
+            audit_metadata["audit_claim_diagnostics"] = tuple(audit_errors)
+
+            try:
+                result = self._evaluate_protection_cycle_unlocked(
+                    evaluation_time,
+                    evaluation_metadata=evaluation_metadata,
+                    evaluation_timestep=evaluation_timestep,
+                    event_id=event_id,
+                    event_type=event_type,
+                    supervision=supervision,
+                    network_state=network_state,
+                    audit_cycle_id=cycle_id if audit_status == "claimed" else None,
+                    audit_error_sink=audit_errors,
+                )
+            except Exception as exc:
+                if (
+                    audit_status == "claimed"
+                    and audit_store is not None
+                    and project is not None
+                    and audit_time is not None
+                ):
+                    try:
+                        audit_store.append_failure(
+                            project_id=str(project.project_id),
+                            activation_generation=generation,
+                            cycle_id=cycle_id,
+                            occurred_at=audit_time,
+                            diagnostic=f"{type(exc).__name__}: {exc}",
+                            metadata=audit_metadata,
+                        )
+                    except Exception as audit_exc:
+                        audit_errors.append(
+                            f"Protection audit failure-record write failed: {type(audit_exc).__name__}: {audit_exc}"
+                        )
+                raise
+
+            if (
+                audit_status == "claimed"
+                and audit_store is not None
+                and project is not None
+                and audit_time is not None
+            ):
+                try:
+                    audit_store.append_cycle(
+                        project_id=str(project.project_id),
+                        activation_generation=generation,
+                        cycle_id=cycle_id,
+                        occurred_at=audit_time,
+                        metadata=audit_metadata,
+                        result=result,
+                    )
+                    audit_status = "persisted" if not audit_errors else "partial"
+                except Exception as exc:
+                    audit_status = "failed"
+                    audit_errors.append(
+                        f"Protection audit result write failed: {type(exc).__name__}: {exc}"
+                    )
+
+            result = replace(
+                result,
+                cycle_id=cycle_id,
+                audit_persistence_status=audit_status,
+                diagnostics=(
+                    tuple(result.diagnostics) + tuple(audit_errors)
+                ),
+            )
+
             self._event_bus.publish(ProtectionChanged(
                 operation="cycle_evaluated",
                 metadata={
                     "project_id": None if project is None else str(project.project_id),
-                    "activation_generation": lifecycle.activation_generation,
+                    "activation_generation": generation,
                     "evaluation_time": float(evaluation_time),
+                    "cycle_id": cycle_id,
+                    "audit_persistence_status": audit_status,
+                    "audit_diagnostics": tuple(audit_errors),
                     "decision_count": len(result.decisions),
                     "command_count": len(result.commands),
                     "outcome_statuses": tuple(item.status for item in result.outcomes),
@@ -760,6 +965,78 @@ class Application:
                 },
             ))
             return result
+
+    def read_protection_execution_audit(
+        self,
+        *,
+        project_id: str,
+        start_time: float | None = None,
+        end_time: float | None = None,
+        relay_id: str | None = None,
+        element_id: str | None = None,
+        command_id: str | None = None,
+        cycle_id: str | None = None,
+        timestamp_domain: str | None = None,
+        limit: int = 500,
+    ) -> tuple[ProtectionExecutionAuditRecord, ...]:
+        """Read detached durable Protection audit records through Application."""
+        if self._protection_execution_audit_store is None:
+            raise RuntimeError("Protection execution audit storage is not configured.")
+        return self._protection_execution_audit_store.query(
+            project_id=project_id, start_time=start_time, end_time=end_time,
+            relay_id=relay_id, element_id=element_id, command_id=command_id,
+            cycle_id=cycle_id, timestamp_domain=timestamp_domain, limit=limit,
+        )
+
+    def verify_protection_execution_audit_integrity(self) -> tuple[bool, int | None]:
+        """Verify the durable audit hash chain without mutating stored records."""
+        if self._protection_execution_audit_store is None:
+            raise RuntimeError("Protection execution audit storage is not configured.")
+        return self._protection_execution_audit_store.verify_integrity()
+
+    def read_protection_execution_audit_cycle(
+        self, *, project_id: str, cycle_id: str
+    ) -> tuple[ProtectionExecutionAuditRecord, ...]:
+        """Read the complete correlated record set for one Protection cycle."""
+        if self._protection_execution_audit_store is None:
+            raise RuntimeError("Protection execution audit storage is not configured.")
+        return self._protection_execution_audit_store.read_cycle(
+            project_id=project_id, cycle_id=cycle_id
+        )
+
+    def record_protection_field_feedback(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int,
+        cycle_id: str,
+        feedback_id: str,
+        command_id: str,
+        source_id: str,
+        source_timestamp: float,
+        correlation_id: str,
+        delivery_status: str,
+        acknowledgement_status: str,
+        quality_status: str,
+        authenticity_status: str,
+        timestamp_domain: str,
+        delivery_id: str | None = None,
+        acknowledgement_id: str | None = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Append independently sourced field feedback; never infer it from Core."""
+        if self._protection_execution_audit_store is None:
+            raise RuntimeError("Protection execution audit storage is not configured.")
+        return self._protection_execution_audit_store.append_field_feedback(
+            project_id=project_id, activation_generation=activation_generation,
+            cycle_id=cycle_id, feedback_id=feedback_id, command_id=command_id,
+            source_id=source_id, source_timestamp=source_timestamp,
+            correlation_id=correlation_id, delivery_status=delivery_status,
+            acknowledgement_status=acknowledgement_status,
+            quality_status=quality_status, authenticity_status=authenticity_status,
+            timestamp_domain=timestamp_domain, delivery_id=delivery_id,
+            acknowledgement_id=acknowledgement_id, payload=payload,
+        )
 
     def _on_measurement_sample_published(
         self,
@@ -787,7 +1064,20 @@ class Application:
         ):
             return None
         try:
-            return self.evaluate_protection_cycle(float(trusted_evaluation_time))
+            measurement_service = self._measurement_channel_service
+            active_channels = measurement_service.channels if measurement_service is not None else {}
+            sample = active_channels.get(channel_id)
+            sample_sequence = getattr(sample, "sample_sequence", None)
+            sample_event_id = (
+                f"measurement:{channel_id}:{sample_sequence}"
+                if isinstance(sample_sequence, int) and not isinstance(sample_sequence, bool)
+                and sample_sequence >= 0 else None
+            )
+            return self.evaluate_protection_cycle(
+                float(trusted_evaluation_time),
+                event_id=sample_event_id,
+                event_type="measurement_sample",
+            )
         except Exception as exc:
             project = lifecycle.context
             self._event_bus.publish(ProtectionChanged(
@@ -884,6 +1174,8 @@ class Application:
         event_type: str | None = None,
         supervision: Mapping[str, Any] | None = None,
         network_state: TopologySnapshot | None = None,
+        audit_cycle_id: str | None = None,
+        audit_error_sink: list[str] | None = None,
     ) -> ProtectionExecutionResult:
         """Evaluate the active project's protection system at an explicit time.
 
@@ -1540,6 +1832,24 @@ class Application:
             metadata=context_metadata,
         )
         decisions = runtime.system.evaluate(context)
+        audit_store = self._protection_execution_audit_store
+        if audit_store is not None and audit_cycle_id is not None and audit_error_sink is not None:
+            try:
+                audit_store.append_decisions(
+                    project_id=str(project.project_id),
+                    activation_generation=lifecycle.activation_generation,
+                    cycle_id=audit_cycle_id,
+                    occurred_at=evaluation_time,
+                    decisions=tuple(decisions),
+                    metadata={
+                        "configuration_revision": captured_configuration.revision,
+                        "topology_revision": captured_topology_revision,
+                    },
+                )
+            except Exception as exc:
+                audit_error_sink.append(
+                    f"Protection decision audit write failed: {type(exc).__name__}: {exc}"
+                )
 
         def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
             """Resolve only an explicit project-persisted function-to-target mapping."""
@@ -1596,6 +1906,8 @@ class Application:
                     expected_state=expected,
                     observed_state=observed,
                     diagnostic=diagnostic,
+                    observed_at=evaluation_time,
+                    timestamp_domain="protection_evaluation",
                 )
 
             target_types = {
@@ -1685,12 +1997,34 @@ class Application:
                 )
             return resolved
 
+        def persist_protection_dispatch_intent(
+            decision: Any, control_decision: Any, command: Command
+        ) -> None:
+            if audit_store is None or audit_cycle_id is None or audit_error_sink is None:
+                return
+            try:
+                audit_store.append_dispatch_intent(
+                    project_id=str(project.project_id),
+                    activation_generation=lifecycle.activation_generation,
+                    cycle_id=audit_cycle_id,
+                    occurred_at=evaluation_time,
+                    decision=decision,
+                    control_decision=control_decision,
+                    command=command,
+                )
+            except Exception as exc:
+                audit_error_sink.append(
+                    f"Protection dispatch-intent audit write failed for "
+                    f"command {command.command_id}: {type(exc).__name__}: {exc}"
+                )
+
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
             action_resolver=validate_persisted_protection_action,
             pre_dispatch_guard=ensure_current_protection_dispatch_provenance,
             decision_guard=ensure_current_protection_decision_dependency,
             state_observer=observe_protection_command_state,
+            dispatch_observer=persist_protection_dispatch_intent,
         )
         return execution.execute(decisions)
 
