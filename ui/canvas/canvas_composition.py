@@ -352,6 +352,45 @@ class CanvasComposer:
         sld_canvas_projection: SLDCanvasProjection | None = None,
         sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
     ) -> CanvasComposition:
+        """Compose the canvas and unwind every acquired resource on failure."""
+        cleanup_stack: list[tuple[str, Any]] = []
+        try:
+            return self._compose(
+                controller=controller,
+                tool_manager=tool_manager,
+                preparation=preparation,
+                sld_controller=sld_controller,
+                parent=parent,
+                workspace_id=workspace_id,
+                discipline=discipline,
+                properties_panel=properties_panel,
+                sld_canvas_projection=sld_canvas_projection,
+                sld_canvas_render_system=sld_canvas_render_system,
+                _cleanup_stack=cleanup_stack,
+            )
+        except BaseException:
+            for label, operation in reversed(cleanup_stack):
+                try:
+                    operation()
+                except BaseException:
+                    _LOGGER.exception("Canvas composition rollback failed: %s", label)
+            raise
+
+    def _compose(
+        self,
+        *,
+        controller: Controller,
+        tool_manager: ToolManager,
+        preparation: CanvasCompositionPreparation,
+        sld_controller: SLDController,
+        parent: Optional[QWidget] = None,
+        workspace_id: str = "sld",
+        discipline: str | None = None,
+        properties_panel: Any = None,
+        sld_canvas_projection: SLDCanvasProjection | None = None,
+        sld_canvas_render_system: SLDCanvasRenderSystem | None = None,
+        _cleanup_stack: list[tuple[str, Any]],
+    ) -> CanvasComposition:
         """Construct one complete Canvas service graph.
 
         The canonical SLDController is injected by the composition root,
@@ -401,6 +440,8 @@ class CanvasComposer:
         # explicitly supplied by the application composition root. This method
         # must not rediscover or replace that dependency.
         route_edit_controller = SLDRouteEditController(sld_controller)
+        _cleanup_stack.append(("route edit controller", route_edit_controller.cancel))
+        _cleanup_stack.append(("renderer subscriptions and graphics", sld_canvas_render_system.dispose))
         sld_canvas_render_system.bind_route_edit_controller(route_edit_controller)
         if sld_canvas_render_system.selection_manager is not None and sld_canvas_render_system.selection_manager is not selection_manager:
             raise ValueError("SLDCanvasRenderSystem must use the prepared SelectionManager.")
@@ -412,6 +453,7 @@ class CanvasComposer:
             scene=scene,
             parent=parent,
         )
+        _cleanup_stack.append(("graphics view references", view.dispose))
         coordinate_system = CoordinateSystem(view=view, grid_system=grid_system)
         input_adapter = MouseEventAdapter(view=view, scene=scene)
         interaction_manager = InteractionManager(
@@ -426,7 +468,9 @@ class CanvasComposer:
             discipline=discipline or workspace_id,
             input_adapter=input_adapter,
         )
+        _cleanup_stack.append(("interaction manager", interaction_manager.dispose))
         navigation_controller = NavigationController(view=view)
+        _cleanup_stack.append(("navigation controller", navigation_controller.dispose))
         sld_canvas_render_system.bind_navigation_controller(navigation_controller)
 
         view.bind_services(
@@ -442,6 +486,7 @@ class CanvasComposer:
             sld_canvas_render_system=sld_canvas_render_system,
             parent=parent,
         )
+        _cleanup_stack.append(("surface zoom observer", surface.detach_navigation_listener))
         selection_manager.set_scene(scene)
 
         selection_projection = SelectionProjectionCoordinator(
@@ -449,6 +494,7 @@ class CanvasComposer:
             application=application,
             properties_panel=properties_panel,
         )
+        _cleanup_stack.append(("selection projection subscription", selection_projection.dispose))
 
         return CanvasComposition(
             view=view,
