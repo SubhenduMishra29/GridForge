@@ -573,6 +573,7 @@ class ProjectWorkspaceApplicationAdapter:
         document_id: str,
         *,
         _reconcile_rollback: bool = True,
+        _run_transition_guard: bool = True,
     ) -> ProjectWorkspaceState:
         """Atomically activate one canonical workspace document and presentation."""
         document = self._lifecycle.documents.require(document_id)
@@ -581,7 +582,7 @@ class ProjectWorkspaceApplicationAdapter:
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         try:
-            if self._document_transition_guard is not None:
+            if _run_transition_guard and self._document_transition_guard is not None:
                 self._document_transition_guard()
             self._lifecycle.activate_document_id(document_id)
             self._application.activate_presentation(document)
@@ -670,7 +671,11 @@ class ProjectWorkspaceApplicationAdapter:
                 document_id=document.document_id,
                 view_type="sld",
             ))
-            self.activate_document(document.document_id, _reconcile_rollback=False)
+            self.activate_document(
+                document.document_id,
+                _reconcile_rollback=False,
+                _run_transition_guard=False,
+            )
             return document
         except BaseException as primary:
             recovery: list[tuple[str, Callable[[], None]]] = []
@@ -737,7 +742,11 @@ class ProjectWorkspaceApplicationAdapter:
                         return self._lifecycle.state
                 try:
                     if previous_active is not document:
-                        self.activate_document(document_id, _reconcile_rollback=False)
+                        self.activate_document(
+                            document_id,
+                            _reconcile_rollback=False,
+                            _run_transition_guard=False,
+                        )
                     if context is not None and getattr(context, "path", None) is not None:
                         self._application.save_project()
                     else:
