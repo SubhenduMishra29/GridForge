@@ -45,6 +45,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .protection_execution_audit import ProtectionExecutionAuditStore
 from .control_dispatch import ControlTripBatchCommand
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
@@ -277,12 +278,16 @@ def create_application(
         return command_manager, NetworkReadService(active_network), ValidationService(active_network)
 
     command_manager, read_service, validation_service = build_runtime(network)
+    protection_execution_audit_store = ProtectionExecutionAuditStore(
+        Path.home() / ".gridforge" / "audit" / "protection-execution.sqlite3"
+    )
     application = Application(
         command_manager=command_manager,
         read_service=read_service,
         validation_service=validation_service,
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
+        protection_execution_audit_store=protection_execution_audit_store,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
     # Study outputs are durable execution artifacts, stored outside the
@@ -766,25 +771,16 @@ def create_application(
                     f"{typed_configuration.end_time:.12g}] s."
                 )
             if kind in {"breaker_open", "breaker_close"}:
-                breaker_id = str(event["breaker_id"])
-                affected_equipment_ids = tuple(
-                    str(value) for value in event.get("affected_equipment_ids", ())
-                )
+                breaker_id = event["breaker_id"]
+                affected_equipment_ids = tuple(event.get("affected_equipment_ids", ()))
                 if not affected_equipment_ids:
                     raise ValueError(
                         f"Transient event {event_id!r} ({kind}) must provide "
                         "affected_equipment_ids to change the detached network."
                     )
-                known_ids = {
-                    item.branch_id
-                    for item in (*event_state.snapshot.branches, *event_state.snapshot.transformers)
-                } | {item.shunt_id for item in event_state.snapshot.shunts}
-                unknown_ids = sorted(set(affected_equipment_ids) - known_ids)
-                if unknown_ids:
-                    raise ValueError(
-                        f"Transient breaker event {event_id!r} references unknown "
-                        f"network equipment IDs: {unknown_ids!r}."
-                    )
+                breaker_id, affected_equipment_ids = event_state.validate_switch_target(
+                    breaker_id, affected_equipment_ids
+                )
                 scheduler = schedule_breaker_open if kind == "breaker_open" else schedule_breaker_close
                 scheduler(
                     event_manager, event_state, time, breaker_id,
@@ -793,7 +789,14 @@ def create_application(
                     priority=int(event.get("priority", 0)),
                 )
             elif kind == "equipment_state":
-                schedule_equipment_state(event_manager, event_state, time, str(event["equipment_id"]), bool(event["conducting"]), event_id=event_id, priority=int(event.get("priority", 0)))
+                equipment_id = event_state.validate_equipment_target(event["equipment_id"])
+                conducting = event["conducting"]
+                if not isinstance(conducting, bool):
+                    raise TypeError("Transient equipment_state event conducting must be an explicit bool.")
+                schedule_equipment_state(
+                    event_manager, event_state, time, equipment_id, conducting,
+                    event_id=event_id, priority=int(event.get("priority", 0))
+                )
             elif kind == "fault_apply":
                 fault = TransientFault(
                     fault_type=FaultType.from_value(event["fault_type"]),
