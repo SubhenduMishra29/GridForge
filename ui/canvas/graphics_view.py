@@ -213,7 +213,7 @@ class GraphicsView(QGraphicsView):
                 and context is not None
                 and context.project_id == frame.project_id
                 and getattr(lifecycle, "activation_generation", None) == frame.activation_generation
-                and getattr(application, "revision", None) == frame.source_revision
+                and frame.source_revision.matches_study_state(getattr(application, "revision", None))
             )
         except (RuntimeError, AttributeError):
             return False
