@@ -159,8 +159,8 @@ class FrequencyProtectionRelay(RelayBase):
         if isinstance(value, bool) or not isinstance(value, Real):
             raise ValueError("Frequency sample must be a real numeric scalar.")
         frequency = float(value)
-        if not math.isfinite(frequency) or frequency <= 0.0:
-            raise ValueError("Frequency sample must be finite and positive.")
+        if not math.isfinite(frequency) or frequency < 0.0:
+            raise ValueError("Frequency sample must be finite and non-negative.")
         if not signal.available or not signal.usable or not signal.valid:
             raise ValueError("Frequency MeasurementChannel sample is unavailable, unusable, or invalid.")
         timestamp = signal.timestamp
