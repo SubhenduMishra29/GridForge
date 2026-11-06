@@ -305,6 +305,15 @@ class MeasurementChannelService:
             raise TypeError("Measurement channel definition must be a mapping.")
         channel_id = self._normalize_id(definition.get("channel_id", definition.get("id")))
         source_id = self._normalize_id(definition.get("source", definition.get("source_id")))
+        stale_after = definition.get("stale_after")
+        timestamp_domain = definition.get("timestamp_domain")
+        if stale_after is not None and (
+            not isinstance(timestamp_domain, str) or not timestamp_domain.strip()
+        ):
+            raise ValueError(
+                f"MeasurementChannel '{channel_id}' configures stale_after but has no timestamp_domain; "
+                "freshness age must be evaluated in an identified clock domain."
+            )
         terminal_data = definition.get("source_terminal", definition.get("source_terminal_reference"))
         if not isinstance(terminal_data, Mapping):
             raise ValueError(f"MeasurementChannel '{channel_id}' requires a source_terminal EndpointReference mapping.")
@@ -327,7 +336,8 @@ class MeasurementChannelService:
             nominal_value=float(definition.get("nominal_value", 0.0)),
             scale=float(definition.get("scale", 1.0)),
             polarity=float(definition.get("polarity", 1.0)),
-            timestamp_domain=definition.get("timestamp_domain"),
+            timestamp_domain=timestamp_domain,
+            stale_after=stale_after,
         )
 
     @staticmethod
@@ -383,6 +393,7 @@ class MeasurementChannelService:
             "scale": channel.scale,
             "polarity": channel.polarity,
             "timestamp_domain": channel.timestamp_domain,
+            "stale_after": channel.stale_after,
             "producer_id": getattr(channel, "producer_id", None),
         }
 
