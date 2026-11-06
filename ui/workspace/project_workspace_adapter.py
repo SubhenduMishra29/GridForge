@@ -144,10 +144,35 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("project transition guard must return a callable recovery or None.")
         return recovery
 
-    @staticmethod
-    def _restore_interaction_after_failure(recovery: Callable[[], None] | None) -> None:
+    def _restore_interaction_after_failure(
+        self,
+        recovery: Callable[[], None] | None,
+        *,
+        operation: str,
+    ) -> None:
+        """Restore safe interaction, then reconcile projections from restored Application state."""
         if recovery is not None:
-            recovery()
+            try:
+                recovery()
+            except BaseException:
+                _logger.exception(
+                    "Interaction recovery failed after workspace transition rollback: operation=%s",
+                    operation,
+                )
+
+        state = self._lifecycle.state
+        if self._application.presentation is not state.document:
+            _logger.error(
+                "Skipping rollback projection reconciliation because Application and workspace "
+                "presentations disagree: operation=%s application_document=%r workspace_document=%r",
+                operation,
+                getattr(self._application.presentation, "document_id", None),
+                getattr(state.document, "document_id", None),
+            )
+            return
+
+        project_id = state.project.project_id if state.project is not None else ""
+        self._publish(f"rollback_{operation}", state, project_id)
 
     def configure_save_as_path_provider(self, provider: Callable[[object], str | None]) -> None:
         """Bind the existing UI Save As path-selection workflow for unsaved projects."""
@@ -488,7 +513,7 @@ class ProjectWorkspaceApplicationAdapter:
                 decision=decision,
             )
         except BaseException:
-            self._restore_interaction_after_failure(recovery)
+            self._restore_interaction_after_failure(recovery, operation="new")
             raise
         if context is None:
             raise RuntimeError("New project transition did not return a project context.")
@@ -519,7 +544,7 @@ class ProjectWorkspaceApplicationAdapter:
                 decision=decision,
             )
         except BaseException:
-            self._restore_interaction_after_failure(recovery)
+            self._restore_interaction_after_failure(recovery, operation="open")
             raise
         if context is None:
             raise RuntimeError("Open project transition did not return a project context.")
@@ -779,7 +804,7 @@ class ProjectWorkspaceApplicationAdapter:
                 decision=decision,
             )
         except BaseException:
-            self._restore_interaction_after_failure(recovery)
+            self._restore_interaction_after_failure(recovery, operation="close")
             raise
 
     def _publish(self, operation: str, state: ProjectWorkspaceState, project_id: str) -> None:
