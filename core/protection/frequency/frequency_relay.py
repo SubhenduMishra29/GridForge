@@ -71,8 +71,9 @@ class FrequencyProtectionSettings:
         if self.sample_interval_tolerance_seconds >= interval:
             raise ValueError("Sample interval tolerance must be smaller than the configured sample interval.")
         intervals = self.estimation_window_seconds * self.sample_rate_hz
-        if not math.isclose(intervals, round(intervals), rel_tol=0.0, abs_tol=1e-9):
-            raise ValueError("Estimation window multiplied by sample rate must be an integer number of sample intervals.")
+        interval_count = round(intervals)
+        if interval_count < 1 or not math.isclose(intervals, interval_count, rel_tol=0.0, abs_tol=1e-9):
+            raise ValueError("Estimation window must contain at least one complete, integral sample interval.")
 
 
 class FrequencyProtectionRelay(RelayBase):
