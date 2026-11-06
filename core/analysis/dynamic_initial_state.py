@@ -12,11 +12,11 @@ import cmath
 import math
 
 from core.solver.dynamics.machine_models import ClassicalMachineParameters
+from core.solver.power_flow.input import PowerFlowInput
+from core.solver.power_flow.result import PowerFlowResult
 
 
 CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE = "classical_synchronous_machine"
-from core.solver.power_flow.input import PowerFlowInput
-from core.solver.power_flow.result import PowerFlowResult
 
 
 @dataclass(frozen=True, slots=True)
