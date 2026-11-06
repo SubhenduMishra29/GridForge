@@ -727,7 +727,6 @@ class Application:
         self,
         evaluation_time: float,
         *,
-        action_resolver: Any | None = None,
         evaluation_metadata: Mapping[str, Any] | None = None,
         evaluation_timestep: float | None = None,
         event_id: str | None = None,
@@ -739,7 +738,6 @@ class Application:
         with self._execution_lock:
             result = self._evaluate_protection_cycle_unlocked(
                 evaluation_time,
-                action_resolver=action_resolver,
                 evaluation_metadata=evaluation_metadata,
                 evaluation_timestep=evaluation_timestep,
                 event_id=event_id,
@@ -880,7 +878,6 @@ class Application:
         self,
         evaluation_time: float,
         *,
-        action_resolver: Any | None = None,
         evaluation_metadata: Mapping[str, Any] | None = None,
         evaluation_timestep: float | None = None,
         event_id: str | None = None,
@@ -891,8 +888,9 @@ class Application:
         """Evaluate the active project's protection system at an explicit time.
 
         Required configured inputs fail closed before any protection element
-        executes. Action dispatch is optional and must be explicitly configured;
-        this method never infers a physical target from a protection decision.
+        executes. Live action dispatch is authorized only by the active project's
+        persisted element/function-to-target mapping; this method never accepts a
+        caller-supplied resolver or infers a physical target from a protection decision.
         """
         lifecycle = self.project_lifecycle
         project = lifecycle.context
@@ -1542,41 +1540,40 @@ class Application:
             metadata=context_metadata,
         )
         decisions = runtime.system.evaluate(context)
-        if action_resolver is None:
-            def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
-                """Resolve only an explicit project-persisted function-to-target mapping."""
-                try:
-                    mapping = active_configuration.get(str(decision.element_id))
-                except KeyError:
-                    return None
-                # The mapping is keyed by element identity, but function identity
-                # is also part of the persisted protection-action contract. Fail
-                # closed if configuration drift or malformed persisted data causes
-                # a different function to inherit this target/action.
-                decision_function_code = str(decision.function_code).strip().upper()
-                configured_function_code = str(mapping.function_code).strip().upper()
-                if not decision_function_code or configured_function_code != decision_function_code:
-                    raise ValueError(
-                        f"Protection action mapping function mismatch for element "
-                        f"{decision.element_id!r}: decision={decision_function_code!r}, "
-                        f"configured={configured_function_code!r}."
-                    )
-                if (
-                    mapping.action_target_type is None
-                    or mapping.action_target_id is None
-                    or mapping.action_type is None
-                ):
-                    return None
-                return ControlDecision(
-                    control_id=f"protection:{mapping.element_id}",
-                    action_type=ControlActionType(mapping.action_type),
-                    target_equipment_id=mapping.action_target_id,
-                    target_equipment_type=mapping.action_target_type,
-                    reason=decision.reason or f"Protection function {mapping.function_code} requested action.",
-                    simulation_time=evaluation_time,
-                    triggered_by=mapping.element_id,
+
+        def resolve_persisted_protection_action(decision: Any) -> ControlDecision | None:
+            """Resolve only an explicit project-persisted function-to-target mapping."""
+            try:
+                mapping = active_configuration.get(str(decision.element_id))
+            except KeyError:
+                return None
+            # The mapping is keyed by element identity, but function identity
+            # is also part of the persisted protection-action contract. Fail
+            # closed if configuration drift or malformed persisted data causes
+            # a different function to inherit this target/action.
+            decision_function_code = str(decision.function_code).strip().upper()
+            configured_function_code = str(mapping.function_code).strip().upper()
+            if not decision_function_code or configured_function_code != decision_function_code:
+                raise ValueError(
+                    f"Protection action mapping function mismatch for element "
+                    f"{decision.element_id!r}: decision={decision_function_code!r}, "
+                    f"configured={configured_function_code!r}."
                 )
-            action_resolver = resolve_persisted_protection_action
+            if (
+                mapping.action_target_type is None
+                or mapping.action_target_id is None
+                or mapping.action_type is None
+            ):
+                return None
+            return ControlDecision(
+                control_id=f"protection:{mapping.element_id}",
+                action_type=ControlActionType(mapping.action_type),
+                target_equipment_id=mapping.action_target_id,
+                target_equipment_type=mapping.action_target_type,
+                reason=decision.reason or f"Protection function {mapping.function_code} requested action.",
+                simulation_time=evaluation_time,
+                triggered_by=mapping.element_id,
+            )
 
         def observe_protection_command_state(control_decision: Any, command: Command, result: ApplicationResult) -> ProtectionPostconditionVerification:
             """Verify the action-specific postcondition in the captured Core network.
@@ -1661,24 +1658,23 @@ class Application:
                 return verification(PostconditionStatus.MATCHED, expected_state, observed_state, "authoritative Core state matches the action-specific postcondition")
             return verification(PostconditionStatus.MISMATCHED, expected_state, observed_state, "authoritative Core state does not match the action-specific postcondition")
 
-        def resolve_explicit_protection_action(decision: Any) -> Any | None:
-            """Validate explicit or persisted action resolution against Core authority.
+        def validate_persisted_protection_action(decision: Any) -> ControlDecision | None:
+            """Validate the persisted action mapping against captured Core authority.
 
-            Persisted mappings are resolved by protection-function identity;
-            targets are never inferred from relay identity or presentation.
+            Targets are never inferred from relay identity or presentation.
             """
             ensure_current_protection_dispatch_provenance()
-            resolved = action_resolver(decision)
+            resolved = resolve_persisted_protection_action(decision)
             ensure_current_protection_dispatch_provenance()
             if resolved is None:
                 return None
             if not hasattr(resolved, "target_equipment_type") or not hasattr(resolved, "target_equipment_id") or not hasattr(resolved, "action_type"):
-                raise TypeError("Explicit protection action resolver must return a typed ControlDecision or None.")
+                raise TypeError("Persisted protection mapping must resolve to a typed ControlDecision or None.")
             target_type = str(resolved.target_equipment_type).strip().lower()
             target_id = resolved.target_equipment_id
             supported_target_types = {"breaker", "switch", "disconnector", "fuse", "motor"}
             if target_type not in supported_target_types or not isinstance(target_id, str) or not target_id.strip():
-                raise ValueError("Explicit protection action has an unsupported target type or empty target identity.")
+                raise ValueError("Persisted protection action has an unsupported target type or empty target identity.")
             try:
                 target = captured_network.get_by_id(target_type, target_id)
             except (KeyError, ValueError):
@@ -1691,7 +1687,7 @@ class Application:
 
         execution = ProtectionExecutionService(
             self.control_execution.dispatcher,
-            action_resolver=resolve_explicit_protection_action,
+            action_resolver=validate_persisted_protection_action,
             pre_dispatch_guard=ensure_current_protection_dispatch_provenance,
             decision_guard=ensure_current_protection_decision_dependency,
             state_observer=observe_protection_command_state,

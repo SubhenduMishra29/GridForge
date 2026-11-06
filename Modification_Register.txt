@@ -22406,3 +22406,41 @@ Status:
     IMPLEMENTED ON fix/protection-save-snapshot-revision-1005;
     PULL REQUEST / MERGE REVIEW PENDING.
 
+======================================================================
+V2 PROTECTION LIVE DISPATCH — PERSISTED MAPPING AUTHORITY
+======================================================================
+
+Date:
+    2026-11-05
+
+Related:
+    Issue #1006 — Protection dispatch must use persisted action authority.
+    PR #1107 — Make persisted Protection mappings the sole live dispatch authority.
+
+Correction:
+- Removed caller-supplied action_resolver from the public Protection live-cycle
+  API and its private Application execution path.
+- Live switching actions now resolve only from the active project's persisted
+  Protection element/function-to-target mapping.
+- Function-code mismatch, absent/incomplete mappings, unsupported target types,
+  and unavailable targets remain fail-closed.
+- Retained per-element dependency and measurement freshness checks, project /
+  runtime / network / activation provenance fences, Application command
+  dispatch, and authoritative Core postcondition observation.
+- Core postcondition evidence remains distinct from physical field-device
+  acknowledgement; no physical acknowledgement is fabricated.
+
+Architecture boundary:
+- Application owns persisted configuration resolution and dispatch validation.
+- Commands remain the controlled mutation path; Core remains electrical-state
+  authority. No UI or Qt dependency was introduced.
+
+Verification:
+- Static source/diff inspection only.
+- No tests or CI were run, per repository instruction.
+
+Status:
+    MERGED TO MAIN VIA PR #1107.
+    Merge commit: c5a869c5cc62189603195cb419a593e4653f75ce.
+
+======================================================================
