@@ -1389,12 +1389,18 @@ def _build_application_impl(
     # UILifecycle.shutdown. Shutdown must only release remaining presentation
     # document state; it must never re-run the Application project transition
     # and accidentally prompt/save a dirty project a second time.
+    def _dispose_sld_editor() -> None:
+        # Workspace teardown deactivates the retained editor first. Permanent
+        # unregistration then invokes SLDEditor.dispose_editor(), which releases
+        # the CanvasComposition and its renderer/navigation/interaction owners.
+        workspace_surface_host.editor_host.unregister_editor("sld-editor")
+
     ui_lifecycle = UILifecycle(
         workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
         document_ready=lambda: project_workspace_adapter.state.document is not None,
         document_close=project_workspace_lifecycle.close_document,
         workspace_teardown=workspace_controller.close,
-        cleanup=lambda: None,
+        cleanup=_dispose_sld_editor,
     ); resources["ui_lifecycle"] = ui_lifecycle
 
     def project_transition_decision(context: object) -> object:
