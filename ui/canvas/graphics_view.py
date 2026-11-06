@@ -159,6 +159,7 @@ class GraphicsView(QGraphicsView):
         selected = tuple(
             item for item in self._scene.selectedItems()
             if getattr(item, "object_id", None) is not None
+            and getattr(item, "symbol_instance", None) is not None
         )
         if len(selected) != 1:
             return None, None
@@ -168,7 +169,7 @@ class GraphicsView(QGraphicsView):
         if model is None or not model.has_node(node_id):
             return None, None
         node = model.get_node(node_id)
-        if node.presentation is None:
+        if node.presentation is None and getattr(item, "symbol_instance", None) is None:
             return None, None
         return node, item
 
@@ -196,7 +197,8 @@ class GraphicsView(QGraphicsView):
         node, _item = self._selected_presentation_node()
         if node is None:
             return
-        presentation = SymbolBase.from_dict(node.presentation.to_dict())
+        source_presentation = node.presentation or _item.symbol_instance
+        presentation = SymbolBase.from_dict(source_presentation.to_dict())
         if operation == "rotate_ccw":
             presentation.rotation = (presentation.rotation - 90.0) % 360.0
         elif operation == "rotate_cw":
