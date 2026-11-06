@@ -101,7 +101,9 @@ class SLDCanvasSurface(QWidget):
         zoom_out = QPushButton("−", header)
         zoom_out.setObjectName("SLDZoomOut")
         zoom_out.setToolTip("Zoom out")
-        zoom_out.clicked.connect(navigation_controller.zoom_out)
+        self._zoom_out_button = zoom_out
+        self._zoom_out_callback = navigation_controller.zoom_out
+        zoom_out.clicked.connect(self._zoom_out_callback)
         header_layout.addWidget(zoom_out)
 
         zoom_label = QLabel("100%", header)
@@ -112,17 +114,19 @@ class SLDCanvasSurface(QWidget):
         zoom_in = QPushButton("+", header)
         zoom_in.setObjectName("SLDZoomIn")
         zoom_in.setToolTip("Zoom in")
-        zoom_in.clicked.connect(navigation_controller.zoom_in)
+        self._zoom_in_button = zoom_in
+        self._zoom_in_callback = navigation_controller.zoom_in
+        zoom_in.clicked.connect(self._zoom_in_callback)
         header_layout.addWidget(zoom_in)
 
         fit = QPushButton("Fit", header)
         fit.setObjectName("SLDFit")
         fit.setToolTip("Fit the SLD content in the viewport")
         # QPushButton.clicked emits a bool; do not pass that signal payload as
-        # the numeric fit margin.
-        fit.clicked.connect(
-            lambda _checked=False: navigation_controller.fit_content()
-        )
+        # the numeric fit margin. Retain the exact slot for deterministic teardown.
+        self._fit_button = fit
+        self._fit_callback = lambda _checked=False: navigation_controller.fit_content()
+        fit.clicked.connect(self._fit_callback)
         header_layout.addWidget(fit)
 
         root.addWidget(header)
@@ -151,11 +155,35 @@ class SLDCanvasSurface(QWidget):
         self._zoom_label.setText(f"{int(round(float(level) * 100.0))}%")
 
     def detach_navigation_listener(self) -> None:
-        """Detach this surface's observer before permanent canvas disposal."""
+        """Detach every surface callback that retains navigation before disposal."""
         controller = self._navigation_controller
         self._navigation_controller = None
         if controller is not None:
-            controller.remove_zoom_changed_listener(self._zoom_changed_listener)
+            try:
+                controller.remove_zoom_changed_listener(self._zoom_changed_listener)
+            except Exception:
+                _LOGGER.exception("Failed to detach SLD surface zoom readout listener")
+
+        # QPushButton connections retain bound methods (and the Fit closure)
+        # even after GraphicsView releases its navigation reference. Disconnect
+        # the exact slots installed by this surface so a retained editor cannot
+        # keep the disposed NavigationController alive.
+        for button_name, callback_name in (
+            ("_zoom_out_button", "_zoom_out_callback"),
+            ("_zoom_in_button", "_zoom_in_callback"),
+            ("_fit_button", "_fit_callback"),
+        ):
+            button = getattr(self, button_name, None)
+            callback = getattr(self, callback_name, None)
+            setattr(self, callback_name, None)
+            setattr(self, button_name, None)
+            if button is None or callback is None:
+                continue
+            try:
+                button.clicked.disconnect(callback)
+            except (RuntimeError, TypeError):
+                # Qt may already have destroyed the button/signal during teardown.
+                pass
 
     def bind_composition(self, composition: Any) -> None:
         """Bind the aggregate lifecycle owner after composition is complete."""
