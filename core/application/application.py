@@ -893,11 +893,16 @@ class Application:
                     event_type=event_type,
                     supervision=supervision,
                     network_state=network_state,
-                    audit_cycle_id=cycle_id,
+                    audit_cycle_id=cycle_id if audit_status == "claimed" else None,
                     audit_error_sink=audit_errors,
                 )
             except Exception as exc:
-                if audit_store is not None and project is not None and audit_time is not None:
+                if (
+                    audit_status == "claimed"
+                    and audit_store is not None
+                    and project is not None
+                    and audit_time is not None
+                ):
                     try:
                         audit_store.append_failure(
                             project_id=str(project.project_id),
@@ -913,7 +918,12 @@ class Application:
                         )
                 raise
 
-            if audit_store is not None and project is not None and audit_time is not None:
+            if (
+                audit_status == "claimed"
+                and audit_store is not None
+                and project is not None
+                and audit_time is not None
+            ):
                 try:
                     audit_store.append_cycle(
                         project_id=str(project.project_id),
