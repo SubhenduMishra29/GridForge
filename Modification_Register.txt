@@ -22508,3 +22508,41 @@ Status:
     IMPLEMENTED ON feat/protection-execution-audit-1008;
     PULL REQUEST REVIEW PENDING.
 ======================================================================
+
+
+======================================================================
+V2 PROTECTION AUDIT CYCLE CLAIM FAILURE CORRECTION
+======================================================================
+
+Date:
+    2026-11-06
+
+Related:
+    PR #1111 — Durable Protection execution audit.
+
+Correction:
+- Audit cycle-scoped decision, dispatch, completion and failure records are
+  now written only after begin_cycle() successfully claims the cycle.
+- The evaluator receives an audit cycle ID only for a successfully claimed
+  cycle. A claim failure or unavailable/invalid evaluation timestamp therefore
+  cannot generate partial audit records that could poison a later retry.
+- The audit repository independently enforces the claim prerequisite inside
+  its write transaction: every cycle-scoped record except CYCLE_STARTED must
+  have a matching CYCLE_STARTED record for the same project, activation
+  generation and cycle ID.
+- Protection evaluation and persisted-mapping dispatch continue when audit
+  storage is unavailable, preserving operational continuity. Such execution
+  is explicitly reported as claim_failed/not_configured and is not represented
+  as durably audited.
+- Persisted-only dispatch authority, stale-decision/provenance guards and the
+  distinction between Core postcondition and independent physical feedback
+  remain unchanged.
+
+Verification:
+- Static source and diff inspection only. No tests or CI run.
+- SQLite failure injection, restart/recovery and crash-boundary behaviour
+  remain unverified and require separate runtime validation before field use.
+
+Status:
+    CORRECTED ON feat/protection-execution-audit-1008; RECONCILIATION PENDING.
+======================================================================
