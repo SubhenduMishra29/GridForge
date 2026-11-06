@@ -1006,6 +1006,14 @@ class SnapSystem:
                     raise ValueError(
                         "Draft terminal role must match the candidate terminal_name."
                     )
+                source_terminal_names = tuple(
+                    str(role) for role in getattr(item, "_terminal_names", ())
+                )
+                expected_terminal_id = f"{draft_id}:{terminal_name}"
+                if terminal_name not in source_terminal_names or terminal_id != expected_terminal_id:
+                    raise ValueError(
+                        "Draft terminal identity must match a terminal declared by its source preview item."
+                    )
         else:
             raise ValueError("Unsupported electrical snap target.")
 
