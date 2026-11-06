@@ -1137,10 +1137,19 @@ def _build_application_impl(
         project = change.state.project
         next_document_id = document.document_id if isinstance(document, SLDDocument) else None
 
+        def clear_previous_canvas_state() -> None:
+            current_context = engineering_context.current
+            if (
+                current_context.document_id != next_document_id
+                or current_context.project_id != getattr(project, "project_id", None)
+            ):
+                # Run only after the Application transition commits. A failed
+                # transition therefore keeps the previous document's transient
+                # interaction state available for rollback.
+                canvas_composition.clear_project_state()
+
         def update_context() -> None:
             current_context = engineering_context.current
-            if current_context.document_id != next_document_id or current_context.project_id != getattr(project, "project_id", None):
-                canvas_composition.selection_manager.clear()
             engineering_context.update(
                 project_id=getattr(project, "project_id", None),
                 project_name=getattr(project, "name", None),
@@ -1156,6 +1165,7 @@ def _build_application_impl(
         # These are independent projection steps after the Application transition
         # commits. A failure in one step must not prevent the remaining surfaces
         # from attempting to synchronize to the authoritative workspace state.
+        _attempt_workspace_sync_step("previous canvas document state", clear_previous_canvas_state, change)
         _attempt_workspace_sync_step("engineering context", update_context, change)
         if isinstance(document, SLDDocument):
             _attempt_workspace_sync_step("SLD presentation reconciliation", sld_controller.reconcile_presentation, change)
