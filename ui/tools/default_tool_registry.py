@@ -27,6 +27,7 @@ from ui.tools.fuse_tool import FuseTool
 from ui.tools.generator_tool import GeneratorTool
 from ui.tools.grid_tool import GridTool
 from ui.tools.wire_tool import WireTool
+from ui.tools.orthogonal_routing_tool import OrthogonalRoutingTool
 from ui.tools.load_tool import LoadTool
 from ui.tools.motor_tool import MotorTool
 from ui.tools.potential_transformer_tool import PotentialTransformerTool
@@ -108,8 +109,12 @@ def create_default_tool_factories(
             symbol_registry=symbol_registry,
         )
 
+    def orthogonal_routing_factory(**_ignored: Any) -> OrthogonalRoutingTool:
+        return OrthogonalRoutingTool(controller=controller, application=application, selection_manager=selection_manager, snap_system=snap_system, preview_layer=preview_layer)
+
     return {
         "electrical-insertion": insertion_factory,
+        "orthogonal-routing": orthogonal_routing_factory,
         "select": factory(SelectTool),
         "bus": factory(BusTool),
         "wire": factory(WireTool),
