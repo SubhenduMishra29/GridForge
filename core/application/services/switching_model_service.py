@@ -172,8 +172,11 @@ class SwitchingModelService(ModelServiceSupport):
         if endpoint_from is not None and endpoint_to is not None: self._require_distinct_endpoints(endpoint_from, endpoint_to, "INVALID_BREAKER_ENDPOINTS", "Breaker", breaker_id)
         self._ensure_not_exists("breaker", breaker_id, "Breaker")
         breaker = Breaker(id=breaker_id, endpoint_from=endpoint_from, endpoint_to=endpoint_to, name=name, in_service=in_service, closed=closed, failed=failed, voltage_kv=voltage_kv, current_a=current_a, interrupting_ka=interrupting_ka)
-        if closed:
-            self._authorize_breaker_close(breaker, operation="create")
+        # Creation records the engineer's initial network model state. It is
+        # not an operational close/re-energization command, so it must remain
+        # possible before live ANSI 25 channels and policy are configured.
+        # Operational transitions continue through _set_breaker_closed() and
+        # update_breaker(), where the fail-closed authorizer is mandatory.
         self._network.add_breaker(breaker); transaction.record_undo(lambda breaker=breaker: self._network.remove_breaker(breaker)); return self._success(breaker, "breaker", breaker_id, f"Breaker created: {breaker_id}")
 
     def update_breaker(self, *, breaker_id: str, name: str | None = None, in_service: bool | None = None, closed: bool | None = None, failed: bool | None = None, voltage_kv: float | None = None, current_a: float | None = None, interrupting_ka: float | None = None, transaction: Transaction) -> ApplicationResult[Breaker]:
