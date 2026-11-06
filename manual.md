@@ -684,3 +684,635 @@ For every manual update:
 6. Do not claim that tests, CI, numerical verification or commissioning were performed unless they actually were.
 
 **End of working first edition.**
+
+
+---
+
+# 19. Menu-by-menu reference
+
+This chapter describes the menu structure defined in the current GridForge source. Menu contents can be disabled when an action is not available in the current project, workspace or selection context. A disabled command is not a fault by itself.
+
+To use a menu, click its name on the menu bar, read the command label, and click the required command. A trailing ellipsis (…) means that the command normally opens a dialog or requests further information. Read the dialog before confirming.
+
+## 19.1 File menu
+
+The File menu contains project and application lifecycle commands.
+
+| Menu command | Shortcut | Purpose and operating instruction |
+|---|---|---|
+| New Project | Ctrl+N | Start a new engineering project. Use when beginning a separate job. Save the previous project first. Enter the requested project details in the dialog and confirm. |
+| Open Project… | Ctrl+O | Open an existing GridForge project package. Choose the intended `.gridforge` file. Do not select an unrelated JSON file from inside the package. |
+| Save Project | Ctrl+S | Save the active project's current changes. Use frequently and before switching tasks. Wait for the save to complete. |
+| Save Project As… | Ctrl+Shift+S | Save the current project to a new destination/name when the workflow supports it. Use this to create a separate working copy; verify which project is active afterward. |
+| Close Project | Ctrl+W | Close the active project. Resolve any unsaved-changes prompt deliberately. Cancel if unsure. |
+| Exit | Alt+F4 | Exit GridForge. The application first asks the project lifecycle boundary to approve closing. If a save/close decision is pending, resolve it before exiting. |
+
+**Important:** New/Open/Save/Save As/Close are project operations. They are not the same as adding or removing an SLD symbol.
+
+## 19.2 Edit menu
+
+| Menu command | Shortcut | Purpose and operating instruction |
+|---|---|---|
+| Undo | Ctrl+Z | Reverse the last supported Application command. Inspect the result; undo is not guaranteed to reverse every presentation-only gesture. |
+| Redo | Ctrl+Y | Reapply the last command that was undone. Use only after confirming that the redo is the intended change. |
+| Delete Selection | Delete | Remove the selected object through the current editor's supported delete route. Check the selection before using it. |
+| Select All | Ctrl+A | Select all objects covered by the active editor's selection scope. Confirm the active editor before using it. |
+| Copy | Ctrl+C | Copy the selected SLD representation where the active editor supports copy. This is not a guarantee that every engineering object or connection is duplicated. |
+| Paste | Ctrl+V | Paste the copied representation where supported. Inspect the new object's identity, properties and connections before relying on it. |
+| Cut | Ctrl+X | Copy and remove the selected SLD representation where supported. Verify what was removed and whether the network object is affected. |
+
+**Caution with Delete and Cut:** Before deleting, cutting or pasting electrical equipment, inspect the object identity and connected network. A visually selected symbol may be only a presentation object. Confirm the resulting engineering model after the operation.
+
+## 19.3 View menu
+
+| Menu command | Purpose and operating instruction |
+|---|---|
+| Maximize Editor (Ctrl+Space) | Give the active editor more screen area by minimizing surrounding presentation regions. Use when detailed drawing or inspection is required. Toggle back using the same command if the current implementation supports the reverse action. |
+| Explorer | Show/hide the Explorer region for browsing project objects. Use it to locate an object by its project hierarchy rather than by clicking a crowded drawing. |
+| Inspector | Show/hide the Inspector/Properties region. Use it to review the selected object's information. |
+| Messages | Show/hide the Messages region. Open it when an operation reports a warning or rejection. |
+| Tool Settings | Show/hide the tool settings region. This area is intended for settings belonging to the active tool; the exact available fields depend on the tool. |
+| Fit SLD View | Fit the SLD drawing into the visible canvas. Use after zooming, panning or losing sight of the drawing. |
+| Zoom In | Increase the displayed scale. This changes the view, not the electrical model. |
+| Zoom Out | Decrease the displayed scale so more of the drawing is visible. |
+| Pan | Activate view navigation so the canvas can be repositioned. Panning does not move electrical equipment in the project model. |
+| Equipment Browser | Open/show the equipment catalogue. Search for a component, then select it to activate its creation workflow. |
+
+## 19.4 SLD menu
+
+| Menu command | Purpose and operating instruction |
+|---|---|
+| Select | Return to the selection/inspection interaction. Use before selecting existing objects or when you need to stop creating a new object. |
+| Place Bus | Activate bus creation. Prepare the bus data, position it on the SLD and complete the creation workflow. A bus is an electrical node, not just a graphic line. |
+| Wire | Activate terminal-to-terminal connection drawing. Start and finish at the intended equipment terminals; do not rely on visual crossing or proximity. |
+| Commit Draft (Ctrl+Shift+Enter) | Request commitment of the current draft network. First inspect all equipment, parameters and endpoints. Wait for the result and read validation messages. |
+
+## 19.5 Study menu
+
+| Menu command | Purpose and operating instruction |
+|---|---|
+| Study Cases | Open the Study Cases panel/workflow. Use it to define a case, select its study type, enter study-specific data, run the case and inspect available results. |
+
+The current Study Cases panel exposes Power Flow, Short-Circuit and Transient Stability as study-type choices. Actual execution depends on the Application's registered study capabilities and valid model data.
+
+## 19.6 Reports menu
+
+| Menu command | Purpose and operating instruction |
+|---|---|
+| Study Reports | Open the published study-results/report presentation. Use it to inspect results already produced by a supported study. Do not interpret an empty report area as a zero-valued engineering result. |
+
+## 19.7 Window menu
+
+| Menu command | Purpose and operating instruction |
+|---|---|
+| SLD | Activate the Single-Line Diagram workspace. This is the default initial workspace. |
+| Control | Activate the Control engineering workspace for ladder/control logic and signal/action mapping. |
+| Protection | Activate the Protection engineering workspace for relay, measurement and protection configuration/analysis. |
+| Study | Activate the Study workspace for study preparation and result/report presentation. |
+| Topology | Show the Application's topology projection. Use it to inspect the electrical connectivity view, not to edit drawing geometry. |
+| Map | Show persisted SLD geometry/presentation information. It is a drawing/layout view, not a geographic map unless a separate feature explicitly says so. |
+
+## 19.8 Help menu
+
+| Menu command | Purpose and operating instruction |
+|---|---|
+| About GridForge | Display application identity/version information. Use this when reporting a problem so support can identify the build. |
+
+---
+
+# 20. Toolbar and SLD tool shelf reference
+
+The toolbar is a fast-access row of commands. A tool button changes the active interaction; an action button performs an operation. Tool buttons may be shown as selected/pressed while active. Hover over a button to read its tooltip where available.
+
+## 20.1 Primary SLD tools
+
+### Select
+
+**Purpose:** Select and inspect existing SLD objects.
+
+**How to use:**
+1. Click Select.
+2. Click the object you want to inspect.
+3. Confirm that the intended object is highlighted.
+4. Read its details in Properties/Inspector.
+5. To stop an active creation tool, return to Select.
+
+**Use it when:** You need to inspect, select or edit an existing object rather than create a new one.
+
+**Common mistake:** Clicking a symbol while another tool is active may start a creation or connection operation instead of selecting it.
+
+### Bus
+
+**Purpose:** Start creation of a bus.
+
+**How to use:**
+1. Click Bus or SLD → Place Bus.
+2. Move to the intended canvas position.
+3. Follow the preview and Properties instructions.
+4. Enter the bus identity and engineering information requested by the editor.
+5. Complete placement and commit the network when required.
+6. Verify the bus in Project Explorer and the topology projection.
+
+**Check:** Confirm that the bus is a project/network object and that intended equipment terminals are connected to it.
+
+### Wire
+
+**Purpose:** Create a terminal-to-terminal electrical connection.
+
+**How to use:**
+1. Click Wire or SLD → Wire.
+2. Identify the correct starting terminal.
+3. Start the connection on that terminal.
+4. Route the connection to the intended destination.
+5. Finish on the destination terminal.
+6. Read the feedback and inspect the resulting network relationship.
+7. Commit the draft network when required.
+
+**Check:** The connection must be present in the electrical network, not merely visible as a line.
+
+## 20.2 SLD editing and view toolbar actions
+
+| Toolbar action | What it does | How/when to use |
+|---|---|---|
+| Box Select | Select objects inside a rectangular selection region. | Use when selecting several objects in a crowded area. Check the selected set before moving or deleting. |
+| Move | Move selected SLD objects through the Select tool. | Select the intended object(s), invoke Move and follow the active editor interaction. This changes drawing placement, not electrical connectivity. |
+| Drag Move | Drag selected SLD objects. | Use for quick visual arrangement. Avoid dragging an unselected object or an unintended group. |
+| Rotate | Rotate selected symbols by 90 degrees. | Select the symbol, invoke Rotate, then inspect terminal orientation and drawing clarity. |
+| Mirror H | Mirror selected symbols horizontally. | Use to improve drawing layout. Check that the symbol remains visually clear; mirroring is not a change in electrical polarity. |
+| Mirror V | Mirror selected symbols vertically. | Use to improve drawing layout. Confirm that the symbol and terminal labels remain understandable. |
+| Equipment | Open the Equipment Browser. | Search and select the required equipment type. |
+| Zoom − | Zoom out. | See a larger portion of the SLD. |
+| Zoom + | Zoom in. | Inspect a smaller area in more detail. |
+| Fit | Fit the SLD drawing in the viewport. | Use when the drawing is outside the visible area or after a large edit. |
+| Pan | Pan the viewport. | Reposition the view without moving objects. |
+| Undo | Undo the last supported Application command. | Use immediately after an unintended command, then verify the result. |
+| Redo | Redo an undone command. | Use only when the undone change is required. |
+| Delete | Delete the selected engineering object through the supported route. | Confirm the selection and connected equipment before use. |
+| Select All | Select all visible SLD objects. | Use for bulk presentation operations; inspect the selection before changing it. |
+| Copy | Copy selected SLD representation. | Use where the editor supports representation copying. Verify identity and data after pasting. |
+| Paste | Paste the copied representation. | Inspect the new object and do not assume its electrical connections were duplicated. |
+| Cut | Copy and remove the selected SLD representation. | Use carefully; verify both the visual and engineering consequences. |
+| Studies | Open Study Cases. | Create or select a study case. |
+| SLD | Switch to SLD workspace. | Return to electrical drawing work. |
+| Topology | Show topology projection. | Inspect network connectivity. |
+| Map | Show persisted SLD geometry. | Inspect drawing/layout information. |
+| Reports | Open study reports. | Review published results. |
+| Control | Switch to Control workspace. | Work on ladder logic and control configuration. |
+| Protection | Switch to Protection workspace. | Work on protection configuration and analysis. |
+
+---
+
+# 21. Equipment Library — equipment-by-equipment guide
+
+The Equipment Library is a searchable catalogue. The current standard tool factory registry includes the equipment tool identifiers listed below. The actual entries shown to the operator depend on the equipment catalogue and the current Application composition. If a type is absent, do not assume that it can be created by typing its internal identifier.
+
+## 21.1 Search and select an equipment type
+
+1. Click the Equipment Browser/Equipment panel.
+2. Click inside **Search components…**.
+3. Enter a plain-language name such as `breaker`, `transformer`, `motor` or `current transformer`.
+4. Read the displayed name and category.
+5. Hover over an entry if you need its tooltip; it identifies the category, tool and symbol.
+6. Click the required entry once.
+7. Confirm that the creation tool becomes active.
+8. Complete the draft workflow in the canvas and Properties panel.
+
+A category heading is not an equipment entry. Clicking a category heading does not select a device.
+
+## 21.2 Equipment catalogue reference
+
+| Equipment entry | What it represents | Operator checks before committing |
+|---|---|---|
+| Bus | Common electrical node / busbar. | Correct nominal voltage, name and intended connections. |
+| Line | Overhead or other line network element as configured by the catalogue/model. | From/to ends, length, voltage level and line electrical parameters. |
+| Cable | Cable network element. | Cable type/conductor data, length, installation assumptions and electrical parameters. |
+| Transformer | Power transformer connecting voltage levels. | Winding ratings, ratio, impedance, vector group, tap and grounding data. |
+| Switch | Switching device. | Device identity, poles, operating state and in-service status. |
+| Breaker | Circuit breaker. | Rated voltage/current, interrupting capability, poles, state and protection association where applicable. |
+| Disconnector | Isolating device. | Correct terminal path, operating state and interlocking assumptions. |
+| Fuse | Fuse/protective device. | Rated voltage/current, fuse characteristic and state. |
+| Load | Electrical demand. | Active/reactive power, voltage and operating assumptions. |
+| Generator | Generating source. | Rated values, voltage/setpoint and model parameters required by the intended study. |
+| Synchronous Machine | Synchronous rotating machine model. | Machine ratings, electrical parameters and study-specific data. |
+| Motor | Motor load / motor model. | Nameplate rating, voltage, power factor/efficiency and any model data required by the study. |
+| Shunt | Shunt network element. | Type, rating, connection point and sign convention. |
+| Capacitor | Capacitive compensation element. | Rated voltage, kvar/capacitance and switching state where applicable. |
+| Reactor | Inductive shunt element. | Rated voltage, kvar/reactance and connection details. |
+| Solar | Solar generation representation. | Rated power, connection bus and supported source/model parameters. |
+| Battery | Battery/storage representation. | Power/energy ratings, operating assumptions and the supported model fields. |
+| Grid | External grid/source representation. | Voltage, short-circuit strength/source impedance and reference assumptions. |
+| Current Transformer (CT) | Current measurement instrument transformer. | Primary/secondary ratio, polarity, terminal identity, burden/class where supported. |
+| Potential Transformer (PT/VT) | Voltage measurement instrument transformer. | Primary/secondary ratio, polarity, connection and grounding. |
+| Capacitive Voltage Transformer (CVT) | Capacitive voltage measurement transformer. | Primary/secondary ratio, polarity, terminal identity and applicable model data. |
+| Relay | Protection relay device. | Relay identity, protection-function configuration, measurement inputs and output/target mapping. |
+
+## 21.3 Why CT, PT and CVT terminals matter
+
+Instrument transformers have primary and secondary terminals. The primary side belongs to the electrical power circuit; the secondary side supplies a measurement circuit. Never connect primary and secondary terminals as though they were interchangeable.
+
+For a CT, confirm P1/P2 and S1/S2 markings against the approved drawing. For a PT/CVT, confirm the primary and secondary terminal labels and the specified polarity. Incorrect polarity or ratio can invalidate protection and measurement results.
+
+## 21.4 One-equipment-at-a-time workflow
+
+For a first-time user, add one device at a time:
+
+1. Search for the device.
+2. Select it.
+3. Complete its configuration.
+4. Place it.
+5. Verify its name and type in Project Explorer.
+6. Save the project.
+7. Continue with the next device.
+
+This makes it easier to find which object caused a validation error.
+
+---
+
+# 22. Panel-by-panel reference
+
+Panels display project information or provide a task-specific control surface. They do not all perform the same job.
+
+## 22.1 Project Explorer
+
+**Purpose:** Browse the project hierarchy.
+
+The current hierarchy can contain:
+- Project root — the active project name.
+- Network Elements — grouped by equipment type.
+- Documents — documents associated with the project.
+- Study Cases — the study-case area and its workspace reference.
+
+**How to use:**
+1. Expand the project root if necessary.
+2. Expand Network Elements.
+3. Expand the relevant equipment-type group.
+4. Click the required element.
+5. Read the Properties panel.
+6. If the canvas supports selection synchronization, the corresponding object is selected/highlighted there too.
+
+**When to use:** When the drawing is crowded or when you know the object's name but cannot easily locate its symbol.
+
+## 22.2 Equipment Browser
+
+**Purpose:** Search the equipment catalogue and activate creation tools.
+
+**Controls:**
+- Search components… — filters by display name, category or equipment type.
+- Equipment list — shows the matching catalogue entries grouped by category.
+- Entry tooltip — shows the equipment name, category, tool identifier and symbol identifier.
+
+**How to use:** Follow Chapter 21. Selecting an entry activates the corresponding tool; it does not itself commit the device.
+
+## 22.3 Properties
+
+**Purpose:** Inspect and configure the currently selected object or active draft.
+
+The panel can show:
+- Identity — the selected object's identifier.
+- Type — its equipment type.
+- Status — whether it is a draft or a committed object/status.
+- Placement — the draft placement state, when applicable.
+- Terminals — the declared terminal contract.
+- Acquired Endpoints — endpoint references acquired by the active draft, when present.
+- Connections — known connection references.
+- Engineering Parameters — values and editability information.
+- Validation text — configuration/commit feedback.
+- SLD Data Annotations — annotation controls for a selected SLD node.
+
+**Apply / Commit button:**
+- In draft-creation mode it can be used to place the configured draft when placement information is available.
+- In committed-object inspection mode it applies editable engineering parameter changes.
+- The button is disabled when the current context has no applicable operation.
+
+**Commit Network button:**
+- Enabled when a draft network is available.
+- Requests asynchronous validation/commit of the draft network.
+- Changes its label to indicate that commitment is in progress.
+- Shows success or failure feedback when the operation completes.
+
+**Operating rule:** Do not treat the Apply / Commit and Commit Network buttons as interchangeable. Read the button label and validation text before pressing.
+
+### SLD Data Annotations
+
+When exactly one SLD node is selected, the annotation area can show:
+- Block — identity of the annotation block.
+- Fields — comma-separated data fields to display.
+- Offset X / Offset Y — position offsets for the annotation.
+- Visible — whether the annotation is displayed.
+- Apply Annotation Changes — save the edited annotation settings.
+- Remove Annotation — remove the selected annotation block.
+- Add Data Annotation Block — create an annotation block for the selected node.
+
+**How to use:**
+1. Select one SLD node.
+2. Find the SLD Data Annotations section.
+3. Add a block if none exists.
+4. Enter the fields that the current application supports for display.
+5. Set visibility and offsets.
+6. Click Apply Annotation Changes.
+7. Inspect the canvas and adjust the offsets if required.
+
+Annotations are presentation labels. They are not a substitute for changing the equipment's engineering parameters.
+
+## 22.4 Element List
+
+**Purpose:** Present a list-oriented view of engineering elements. Use it as an alternate way to inspect or locate elements where the panel is available.
+
+The exact columns, sorting controls and selection gestures require running-UI verification before a future revision describes them.
+
+## 22.5 Messages / Events
+
+**Purpose:** Display messages and event feedback from application operations.
+
+**How to use:**
+1. Open the panel after a failed or unexpected operation.
+2. Read the newest message and its complete text.
+3. Note the affected operation/object.
+4. Correct the underlying issue or stop and report it.
+5. Do not clear or ignore a warning before understanding it.
+
+The panel title is **Messages / Events** in the current default panel composition.
+
+## 22.6 Study Cases
+
+**Purpose:** Create, select and run study cases and inspect available results/archive entries.
+
+The panel currently provides these fields and controls:
+
+| Field/control | What to enter or do |
+|---|---|
+| Optional Study Case name | Enter a descriptive name, such as `Normal_Load_Flow`. |
+| Study type | Choose Power Flow, Short-Circuit or Transient Stability. |
+| Slack Bus (PF / transient init.) | Select the reference/slack bus for power-flow or transient initialization. |
+| PV Bus IDs (comma-separated) | Enter the bus identifiers configured as PV buses, if required by the study. |
+| System base MVA | Enter the system MVA base used by the study model. Confirm it against the approved study basis. |
+| Fault Bus (short-circuit) | Select the bus where the fault is to be applied. |
+| Fault type | Select 3PH, LG, LL or LLG as appropriate. |
+| Fault resistance (Ω) | Enter the fault resistance in ohms. The field indicates a default of zero. |
+| Fault reactance (Ω) | Enter the fault reactance in ohms. The field indicates a default of zero. |
+| Transient end time (s) | Enter the simulation end time in seconds. The current UI default is 10.0 s. |
+| Transient step (s) | Enter the simulation time step in seconds. The current UI default is 0.01 s. |
+| Create Study Case | Create the study case using the selected study type and entered fields. |
+| Study case list | Select the case to inspect or run. |
+| Run Study | Run the selected case when its execution handler is available. |
+| Study Results | Select/view results associated with the case. |
+| Transient Result View | View transient-result presentation when a compatible result exists. |
+| Archived Executions search | Search archived executions by study case, type, status or record ID. |
+| Archived Executions list | Select one or more archived execution records. |
+| Compare Selected Executions | Compare the selected archived executions. |
+
+**Study-case procedure:**
+1. Save the project.
+2. Confirm the electrical network and equipment data.
+3. Open Study Cases.
+4. Enter a clear case name.
+5. Choose the intended study type.
+6. Enter only the fields relevant to that study.
+7. Click Create Study Case.
+8. Select the newly created case.
+9. Click Run Study if enabled.
+10. Read the execution status and diagnostics.
+11. Select a result and review its assumptions and units.
+12. Archive/compare only where the corresponding workflow is available.
+
+Do not assume that every study type is executable for every network. A disabled action or failed validation must be investigated, not bypassed.
+
+---
+
+# 23. Control workspace — tools and controls
+
+The Control workspace is intended for ladder/control logic and signal/action configuration. Its canvas is separate from the electrical SLD canvas.
+
+## 23.1 Control toolbar
+
+| Group | Control | Purpose |
+|---|---|---|
+| Rung | Add Rung | Add a new ladder rung. |
+| Rung | Remove Rung | Remove the selected rung. |
+| Rung | Move Up | Move the selected rung earlier/up in the rung order. |
+| Rung | Enable / Disable | Toggle the selected rung's enabled state. |
+| Tool | Cancel | Cancel transient Control tool state. |
+| Study | Execute Cycle | Execute the current Control study cycle, if available. |
+| History | Undo | Undo the last Application command. |
+| History | Redo | Redo the last Application command. |
+
+**Rung workflow:**
+1. Activate Control workspace.
+2. Add a rung.
+3. Select the rung to inspect it.
+4. Add components using the Control tool palette.
+5. Arrange the components and connect their logic as supported by the editor.
+6. Configure timers, signal bindings or action bindings in the Inspector.
+7. Enable/disable the rung deliberately.
+8. Execute the cycle only after reviewing the logic and signal mappings.
+
+## 23.2 Control tool palette
+
+The current Control tool registry defines these candidate tools. The palette displays only tools whose corresponding Application command/component capability is registered.
+
+### Contacts
+- **Normally Open Contact (NO):** A ladder contact that is logically true when its associated input condition is true. Use it for a normally-open contact condition.
+- **Normally Closed Contact (NC):** A ladder contact that evaluates the inverse of its associated input condition. Verify the signal semantics before using it in a permissive or trip path.
+
+### Coils and memory
+- **Coil:** Represents a logic output driven by the rung condition.
+- **Set Coil:** Sets/latches a logic state according to the configured component semantics.
+- **Reset Coil:** Resets a latched logic state according to the configured component semantics.
+- **Latch / SR:** Stores a set/reset state. Verify set/reset priority and reset conditions before use in a safety-related circuit.
+
+### Timers
+- **TON Timer:** On-delay timer; its output changes after the input condition has remained true for the configured delay.
+- **TOF Timer:** Off-delay timer; its output remains active for the configured delay after the input condition becomes false.
+- **TP Timer:** Pulse timer; generates a pulse for a configured duration after a trigger.
+
+### Logic gates
+- **AND:** Output is true only when all required inputs are true.
+- **OR:** Output is true when at least one required input is true.
+- **NOT:** Inverts a logic input.
+- **XOR:** Output is true when the inputs differ, for the supported input count/semantics.
+
+### Interlocking and signal actions
+- **Interlock:** Represents an interlock logic component. Define its permissive/trip meaning explicitly.
+- **Control Interlock:** Configure a control interlock through the Inspector.
+- **Connect Signal:** Connect an engineering signal to a Control input.
+- **Disconnect Signal:** Remove the selected signal connection.
+- **Action Binding:** Bind a logic output to a supported equipment action.
+- **Move Component:** Move a selected logic component.
+- **Remove Component:** Remove a selected logic component.
+
+## 23.3 Control Inspector
+
+The Control Inspector is contextual: select a rung or component to display its details.
+
+Current controls include:
+- Component identity and type.
+- Configuration display.
+- Rung identity, order, enabled state and component count.
+- Preset -0.5 / Preset +0.5 — adjust the selected timer preset in half-unit steps.
+- Cycle TON / TOF / TP — cycle the selected timer mode.
+- Apply Timer Configuration — apply the selected timer's configuration.
+- Logic output — list outputs available from the selected component.
+- Action target — list eligible equipment targets.
+- Action — choose an available action for the selected target.
+- Create Action Binding — bind the selected logic output to the chosen equipment action.
+- Create Interlock — create an interlock where the Application supports it.
+- Engineering signal source — choose an engineering signal source.
+- Selected Control component input — choose the destination input.
+- Control action / interlock destination — choose the action/interlock destination.
+- Project engineering signal bindings — review existing mappings.
+- Add / Update Engineering Signal Binding — create or update the selected mapping.
+- Remove Selected Signal Binding — remove the selected mapping.
+
+**Control safety rule:** An action binding is a configured command relationship. It is not proof that a physical device received, accepted or completed the command. Verify the feedback/acknowledgement path independently.
+
+---
+
+# 24. Protection workspace — tools and panels
+
+The Protection workspace presents the protection system as a relationship between measurement channels, relay inputs, protection functions, decisions and trip requests.
+
+## 24.1 Protection interaction tools
+
+| Tool | Purpose | How to use |
+|---|---|---|
+| Select | Select a Protection object. | Activate Select and click the object. |
+| Connect Measurement | Bind a measurement channel to a relay input. | Select the measurement channel first, then select the intended relay input. Review the binding and resulting diagnostics. |
+| Inspect | Select an object for inspection. | Activate Inspect and select the item whose details you need. |
+| Fit | Fit the Protection view to its content. | Use when nodes are outside the visible area. |
+| Diagnostics | Show Protection diagnostics. | Use to inspect missing configuration, measurement or dispatch information. |
+
+### Connect Measurement — exact order
+
+1. Activate Connect Measurement.
+2. Click the intended Measurement Channel node.
+3. Confirm the preview/status message identifies that channel.
+4. Click the intended Relay Input node.
+5. Confirm the application accepts the binding.
+6. Inspect the resulting relay input/configuration.
+7. Confirm that the intended protection element uses the correct channel.
+
+If you select a relay input first, the tool reports that a MeasurementChannel must be selected first. If you click an unrelated node, the operation is rejected with feedback.
+
+## 24.2 Protection presentation nodes
+
+The Protection canvas can show:
+- Measurement Channel.
+- Relay Input.
+- Relay.
+- Protection Element / function code.
+- Decision.
+- Trip Request / Application boundary.
+- Protection configuration status, including an explicit uncommissioned/no-function-configuration indication.
+
+These nodes are a projection of the Application read model. A line between nodes represents the displayed engineering relationship; it is not by itself proof of physical wiring, a field-device command or a successful breaker operation.
+
+## 24.3 Protection engineering panels
+
+The Protection workspace source composes engineering panels for:
+- **Protection Analysis Coverage:** review which protection analysis/model paths are covered or unsupported.
+- **Protection Function Catalog:** inspect the available protection functions.
+- **Protection TCC:** inspect time-current characteristic information where applicable.
+- **Protection Coordination Study:** configure/review protection coordination study information.
+
+A TCC (time-current characteristic) is a curve relating current magnitude to operating time. The current TCC view identifies inverse-time curves for ANSI 51 and 51N. Other functions can produce a notice that they do not use an inverse-time TCC in this view.
+
+Do not infer a complete protection coordination approval from a displayed curve alone. Confirm CT data, relay settings, fault levels, breaker clearing time, grading margins and study coverage.
+
+---
+
+# 25. Keyboard shortcuts reference
+
+Shortcuts below are declared in the current application menu specification.
+
+| Shortcut | Command |
+|---|---|
+| Ctrl+N | New Project |
+| Ctrl+O | Open Project |
+| Ctrl+S | Save Project |
+| Ctrl+Shift+S | Save Project As |
+| Ctrl+W | Close Project |
+| Alt+F4 | Exit |
+| Ctrl+Z | Undo |
+| Ctrl+Y | Redo |
+| Delete | Delete Selection |
+| Ctrl+A | Select All |
+| Ctrl+C | Copy |
+| Ctrl+V | Paste |
+| Ctrl+X | Cut |
+| Ctrl+Space | Maximize Editor |
+| Ctrl+Shift+Enter | Commit Draft |
+
+The tool-shortcut registry supports contextual keymaps for global, SLD, Control, Protection, Study, Canvas, Inspector and Tool Shelf contexts. Do not publish a shortcut for an individual tool unless it is actually registered in the running release. Tooltips may display a shortcut when one is assigned.
+
+---
+
+# 26. Tooltips, icons and visual states
+
+## 26.1 Tooltips
+
+A tooltip is the short explanation shown when the pointer rests over a button or tool. In GridForge, tooltips can include:
+- Tool/action name.
+- Assigned keyboard shortcut.
+- Short description.
+
+Use tooltips as a quick reminder, not as a substitute for the full instructions in this manual.
+
+## 26.2 Active tool state
+
+A checkable tool button can appear pressed or highlighted while it is active. This indicates the current interaction mode, not that an electrical operation has been committed.
+
+Before clicking the canvas, look at the active tool name. If you intend to select an existing object, activate Select first.
+
+## 26.3 Disabled controls
+
+A disabled/greyed control means the action is not currently available. Common reasons include:
+- No active project.
+- No object selected.
+- No draft network available.
+- No editable parameter.
+- Required Application command not registered.
+- The current editor does not support that tool.
+- An operation is still running.
+
+Do not attempt to bypass disabled controls. Satisfy the missing context or read the relevant diagnostic.
+
+## 26.4 Icon identification
+
+Icon artwork can vary with theme, display scale and icon-provider configuration. Use the adjacent text or tooltip as the authoritative label. If an icon is missing or visually ambiguous, report the screen, workspace, button tooltip and application build rather than guessing its function.
+
+---
+
+# 27. Detailed documentation and verification register
+
+The following items must be checked in the running application before their mouse gestures, exact icon artwork or all field-level behaviour can be called final:
+
+1. Capture the full menu bar and each menu opened, including enabled/disabled states.
+2. Capture the SLD toolbar and identify every visible icon by its tooltip.
+3. Demonstrate each toolbar action on a disposable sample project.
+4. Demonstrate selection, box selection, move, drag move, rotate, mirror, copy, cut, paste, delete, zoom, fit and pan.
+5. Demonstrate each equipment type from search through draft, placement, commit and re-selection.
+6. Record every editable parameter, unit, allowed range, default and validation message for each equipment type.
+7. Demonstrate each panel open/close, resize, dock/float and workspace-region behaviour.
+8. Demonstrate all Study Case fields and the successful/failed/unsupported execution paths.
+9. Demonstrate all Control palette tools, rung actions, timer configuration, signal mapping and action binding.
+10. Demonstrate Protection measurement binding, diagnostics, function configuration and TCC/coordination workflows.
+11. Capture the status bar, messages, tool settings and context menus where present.
+12. Verify every shortcut in the running application; remove any shortcut that conflicts with the operating system or another editor.
+13. Add a screenshot immediately after each major procedure, with numbered callouts and matching step numbers.
+14. Recheck every procedure after changes to menu/action IDs, tool definitions, panel composition or workspace layout.
+
+## 27.1 Screenshot standard
+
+Each screenshot must:
+- come from the actual GridForge application, not a mock-up;
+- show the relevant menu, panel or canvas state;
+- have readable text at normal document zoom;
+- use numbered callouts that match the procedure;
+- avoid confidential plant/project information unless the owner has approved its use;
+- be updated when the UI changes.
+
+## 27.2 Manual completeness rule
+
+A tool or menu is not documented merely because its name appears in a table. A complete entry must explain purpose, prerequisites, activation, click/keyboard sequence, expected screen response, engineering effect, validation, cancellation/recovery and common mistakes.
+
+**This manual remains a working operator handbook until the verification register is completed against the actual running UI.**
