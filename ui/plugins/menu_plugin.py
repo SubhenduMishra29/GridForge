@@ -265,14 +265,6 @@ def default_menus() -> tuple[MenuSpec, ...]:
         MenuSpec("reports", "Reports", (
             a("view.reports", "Study Reports"),
         )),
-        MenuSpec("window", "Window", (
-            a("view.sld_workspace", "SLD", separator_before=True),
-            a("view.control_workspace", "Control"),
-            a("view.protection_workspace", "Protection"),
-            a("view.study_workspace", "Study"),
-            a("view.topology", "Topology", separator_before=True),
-            a("view.map", "Map"),
-        )),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
         )),
