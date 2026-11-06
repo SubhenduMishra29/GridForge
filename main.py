@@ -36,7 +36,7 @@ from ui.core.action_definition import ActionDefinition
 from ui.core.action_catalog import build_action_definitions, surface_action_definitions
 from ui.core.tool_manager import ToolManager
 from ui.bootstrap.presentation_bootstrap import PresentationBootstrap
-from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView, QVBoxLayout
+from ui.core.qt import QApplication, QFileDialog, QMessageBox, QWidget, QGraphicsView, QVBoxLayout, QTabWidget
 from ui.events.sld_update_coordinator import SLDUpdateCoordinator
 from ui.events.update_boundary import UIUpdateBoundary
 from ui.lifecycle import UILifecycle
@@ -488,12 +488,16 @@ def _build_application_impl(
         close_controller.request_close()
         _refresh_status()
 
+    explorer_tabs: QTabWidget | None = None
+
     def _show_equipment_browser() -> None:
-        # The explorer Region is intentionally hidden in the default SLD layout.
-        # Open it through the workspace host instead of trying to focus a hidden
-        # Region (WorkspaceRealizer correctly rejects invisible Regions).
+        # Open the Explorer Region and focus its Equipment tab. This is an
+        # explicit show operation, not a toggle that could hide an already
+        # visible engineering panel.
         _activate_workspace(SLD_WORKSPACE_ID, "sld")
-        workspace_surface_host.toggle_region("sld", "explorer")
+        if explorer_tabs is not None and detached.get("equipment") is not None:
+            explorer_tabs.setCurrentWidget(detached["equipment"])
+        workspace_surface_host.set_region_visible("sld", "explorer", True)
 
     def _show_study_cases() -> None:
         # The Study editor has a timeline region, not the SLD-only explorer.
@@ -1277,18 +1281,20 @@ def _build_application_impl(
         widget = panels_plugin.detach_panel(panel_id)
         if widget is not None:
             detached[panel_id] = widget
-    explorer_container = QWidget(window)
-    explorer_layout = QVBoxLayout(explorer_container)
-    explorer_layout.setContentsMargins(0, 0, 0, 0)
+    explorer_tabs = QTabWidget(window)
+    explorer_tabs.setObjectName("GridForgeExplorerTabs")
+    explorer_tabs.setDocumentMode(True)
+    explorer_tabs.setMovable(False)
+    explorer_tabs.setTabsClosable(False)
     if "project" in detached:
-        explorer_layout.addWidget(detached["project"], 1)
+        explorer_tabs.addTab(detached["project"], "Project")
     if "equipment" in detached:
-        explorer_layout.addWidget(detached["equipment"], 1)
+        explorer_tabs.addTab(detached["equipment"], "Equipment")
     if "element_list" in detached:
-        explorer_layout.addWidget(detached["element_list"], 1)
+        explorer_tabs.addTab(detached["element_list"], "Elements")
     workspace_surface_host.set_region_widgets(
         "sld",
-        explorer=explorer_container,
+        explorer=explorer_tabs,
         inspector=detached.get("properties"),
         diagnostics=detached.get("messages"),
     )
