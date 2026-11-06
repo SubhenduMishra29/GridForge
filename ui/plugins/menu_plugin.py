@@ -96,7 +96,7 @@ class MenuPlugin(QObject):
                 menu = menu_bar.addMenu(spec.title)
                 menu.setObjectName(f"menu.{spec.menu_id}")
                 self._menus[spec.menu_id] = menu
-                self._populate_menu(menu, spec.actions, router, spec.menu_id)
+                self._populate_menu(menu, spec.actions, router)
             self._initialized = True
             return menu_bar
         except Exception:
@@ -108,7 +108,6 @@ class MenuPlugin(QObject):
         menu: QMenu,
         items: tuple[MenuItemSpec, ...],
         router: UIActionRouter,
-        parent_id: str,
     ) -> None:
         for item in items:
             if item.separator_before:
@@ -121,7 +120,7 @@ class MenuPlugin(QObject):
                 submenu = menu.addMenu(item.title)
                 submenu.setObjectName(f"menu.{item.menu_id}")
                 self._menus[item.menu_id] = submenu
-                self._populate_menu(submenu, item.items, router, item.menu_id)
+                self._populate_menu(submenu, item.items, router)
                 continue
 
             if not isinstance(item, MenuActionSpec):
@@ -239,20 +238,20 @@ def default_menus() -> tuple[MenuSpec, ...]:
             ),
             a("view.maximize_editor", "Maximize Editor", "Ctrl+Space"),
         )),
-        MenuSpec("project", "Project", (
-            a("network.commit_draft", "Commit Network Draft", "Ctrl+Shift+Enter"),
-        )),
         MenuSpec("design", "Design", (
             sub("design.sld", "Single-Line Diagram",
                 a("tool.sld.select", "Select"),
                 a("tool.sld.bus", "Place Bus"),
                 a("tool.sld.wire", "Wire"),
             ),
-            sub("design.workspace", "Engineering Workspaces",
+            sub("design.workspace", "Workspace",
                 a("view.sld_workspace", "SLD Workspace"),
-                a("view.topology", "Network Topology"),
                 a("view.map", "Geographic / Layout Map"),
             ),
+        )),
+        MenuSpec("network", "Network", (
+            a("network.commit_draft", "Commit Network Draft", "Ctrl+Shift+Enter"),
+            a("view.topology", "Network Topology"),
         )),
         MenuSpec("study", "Studies", (
             a("study.cases", "Study Cases"),
