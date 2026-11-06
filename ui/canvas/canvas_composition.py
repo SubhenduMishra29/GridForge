@@ -481,6 +481,9 @@ class CanvasComposer:
             navigation_controller=navigation_controller,
         )
         draft_sld_projection = DraftSLDProjection(application=application)
+        # Until CanvasComposition is returned, the compose rollback stack is
+        # the temporary owner of every acquired canvas resource.
+        _cleanup_stack.append(("draft SLD projection", draft_sld_projection.dispose))
 
         surface = SLDCanvasSurface(
             view=view,
