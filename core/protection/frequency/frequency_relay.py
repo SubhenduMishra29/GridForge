@@ -83,6 +83,7 @@ class FrequencyProtectionRelay(RelayBase):
     FREQUENCY_INPUT = FREQUENCY_INPUT
     _RUNTIME_HISTORY = "ansi81_frequency_samples"
     _RUNTIME_CONFIRMATION = "ansi81_confirmed_pickup"
+    _RUNTIME_PICKUP_DIRECTION = "ansi81_pickup_direction"
 
     def __init__(
         self,
@@ -144,8 +145,13 @@ class FrequencyProtectionRelay(RelayBase):
         return result
 
     def _reset_sample_state(self) -> None:
-        self.runtime_remove(self._RUNTIME_HISTORY) if self.runtime_has(self._RUNTIME_HISTORY) else None
-        self.runtime_remove(self._RUNTIME_CONFIRMATION) if self.runtime_has(self._RUNTIME_CONFIRMATION) else None
+        for name in (
+            self._RUNTIME_HISTORY,
+            self._RUNTIME_CONFIRMATION,
+            self._RUNTIME_PICKUP_DIRECTION,
+        ):
+            if self.runtime_has(name):
+                self.runtime_remove(name)
 
     def _validated_sample(self, context: ProtectionContext) -> tuple[float, int, float, str]:
         signal = self.get_input(self.FREQUENCY_INPUT)
@@ -193,39 +199,61 @@ class FrequencyProtectionRelay(RelayBase):
 
         try:
             sample = self._validated_sample(context)
-            history = tuple(self.runtime_get(self._RUNTIME_HISTORY, ()))
             settings = self._frequency_settings
-            interval = 1.0 / settings.sample_rate_hz
-            if history:
-                previous = history[-1]
-                elapsed = sample[0] - previous[0]
-                sequence_step = sample[1] - previous[1]
-                if sequence_step != 1:
-                    raise ValueError("Frequency sample sequence is duplicate, skipped, or non-monotonic.")
-                if elapsed <= 0.0 or abs(elapsed - interval) > max(
-                    settings.sample_interval_tolerance_seconds,
-                    1e-9 * interval,
-                ):
-                    raise ValueError("Frequency sample interval is non-monotonic or outside the configured sample-rate tolerance.")
-            elif self.runtime_has(self._RUNTIME_HISTORY):
-                history = ()
-
-            expected_samples = int(round(settings.estimation_window_seconds * settings.sample_rate_hz)) + 1
-            updated = (history + (sample,))[-expected_samples:]
-            self.runtime_set(self._RUNTIME_HISTORY, updated)
+            frequency = sample[2]
+            direction = (
+                "UNDER"
+                if frequency <= settings.under_frequency_pickup_hz
+                else "OVER"
+                if frequency >= settings.over_frequency_pickup_hz
+                else None
+            )
             rocof = None
-            complete_window = len(updated) == expected_samples
-            if complete_window:
-                span = updated[-1][0] - updated[0][0]
-                accumulated_tolerance = (
-                    settings.sample_interval_tolerance_seconds * (expected_samples - 1)
-                )
-                if abs(span - settings.estimation_window_seconds) > max(
-                    accumulated_tolerance,
-                    1e-9 * settings.estimation_window_seconds,
-                ):
-                    raise ValueError("Frequency samples do not span the complete configured estimation window.")
-                rocof = self._least_squares_rocof(updated)
+            complete_window = False
+            expected_samples = int(round(settings.estimation_window_seconds * settings.sample_rate_hz)) + 1
+
+            # Never allow a pre-pickup frequency trend to confirm a later
+            # pickup. Each continuous under/over-frequency pickup episode
+            # starts with a fresh estimator window.
+            if direction is None:
+                self._reset_sample_state()
+                updated = ()
+            else:
+                previous_direction = self.runtime_get(self._RUNTIME_PICKUP_DIRECTION)
+                if previous_direction != direction:
+                    for name in (self._RUNTIME_HISTORY, self._RUNTIME_CONFIRMATION):
+                        if self.runtime_has(name):
+                            self.runtime_remove(name)
+                self.runtime_set(self._RUNTIME_PICKUP_DIRECTION, direction)
+
+                history = tuple(self.runtime_get(self._RUNTIME_HISTORY, ()))
+                interval = 1.0 / settings.sample_rate_hz
+                if history:
+                    previous = history[-1]
+                    elapsed = sample[0] - previous[0]
+                    sequence_step = sample[1] - previous[1]
+                    if sequence_step != 1:
+                        raise ValueError("Frequency sample sequence is duplicate, skipped, or non-monotonic.")
+                    if elapsed <= 0.0 or abs(elapsed - interval) > max(
+                        settings.sample_interval_tolerance_seconds,
+                        1e-9 * interval,
+                    ):
+                        raise ValueError("Frequency sample interval is non-monotonic or outside the configured sample-rate tolerance.")
+
+                updated = (history + (sample,))[-expected_samples:]
+                self.runtime_set(self._RUNTIME_HISTORY, updated)
+                complete_window = len(updated) == expected_samples
+                if complete_window:
+                    span = updated[-1][0] - updated[0][0]
+                    accumulated_tolerance = (
+                        settings.sample_interval_tolerance_seconds * (expected_samples - 1)
+                    )
+                    if abs(span - settings.estimation_window_seconds) > max(
+                        accumulated_tolerance,
+                        1e-9 * settings.estimation_window_seconds,
+                    ):
+                        raise ValueError("Frequency samples do not span the complete configured estimation window.")
+                    rocof = self._least_squares_rocof(updated)
 
         except (TypeError, ValueError, AttributeError, KeyError, OverflowError) as exc:
             self._reset_sample_state()
@@ -235,14 +263,6 @@ class FrequencyProtectionRelay(RelayBase):
                 metadata={"input": self.FREQUENCY_INPUT, "rocof_confirmation_only": True},
             )
 
-        frequency = sample[2]
-        direction = (
-            "UNDER"
-            if frequency <= settings.under_frequency_pickup_hz
-            else "OVER"
-            if frequency >= settings.over_frequency_pickup_hz
-            else None
-        )
         metadata = {
             "frequency_hz": frequency,
             "under_frequency_pickup_hz": settings.under_frequency_pickup_hz,
