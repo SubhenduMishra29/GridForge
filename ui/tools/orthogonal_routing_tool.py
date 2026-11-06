@@ -47,6 +47,7 @@ class OrthogonalRoutingTool(WireTool):
         self._route_points: tuple[tuple[float, float], ...] = ()
         self._route_valid = False
         self._pending_press_snap: Any = None
+        self._last_route_signature: tuple[Any, ...] | None = None
 
     @property
     def name(self) -> str:
@@ -109,12 +110,23 @@ class OrthogonalRoutingTool(WireTool):
         excluded_ids = {value for value in (source_id, target_id) if value}
         try:
             obstacles, existing_routes = self._routing_context(excluded_ids)
+            clearance = self.CLEARANCE_PIXELS / self._view_scale()
+            signature = (
+                self._start_position,
+                target_position,
+                tuple(obstacles),
+                tuple(existing_routes),
+                clearance,
+            )
+            if signature == self._last_route_signature:
+                return self._route_valid
+            self._last_route_signature = signature
             self._route_points = self._router.route(
                 self._start_position,
                 target_position,
                 obstacles=obstacles,
                 existing_routes=existing_routes,
-                clearance=self.CLEARANCE_PIXELS / self._view_scale(),
+                clearance=clearance,
             ).points
         except (TypeError, ValueError, RuntimeError) as exc:
             self._route_valid = False
@@ -272,6 +284,7 @@ class OrthogonalRoutingTool(WireTool):
         self._route_points = ()
         self._route_valid = False
         self._pending_press_snap = None
+        self._last_route_signature = None
         super()._clear_state()
 
     def get_state(self) -> dict[str, Any]:
