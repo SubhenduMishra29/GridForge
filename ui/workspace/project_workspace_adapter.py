@@ -574,6 +574,39 @@ class ProjectWorkspaceApplicationAdapter:
             self._recover_independently(primary, tuple(recovery))
             raise
 
+    def replace_document(self, document: SLDDocument) -> ProjectWorkspaceState:
+        """Replace one registered SLD document through the Application presentation boundary."""
+        if not isinstance(document, SLDDocument):
+            raise TypeError("Only SLDDocument replacement is supported by the SLD document lifecycle.")
+        existing = self._lifecycle.documents.require(document.document_id)
+        if not isinstance(existing, SLDDocument):
+            raise TypeError("Only an existing SLDDocument can be replaced by this adapter.")
+        snapshot = self._lifecycle.capture_transition_state()
+        previous = self._lifecycle.document
+        if self._document_transition_guard is not None:
+            self._document_transition_guard()
+        try:
+            self._lifecycle.replace_document(document)
+            self._application.activate_presentation(document)
+            if self._presentation_activation_bridge is not None:
+                self._presentation_activation_bridge(document)
+            self._publish("replace_document", self._lifecycle.state, self._lifecycle.project.project_id)
+            return self._lifecycle.state
+        except BaseException as primary:
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
+            ]
+            if previous is not None:
+                recovery.append(
+                    ("Application presentation restoration", lambda: self._application.activate_presentation(previous))
+                )
+            if self._presentation_activation_bridge is not None:
+                recovery.append(
+                    ("presentation bridge restoration", lambda: self._presentation_activation_bridge(previous))
+                )
+            self._recover_independently(primary, tuple(recovery))
+            raise
+
     def new_sld_document(self, name: str | None = None) -> SLDDocument:
         """Create/register/activate a real SLD document through the canonical manager."""
         project = self._lifecycle.project

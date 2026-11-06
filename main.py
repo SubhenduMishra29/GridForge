@@ -1142,6 +1142,7 @@ def _build_application_impl(
             if (
                 current_context.document_id != next_document_id
                 or current_context.project_id != getattr(project, "project_id", None)
+                or change.operation == "replace_document"
             ):
                 # Run only after the Application transition commits. A failed
                 # transition therefore keeps the previous document's transient
