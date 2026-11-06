@@ -243,13 +243,17 @@ class GraphicsView(QGraphicsView):
         self._last_cursor_scene_position = (float(point.x()), float(point.y()))
         self.cursor_scene_position.emit(self._last_cursor_scene_position)
         if self.interaction_manager is not None and self.interaction_manager.mouse_move(event):
+            self._refresh_contextual_tool_strip()
             return
         super().mouseMoveEvent(event)
+        self._refresh_contextual_tool_strip()
 
     def mouseReleaseEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_release(event):
+            self._refresh_contextual_tool_strip()
             return
         super().mouseReleaseEvent(event)
+        self._refresh_contextual_tool_strip()
 
     def mouseDoubleClickEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_double_click(event):
