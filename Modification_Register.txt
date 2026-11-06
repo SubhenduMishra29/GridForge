@@ -22444,3 +22444,99 @@ Status:
     Merge commit: c5a869c5cc62189603195cb419a593e4653f75ce.
 
 ======================================================================
+
+GF-ANL-037 — TRANSIENT MODEL DISPATCH AND TOPOLOGY FINGERPRINT SEMANTICS
+======================================================================
+
+Date:
+    2026-11-06
+
+Scope:
+    PR #1110 — Correction 37.
+    Transient machine model identity, solver dispatch, topology provenance,
+    and live/archive comparison compatibility.
+
+Original finding:
+- DynamicMachineModelDefinition accepted arbitrary non-empty model_type
+  identities, while PreparedTransientStability.from_power_flow() always
+  constructed ClassicalSynchronousMachine. A persisted unsupported model
+  could therefore be executed silently with classical machine equations.
+
+Correction:
+- Established the explicit supported identity
+  'classical_synchronous_machine'.
+- DynamicMachineModelDefinition rejects every other identity and reports
+  the affected machine and unsupported persisted model type.
+- PreparedTransientStability.from_power_flow() preflights every persisted
+  model association against the explicit transient solver factory registry
+  before constructing any solver machine. Unsupported identities fail
+  closed with machine-specific diagnostics.
+- Classical solver construction is routed through the registered factory.
+  Future model types require an explicit validated factory registration;
+  there is no classical fallback for unknown identities.
+- Existing machine IDs, parameters, mechanical power, initial-state
+  derivation, project identity, activation generation and source revision
+  provenance are retained.
+
+Topology fingerprint semantics:
+- canonical_topology_fingerprint is the structural fingerprint supplied
+  by the canonical Core TopologySnapshot captured at Power Flow preparation.
+- prepared_network_topology_fingerprint identifies the detached
+  solver-ready transient network, including captured equipment and
+  switching state.
+- The two fingerprints have different authority and input domains. They
+  are not interchangeable and are not expected to be equal.
+- Comparison checks each fingerprint only against the corresponding
+  same-named fingerprint on the other run. Missing or mismatched provenance
+  remains an explicit incompatibility; no value is fabricated or substituted.
+
+Comparison and export review:
+- Live and archived run resolution remains project-scoped; live results
+  retain activation-generation and current-revision fences.
+- Archive selection resolves stable archive record IDs within the active
+  project. Missing records fail explicitly; archive verification remains
+  delegated to the Application-owned archive read boundary.
+- Comparison retains topology, operating-point, model-manifest, signal
+  semantics, event identity/dispatch and discontinuity compatibility checks.
+- JSON export remains Application-owned, versioned and lossless for the
+  supported result payload. Cyclic metadata is rejected explicitly rather
+  than causing unbounded recursive serialization.
+- Serialization failures remain surfaced as explicit ValueError diagnostics.
+
+Authoritative integration reconciliation:
+- Reconciled against SubhenduMishra29/GridForge:main at
+  2ea7f746b58faa1ccaded60b28b4fcf96c994a40.
+- Preserved the six intervening authoritative commits, including the
+  PR #1107 persisted Protection dispatch-authority correction and its
+  Modification_Register entry. The Application public live-cycle API
+  accepts no caller-supplied action_resolver; persisted project mappings
+  remain the sole live dispatch authority.
+- Preserved the newer authoritative register content; this entry is
+  appended without replacing or reordering historical records.
+
+Files changed for this correction:
+- core/analysis/dynamic_initial_state.py
+- core/analysis/transient_network.py
+- core/analysis/__init__.py
+- core/application/application.py
+- core/application/read_service.py
+- tests/application/test_transient_stability_execution.py
+- Modification_Register.txt
+
+Architecture boundary:
+- Core remains owner of electrical and engineering domain truth.
+- Application retains orchestration, persisted dispatch authority, archive
+  selection, comparison and export ownership.
+- UI remains a projection/interaction layer. No Qt, QGraphicsItem, SLD or
+  widget dependency was introduced into Core.
+
+Verification:
+- Static source inspection, package-export review and diff-hygiene review.
+- No tests, CI, startup, GUI or runtime experiments were run.
+- Runtime behavior remains unverified and is not claimed.
+
+Status:
+    IMPLEMENTATION CORRECTION COMMITTED TO IMPLEMENTATION MAIN.
+    PR #1110 UPDATED FOR INDEPENDENT INTEGRATION REVIEW.
+    NOT MERGED.
+======================================================================

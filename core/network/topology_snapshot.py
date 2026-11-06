@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from types import MappingProxyType
 from typing import Mapping
 
@@ -258,6 +260,32 @@ class TopologySnapshot:
         if raw_islands != ordered_islands:
             raise ValueError("islands must use deterministic ordering.")
         object.__setattr__(self, "islands", raw_islands)
+
+    @property
+    def structural_fingerprint(self) -> str:
+        """Return a revision-independent digest of canonical topology structure."""
+        payload = {
+            "schema_version": 1,
+            "bus_ids": self.bus_ids,
+            "bus_adjacency": tuple(
+                (bus_id, self.bus_adjacency[bus_id])
+                for bus_id in sorted(self.bus_adjacency)
+            ),
+            "equipment_bus_attachments": tuple(
+                (
+                    item.equipment_id,
+                    item.equipment_type,
+                    item.terminal_role,
+                    item.bus_id,
+                    item.bus_attachment_id,
+                )
+                for item in self.equipment_bus_attachments
+            ),
+            "conductive_edges": tuple(edge.edge_identity for edge in self.conductive_edges),
+            "islands": self.islands,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
 
     @property
     def provenance(self) -> TopologyProvenance:

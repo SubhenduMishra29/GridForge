@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import hashlib
+import json
 from types import MappingProxyType
-from typing import Mapping
+from typing import Callable, Mapping
 
 import numpy as np
 
 from core.analysis.dynamic_initial_state import (
+    CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE,
+    DynamicInitialState,
     DynamicInitialStatePreparation,
     DynamicMachineModelDefinition,
 )
@@ -26,6 +30,32 @@ from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
 from core.solver.power_flow.result import PowerFlowResult
+
+
+def _build_classical_synchronous_machine(
+    definition: DynamicMachineModelDefinition,
+    initial_state: DynamicInitialState,
+) -> ClassicalSynchronousMachine:
+    """Construct the solver implementation explicitly registered for the classical model identity."""
+    return ClassicalSynchronousMachine(
+        definition.machine_id,
+        definition.bus_id,
+        H=definition.parameters.H,
+        Xd_prime=definition.parameters.Xd_prime,
+        D=definition.parameters.D,
+        Efd=definition.parameters.Efd,
+        initial_delta=initial_state.rotor_angle,
+        initial_omega=initial_state.speed_deviation,
+    )
+
+
+# New dynamic model identities must be added here with an explicit solver
+# factory; unknown persisted identities are rejected before any machine exists.
+_TRANSIENT_MACHINE_MODEL_FACTORIES: Mapping[
+    str, Callable[[DynamicMachineModelDefinition, DynamicInitialState], ClassicalSynchronousMachine]
+] = MappingProxyType({
+    CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE: _build_classical_synchronous_machine,
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +180,11 @@ class PreparedTransientStability:
     machines: tuple[ClassicalSynchronousMachine, ...]
     mechanical_powers: Mapping[str, float]
     initial_state: tuple[float, ...]
+    model_types: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+    base_mva: float | None = None
+    bus_voltage_bases_kv: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
+    nominal_frequency_hz: float | None = None
+    canonical_topology_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -162,6 +197,31 @@ class PreparedTransientStability:
         object.__setattr__(self, "source_revision", tuple(self.source_revision))
         object.__setattr__(self, "machines", tuple(self.machines))
         object.__setattr__(self, "mechanical_powers", MappingProxyType({str(k): float(v) for k, v in self.mechanical_powers.items()}))
+        model_types = {str(key): str(value).strip() for key, value in self.model_types.items()}
+        if any(not value for value in model_types.values()):
+            raise ValueError("Prepared transient declared model types must be non-empty.")
+        object.__setattr__(self, "model_types", MappingProxyType(model_types))
+        if self.base_mva is not None:
+            base_mva = float(self.base_mva)
+            if not np.isfinite(base_mva) or base_mva <= 0.0:
+                raise ValueError("Prepared transient base MVA must be positive and finite.")
+            object.__setattr__(self, "base_mva", base_mva)
+        voltage_bases = {str(key): float(value) for key, value in self.bus_voltage_bases_kv.items()}
+        if voltage_bases and set(voltage_bases) != set(self.network.bus_ids):
+            raise ValueError("Prepared transient voltage bases must cover the detached network Bus identities exactly.")
+        if any(not np.isfinite(value) or value <= 0.0 for value in voltage_bases.values()):
+            raise ValueError("Prepared transient voltage bases must be positive and finite.")
+        object.__setattr__(self, "bus_voltage_bases_kv", MappingProxyType(voltage_bases))
+        if self.nominal_frequency_hz is not None:
+            frequency = float(self.nominal_frequency_hz)
+            if not np.isfinite(frequency) or frequency <= 0.0:
+                raise ValueError("Prepared transient nominal frequency must be positive and finite.")
+            object.__setattr__(self, "nominal_frequency_hz", frequency)
+        if self.canonical_topology_fingerprint is not None:
+            fingerprint = str(self.canonical_topology_fingerprint).strip()
+            if len(fingerprint) != 64 or any(character not in "0123456789abcdef" for character in fingerprint):
+                raise ValueError("Prepared canonical topology fingerprint must be a lowercase SHA-256 digest.")
+            object.__setattr__(self, "canonical_topology_fingerprint", fingerprint)
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
         if self.network.project_id != self.project_id:
             raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
@@ -180,6 +240,8 @@ class PreparedTransientStability:
             )
         if set(machine_ids) != set(self.mechanical_powers):
             raise ValueError("Prepared transient mechanical-power identities must match its machine identities.")
+        if self.model_types and set(machine_ids) != set(self.model_types):
+            raise ValueError("Prepared transient declared model types must match its machine identities.")
 
     @property
     def provenance(self) -> Mapping[str, object]:
@@ -193,7 +255,8 @@ class PreparedTransientStability:
             machine_models.append(MappingProxyType({
                 "machine_id": machine.machine_id,
                 "bus_id": machine.bus_id,
-                "model_type": model_type,
+                "declared_model_type": self.model_types.get(machine.machine_id),
+                "executable_model_type": model_type,
                 "parameters": MappingProxyType({
                     "H": parameters.H,
                     "Xd_prime": parameters.Xd_prime,
@@ -229,6 +292,42 @@ class PreparedTransientStability:
                     }),
                 ))
             global_index += int(machine.state_size)
+        # These fingerprints have deliberately different authority and input domains:
+        # canonical_topology_fingerprint comes from the canonical Core TopologySnapshot
+        # captured at Power Flow preparation; prepared_network_topology_fingerprint
+        # describes this detached solver-ready network, including captured equipment
+        # and switching state. They are not interchangeable and are not expected to
+        # be equal. Numerical parameters and PU bases remain separate compatibility
+        # dimensions.
+        topology_payload = {
+            "schema_version": 1,
+            "bus_ids": tuple(sorted(self.network.bus_ids)),
+            "branches": tuple(sorted(
+                (item.branch_id, item.from_bus_id, item.to_bus_id)
+                for item in self.network.branches
+            )),
+            "transformers": tuple(sorted(
+                (item.branch_id, item.from_bus_id, item.to_bus_id)
+                for item in self.network.transformers
+            )),
+            "shunts": tuple(sorted(
+                (item.shunt_id, item.bus_id)
+                for item in self.network.shunts
+            )),
+            "equipment_states": tuple(sorted(self.network.equipment_states.items())),
+            "switch_states": tuple(sorted(self.network.breaker_states.items())),
+            "switch_availability_states": tuple(sorted(self.network.switch_available_states.items())),
+            "switch_connections": tuple(sorted(
+                (key, tuple(value)) for key, value in self.network.switch_connections.items()
+            )),
+            "machine_connections": tuple(sorted(
+                (key, tuple(value)) for key, value in self.network.machine_connection_paths.items()
+            )),
+            "machine_rotor_policies": tuple(sorted(self.network.machine_rotor_policies.items())),
+        }
+        topology_fingerprint = hashlib.sha256(
+            json.dumps(topology_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         manifest = {
             "schema_version": 1,
             "model_family": "synchronous_machine",
@@ -239,6 +338,15 @@ class PreparedTransientStability:
             "activation_generation": self.activation_generation,
             "source_revision": self.source_revision,
             "topology_revision": self.network.topology_revision,
+            "power_base_mva": self.base_mva,
+            "bus_voltage_bases_kv": MappingProxyType(dict(self.bus_voltage_bases_kv)),
+            "nominal_frequency_hz": self.nominal_frequency_hz,
+            "canonical_topology_fingerprint": self.canonical_topology_fingerprint,
+            "prepared_network_topology_fingerprint": MappingProxyType({
+                "schema_version": 1,
+                "algorithm": "sha256",
+                "value": topology_fingerprint,
+            }),
             "machine_connections": {
                 machine_id: {
                     "switching_path": self.network.machine_connection_paths[machine_id],
@@ -285,6 +393,16 @@ class PreparedTransientStability:
             raise ValueError("Power Flow result bus ordering must match the prepared Power Flow snapshot.")
         if power_flow_result.snapshot_id is None or power_flow_result.snapshot_id != prepared_power_flow.input.snapshot_id:
             raise ValueError("Power Flow result must originate from the exact prepared snapshot used for transient stability.")
+        if prepared_power_flow.nominal_frequency_hz is None:
+            raise ValueError(
+                "Transient stability requires an authoritative, consistent nominal frequency "
+                "captured by Power Flow preparation."
+            )
+        if prepared_power_flow.canonical_topology_fingerprint is None:
+            raise ValueError(
+                "Transient stability requires the canonical TopologySnapshot structural fingerprint "
+                "captured by Power Flow preparation."
+            )
         # Project activation provenance must agree with the prepared operating point.
         # Optional metadata is tolerated only for legacy detached snapshots that
         # genuinely lack that field; supplied caller values never override it.
@@ -305,6 +423,21 @@ class PreparedTransientStability:
             raise ValueError("Power Flow voltage magnitudes must be positive for transient initialization.")
 
         associations = dynamic_models.all()
+        unsupported_models = tuple(
+            (association.machine_id, association.model_type)
+            for association in associations
+            if association.model_type not in _TRANSIENT_MACHINE_MODEL_FACTORIES
+        )
+        if unsupported_models:
+            details = ", ".join(
+                f"{machine_id}={model_type!r}"
+                for machine_id, model_type in unsupported_models
+            )
+            supported = ", ".join(sorted(_TRANSIENT_MACHINE_MODEL_FACTORIES))
+            raise ValueError(
+                "Transient stability cannot dispatch unsupported persisted dynamic machine models; "
+                f"supported={supported!r}, received: {details}."
+            )
         expected_machine_ids = {association.machine_id for association in associations}
         if set(machine_connection_paths) != expected_machine_ids:
             raise ValueError(
@@ -342,6 +475,7 @@ class PreparedTransientStability:
                     bus_id=association.bus_id,
                     parameters=association.parameters,
                     mechanical_power=association.mechanical_power,
+                    model_type=association.model_type,
                 )
             )
 
@@ -354,18 +488,8 @@ class PreparedTransientStability:
                 prepared_power_flow.input,
                 definition,
             )
-            machines.append(
-                ClassicalSynchronousMachine(
-                    definition.machine_id,
-                    definition.bus_id,
-                    H=definition.parameters.H,
-                    Xd_prime=definition.parameters.Xd_prime,
-                    D=definition.parameters.D,
-                    Efd=definition.parameters.Efd,
-                    initial_delta=prepared_initial.rotor_angle,
-                    initial_omega=prepared_initial.speed_deviation,
-                )
-            )
+            machine_factory = _TRANSIENT_MACHINE_MODEL_FACTORIES[definition.model_type]
+            machines.append(machine_factory(definition, prepared_initial))
             initial_states.extend(prepared_initial.state_vector)
             mechanical[definition.machine_id] = definition.mechanical_power
 
@@ -392,7 +516,20 @@ class PreparedTransientStability:
             },
             topology_revision=prepared_power_flow.topology_revision,
         )
-        return cls(network, project_id, activation_generation, source_revision, tuple(machines), mechanical, tuple(initial_states))
+        return cls(
+            network,
+            project_id,
+            activation_generation,
+            source_revision,
+            tuple(machines),
+            mechanical,
+            tuple(initial_states),
+            {definition.machine_id: definition.model_type for definition in definitions},
+            prepared_power_flow.base_mva,
+            prepared_power_flow.bus_voltage_bases,
+            prepared_power_flow.nominal_frequency_hz,
+            prepared_power_flow.canonical_topology_fingerprint,
+        )
 
 
 class _PreparedTransientPassiveView:

@@ -9,9 +9,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
+from pathlib import Path
+import tempfile
 from typing import Any
 
-from ui.core.qt import QWidget, QVBoxLayout
+from ui.core.qt import QFileDialog, QMessageBox, QWidget, QVBoxLayout
 from ui.core.action_router import UIActionRouter
 from ui.editors.common.editor_host import EngineeringEditorHost
 from ui.editors.common.tool_shelf import ToolShelf
@@ -60,13 +63,34 @@ class ControlSurfaceHost(QWidget):
             activators.setdefault("sld", tool_activator)
         providers = dict(tool_active_providers or {})
         self._application = application
+        self._study_runtime = study_runtime
+        self._study_reports_view: ReportsWorkspaceView | None = None
         self._host = EngineeringEditorHost(parent=self)
         self._shelves: dict[str, ToolShelf] = {}
         self._sld_document: Any | None = None
 
+        if study_runtime is not None:
+            export_action_id = "tool.study.export"
+            if action_router is not None and not action_router.has(export_action_id):
+                action_router.register(export_action_id, self.export_selected_study_comparison)
+            if action_router is None:
+                previous_study_activator = activators.get("study")
+                def activate_study_tool(tool_id: str) -> object:
+                    if tool_id == "export":
+                        return self.export_selected_study_comparison()
+                    if callable(previous_study_activator):
+                        return previous_study_activator(tool_id)
+                    return None
+                activators["study"] = activate_study_tool
+
         def make_tool_shelf(editor_type: str, parent: QWidget) -> ToolShelf:
+            definitions = (
+                tuple(study_runtime.definitions)
+                if editor_type == "study" and study_runtime is not None
+                else tool_definitions
+            )
             shelf = ToolShelf(
-                definitions=tool_definitions,
+                definitions=definitions,
                 activate=activators.get(editor_type),
                 action_router=action_router,
                 editor_type=editor_type,
@@ -107,6 +131,7 @@ class ControlSurfaceHost(QWidget):
             )
 
         study_surface = ReportsWorkspaceView(application, parent=self._host)
+        self._study_reports_view = study_surface
         self._host.register_editor(
             "study-editor",
             StudyEditor(
@@ -124,6 +149,74 @@ class ControlSurfaceHost(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._host)
+
+    def export_selected_study_comparison(self) -> None:
+        """Save the Application-produced comparison for exactly two selected live/archive runs."""
+        runtime = self._study_runtime
+        reports = self._study_reports_view
+        if runtime is None or reports is None:
+            QMessageBox.information(self, "Transient Comparison Export", "Study comparison export is not configured.")
+            return
+        activate = getattr(runtime, "activate", None)
+        if callable(activate):
+            activate("export")
+            self.refresh_tool_shelves()
+        execution_refs = reports.selected_study_execution_refs()
+        if len(execution_refs) != 2:
+            QMessageBox.warning(
+                self,
+                "Transient Comparison Export",
+                "Select exactly two live and/or archived transient runs before exporting a comparison.",
+            )
+            return
+        filename, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Export Transient Comparison",
+            "transient-comparison.json",
+            "JSON files (*.json)",
+        )
+        if not filename:
+            return
+        destination = Path(filename)
+        if destination.suffix.lower() != ".json":
+            destination = destination.with_suffix(".json")
+        try:
+            payload = runtime.export_selected_comparison(
+                execution_refs[0][0], execution_refs[0][1],
+                execution_refs[1][0], execution_refs[1][1],
+            )
+            if not isinstance(payload, str) or not payload:
+                raise RuntimeError("Application returned an empty comparison export.")
+            temporary_path: Path | None = None
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=destination.parent,
+                    prefix=f".{destination.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary_file:
+                    temporary_path = Path(temporary_file.name)
+                    temporary_file.write(payload)
+                    temporary_file.flush()
+                    os.fsync(temporary_file.fileno())
+                os.replace(temporary_path, destination)
+                temporary_path = None
+            finally:
+                if temporary_path is not None:
+                    try:
+                        temporary_path.unlink()
+                    except OSError:
+                        pass
+        except Exception as exc:
+            QMessageBox.critical(self, "Transient Comparison Export Failed", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Transient Comparison Export",
+            f"Comparison saved to {destination}",
+        )
 
     @property
     def surface_ids(self) -> tuple[str, ...]:

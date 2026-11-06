@@ -120,6 +120,8 @@ class PreparedPowerFlow:
     activation_generation: int | None = None
     topology_revision: int | None = None
     source_revision: tuple[int, int, int, int] | None = None
+    nominal_frequency_hz: float | None = None
+    canonical_topology_fingerprint: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.input, PowerFlowInput):
@@ -169,6 +171,16 @@ class PreparedPowerFlow:
                     "Prepared Power Flow source_revision must contain four non-negative revision integers."
                 )
             object.__setattr__(self, "source_revision", tuple(self.source_revision))
+        if self.nominal_frequency_hz is not None:
+            frequency = float(self.nominal_frequency_hz)
+            if not math.isfinite(frequency) or frequency <= 0.0:
+                raise ValueError("Prepared Power Flow nominal frequency must be positive and finite.")
+            object.__setattr__(self, "nominal_frequency_hz", frequency)
+        if self.canonical_topology_fingerprint is not None:
+            fingerprint = str(self.canonical_topology_fingerprint).strip()
+            if len(fingerprint) != 64 or any(character not in "0123456789abcdef" for character in fingerprint):
+                raise ValueError("Prepared canonical topology fingerprint must be a lowercase SHA-256 digest.")
+            object.__setattr__(self, "canonical_topology_fingerprint", fingerprint)
         ybus_revision = self.ybus.topology_revision
         if (
             self.topology_revision is not None
@@ -225,6 +237,8 @@ class PowerFlowPreparation:
         if len(self.topology_snapshot.islands) > 1:
             raise ValueError("Power Flow policy rejects multiple energized islands because PowerFlowInput requires exactly one slack bus.")
         voltage_bases = self._prepare_voltage_bases(buses)
+        nominal_frequency_hz = self._prepare_nominal_frequency_hz(buses)
+        canonical_topology_fingerprint = self.topology_snapshot.structural_fingerprint
 
         p_spec: list[float] = []
         q_spec: list[float] = []
@@ -268,6 +282,8 @@ class PowerFlowPreparation:
             project_id=self.topology_snapshot.project_id,
             activation_generation=self.topology_snapshot.activation_generation,
             topology_revision=topology_revision,
+            nominal_frequency_hz=nominal_frequency_hz,
+            canonical_topology_fingerprint=canonical_topology_fingerprint,
         )
         ybus = YBusBuilder().build(snapshot)
         return PreparedPowerFlow(
@@ -281,7 +297,49 @@ class PowerFlowPreparation:
             project_id=snapshot.project_id,
             activation_generation=snapshot.activation_generation,
             topology_revision=snapshot.topology_revision,
+            nominal_frequency_hz=snapshot.nominal_frequency_hz,
+            canonical_topology_fingerprint=snapshot.canonical_topology_fingerprint,
         )
+
+    def _prepare_nominal_frequency_hz(self, buses: tuple[Any, ...]) -> float:
+        """Resolve one explicit nominal frequency across active network Buses and Grid sources."""
+        frequencies: list[tuple[str, float]] = []
+        for bus in buses:
+            raw = getattr(bus, "frequency_hz", None)
+            if raw is None:
+                raise ValueError(f"Active Bus '{bus.id}' has no declared nominal frequency.")
+            frequency = self._finite_positive(raw, f"Bus '{bus.id}' frequency_hz")
+            frequencies.append((f"Bus:{bus.id}", frequency))
+
+        attached_grid_ids = {
+            item.equipment_id
+            for item in self.topology_snapshot.equipment_bus_attachments
+            if item.equipment_type == "grid"
+        }
+        for grid in getattr(self.network, "grids", ()):
+            if not getattr(grid, "in_service", True) or str(getattr(grid, "id", "")) not in attached_grid_ids:
+                continue
+            raw = getattr(grid, "frequency_hz", None)
+            if raw is None:
+                raise ValueError(f"Connected in-service Grid '{grid.id}' has no declared nominal frequency.")
+            frequency = self._finite_positive(raw, f"Grid '{grid.id}' frequency_hz")
+            frequencies.append((f"Grid:{grid.id}", frequency))
+
+        if not frequencies:
+            raise ValueError("Power Flow preparation cannot establish a nominal system frequency.")
+        reference = frequencies[0][1]
+        mismatches = tuple(
+            (identity, value)
+            for identity, value in frequencies[1:]
+            if not math.isclose(value, reference, rel_tol=0.0, abs_tol=1e-9)
+        )
+        if mismatches:
+            detail = ", ".join(f"{identity}={value:g} Hz" for identity, value in frequencies)
+            raise ValueError(
+                "Transient-capable Power Flow preparation requires one consistent nominal "
+                f"system frequency; conflicting declarations: {detail}."
+            )
+        return reference
 
     @staticmethod
     def _empty_ybus_matrix(size: int):

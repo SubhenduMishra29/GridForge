@@ -22,6 +22,7 @@ from ui.core.qt import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    Qt,
 )
 
 
@@ -89,15 +90,19 @@ class MapWorkspaceView(QWidget):
 
 
 class ReportsWorkspaceView(QWidget):
-    """Project published Application study results without creating a result authority."""
+    """Project published results and selectable live or archived transient runs."""
 
     def __init__(self, application: Any, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._application = application
         self._list = QListWidget(self)
+        self._transient_runs_list = QListWidget(self)
+        self._transient_runs_list.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Study Reports", self))
         layout.addWidget(self._list)
+        layout.addWidget(QLabel("Transient runs — select any two live/archive runs to export a comparison", self))
+        layout.addWidget(self._transient_runs_list)
         self.refresh()
 
     def refresh(self) -> None:
@@ -105,12 +110,45 @@ class ReportsWorkspaceView(QWidget):
         results = tuple(self._application.read_study_results())
         if not results:
             self._list.addItem("No published study results.")
-            return
-        for result in results:
-            self._list.addItem(
-                f"{result.study_type} — {result.status} — "
-                f"{result.message or 'No message'}"
+        else:
+            for result in results:
+                self._list.addItem(
+                    f"{result.study_type} — {result.status} — "
+                    f"{result.message or 'No message'}"
+                )
+        self._transient_runs_list.clear()
+        live = tuple(
+            result for result in results
+            if result.study_type == "transient_stability"
+        )
+        for result in live:
+            self._transient_runs_list.addItem(
+                f"LIVE — generation {result.activation_generation} — {result.status} — {result.study_id}"
             )
+            item = self._transient_runs_list.item(self._transient_runs_list.count() - 1)
+            item.setData(Qt.ItemDataRole.UserRole, ("live", str(result.study_id)))
+        archived = tuple(self._application.read_archived_study_results(study_type="transient_stability"))
+        for record in archived:
+            self._transient_runs_list.addItem(
+                f"ARCHIVE — {record.saved_at} — {record.status} — {record.record_id}"
+            )
+            item = self._transient_runs_list.item(self._transient_runs_list.count() - 1)
+            item.setData(Qt.ItemDataRole.UserRole, ("archive", str(record.record_id)))
+
+    def selected_study_execution_refs(self) -> tuple[tuple[str, str], ...]:
+        """Return selected live/archive execution identities in visible row order."""
+        selected = []
+        for index in range(self._transient_runs_list.count()):
+            item = self._transient_runs_list.item(index)
+            if item.isSelected():
+                value = item.data(Qt.ItemDataRole.UserRole)
+                if (
+                    isinstance(value, tuple) and len(value) == 2
+                    and value[0] in {"live", "archive"}
+                    and isinstance(value[1], str) and value[1].strip()
+                ):
+                    selected.append((value[0], value[1]))
+        return tuple(selected)
 
 
 class EngineeringWorkspaceTabs(QWidget):

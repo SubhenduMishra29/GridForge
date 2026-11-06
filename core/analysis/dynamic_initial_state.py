@@ -16,6 +16,9 @@ from core.solver.power_flow.input import PowerFlowInput
 from core.solver.power_flow.result import PowerFlowResult
 
 
+CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE = "classical_synchronous_machine"
+
+
 @dataclass(frozen=True, slots=True)
 class DynamicMachineModelDefinition:
     """Immutable dynamic model definition associated with one machine identity."""
@@ -24,6 +27,7 @@ class DynamicMachineModelDefinition:
     bus_id: str
     parameters: ClassicalMachineParameters
     mechanical_power: float
+    model_type: str = "classical_synchronous_machine"
 
     def __post_init__(self) -> None:
         if not isinstance(self.machine_id, str) or not self.machine_id.strip():
@@ -35,9 +39,19 @@ class DynamicMachineModelDefinition:
         value = float(self.mechanical_power)
         if not math.isfinite(value):
             raise ValueError("mechanical_power must be finite.")
+        if not isinstance(self.model_type, str) or not self.model_type.strip():
+            raise ValueError("model_type must be a non-empty persisted engineering model identity.")
+        normalized_model_type = self.model_type.strip()
+        if normalized_model_type != CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE:
+            raise ValueError(
+                f"Dynamic machine {self.machine_id!r} declares unsupported model identity "
+                f"{normalized_model_type!r}; supported identity is "
+                f"{CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE!r}."
+            )
         object.__setattr__(self, "machine_id", self.machine_id.strip())
         object.__setattr__(self, "bus_id", self.bus_id.strip())
         object.__setattr__(self, "mechanical_power", value)
+        object.__setattr__(self, "model_type", normalized_model_type)
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +166,7 @@ class DynamicInitialStatePreparation:
 
 
 __all__ = [
+    "CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE",
     "DynamicMachineModelDefinition",
     "DynamicInitialState",
     "DynamicInitialStatePreparation",

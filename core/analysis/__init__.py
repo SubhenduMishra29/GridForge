@@ -29,6 +29,7 @@ from core.analysis.short_circuit import ShortCircuitAnalysis, ShortCircuitAnalyz
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
 from core.analysis.dynamic_initial_state import (
+    CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE,
     DynamicMachineModelDefinition,
     DynamicInitialState,
     DynamicInitialStatePreparation,
@@ -94,6 +95,7 @@ __all__ = [
     "ShortCircuitAnalyzer",
     "ShortCircuitStudyConfiguration",
     "ShortCircuitPreparation",
+    "CLASSICAL_SYNCHRONOUS_MACHINE_MODEL_TYPE",
     "DynamicMachineModelDefinition",
     "DynamicInitialState",
     "DynamicInitialStatePreparation",

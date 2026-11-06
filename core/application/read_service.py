@@ -10,6 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
+from enum import Enum
+import json
 import math
 from datetime import datetime, timezone
 from typing import Any
@@ -633,17 +635,91 @@ class StudyResultNumericDeltaReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class TransientDiscontinuitySignalDeltaReadModel:
+    """Pre/post values and deltas for one typed signal at an event boundary."""
+
+    signal_id: str
+    unit: str
+    left_pre: float
+    right_pre: float
+    pre_delta: float
+    left_post: float
+    right_post: float
+    post_delta: float
+
+
+@dataclass(frozen=True, slots=True)
+class TransientDiscontinuityDeltaReadModel:
+    """Matched event boundary with separate pre-event and post-event deltas."""
+
+    event_semantic_keys: tuple[tuple[Any, ...], ...]
+    time_s: float
+    left_pre_topology_revision: int | None
+    right_pre_topology_revision: int | None
+    left_post_topology_revision: int | None
+    right_post_topology_revision: int | None
+    signals: tuple[TransientDiscontinuitySignalDeltaReadModel, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TransientSemanticEventMatchReadModel:
+    """One event pair matched by engineering operation, not run-local event ID."""
+
+    semantic_key: tuple[Any, ...]
+    left_event_id: str
+    right_event_id: str
+    event_time_s: float
+    left_dispatch_time_s: float | None
+    right_dispatch_time_s: float | None
+    dispatch_delta_s: float | None
+    transition_type: str
+    target_kind: str
+    target_id: str
+    previous_state: Any
+    new_state: Any
+
+
+@dataclass(frozen=True, slots=True)
+class TransientSignalDeltaReadModel:
+    """Exact-grid per-signal transient delta; no interpolation or index pairing."""
+
+    signal_id: str
+    unit: str
+    left_values: tuple[float, ...]
+    right_values: tuple[float, ...]
+    deltas: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        if not self.signal_id or not self.unit:
+            raise ValueError("Transient signal delta identity and unit must be non-empty.")
+        left = tuple(float(value) for value in self.left_values)
+        right = tuple(float(value) for value in self.right_values)
+        delta = tuple(float(value) for value in self.deltas)
+        if not (len(left) == len(right) == len(delta)):
+            raise ValueError("Transient signal delta arrays must have identical lengths.")
+        if any(not math.isfinite(value) for values in (left, right, delta) for value in values):
+            raise ValueError("Transient signal comparison values must be finite.")
+        object.__setattr__(self, "left_values", left)
+        object.__setattr__(self, "right_values", right)
+        object.__setattr__(self, "deltas", delta)
+
+
+@dataclass(frozen=True, slots=True)
 class StudyResultComparisonReadModel:
     """Two-execution comparison with only base-compatible numeric deltas."""
 
-    left: ArchivedStudyResultReadModel
-    right: ArchivedStudyResultReadModel
+    left: StudyResultReadModel | ArchivedStudyResultReadModel
+    right: StudyResultReadModel | ArchivedStudyResultReadModel
     compatible: bool
     compatibility_message: str
     same_source_revision: bool
     same_activation_generation: bool
     numeric_deltas: tuple[StudyResultNumericDeltaReadModel, ...] = ()
     numeric_comparison_status: str = "NO_BASE_COMPATIBLE_VALUES"
+    transient_signal_deltas: tuple[TransientSignalDeltaReadModel, ...] = ()
+    transient_compatibility_diagnostics: tuple[str, ...] = ()
+    transient_event_matches: tuple[TransientSemanticEventMatchReadModel, ...] = ()
+    transient_discontinuity_deltas: tuple[TransientDiscontinuityDeltaReadModel, ...] = ()
 
 
 def _study_result_numeric_observations(value: Any) -> dict[str, tuple[complex | float, str, tuple[Any, ...]]]:
@@ -1344,11 +1420,320 @@ class StudyReadService:
                 return row
         raise KeyError(f"Archived Study Result record '{record_id}' was not found in this project scope.")
 
-    def compare_archived_results(
-        self, left_record_id: UUID, right_record_id: UUID, *, project_id: str,
+    def compare_study_results(
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
     ) -> StudyResultComparisonReadModel:
-        left = self.archived_result(left_record_id, project_id=project_id)
-        right = self.archived_result(right_record_id, project_id=project_id)
+        """Compare two project-scoped live and/or archived result snapshots."""
+        def resolve(reference: Any) -> StudyResultReadModel | ArchivedStudyResultReadModel:
+            if isinstance(reference, ArchivedStudyResultReadModel):
+                if reference.project_id != project_id:
+                    raise KeyError("Archived Study Result belongs to another project.")
+                return reference
+            if isinstance(reference, StudyResultReadModel):
+                if reference.project_id != project_id:
+                    raise KeyError("Live Study Result belongs to another project.")
+                if activation_generation is not None and reference.activation_generation != activation_generation:
+                    raise KeyError("Live Study Result belongs to another activation generation.")
+                return reference
+            return self.archived_result(reference, project_id=project_id)
+
+        left = resolve(left_record_id)
+        right = resolve(right_record_id)
+        left_is_historical = isinstance(left, ArchivedStudyResultReadModel)
+        right_is_historical = isinstance(right, ArchivedStudyResultReadModel)
+        left_transient = self._transient_presentation(
+            left, historical=left_is_historical,
+            record_id=getattr(left, "record_id", None), saved_at=getattr(left, "saved_at", None),
+        )
+        right_transient = self._transient_presentation(
+            right, historical=right_is_historical,
+            record_id=getattr(right, "record_id", None), saved_at=getattr(right, "saved_at", None),
+        )
+        if left_transient is not None or right_transient is not None:
+            diagnostics: list[str] = []
+            if left_transient is None or right_transient is None:
+                diagnostics.append("TRANSIENT_RESULT_TYPE_MISMATCH")
+            if left.project_id != right.project_id:
+                diagnostics.append("PROJECT_ID_MISMATCH")
+            if left.study_type != right.study_type:
+                diagnostics.append("STUDY_TYPE_MISMATCH")
+            if left.status != "completed" or right.status != "completed":
+                diagnostics.append("INCOMPLETE_OR_NON_SUCCESSFUL_EXECUTION")
+            if isinstance(left, StudyResultReadModel) and (
+                not left.current
+                or (current_revision is not None and not left.source_revision.matches_study_state(current_revision))
+            ):
+                diagnostics.append("LEFT_LIVE_RESULT_NOT_CURRENT")
+            if isinstance(right, StudyResultReadModel) and (
+                not right.current
+                or (current_revision is not None and not right.source_revision.matches_study_state(current_revision))
+            ):
+                diagnostics.append("RIGHT_LIVE_RESULT_NOT_CURRENT")
+            if left_transient is not None and right_transient is not None:
+                if left_transient.time_s != right_transient.time_s:
+                    diagnostics.append("TIME_GRID_MISMATCH")
+                left_signals = {item.signal_id: item for item in left_transient.signals}
+                right_signals = {item.signal_id: item for item in right_transient.signals}
+                if set(left_signals) != set(right_signals):
+                    diagnostics.append("SIGNAL_IDENTITY_SET_MISMATCH")
+                # Compare provenance only within the same named semantic dimension.
+                # The canonical Core topology fingerprint and detached prepared-network
+                # fingerprint have different authorities/input domains; neither is
+                # compared to, nor substituted for, the other.
+                required_provenance = (
+                    "nominal_frequency_hz",
+                    "power_base_mva",
+                    "bus_voltage_bases_kv",
+                    "canonical_topology_fingerprint",
+                    "prepared_network_topology_fingerprint",
+                    "machine_model_manifest",
+                )
+                for key in required_provenance:
+                    left_value = left_transient.provenance.get(key)
+                    right_value = right_transient.provenance.get(key)
+                    if left_value is None or right_value is None:
+                        diagnostics.append(f"PROVENANCE_UNAVAILABLE:{key}")
+                    elif left_value != right_value:
+                        diagnostics.append(f"PROVENANCE_MISMATCH:{key}")
+                for signal_id in sorted(set(left_signals).intersection(right_signals)):
+                    a, b = left_signals[signal_id], right_signals[signal_id]
+                    identity_a = (a.quantity, a.unit, a.machine_id, a.bus_id, a.component)
+                    identity_b = (b.quantity, b.unit, b.machine_id, b.bus_id, b.component)
+                    if identity_a != identity_b:
+                        diagnostics.append(f"SIGNAL_SEMANTICS_MISMATCH:{signal_id}")
+                def semantic_value(value: Any) -> Any:
+                    if isinstance(value, Mapping):
+                        return tuple(
+                            (str(key), semantic_value(item))
+                            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+                        )
+                    if isinstance(value, (tuple, list)):
+                        return tuple(semantic_value(item) for item in value)
+                    if isinstance(value, (str, int, float, bool, type(None))):
+                        return value
+                    return (type(value).__module__, type(value).__qualname__, str(value))
+
+                def event_key(event: TransientEventReadModel) -> tuple[Any, ...] | None:
+                    transition = event.transition
+                    if transition is None:
+                        return None
+                    transition_type = transition.get("transition_type")
+                    target_kind = transition.get("target_kind")
+                    target_id = transition.get("target_id")
+                    if not all(isinstance(value, str) and value.strip() for value in (transition_type, target_kind, target_id)):
+                        return None
+                    return (
+                        event.event_type,
+                        event.scheduled_time,
+                        transition_type,
+                        target_kind,
+                        target_id,
+                        semantic_value(transition.get("previous_state")),
+                        semantic_value(transition.get("new_state")),
+                    )
+                left_event_keys = [event_key(event) for event in left_transient.events]
+                right_event_keys = [event_key(event) for event in right_transient.events]
+                if any(key is None for key in left_event_keys + right_event_keys):
+                    diagnostics.append("EVENT_SEMANTIC_IDENTITY_UNAVAILABLE")
+                else:
+                    if len(set(left_event_keys)) != len(left_event_keys) or len(set(right_event_keys)) != len(right_event_keys):
+                        diagnostics.append("EVENT_SEMANTIC_IDENTITY_AMBIGUOUS")
+                    elif set(left_event_keys) != set(right_event_keys):
+                        diagnostics.append("EVENT_SEMANTIC_SET_MISMATCH")
+                    elif any(event.status != "succeeded" for event in left_transient.events + right_transient.events):
+                        diagnostics.append("EVENT_DISPATCH_NOT_SUCCESSFUL")
+                    else:
+                        right_by_key = {
+                            event_key(event): event for event in right_transient.events
+                        }
+                        for event, key in zip(left_transient.events, left_event_keys):
+                            peer = right_by_key[key]
+                            if (
+                                event.post_event_re_evaluation_status != "succeeded"
+                                or peer.post_event_re_evaluation_status != "succeeded"
+                            ):
+                                diagnostics.append(f"EVENT_POST_EVALUATION_NOT_SUCCESSFUL:{event.event_id}")
+            deltas: list[TransientSignalDeltaReadModel] = []
+            event_matches: list[TransientSemanticEventMatchReadModel] = []
+            discontinuity_deltas: list[TransientDiscontinuityDeltaReadModel] = []
+            if not diagnostics and left_transient is not None and right_transient is not None:
+                right_signals = {item.signal_id: item for item in right_transient.signals}
+                def boundary_key(
+                    boundary: TransientDiscontinuityReadModel,
+                    events: tuple[TransientEventReadModel, ...],
+                ) -> tuple[Any, ...] | None:
+                    if boundary.post_status != "succeeded":
+                        return None
+                    keys = []
+                    for event_id in boundary.event_ids:
+                        event = next((item for item in events if item.event_id == event_id), None)
+                        if event is None:
+                            return None
+                        key = event_key(event)
+                        if key is None:
+                            return None
+                        keys.append(key)
+                    return (boundary.time_s, tuple(sorted(keys, key=repr)))
+                left_boundaries = {
+                    boundary_key(item, left_transient.events): item
+                    for item in left_transient.discontinuities
+                }
+                right_boundaries = {
+                    boundary_key(item, right_transient.events): item
+                    for item in right_transient.discontinuities
+                }
+                if None in left_boundaries or None in right_boundaries:
+                    diagnostics.append("DISCONTINUITY_BOUNDARY_EVIDENCE_UNAVAILABLE")
+                elif set(left_boundaries) != set(right_boundaries):
+                    diagnostics.append("DISCONTINUITY_BOUNDARY_SET_MISMATCH")
+                elif len(left_boundaries) != len(left_transient.discontinuities) or len(right_boundaries) != len(right_transient.discontinuities):
+                    diagnostics.append("DISCONTINUITY_BOUNDARY_IDENTITY_AMBIGUOUS")
+                if not diagnostics:
+                    state_descriptors = left_transient.provenance.get("state_signals")
+                    right_state_descriptors = right_transient.provenance.get("state_signals")
+                    if not isinstance(state_descriptors, (tuple, list)) or state_descriptors != right_state_descriptors:
+                        diagnostics.append("DISCONTINUITY_STATE_DESCRIPTOR_MISMATCH")
+                    else:
+                        for boundary_key_value in sorted(left_boundaries, key=repr):
+                            left_boundary = left_boundaries[boundary_key_value]
+                            right_boundary = right_boundaries[boundary_key_value]
+                            if (
+                                left_boundary.post_state is None or right_boundary.post_state is None
+                                or left_boundary.post_terminal_voltages is None or right_boundary.post_terminal_voltages is None
+                                or left_boundary.post_electrical_powers is None or right_boundary.post_electrical_powers is None
+                            ):
+                                diagnostics.append("DISCONTINUITY_POST_SIDE_UNAVAILABLE")
+                                break
+                            left_values: dict[str, tuple[str, float, float]] = {}
+                            right_values: dict[str, tuple[str, float, float]] = {}
+                            for descriptor in state_descriptors:
+                                index = descriptor.get("global_index")
+                                signal_id = descriptor.get("signal_id")
+                                unit = descriptor.get("unit")
+                                if not isinstance(index, int) or not isinstance(signal_id, str) or not isinstance(unit, str):
+                                    diagnostics.append("DISCONTINUITY_STATE_DESCRIPTOR_INVALID")
+                                    break
+                                if index >= len(left_boundary.pre_state) or index >= len(right_boundary.pre_state) or index >= len(left_boundary.post_state) or index >= len(right_boundary.post_state):
+                                    diagnostics.append("DISCONTINUITY_STATE_WIDTH_MISMATCH")
+                                    break
+                                left_values[signal_id] = (unit, left_boundary.pre_state[index], left_boundary.post_state[index])
+                                right_values[signal_id] = (unit, right_boundary.pre_state[index], right_boundary.post_state[index])
+                            if diagnostics:
+                                break
+                            for side_name, left_map, right_map in (
+                                ("voltage", left_boundary.pre_terminal_voltages, right_boundary.pre_terminal_voltages),
+                            ):
+                                if set(left_map) != set(right_map):
+                                    diagnostics.append("DISCONTINUITY_PRE_VOLTAGE_IDENTITY_MISMATCH")
+                                    break
+                            if diagnostics:
+                                break
+                            if set(left_boundary.pre_electrical_powers) != set(right_boundary.pre_electrical_powers):
+                                diagnostics.append("DISCONTINUITY_PRE_POWER_IDENTITY_MISMATCH")
+                                break
+                            if set(left_boundary.post_terminal_voltages) != set(right_boundary.post_terminal_voltages):
+                                diagnostics.append("DISCONTINUITY_POST_VOLTAGE_IDENTITY_MISMATCH")
+                                break
+                            if set(left_boundary.post_electrical_powers) != set(right_boundary.post_electrical_powers):
+                                diagnostics.append("DISCONTINUITY_POST_POWER_IDENTITY_MISMATCH")
+                                break
+                            for bus_id in sorted(left_boundary.pre_terminal_voltages):
+                                for component, unit in (("real", "p.u."), ("imag", "p.u.")):
+                                    signal_id = f"voltage:{bus_id}:{component}"
+                                    lv = getattr(left_boundary.pre_terminal_voltages[bus_id], component)
+                                    rv = getattr(right_boundary.pre_terminal_voltages[bus_id], component)
+                                    lp = getattr(left_boundary.post_terminal_voltages[bus_id], component)
+                                    rp = getattr(right_boundary.post_terminal_voltages[bus_id], component)
+                                    left_values[signal_id] = (unit, lv, lp)
+                                    right_values[signal_id] = (unit, rv, rp)
+                            for machine_id in sorted(left_boundary.pre_electrical_powers):
+                                for index, component in ((0, "active_power"), (1, "reactive_power")):
+                                    signal_id = f"power:{machine_id}:{component}"
+                                    left_values[signal_id] = ("p.u.", left_boundary.pre_electrical_powers[machine_id][index], left_boundary.post_electrical_powers[machine_id][index])
+                                    right_values[signal_id] = ("p.u.", right_boundary.pre_electrical_powers[machine_id][index], right_boundary.post_electrical_powers[machine_id][index])
+                            if set(left_values) != set(right_values):
+                                diagnostics.append("DISCONTINUITY_SIGNAL_IDENTITY_MISMATCH")
+                                break
+                            boundary_signals = tuple(
+                                TransientDiscontinuitySignalDeltaReadModel(
+                                    signal_id=signal_id,
+                                    unit=left_values[signal_id][0],
+                                    left_pre=left_values[signal_id][1],
+                                    right_pre=right_values[signal_id][1],
+                                    pre_delta=right_values[signal_id][1] - left_values[signal_id][1],
+                                    left_post=left_values[signal_id][2],
+                                    right_post=right_values[signal_id][2],
+                                    post_delta=right_values[signal_id][2] - left_values[signal_id][2],
+                                )
+                                for signal_id in sorted(left_values)
+                                if left_values[signal_id][0] == right_values[signal_id][0]
+                            )
+                            if len(boundary_signals) != len(left_values):
+                                diagnostics.append("DISCONTINUITY_SIGNAL_UNIT_MISMATCH")
+                                break
+                            discontinuity_deltas.append(TransientDiscontinuityDeltaReadModel(
+                                event_semantic_keys=boundary_key_value[1],
+                                time_s=boundary_key_value[0],
+                                left_pre_topology_revision=left_boundary.pre_topology_revision,
+                                right_pre_topology_revision=right_boundary.pre_topology_revision,
+                                left_post_topology_revision=left_boundary.post_topology_revision,
+                                right_post_topology_revision=right_boundary.post_topology_revision,
+                                signals=boundary_signals,
+                            ))
+                if not diagnostics:
+                    for signal in sorted(left_transient.signals, key=lambda item: item.signal_id):
+                        other = right_signals[signal.signal_id]
+                        deltas.append(TransientSignalDeltaReadModel(
+                            signal_id=signal.signal_id,
+                            unit=signal.unit,
+                            left_values=signal.values,
+                            right_values=other.values,
+                            deltas=tuple(b - a for a, b in zip(signal.values, other.values)),
+                        ))
+                    right_by_key = {event_key(event): event for event in right_transient.events}
+                    for event in left_transient.events:
+                        key = event_key(event)
+                        transition = event.transition
+                        peer = right_by_key[key]
+                        event_matches.append(TransientSemanticEventMatchReadModel(
+                            semantic_key=key,
+                            left_event_id=event.event_id,
+                            right_event_id=peer.event_id,
+                            event_time_s=event.scheduled_time,
+                            left_dispatch_time_s=event.dispatch_time,
+                            right_dispatch_time_s=peer.dispatch_time,
+                            dispatch_delta_s=(
+                                None if event.dispatch_time is None or peer.dispatch_time is None
+                                else peer.dispatch_time - event.dispatch_time
+                            ),
+                            transition_type=str(transition["transition_type"]),
+                            target_kind=str(transition["target_kind"]),
+                            target_id=str(transition["target_id"]),
+                            previous_state=transition.get("previous_state"),
+                            new_state=transition.get("new_state"),
+                        ))
+            compatible_transient = not diagnostics
+            return StudyResultComparisonReadModel(
+                left=left,
+                right=right,
+                compatible=compatible_transient,
+                compatibility_message=(
+                    "Transient trajectories are compatible on the exact recorded time grid."
+                    if compatible_transient else
+                    "Transient trajectory comparison rejected: " + "; ".join(diagnostics)
+                ),
+                same_source_revision=left.source_revision == right.source_revision,
+                same_activation_generation=left.activation_generation == right.activation_generation,
+                numeric_deltas=(),
+                numeric_comparison_status="TRANSIENT_COMPARABLE" if compatible_transient else "TRANSIENT_INCOMPATIBLE",
+                transient_signal_deltas=tuple(deltas),
+                transient_compatibility_diagnostics=tuple(diagnostics),
+                transient_event_matches=tuple(event_matches),
+                transient_discontinuity_deltas=tuple(discontinuity_deltas),
+            )
         compatible = left.project_id == right.project_id and left.study_type == right.study_type
         if left.project_id != right.project_id:
             message = "Comparison rejected: records belong to different projects."
@@ -1387,6 +1772,179 @@ class StudyReadService:
             same_activation_generation=left.activation_generation == right.activation_generation,
             numeric_deltas=tuple(numeric_deltas),
             numeric_comparison_status="COMPARABLE" if numeric_deltas else "NO_BASE_COMPATIBLE_VALUES",
+        )
+
+    def compare_archived_results(
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
+    ) -> StudyResultComparisonReadModel:
+        """Compatibility alias for the unified live/archive comparison contract."""
+        return self.compare_study_results(
+            left_record_id, right_record_id, project_id=project_id,
+            activation_generation=activation_generation, current_revision=current_revision,
+        )
+
+    def export_study_comparison(
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
+    ) -> str:
+        """Return a versioned lossless export for two live and/or archived transient runs."""
+        comparison = self.compare_study_results(
+            left_record_id, right_record_id, project_id=project_id,
+            activation_generation=activation_generation, current_revision=current_revision,
+        )
+        left, right = comparison.left, comparison.right
+        transient_name = (
+            f"{TransientStabilityResult.__module__}."
+            f"{TransientStabilityResult.__qualname__}"
+        )
+
+        def is_transient(value: Any) -> bool:
+            return (
+                isinstance(value, TransientStabilityResult)
+                or (isinstance(value, Mapping) and value.get("$dataclass") == transient_name)
+                or (
+                    isinstance(value, Mapping)
+                    and value.get("$type") == "solver_result"
+                    and value.get("class") == transient_name
+                )
+            )
+
+        if not (is_transient(left.value) or is_transient(right.value)):
+            raise ValueError("Comparison does not contain a transient-stability result.")
+
+        def encode(value: Any, _active: set[int] | None = None) -> Any:
+            if value is None or isinstance(value, (str, bool, int)):
+                return value
+            if _active is None:
+                _active = set()
+
+            def encode_compound(builder: Any) -> Any:
+                identity = id(value)
+                if identity in _active:
+                    raise ValueError("Transient comparison export cannot encode cyclic values.")
+                _active.add(identity)
+                try:
+                    return builder()
+                finally:
+                    _active.remove(identity)
+
+            if isinstance(value, float):
+                if math.isfinite(value):
+                    return value
+                label = "nan" if math.isnan(value) else (
+                    "positive_infinity" if value > 0 else "negative_infinity"
+                )
+                return {"$type": "float", "value": label}
+            if isinstance(value, complex):
+                if not math.isfinite(value.real) or not math.isfinite(value.imag):
+                    raise ValueError("Transient comparison export contains a non-finite complex value.")
+                return {"$type": "complex", "real": value.real, "imag": value.imag}
+            if isinstance(value, UUID):
+                return {"$type": "uuid", "value": str(value)}
+            if isinstance(value, Enum):
+                return {
+                    "$type": "enum",
+                    "class": f"{type(value).__module__}.{type(value).__qualname__}",
+                    "value": encode(value.value, _active),
+                }
+            if isinstance(value, Mapping):
+                if any(not isinstance(key, str) for key in value):
+                    raise ValueError("Transient comparison export requires string mapping keys.")
+                return encode_compound(
+                    lambda: {key: encode(item, _active) for key, item in value.items()}
+                )
+            if isinstance(value, (tuple, list)):
+                return encode_compound(lambda: [encode(item, _active) for item in value])
+            if isinstance(value, (set, frozenset)):
+                def encode_set() -> list[Any]:
+                    encoded = [encode(item, _active) for item in value]
+                    return sorted(encoded, key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+                return encode_compound(encode_set)
+            if hasattr(value, "dtype") and hasattr(value, "shape") and callable(getattr(value, "tolist", None)):
+                dtype = value.dtype
+                if getattr(dtype, "kind", None) not in "biufc" or getattr(dtype, "hasobject", True):
+                    raise ValueError("Transient comparison export contains an unsupported array dtype.")
+                return encode_compound(lambda: {
+                    "$type": "ndarray",
+                    "dtype": dtype.str,
+                    "shape": list(value.shape),
+                    "data": encode(value.tolist(), _active),
+                })
+            if hasattr(value, "item") and callable(value.item) and type(value).__module__.startswith("numpy"):
+                return encode(value.item(), _active)
+            if is_dataclass(value) and not isinstance(value, type):
+                qualified = f"{type(value).__module__}.{type(value).__qualname__}"
+                known_tags = {
+                    transient_name: "solver_result",
+                    f"{EventExecution.__module__}.{EventExecution.__qualname__}": "event_execution",
+                    f"{TransientDiscontinuity.__module__}.{TransientDiscontinuity.__qualname__}": "transient_discontinuity",
+                }
+                return encode_compound(lambda: {
+                    "$type": known_tags.get(qualified, "dataclass"),
+                    "class": qualified,
+                    "fields": {item.name: encode(getattr(value, item.name), _active) for item in fields(value)},
+                })
+            raise ValueError(
+                f"Transient comparison export cannot encode {type(value).__module__}.{type(value).__qualname__}."
+            )
+
+        def record_payload(record: Any) -> dict[str, Any]:
+            return {
+                "source_kind": "archive" if isinstance(record, ArchivedStudyResultReadModel) else "live",
+                "record_id": None if getattr(record, "record_id", None) is None else str(record.record_id),
+                "saved_at": getattr(record, "saved_at", None),
+                "study_id": str(record.study_id),
+                "project_id": record.project_id,
+                "activation_generation": record.activation_generation,
+                "source_revision": encode(record.source_revision),
+                "study_type": record.study_type,
+                "status": record.status,
+                "message": record.message,
+                "metadata": encode(record.metadata),
+                "value": encode(record.value),
+            }
+
+        payload = {
+            "format": "GridForgeTransientComparison",
+            "schema_version": 1,
+            "left": record_payload(left),
+            "right": record_payload(right),
+            "comparison": {
+                "compatible": comparison.compatible,
+                "compatibility_message": comparison.compatibility_message,
+                "same_source_revision": comparison.same_source_revision,
+                "same_activation_generation": comparison.same_activation_generation,
+                "numeric_comparison_status": comparison.numeric_comparison_status,
+                "transient_compatibility_diagnostics": encode(comparison.transient_compatibility_diagnostics),
+                "transient_signal_deltas": encode(comparison.transient_signal_deltas),
+                "transient_event_matches": encode(comparison.transient_event_matches),
+                "transient_discontinuity_deltas": encode(comparison.transient_discontinuity_deltas),
+                "numeric_deltas": encode(comparison.numeric_deltas),
+            },
+        }
+        try:
+            return json.dumps(
+                payload, sort_keys=True, separators=(",", ":"),
+                ensure_ascii=False, allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Transient comparison export is not canonical JSON: {exc}") from exc
+
+    def export_archived_comparison(
+        self, left_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel,
+        right_record_id: UUID | StudyResultReadModel | ArchivedStudyResultReadModel, *,
+        project_id: str, activation_generation: int | None = None,
+        current_revision: ProjectRevision | None = None,
+    ) -> str:
+        """Compatibility alias for the unified live/archive comparison export."""
+        return self.export_study_comparison(
+            left_record_id, right_record_id, project_id=project_id,
+            activation_generation=activation_generation, current_revision=current_revision,
         )
 
     def verify_archived_results(self, *, project_id: str, activation_generation: int | None = None) -> Any:
