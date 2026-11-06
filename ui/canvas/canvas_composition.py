@@ -181,9 +181,10 @@ class SLDCanvasSurface(QWidget):
                 continue
             try:
                 button.clicked.disconnect(callback)
-            except (RuntimeError, TypeError):
-                # Qt may already have destroyed the button/signal during teardown.
-                pass
+            except Exception:
+                # Continue releasing the remaining callbacks if Qt rejects one
+                # disconnect because the button/signal is already being torn down.
+                _LOGGER.exception("Failed to disconnect SLD surface navigation callback: %s", button_name)
 
     def bind_composition(self, composition: Any) -> None:
         """Bind the aggregate lifecycle owner after composition is complete."""
