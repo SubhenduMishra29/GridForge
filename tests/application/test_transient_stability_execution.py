@@ -15,6 +15,7 @@ from ui.controllers.study_case_controller import StudyCaseController
 from core.solver.dynamics.events import EventExecution, EventTransition
 from core.solver.dynamics.transient_stability import TransientDiscontinuity, TransientStabilityResult
 
+from core.analysis.dynamic_initial_state import DynamicMachineModelDefinition
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.analysis.power_flow_preparation import PreparedBranch, PreparedPowerFlow
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
@@ -28,6 +29,18 @@ from core.solver.dynamics.machine_models import ClassicalMachineParameters
 from core.solver.power_flow.input import PowerFlowBusType, PowerFlowInput
 from core.solver.power_flow.result import PowerFlowResult
 
+
+
+
+def test_dynamic_machine_model_definition_rejects_unsupported_persisted_identity():
+    with pytest.raises(ValueError, match="G-unsupported.*unsupported model identity.*classical"):
+        DynamicMachineModelDefinition(
+            machine_id="G-unsupported",
+            bus_id="B1",
+            parameters=ClassicalMachineParameters(H=3.0, Xd_prime=0.3, Efd=1.1),
+            mechanical_power=0.0,
+            model_type="classical",
+        )
 
 def test_application_executes_transient_stability_from_detached_pf_snapshot():
     network = Network()
