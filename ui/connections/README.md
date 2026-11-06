@@ -111,20 +111,11 @@ structural checks. It is not the authoritative Core terminal identity system.
 ### ConnectionRouter
 
 `ConnectionRouter` calculates renderer-neutral presentation geometry.
-The current implementation provides direct two-point paths.
+`ConnectionRouter` calculates deterministic scene-space orthogonal paths using an A* search over a rectilinear visibility grid. It expands equipment bounds by the requested clearance, penalizes bends, and can prefer paths that avoid crossing existing realized routes. A blocked or invalid path raises `ValueError`; callers must not silently substitute a straight segment.
 
-No current production rendering integration is claimed here. If a future
-renderer consumes `ConnectionRouter`, the boundary remains:
+`SLDCanvasRenderSystem` consumes this router when realizing connections whose route ownership is `auto`. `OrthogonalRoutingTool` reuses the same router for a live, transient pointer-driven path preview. Its 5-logical-pixel clearance is converted to scene units using the active view scale.
 
-```text
-ConnectionRouter
-    ↓
-renderer-neutral presentation geometry
-    ↓
-renderer
-```
-
-It must never own Core topology, commands, persistence, or Qt scene objects.
+The router returns presentation geometry only. It never owns Core topology, commands, persistence, endpoint identity, or Qt scene objects. The tool commits only through the existing `WireTool` Application command path after a stable electrical target has been acquired; preview geometry itself is never saved.
 
 ## Tool integration
 

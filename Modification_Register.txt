@@ -22905,3 +22905,11 @@ Verification:
     No tests or CI were run.
 
 ======================================================================
+
+
+## 2026-11-06 — Issue #830 live orthogonal routing
+- Added `OrthogonalRoutingTool` as a dedicated ToolManager-managed interaction, reusing the canonical `ConnectionRouter` for live A* scene-space previews.
+- Preview recomputes against realized equipment bounds and existing connection routes; clearance is maintained at 5 logical screen pixels via the active view scale. Invalid/no-route states fail closed and do not draw a straight fallback.
+- Commit reuses `WireTool` endpoint identity and Application command handling; transient route graphics never create topology or persistence state.
+- Registered the tool in the default factory catalogue and contextual tool metadata; updated the connection routing architecture README.
+- Source-level integration only; no production Core/Application changes and no CI/test gate invoked.

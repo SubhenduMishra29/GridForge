@@ -31,6 +31,7 @@ from ui.tools.grid_tool import GridTool
 from ui.tools.line_tool import LineTool
 from ui.tools.load_tool import LoadTool
 from ui.tools.motor_tool import MotorTool
+from ui.tools.orthogonal_routing_tool import OrthogonalRoutingTool
 from ui.tools.potential_transformer_tool import PotentialTransformerTool
 from ui.tools.reactor_tool import ReactorTool
 from ui.tools.relay_tool import RelayTool
@@ -48,6 +49,7 @@ from ui.tools.tool_settings import ToolSettings
 
 __all__ = [
     "SelectTool",
+    "OrthogonalRoutingTool",
     "BusTool",
     "LineTool",
     "CableTool",
