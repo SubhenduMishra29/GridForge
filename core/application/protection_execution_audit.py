@@ -237,12 +237,26 @@ class ProtectionExecutionAuditStore:
                 previous_hash = previous["record_hash"] if previous else "GENESIS"
                 inserted = 0
                 for row in rows:
-                    if row["record_type"] != "CYCLE_STARTED":
+                    cycle_key = (
+                        row["project_id"], row["activation_generation"], row["cycle_id"]
+                    )
+                    if row["record_type"] == "CYCLE_STARTED":
+                        # A claim is valid only when this cycle has never left
+                        # any durable evidence, including partial records from
+                        # an older implementation after a failed claim.
+                        prior_cycle_record = connection.execute(
+                            "SELECT 1 FROM protection_execution_audit WHERE "
+                            "project_id=? AND activation_generation=? AND cycle_id=? LIMIT 1",
+                            cycle_key,
+                        ).fetchone()
+                        if prior_cycle_record is not None:
+                            continue
+                    else:
                         claimed_cycle = connection.execute(
                             "SELECT 1 FROM protection_execution_audit WHERE "
                             "project_id=? AND activation_generation=? AND cycle_id=? "
                             "AND record_type='CYCLE_STARTED' LIMIT 1",
-                            (row["project_id"], row["activation_generation"], row["cycle_id"]),
+                            cycle_key,
                         ).fetchone()
                         if claimed_cycle is None:
                             raise ValueError(
