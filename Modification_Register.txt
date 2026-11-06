@@ -22739,7 +22739,7 @@ Branch:
 
 Changed:
     ui/plugins/toolbar_plugin.py
-        Reduced the global toolbar to ten frequently used commands:
+        Reduced the global toolbar to thirteen commands: Select, Bus, Wire,
         Undo, Redo, Delete, Commit, Equipment, Zoom Out, Zoom In, Fit,
         Pan and Studies.
         Added separators to distinguish command groups and constrained
