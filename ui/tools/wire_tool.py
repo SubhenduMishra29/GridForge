@@ -169,7 +169,7 @@ class WireTool(ToolBase):
             self._show_preview()
             return True
 
-        endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
+        endpoint = self._authoring_endpoint(snap_result)
         self._preview.update_target(endpoint, valid=True)
         self._show_preview()
         return True
@@ -260,34 +260,31 @@ class WireTool(ToolBase):
 
     @staticmethod
     def _authoring_endpoint(snap_result: Any) -> Any:
+        """Resolve one snap through the canonical identity adapter before assigning draft scope."""
+        endpoint = EndpointIdentityAdapter.from_snap_result(snap_result)
         draft_id = getattr(snap_result, "draft_id", None)
-        bus_id = getattr(snap_result, "bus_id", None)
-        attachment_id = getattr(snap_result, "attachment_id", None)
+        if draft_id is None:
+            return endpoint
+        if str(draft_id).strip() != str(endpoint.object_id):
+            raise ValueError("Draft snap identity does not match the resolved endpoint object.")
 
-        # Draft Bus candidates carry explicit Bus identity. Never infer Bus
-        # semantics from the terminal role "bus".
-        if (
-            draft_id is not None
-            and bus_id is not None
-            and attachment_id is not None
-            and str(bus_id) == str(draft_id)
-        ):
+        # Draft scope is assigned only after the presentation source, snap
+        # candidate and canonical endpoint have agreed. The same endpoint
+        # representation is used by preview and the command payload.
+        if endpoint.is_bus:
             return DraftEndpointReference.bus(
-                bus_id=str(draft_id),
-                attachment_id=str(attachment_id),
+                bus_id=str(endpoint.object_id),
+                attachment_id=str(endpoint.attachment_id),
                 scope="draft",
             )
-
-        draft_role = getattr(snap_result, "draft_terminal_role", None)
-        draft_type = getattr(snap_result, "draft_equipment_type", None)
-        if draft_id is not None and draft_role is not None and draft_type is not None:
+        if endpoint.is_terminal:
             return DraftEndpointReference.terminal(
-                draft_id=str(draft_id),
-                equipment_type=str(draft_type),
-                terminal_role=str(draft_role),
+                draft_id=str(endpoint.object_id),
+                equipment_type=str(endpoint.equipment_type.value),
+                terminal_role=str(endpoint.terminal_role),
                 scope="draft",
             )
-        return EndpointIdentityAdapter.from_snap_result(snap_result)
+        raise ValueError("Unsupported draft electrical endpoint kind.")
 
     @staticmethod
     def _as_draft_endpoint(endpoint: Any) -> DraftEndpointReference:
