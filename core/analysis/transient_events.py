@@ -19,7 +19,7 @@ def schedule_breaker_open(
     event_id: str,
     priority: int = 0,
 ) -> SimulationEvent:
-    affected = tuple(str(item) for item in affected_equipment_ids)
+    breaker_id, affected = state.validate_switch_target(breaker_id, affected_equipment_ids)
     return manager.add(
         time,
         lambda: state.set_breaker(breaker_id, False, affected),
@@ -30,7 +30,8 @@ def schedule_breaker_open(
             "target_kind": "switch",
             "target_id": str(breaker_id),
             "operation": "open",
-            "breaker_id": str(breaker_id),
+            "breaker_id": breaker_id,
+            "target_bus_ids": state.snapshot.switch_connections[breaker_id],
             "affected_equipment_ids": affected,
             "machine_ids": state.machines_for_switch(breaker_id),
             "machine_connection_paths": {
@@ -53,7 +54,7 @@ def schedule_breaker_close(
     event_id: str,
     priority: int = 0,
 ) -> SimulationEvent:
-    affected = tuple(str(item) for item in affected_equipment_ids)
+    breaker_id, affected = state.validate_switch_target(breaker_id, affected_equipment_ids)
     return manager.add(
         time,
         lambda: state.set_breaker(breaker_id, True, affected),
@@ -64,7 +65,8 @@ def schedule_breaker_close(
             "target_kind": "switch",
             "target_id": str(breaker_id),
             "operation": "close",
-            "breaker_id": str(breaker_id),
+            "breaker_id": breaker_id,
+            "target_bus_ids": state.snapshot.switch_connections[breaker_id],
             "affected_equipment_ids": affected,
             "machine_ids": state.machines_for_switch(breaker_id),
             "machine_connection_paths": {
@@ -78,7 +80,9 @@ def schedule_breaker_close(
 
 
 def schedule_equipment_state(manager: EventManager, state: TransientEventState, time: float, equipment_id: str, conducting: bool, *, event_id: str, priority: int = 0) -> SimulationEvent:
-    key = str(equipment_id)
+    key = state.validate_equipment_target(equipment_id)
+    if not isinstance(conducting, bool):
+        raise TypeError("Transient equipment conducting state must be an explicit bool.")
     machine_ids = state.machines_for_switch(key)
     return manager.add(
         time,
@@ -91,7 +95,8 @@ def schedule_equipment_state(manager: EventManager, state: TransientEventState, 
             "target_id": key,
             "operation": "conducting" if conducting else "nonconducting",
             "equipment_id": key,
-            "conducting": bool(conducting),
+            "target_bus_ids": state.snapshot.switch_connections.get(key, ()),
+            "conducting": conducting,
             "machine_ids": machine_ids,
             "machine_connection_paths": {
                 machine_id: state.snapshot.machine_connection_paths[machine_id]
