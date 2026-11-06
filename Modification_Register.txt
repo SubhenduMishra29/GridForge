@@ -22913,3 +22913,80 @@ Verification:
 - Commit reuses `WireTool` endpoint identity and Application command handling; transient route graphics never create topology or persistence state.
 - Registered the tool in the default factory catalogue and contextual tool metadata; updated the connection routing architecture README.
 - Source-level integration only; no production Core/Application changes and no CI/test gate invoked.
+
+======================================================================
+2026-11-06 — GF-PROT-081: ANSI 81 FREQUENCY / ROCOF CONFIRMATION
+======================================================================
+
+Repository:
+    SubhenduMishra29/GridForge
+
+Issue:
+    #848 — The "Dead Dead-Band" Frequency Relay (ANSI 81) Threshold Drift
+
+Branch:
+    fix/ansi-81-frequency-rocof-confirmation
+
+Changed:
+    core/protection/frequency/frequency_relay.py
+        Implement ANSI 81 under/over-frequency pickup with a configurable
+        sliding-window least-squares RoCoF estimator.
+        RoCoF confirms a matching frequency pickup only; it cannot
+        independently initiate pickup, operate or trip.
+        Require a complete, timestamp-coherent sample window, consecutive
+        producer sequence, configured sample cadence/tolerance, valid
+        freshness and matching trusted timestamp domain.
+        Require the configured operating delay to elapse continuously
+        after frequency pickup and matching RoCoF confirmation.
+
+    core/protection/input_contracts.py
+        Declare ANSI 81 input as real scalar FREQUENCY / NONE / Hz.
+
+    core/protection/function_catalog.py
+        Register ANSI 81 as IMPLEMENTED with explicit, required settings
+        metadata and no fabricated engineering defaults.
+
+    core/protection/relay_input.py
+        Expose timestamp, timestamp_domain and sample_sequence from the
+        immutable Application-validated measurement snapshot.
+
+    core/application/application.py
+        Include timestamp-domain equality in the post-evaluation sample
+        coherence fence.
+
+    core/protection/__init__.py
+        Export the canonical ANSI 81 implementation and settings.
+
+Outcome:
+    ANSI 81 is no longer blocked as NOT_IMPLEMENTED in the canonical
+    function catalog. RoCoF is a confirmation gate after under/over-
+    frequency pickup; it is never a standalone trip criterion.
+    Invalid, stale, duplicate, skipped, non-monotonic, irregularly spaced,
+    incomplete-window or cross-clock-domain samples fail closed.
+
+Boundaries:
+    Core owns the frequency protection logic and estimator. Application
+    remains authoritative for live measurement validation and snapshots.
+    No solver-cycle derivative, global smoothing, GUI logic, or breaker
+    operation was added. Offline study samples without acquisition time
+    are not promoted to live telemetry.
+
+Verification:
+    Source-level review only. No tests, CI, runtime waveform experiments
+    or hardware validation were run.
+
+======================================================================
+
+
+2026-11-06 — GF-PROT-081 REVIEW CORRECTION
+
+Follow-up source review tightened ANSI 81 pickup confirmation:
+- Reset the RoCoF estimation history when frequency returns to the
+  non-pickup band or changes from under-frequency to over-frequency
+  pickup (or vice versa).
+- Require the full least-squares estimation window to be collected
+  during the current continuous pickup episode. A pre-pickup frequency
+  trend cannot confirm a later pickup.
+- Accept a finite zero-Hz measurement as an under-frequency sample;
+  zero is not rejected merely for being zero.
+

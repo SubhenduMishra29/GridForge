@@ -114,6 +114,14 @@ CONTRACT_50N = ProtectionFunctionInputContract("50N", {"residual_current": _RESI
 CONTRACT_51N = ProtectionFunctionInputContract("51N", {"residual_current": _RESIDUAL_CURRENT_INPUT})
 CONTRACT_27 = ProtectionFunctionInputContract("27", {"voltage": _VOLTAGE_INPUT})
 CONTRACT_59 = ProtectionFunctionInputContract("59", {"voltage": _VOLTAGE_INPUT})
+_FREQUENCY_INPUT = ProtectionInputContract(
+    "frequency",
+    frozenset({MeasurementSignalType.FREQUENCY}),
+    frozenset({MeasurementPhase.NONE}),
+    _SCALAR,
+    frozenset({"Hz"}),
+)
+CONTRACT_81 = ProtectionFunctionInputContract("81", {"frequency": _FREQUENCY_INPUT})
 CONTRACT_46 = ProtectionFunctionInputContract("46", {"negative_sequence_current": _SEQUENCE_CURRENT})
 CONTRACT_49 = ProtectionFunctionInputContract(
     "49", {}, supported=False,
@@ -370,7 +378,7 @@ def validate_directional_context(metadata: Mapping[str, Any] | None) -> tuple[st
 __all__ = [
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "CONTRACT_50", "CONTRACT_51", "CONTRACT_50N", "CONTRACT_51N",
-    "CONTRACT_27", "CONTRACT_59", "CONTRACT_46", "CONTRACT_49",
+    "CONTRACT_27", "CONTRACT_59", "CONTRACT_81", "CONTRACT_46", "CONTRACT_49",
     "CONTRACT_67", "CONTRACT_21",
     "validate_protection_input_contracts", "validate_directional_context",
     "validate_sample_representation", "input_contract_for",

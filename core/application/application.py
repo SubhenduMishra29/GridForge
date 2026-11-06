@@ -1728,6 +1728,8 @@ class Application:
                         and bool(sample_channel.is_usable) is sample_snapshot.get("usable")
                         and getattr(sample_channel, "sample_sequence", None)
                         == sample_snapshot.get("sample_sequence")
+                        and getattr(sample_channel, "timestamp_domain", None)
+                        == sample_snapshot.get("timestamp_domain")
                         and current_validity is sample_snapshot.get("validity")
                     )
                 except (AttributeError, TypeError, ValueError, OverflowError):

@@ -18,6 +18,7 @@ from .residual_current import (
     resolve_residual_current,
 )
 from .factory import ProtectionFactory
+from .frequency import FrequencyProtectionRelay, FrequencyProtectionSettings
 from .input_contracts import ProtectionInputContract, ProtectionFunctionInputContract
 from .runtime import ProtectionRuntime
 from .project_configuration import (
@@ -67,6 +68,7 @@ __all__ = [
     "ProtectionElement", "ProtectionElementState", "ProtectionSystem",
     "ProtectionInputContract", "ProtectionFunctionInputContract",
     "ProtectionMeasurementBinding", "ProtectionFactory", "ProtectionRuntime",
+    "FrequencyProtectionRelay", "FrequencyProtectionSettings",
     "NeutralCTConstruction", "CBCTConductor", "CBCTWindowConstruction",
     "ResidualCurrentInputConfiguration", "ResidualCurrentSample", "ResidualCurrentSourceSample", "normalize_residual_current_source", "resolve_residual_current",
     "ProtectionFunctionConfiguration", "DifferentialProtectionSchemeConfiguration",
