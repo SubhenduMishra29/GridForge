@@ -625,6 +625,26 @@ class RelayInput:
 
         return self.valid
 
+    @property
+    def timestamp(self) -> Any:
+        """Return the authoritative sample timestamp, including cycle snapshots."""
+        return self._sample_value("timestamp", getattr(self._channel, "timestamp", None))
+
+    @property
+    def timestamp_domain(self) -> Any:
+        """Return the authoritative sample clock domain, including cycle snapshots."""
+        return self._sample_value("timestamp_domain", getattr(self._channel, "timestamp_domain", None))
+
+    @property
+    def sample_sequence(self) -> Any:
+        """Return the authoritative producer sequence, including cycle snapshots."""
+        return self._sample_value("sample_sequence", getattr(self._channel, "sample_sequence", None))
+
+    @property
+    def stale_after(self) -> Any:
+        """Return the channel's configured freshness limit."""
+        return getattr(self._channel, "stale_after", None)
+
     # ==================================================================
     # SOURCE INFORMATION
     # ==================================================================

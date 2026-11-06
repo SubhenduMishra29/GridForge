@@ -29,6 +29,7 @@ from core.protection.overcurrent import (
 )
 from core.protection.relay_functions import IEC_CURVES
 from core.protection.thermal import ThermalOverloadRelay
+from core.protection.frequency import FrequencyProtectionRelay, FrequencyProtectionSettings
 from core.protection.voltage import (
     OverVoltageRelay,
     OverVoltageSettings,
@@ -38,7 +39,7 @@ from core.protection.voltage import (
 from core.protection.input_contracts import (
     ProtectionFunctionInputContract,
     CONTRACT_50, CONTRACT_51, CONTRACT_50N, CONTRACT_51N,
-    CONTRACT_27, CONTRACT_59, CONTRACT_46, CONTRACT_49, CONTRACT_67, CONTRACT_21,
+    CONTRACT_27, CONTRACT_59, CONTRACT_81, CONTRACT_46, CONTRACT_49, CONTRACT_67, CONTRACT_21,
 )
 
 
@@ -239,6 +240,16 @@ def _settings_contract(settings_type: type[Any], *definitions: ProtectionSetting
 
 _PICKUP_A = ProtectionSettingDefinition("pickup", "Pickup", "number", "A")
 _PICKUP_V = ProtectionSettingDefinition("pickup", "Pickup", "number", "V")
+_ANSI81_SETTINGS = _settings_contract(
+    FrequencyProtectionSettings,
+    ProtectionSettingDefinition("under_frequency_pickup_hz", "Under-frequency pickup", "number", "Hz"),
+    ProtectionSettingDefinition("over_frequency_pickup_hz", "Over-frequency pickup", "number", "Hz"),
+    ProtectionSettingDefinition("rocof_confirmation_threshold_hz_per_s", "RoCoF confirmation threshold", "number", "Hz/s"),
+    ProtectionSettingDefinition("sample_rate_hz", "Frequency sample rate", "number", "Hz"),
+    ProtectionSettingDefinition("estimation_window_seconds", "RoCoF estimation window", "number", "s"),
+    ProtectionSettingDefinition("sample_interval_tolerance_seconds", "Sample interval tolerance", "number", "s"),
+    ProtectionSettingDefinition("operating_delay_seconds", "Operating delay", "number", "s"),
+)
 _CURVE_STANDARD = ProtectionSettingDefinition(
     "curve_standard", "Curve standard", "string", "—", required=False,
     choices=("IEC", "IEEE"),
@@ -299,7 +310,11 @@ _SPECS = (
     ProtectionFunctionSpecification("46", "Negative-sequence / phase-balance overcurrent", ProtectionFunctionStatus.PARTIAL, NegativeSequenceOvercurrentRelay, CONTRACT_46),
     ProtectionFunctionSpecification("49", "Thermal overload", ProtectionFunctionStatus.PARTIAL, ThermalOverloadRelay, CONTRACT_49),
     ProtectionFunctionSpecification("67", "Directional overcurrent", ProtectionFunctionStatus.PARTIAL, DirectionalRelay, CONTRACT_67),
-    ProtectionFunctionSpecification("81", "Frequency (underfrequency/overfrequency; RoCoF not implemented)", ProtectionFunctionStatus.NOT_IMPLEMENTED),
+    ProtectionFunctionSpecification(
+        "81", "Frequency (underfrequency/overfrequency with RoCoF confirmation)",
+        ProtectionFunctionStatus.IMPLEMENTED, FrequencyProtectionRelay, CONTRACT_81,
+        _ANSI81_SETTINGS,
+    ),
     ProtectionFunctionSpecification("87", "Differential protection", ProtectionFunctionStatus.NOT_IMPLEMENTED),
     ProtectionFunctionSpecification("21", "Distance protection", ProtectionFunctionStatus.PARTIAL, DistanceRelay, CONTRACT_21),
 )
