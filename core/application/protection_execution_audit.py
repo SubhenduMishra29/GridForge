@@ -237,6 +237,17 @@ class ProtectionExecutionAuditStore:
                 previous_hash = previous["record_hash"] if previous else "GENESIS"
                 inserted = 0
                 for row in rows:
+                    if row["record_type"] != "CYCLE_STARTED":
+                        claimed_cycle = connection.execute(
+                            "SELECT 1 FROM protection_execution_audit WHERE "
+                            "project_id=? AND activation_generation=? AND cycle_id=? "
+                            "AND record_type='CYCLE_STARTED' LIMIT 1",
+                            (row["project_id"], row["activation_generation"], row["cycle_id"]),
+                        ).fetchone()
+                        if claimed_cycle is None:
+                            raise ValueError(
+                                "Cannot append Protection audit evidence for an unclaimed cycle."
+                            )
                     exists = connection.execute(
                         "SELECT 1 FROM protection_execution_audit WHERE "
                         "project_id=? AND activation_generation=? AND cycle_id=? "
