@@ -22977,3 +22977,16 @@ Verification:
 
 ======================================================================
 
+
+2026-11-06 — GF-PROT-081 REVIEW CORRECTION
+
+Follow-up source review tightened ANSI 81 pickup confirmation:
+- Reset the RoCoF estimation history when frequency returns to the
+  non-pickup band or changes from under-frequency to over-frequency
+  pickup (or vice versa).
+- Require the full least-squares estimation window to be collected
+  during the current continuous pickup episode. A pre-pickup frequency
+  trend cannot confirm a later pickup.
+- Accept a finite zero-Hz measurement as an under-frequency sample;
+  zero is not rejected merely for being zero.
+
