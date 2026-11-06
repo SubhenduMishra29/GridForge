@@ -574,6 +574,7 @@ class ProjectWorkspaceApplicationAdapter:
         *,
         _reconcile_rollback: bool = True,
         _run_transition_guard: bool = True,
+        _publish_change: bool = True,
     ) -> ProjectWorkspaceState:
         """Atomically activate one canonical workspace document and presentation."""
         document = self._lifecycle.documents.require(document_id)
@@ -588,7 +589,8 @@ class ProjectWorkspaceApplicationAdapter:
             self._application.activate_presentation(document)
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(document)
-            self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
+            if _publish_change:
+                self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
             recovery: list[tuple[str, Callable[[], None]]] = [
@@ -746,11 +748,24 @@ class ProjectWorkspaceApplicationAdapter:
                             document_id,
                             _reconcile_rollback=False,
                             _run_transition_guard=False,
+                            _publish_change=False,
                         )
                     if context is not None and getattr(context, "path", None) is not None:
                         self._application.save_project()
                     else:
                         self._application.save_project_as(str(save_path))
+                    # Saving a non-active document is an internal step of this
+                    # close transaction, not a separately committed workspace
+                    # transition. Restore the original active document silently;
+                    # the eventual close event is the single public projection
+                    # synchronization for the whole operation.
+                    if previous_active is not None and previous_active is not document:
+                        self.activate_document(
+                            previous_active.document_id,
+                            _reconcile_rollback=False,
+                            _run_transition_guard=False,
+                            _publish_change=False,
+                        )
                 except BaseException as primary:
                     recovery: list[tuple[str, Callable[[], None]]] = [
                         ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(previous_snapshot)),
