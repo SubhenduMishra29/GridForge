@@ -631,6 +631,9 @@ class SLDService:
             })
 
         def restore() -> None:
+            targets = []
+            # Validate the complete inverse set before restoring any node so
+            # an identity conflict cannot leave a partially reverted group.
             for snapshot in reversed(prepared):
                 target = self.document.model.get_node_optional(snapshot["node_id"])
                 if target is None:
@@ -647,6 +650,8 @@ class SLDService:
                         "Cannot undo SLD group transform; logical node identity changed for "
                         f"{snapshot['node_id']!r}."
                     )
+                targets.append((snapshot, target))
+            for snapshot, target in targets:
                 self.document.set_node_position(
                     snapshot["node_id"], *snapshot["previous_position"]
                 )
