@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from concurrent.futures import Future, ThreadPoolExecutor
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 from threading import Lock, RLock
@@ -231,7 +232,7 @@ StudyHandler = Callable[[StudyRequest, StudyExecutionContext, StudyCancellationT
 class StudyService:
     """Single Application-owned study execution/orchestration boundary."""
 
-    def __init__(self, event_bus: ApplicationEventBus) -> None:
+    def __init__(self, event_bus: ApplicationEventBus, *, max_workers: int = 2) -> None:
         if not isinstance(event_bus, ApplicationEventBus):
             raise TypeError("event_bus must be an ApplicationEventBus.")
         self._event_bus = event_bus
@@ -242,6 +243,10 @@ class StudyService:
         # Counts by study type prevent teardown while any execution is active.
         self._active_study_types: dict[str, int] = {}
         self._lock = RLock()
+        if not isinstance(max_workers, int) or isinstance(max_workers, bool) or max_workers < 1:
+            raise ValueError("max_workers must be a positive integer.")
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="gridforge-study")
+        self._shutdown = False
 
     @property
     def registered_study_types(self) -> tuple[str, ...]:
@@ -312,7 +317,37 @@ class StudyService:
             del self._handlers[key]
             return True
 
-    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
+    def submit(self, request: StudyRequest, execution_context: StudyExecutionContext) -> Future[StudyResult]:
+        """Queue a provenance-bound study on the canonical Application scheduler."""
+        if not isinstance(request, StudyRequest) or not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("submit requires a StudyRequest and StudyExecutionContext.")
+        if (execution_context.project_id != request.project_id
+                or execution_context.activation_generation != request.activation_generation
+                or execution_context.source_revision != request.source_revision):
+            raise ValueError("Study execution context does not match StudyRequest provenance.")
+        key = (request.project_id, request.activation_generation, request.study_id)
+        token = StudyCancellationToken()
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("StudyService scheduler is shut down.")
+            if request.study_type not in self._handlers:
+                raise KeyError(f"No study handler registered for {request.study_type!r}.")
+            if key in self._tokens:
+                raise ValueError(f"Study is already active: {request.study_id}")
+            self._tokens[key] = token
+            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            try:
+                return self._executor.submit(self.execute, request, execution_context, _reserved_token=token)
+            except BaseException:
+                self._tokens.pop(key, None)
+                count = self._active_study_types.get(request.study_type, 0)
+                if count <= 1:
+                    self._active_study_types.pop(request.study_type, None)
+                else:
+                    self._active_study_types[request.study_type] = count - 1
+                raise
+
+    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext, *, _reserved_token: StudyCancellationToken | None = None) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
         if not isinstance(execution_context, StudyExecutionContext):
@@ -322,22 +357,46 @@ class StudyService:
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
         key = (request.project_id, request.activation_generation, request.study_id)
-        token = StudyCancellationToken()
+
+        def partial_provenance(partial: object | None) -> Mapping[str, Any]:
+            provenance = getattr(partial, "provenance", {})
+            return provenance if isinstance(provenance, Mapping) else {}
+
+        def last_valid_time(partial: object | None) -> float | None:
+            samples = getattr(partial, "time", None)
+            if samples is None:
+                return None
+            try:
+                if len(samples) == 0:
+                    return None
+                return float(samples[-1])
+            except (TypeError, ValueError, IndexError):
+                return None
+
+        token = _reserved_token or StudyCancellationToken()
         with self._lock:
             handler = self._handlers.get(request.study_type)
             if handler is None:
                 raise KeyError(f"No study handler registered for {request.study_type!r}.")
-            if key in self._tokens:
-                raise ValueError(f"Study is already active: {request.study_id}")
-            self._tokens[key] = token
-            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            if _reserved_token is None:
+                if key in self._tokens:
+                    raise ValueError(f"Study is already active: {request.study_id}")
+                self._tokens[key] = token
+                self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            elif self._tokens.get(key) is not token:
+                raise RuntimeError("Reserved Study cancellation token lost its active scope.")
 
         terminal_result_committed = False
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
-            value = handler(request, execution_context, token)
+            value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
+            retained_value = (
+                value
+                if partial_provenance(value).get("execution_status") in {"completed", "cancelled", "failed"}
+                else None
+            )
             result = StudyResult(
                 study_id=request.study_id,
                 project_id=request.project_id,
@@ -345,8 +404,32 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "completed",
-                value=None if cancelled else value,
-                message="Study cancelled." if cancelled else "",
+                # A cooperative handler may return a valid partial trajectory
+                # when cancellation is observed. Keep that evidence while the
+                # terminal lifecycle status remains cancelled.
+                value=retained_value if cancelled else value,
+                message="Study cancelled; partial execution evidence retained." if cancelled and retained_value is not None else ("Study cancelled." if cancelled else ""),
+                metadata=(
+                    {
+                        "partial_result_available": retained_value is not None,
+                        "execution_status": str(partial_provenance(retained_value).get("execution_status", "cancelled")),
+                        "trajectory_status": str(partial_provenance(retained_value).get("trajectory_status", "interrupted")),
+                        "last_valid_time": last_valid_time(retained_value),
+                        "termination": (
+                            dict(partial_provenance(retained_value).get("termination", {}))
+                            if partial_provenance(retained_value).get("termination")
+                            else {
+                                "status": "cancelled",
+                                "reason": "cancellation_requested",
+                                "stage": "handler_return",
+                                "failing_time": last_valid_time(retained_value),
+                                "diagnostic_message": "Study cancelled at a committed solver boundary.",
+                            }
+                        ),
+                        "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
+                    }
+                    if cancelled else {}
+                ),
             )
             try:
                 self._persist_result(result)
@@ -423,13 +506,34 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "failed",
-                value=None if cancelled else getattr(exc, "partial_result", None),
-                message="Study cancelled." if cancelled else str(exc),
-                metadata=(
-                    {}
-                    if cancelled or getattr(exc, "partial_result", None) is None
-                    else {"partial_result_available": True}
+                # Preserve a solver-provided partial result even when a
+                # concurrent cancellation request wins terminal linearization.
+                value=getattr(exc, "partial_result", None),
+                message=(
+                    "Study cancelled after a solver/handler termination; partial execution evidence retained."
+                    if cancelled and getattr(exc, "partial_result", None) is not None
+                    else ("Study cancelled." if cancelled else str(exc))
                 ),
+                metadata={
+                    "partial_result_available": getattr(exc, "partial_result", None) is not None,
+                    "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
+                    "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
+                    "last_valid_time": (
+                        last_valid_time(getattr(exc, "partial_result", None))
+                    ),
+                    "event_schedule": tuple(
+                        partial_provenance(getattr(exc, "partial_result", None)).get("event_schedule", ())
+                    ),
+                    "termination": {
+                        "status": "cancelled" if cancelled else "failed",
+                        "reason": "cancellation_requested" if cancelled else "handler_exception",
+                        "stage": getattr(exc, "failing_stage", "handler_execution"),
+                        "termination_reason": getattr(exc, "termination_reason", "handler_exception"),
+                        "failing_time": getattr(exc, "failing_time", None),
+                        "exception_type": getattr(exc, "cause_type", None) or type(exc).__name__,
+                        "diagnostic_message": getattr(exc, "diagnostic_message", str(exc)),
+                    },
+                },
             )
             try:
                 self._persist_result(result)
@@ -466,6 +570,17 @@ class StudyService:
                     self._active_study_types.pop(request.study_type, None)
                 else:
                     self._active_study_types[request.study_type] = active_count - 1
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        """Stop accepting work, request cancellation, and drain the scheduler."""
+        with self._lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
+            tokens = tuple(self._tokens.values())
+        for token in tokens:
+            token.cancel()
+        self._executor.shutdown(wait=wait, cancel_futures=False)
 
     @property
     def has_active_studies(self) -> bool:

@@ -39,6 +39,11 @@ from core.analysis.transient_network import (
     PreparedTransientStability,
     TransientNetworkSolver,
 )
+from core.analysis.transient_scenario import (
+    PowerFlowOperatingPointSnapshot,
+    TransientEventScenarioItem,
+    TransientEventScenario,
+)
 from core.analysis.transient_stability import (
     TransientStabilityStudyConfiguration,
     TransientStabilityStudyResult,
@@ -101,6 +106,9 @@ __all__ = [
     "DynamicInitialStatePreparation",
     "DetachedTransientNetworkState",
     "PreparedTransientStability",
+    "PowerFlowOperatingPointSnapshot",
+    "TransientEventScenarioItem",
+    "TransientEventScenario",
     "TransientNetworkSolver",
     "TransientStabilityStudyConfiguration",
     "TransientStabilityStudyResult",

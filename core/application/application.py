@@ -82,10 +82,9 @@ from .protection_execution import (
 from .protection_execution_audit import ProtectionExecutionAuditStore, ProtectionExecutionAuditRecord
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
-from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
-from math import isfinite, atan2, degrees
+from math import isfinite
 from pathlib import Path
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
@@ -129,6 +128,8 @@ class Application:
         if protection_execution_audit_store is not None and not isinstance(protection_execution_audit_store, ProtectionExecutionAuditStore):
             raise TypeError("protection_execution_audit_store must be a ProtectionExecutionAuditStore or None.")
         self._protection_execution_audit_store = protection_execution_audit_store
+        # Opaque capability retained only by this Application and injected into its active runtimes.
+        self._directional_snapshot_issuance_capability = object()
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
@@ -669,6 +670,30 @@ class Application:
             configuration=case.configuration,
         )
         return self.execute_study(request)
+    def submit_study_case(self, study_id: UUID):
+        """Prepare a Study Case synchronously and queue numerical work asynchronously."""
+        case = self.study_case(study_id)
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot run a Study Case without a valid active project activation.")
+        if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
+            raise ValueError("Study Case project scope does not match the active project generation.")
+        if not case.source_revision.matches_study_state(self.revision):
+            raise ValueError(
+                "Study Case configuration is stale for the active electrical model/topology. "
+                "Reconfigure or recreate the Study Case before execution."
+            )
+        request = StudyRequest(
+            study_id=case.study_id,
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            source_revision=self.revision,
+            study_type=case.study_type,
+            configuration=case.configuration,
+        )
+        return self.submit_study(request)
+
     @property
     def project_lifecycle(self) -> ProjectLifecycleService:
         if self._project_lifecycle is None: raise RuntimeError("Application project lifecycle is not configured.")
@@ -1554,6 +1579,11 @@ class Application:
                     "sample_sequence": sample_sequence_after,
                 })
 
+        if (
+            any(element.enabled and str(element.function_code).strip().upper() == "67" for element in runtime.configuration.elements)
+            and getattr(self, "protection_runtime", None) is not runtime
+        ):
+            return ProtectionExecutionResult(diagnostics=("Directional snapshot issuance refused: ProtectionRuntime is not the active Application runtime.",))
         directional_snapshots: dict[str, Any] = {}
         for element in runtime.configuration.elements:
             if not element.enabled or str(element.function_code).strip().upper() != "67":
@@ -1600,29 +1630,23 @@ class Application:
                     f"{prefix}: zero-magnitude voltage/current phasor has no defined phase angle."
                 )
                 continue
-            voltage_angle = degrees(atan2(voltage_value.imag, voltage_value.real))
-            current_angle = degrees(atan2(current_value.imag, current_value.real))
-            if not isfinite(voltage_angle) or not isfinite(current_angle):
-                diagnostics.append(f"{prefix}: derived phasor angle is non-finite.")
-                continue
-            # Seal the exact validated samples and their internally-derived angles.
-            # The relay consumes current from this snapshot, never a later live RelayInput read.
-            directional_snapshots[element.element_id] = _create_authoritative_directional_snapshot(
-                element_id=element.element_id,
-                voltage_value=voltage_value,
-                current_value=current_value,
-                voltage_angle=voltage_angle,
-                current_angle=current_angle,
-                voltage_channel_id=voltage_id,
-                current_channel_id=current_id,
-                voltage_channel_identity=id(voltage_channel),
-                current_channel_identity=id(current_channel),
-                sample_timestamp=voltage_timestamp,
-                project_id=str(project.project_id),
-                activation_generation=lifecycle.activation_generation,
-                configuration_identity=id(runtime.configuration),
-                runtime_identity=id(runtime),
-            )
+            # Runtime binds validated samples to its own composed identities.
+            try:
+                directional_snapshots[element.element_id] = runtime.issue_directional_snapshot(
+                    capability=self._directional_snapshot_issuance_capability,
+                    element_id=element.element_id,
+                    voltage_value=voltage_value,
+                    current_value=current_value,
+                    voltage_channel_id=voltage_id,
+                    current_channel_id=current_id,
+                    voltage_channel=voltage_channel,
+                    current_channel=current_channel,
+                    sample_timestamp=voltage_timestamp,
+                    voltage_sample_sequence=validated_measurement_snapshots[(element.element_id, "voltage")]["sample_sequence"],
+                    current_sample_sequence=validated_measurement_snapshots[(element.element_id, "current")]["sample_sequence"],
+                )
+            except (PermissionError, RuntimeError, TypeError, ValueError) as exc:
+                diagnostics.append(f"{prefix}: authoritative directional snapshot issuance refused: {exc}")
 
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
@@ -1852,6 +1876,7 @@ class Application:
             snapshots_by_element[element_id] = MappingProxyType(per_element)
         context_metadata["validated_measurement_snapshots_by_element"] = MappingProxyType(snapshots_by_element)
         context_metadata["validated_measurement_snapshot_authority"] = APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY
+        context_metadata["directional_snapshot_issuance_capability"] = runtime.snapshot_issuer
         # Only Application-created sealed snapshots authorize ANSI 67. Caller
         # metadata remains ordinary context and cannot supply phasors or provenance.
         for element in runtime.configuration.elements:
@@ -3053,6 +3078,68 @@ class Application:
         self._remember_study_case(request)
         return self._study_service.execute(request, execution_context)
 
+
+    def submit_study(self, request: StudyRequest):
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be a StudyRequest.")
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot start a study without a valid active project activation.")
+        if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
+            raise ValueError("StudyRequest project scope does not match the active project generation.")
+        # Project validation is an Application study gate. A study cannot
+        # publish StudyStarted until authoritative project validation succeeds.
+        validation = self.validate_project()
+        if not validation.valid:
+            raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
+        if request.source_revision != self.revision:
+            raise ValueError("StudyRequest source_revision does not match the active project revision.")
+        network = lifecycle.network
+        # Runtime-only provenance metadata; never authoritative persisted state.
+        network.project_id = context.project_id
+        network.activation_generation = lifecycle.activation_generation
+        if network.state.topology_revision != request.source_revision.topology_revision:
+            raise ValueError("Network topology revision does not match StudyRequest source revision.")
+        if network.state.topology_dirty or not network.state.topology_valid:
+            network.rebuild_topology()
+        if network.state.topology_dirty or not network.state.topology_valid:
+            raise ValueError("Topology normalization did not produce a valid study-ready state.")
+        snapshot = network.topology_snapshot
+        if snapshot is None:
+            raise ValueError("Canonical TopologySnapshot is unavailable.")
+        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
+            raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
+        project_snapshot = self.capture_project_snapshot()
+        # The canonical topology and detached project snapshot are captured
+        # through separate boundaries. Refuse to pair them if a mutation landed
+        # between those captures or if the detached network carries a different
+        # topology revision than the StudyRequest.
+        if self.revision != request.source_revision:
+            raise ValueError("Project revision changed while preparing the study snapshot; retry study execution.")
+        if (
+            project_snapshot.project_id != request.project_id
+            or project_snapshot.activation_generation != request.activation_generation
+            or project_snapshot.revision != request.source_revision
+        ):
+            raise ValueError("Detached ProjectSnapshot provenance does not match StudyRequest.")
+        detached_network = project_snapshot.network
+        detached_state = getattr(detached_network, "state", None)
+        detached_topology_revision = getattr(detached_state, "topology_revision", None)
+        if detached_topology_revision != request.source_revision.topology_revision:
+            raise ValueError("Detached network topology revision does not match StudyRequest.")
+        execution_context = StudyExecutionContext(
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            topology_snapshot=snapshot,
+            project_snapshot=project_snapshot,
+        )
+        # Only register a runnable Study Case after the request has passed
+        # project-generation, revision, validation, and topology provenance gates.
+        self._remember_study_case(request)
+        return self._study_service.submit(request, execution_context)
+
     def read_study_result(self, study_id) -> Any:
         """Return the current project-scoped study result read model."""
         context = self.project_lifecycle.context
@@ -3171,6 +3258,10 @@ class Application:
     def study_result(self, study_id, *, project_id: str, activation_generation: int) -> StudyResult | None:
         """Compatibility-only Application lookup retained for non-presentation callers."""
         return self._study_service.get_result(study_id, project_id=project_id, activation_generation=activation_generation)
+
+    def shutdown_studies(self, *, wait: bool = True) -> None:
+        """Shut down the Application-owned StudyService scheduler."""
+        self._study_service.shutdown(wait=wait)
 
     def cancel_study(self, study_id, *, project_id: str, activation_generation: int) -> bool:
         return self._study_service.cancel(study_id, project_id=project_id, activation_generation=activation_generation)
@@ -3651,7 +3742,7 @@ class Application:
             if network is None:
                 raise RuntimeError("Active Network is unavailable during transactional protection recomposition.")
             previous_runtime = getattr(self, "protection_runtime", None)
-            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration, activation_generation=self.project_lifecycle.activation_generation)
+            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration, activation_generation=self.project_lifecycle.activation_generation, snapshot_issuance_capability=self._directional_snapshot_issuance_capability)
             candidate_runtime.compose(channel_service.channels)
             self.protection_runtime = candidate_runtime
             transaction.record_undo(
@@ -4599,6 +4690,7 @@ class Application:
                 network,
                 configuration_service.configuration,
                 activation_generation=self.project_lifecycle.activation_generation,
+                snapshot_issuance_capability=self._directional_snapshot_issuance_capability,
             )
             candidate.compose(channel_service.channels)
             self.protection_runtime = candidate

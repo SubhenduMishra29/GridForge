@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from core.application.read_models import TransientResultPresentationReadModel
 from ui.core.qt import (
     QChart,
@@ -108,6 +110,42 @@ class TransientResultViewWidget(QWidget):
             f"Algebraic quality records: {len(model.algebraic_quality)}",
             f"Event discontinuities: {len(model.discontinuities)}",
         ]
+        execution_status = str(model.provenance.get("execution_status", model.status))
+        trajectory_status = str(model.provenance.get("trajectory_status", execution_status))
+        last_valid_time = model.provenance.get("last_valid_time")
+        termination = model.provenance.get("termination", {})
+        study_lifecycle = model.provenance.get("study_lifecycle", {})
+        event_schedule = model.provenance.get("event_schedule", ())
+        pending_count = sum(
+            1 for item in event_schedule
+            if isinstance(item, Mapping) and item.get("status") in {"pending", "cancelled", "skipped"}
+        )
+        if trajectory_status in {"interrupted", "incomplete"} or execution_status in {"cancelled", "failed"}:
+            details.append(f"PARTIAL TRAJECTORY — {trajectory_status.upper()}")
+            details.append(
+                f"Last valid simulation time: {float(last_valid_time):.9g} s"
+                if isinstance(last_valid_time, (int, float))
+                else "Last valid simulation time: unavailable"
+            )
+            if isinstance(termination, Mapping):
+                details.append(
+                    "Termination: "
+                    + str(termination.get("reason", termination.get("stage", "unspecified")))
+                    + " / "
+                    + str(termination.get("diagnostic_message", ""))
+                )
+            details.append(f"Undispatched scheduled events: {pending_count}")
+            if isinstance(study_lifecycle, Mapping):
+                lifecycle_termination = study_lifecycle.get("termination", {})
+                if isinstance(lifecycle_termination, Mapping):
+                    details.append(
+                        "Application termination: "
+                        + str(lifecycle_termination.get("reason", "unspecified"))
+                        + " / "
+                        + str(lifecycle_termination.get("diagnostic_message", ""))
+                    )
+        elif execution_status == "completed":
+            details.append("Trajectory completed at configured end time.")
         if model.record_id is not None:
             details.append(f"Archive record: {model.record_id}")
         if model.saved_at:
@@ -156,7 +194,17 @@ class TransientResultViewWidget(QWidget):
                     f"{event.post_event_re_evaluation_failure_message or ''}"
                 )
             self._event_list.addItem(line)
-        if model.events:
+        for item in event_schedule:
+            if not isinstance(item, Mapping):
+                continue
+            status = str(item.get("status", "pending"))
+            if status in {"pending", "cancelled", "skipped", "disabled"}:
+                self._event_list.addItem(
+                    f"Not dispatched — {status.upper()} | "
+                    f"{item.get('event_type', 'event')} — {item.get('event_id', '')} | "
+                    f"scheduled {float(item.get('scheduled_time', 0.0)):.9g} s"
+                )
+        if model.events or pending_count:
             self._event_list.setCurrentRow(0)
         else:
             self._event_details.setText("No event executions were recorded.")

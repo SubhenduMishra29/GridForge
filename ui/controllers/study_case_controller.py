@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 import math
 from uuid import UUID
+from threading import RLock
 from typing import Any
 
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
@@ -27,10 +28,12 @@ class StudyCaseController:
             raise ValueError("application is required.")
         if not callable(getattr(application, "study_case", None)):
             raise TypeError("application must expose study_case().")
-        if not callable(getattr(application, "execute_study_case", None)):
-            raise TypeError("application must expose execute_study_case().")
+        if not callable(getattr(application, "submit_study_case", None)):
+            raise TypeError("application must expose submit_study_case().")
         self._application = application
         self._error_handler = error_handler
+        self._active_scopes: dict[UUID, tuple[str, int]] = {}
+        self._scope_lock = RLock()
 
     def run_study(self, study_id: UUID) -> object | None:
         """Run the selected structured Study Case through Application only."""
@@ -40,10 +43,44 @@ class StudyCaseController:
             except (TypeError, ValueError) as exc:
                 return self._handle_error(ValueError("Selected Study Case identity is invalid."), cause=exc)
         try:
-            self._application.study_case(study_id)
-            return self._application.execute_study_case(study_id)
+            case = self._application.study_case(study_id)
+            scope = (case.project_id, case.activation_generation)
+            with self._scope_lock:
+                self._active_scopes[study_id] = scope
+            future = self._application.submit_study_case(study_id)
+
+            def _release_scope(_completed: object) -> None:
+                with self._scope_lock:
+                    if self._active_scopes.get(study_id) == scope:
+                        self._active_scopes.pop(study_id, None)
+
+            future.add_done_callback(_release_scope)
+            return future
         except Exception as exc:
+            with self._scope_lock:
+                self._active_scopes.pop(study_id, None)
             return self._handle_error(exc)
+
+    def cancel_study(self, study_id: UUID) -> bool:
+        """Cancel using the exact project activation captured at submission."""
+        with self._scope_lock:
+            scope = self._active_scopes.get(study_id)
+        if scope is None:
+            return False
+        project_id, activation_generation = scope
+        try:
+            return bool(self._application.cancel_study(
+                study_id, project_id=project_id,
+                activation_generation=activation_generation,
+            ))
+        except Exception as exc:
+            self._handle_error(exc)
+            return False
+
+    def handle_async_error(self, error: BaseException) -> None:
+        """Surface worker failures from the panel's Qt-thread Future poll."""
+        if self._error_handler is not None:
+            self._error_handler(error)
 
     def export_study_comparison(
         self, left_source: str, left_record_id: UUID | str,

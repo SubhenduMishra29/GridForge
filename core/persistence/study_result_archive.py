@@ -136,6 +136,83 @@ _SOLVER_ENUM_TYPES = {
 }
 
 
+def _validate_transient_input_manifest(provenance: Any) -> None:
+    """Validate the versioned operating-point and event-intent archive contract."""
+    if not isinstance(provenance, Mapping):
+        raise StudyResultArchiveError("Transient result provenance must be a mapping.")
+    operating_point = provenance.get("power_flow_operating_point")
+    event_scenario = provenance.get("event_scenario")
+    if operating_point is None and event_scenario is None:
+        return  # Historical solver-only records remain readable.
+    if operating_point is not None and not isinstance(operating_point, Mapping):
+        raise StudyResultArchiveError("Transient Power Flow operating-point manifest must be an object.")
+    if event_scenario is not None and not isinstance(event_scenario, Mapping):
+        raise StudyResultArchiveError("Transient event-scenario manifest must be an object.")
+    if operating_point is not None:
+        required_operating_point = {
+            "schema_version", "snapshot_id", "project_id", "activation_generation",
+            "source_revision", "topology_revision", "bus_ids", "input_data",
+            "solved_voltage_magnitudes", "solved_voltage_angles", "solver_iterations",
+            "solver_error", "solver_history", "pv_to_pq_transitions", "solver_message",
+            "base_mva", "bus_voltage_bases_kv", "nominal_frequency_hz",
+            "canonical_topology_fingerprint", "network_model", "ybus_fingerprint",
+        }
+        if set(operating_point) != required_operating_point or operating_point.get("schema_version") != 1:
+            raise StudyResultArchiveError("Transient Power Flow operating-point manifest has an unsupported schema.")
+        revision = operating_point.get("source_revision")
+        buses = operating_point.get("bus_ids")
+        vm = operating_point.get("solved_voltage_magnitudes")
+        va = operating_point.get("solved_voltage_angles")
+        if not isinstance(revision, (tuple, list)) or len(revision) != 4 or any(
+            isinstance(item, bool) or not isinstance(item, int) or item < 0 for item in revision
+        ):
+            raise StudyResultArchiveError("Transient operating-point source revision is invalid.")
+        if not isinstance(buses, (tuple, list)) or not buses or len(set(buses)) != len(buses):
+            raise StudyResultArchiveError("Transient operating-point Bus identities are invalid.")
+        if not isinstance(vm, (tuple, list)) or not isinstance(va, (tuple, list)) or len(vm) != len(buses) or len(va) != len(buses):
+            raise StudyResultArchiveError("Transient operating-point solved voltages do not match Bus ordering.")
+        if not isinstance(operating_point.get("input_data"), Mapping) or not isinstance(operating_point.get("network_model"), Mapping):
+            raise StudyResultArchiveError("Transient operating-point numerical input evidence is malformed.")
+        if not isinstance(operating_point.get("bus_voltage_bases_kv"), Mapping):
+            raise StudyResultArchiveError("Transient operating-point voltage-base evidence is malformed.")
+        if set(operating_point["bus_voltage_bases_kv"]) != set(buses):
+            raise StudyResultArchiveError("Transient operating-point voltage bases do not cover its Bus identities.")
+    if event_scenario is not None:
+        if not isinstance(event_scenario, Mapping) or set(event_scenario) != {"schema_version", "start_time", "end_time", "dt", "events"} or event_scenario.get("schema_version") != 1:
+            raise StudyResultArchiveError("Transient event-scenario manifest has an unsupported schema.")
+        try:
+            start, end, step = (float(event_scenario[key]) for key in ("start_time", "end_time", "dt"))
+        except (TypeError, ValueError, KeyError) as exc:
+            raise StudyResultArchiveError("Transient event-scenario simulation window is malformed.") from exc
+        if not all(math.isfinite(value) for value in (start, end, step)) or start < 0.0 or end <= start or step <= 0.0:
+            raise StudyResultArchiveError("Transient event-scenario simulation window is invalid.")
+        events = event_scenario.get("events")
+        if not isinstance(events, (tuple, list)):
+            raise StudyResultArchiveError("Transient event-scenario events must be an ordered sequence.")
+        event_ids = []
+        ordering = []
+        required_event = {"event_id", "event_type", "time", "priority", "enabled", "description", "metadata", "operation"}
+        for event in events:
+            if not isinstance(event, Mapping) or set(event) != required_event:
+                raise StudyResultArchiveError("Transient event-scenario entry has missing or unknown fields.")
+            if not isinstance(event["event_id"], str) or not event["event_id"].strip():
+                raise StudyResultArchiveError("Transient event-scenario identity is invalid.")
+            if not isinstance(event["event_type"], str) or not event["event_type"].strip():
+                raise StudyResultArchiveError("Transient event-scenario type is invalid.")
+            if isinstance(event["time"], bool) or not isinstance(event["time"], (int, float)) or not math.isfinite(float(event["time"])) or event["time"] < 0:
+                raise StudyResultArchiveError("Transient event-scenario time is invalid.")
+            if isinstance(event["priority"], bool) or not isinstance(event["priority"], int) or type(event["enabled"]) is not bool:
+                raise StudyResultArchiveError("Transient event-scenario priority or enabled state is invalid.")
+            if not isinstance(event["description"], str) or not isinstance(event["metadata"], Mapping):
+                raise StudyResultArchiveError("Transient event-scenario descriptive metadata is invalid.")
+            if event["operation"] is not None and not isinstance(event["operation"], Mapping):
+                raise StudyResultArchiveError("Transient event-scenario operation is invalid.")
+            event_ids.append(event["event_id"])
+            ordering.append((float(event["time"]), event["priority"], event["event_id"]))
+        if len(event_ids) != len(set(event_ids)) or ordering != sorted(ordering):
+            raise StudyResultArchiveError("Transient event-scenario identities or deterministic ordering are invalid.")
+
+
 def _encode_value(value: Any) -> Any:
     """Encode supported result values explicitly; reject unknown runtime objects."""
     if value is None or isinstance(value, (str, bool, int)):
@@ -185,6 +262,8 @@ def _encode_value(value: Any) -> Any:
     if isinstance(value, (set, frozenset)):
         return sorted((_encode_value(item) for item in value), key=lambda item: json.dumps(item, sort_keys=True))
     if is_dataclass(value) and not isinstance(value, type):
+        if isinstance(value, TransientStabilityResult):
+            _validate_transient_input_manifest(value.provenance)
         qualified = _qualified_name(value)
         if qualified in _SOLVER_RESULT_TYPES:
             tag = "solver_result"
@@ -404,6 +483,8 @@ def _decode_value(value: Any, *, schema_version: int = 1) -> Any:
                     raise StudyResultArchiveError(
                         "Persisted TransientStabilityResult discontinuities must be allowlisted TransientDiscontinuity records."
                     )
+            if result_type is TransientStabilityResult:
+                _validate_transient_input_manifest(decoded_fields.get("provenance", {}))
             try:
                 return result_type(**decoded_fields)
             except (TypeError, ValueError) as exc:

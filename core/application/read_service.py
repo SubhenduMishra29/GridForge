@@ -1241,6 +1241,10 @@ class StudyReadService:
                 raise ValueError("Transient discontinuities contain an unknown record type.")
         discontinuities = tuple(discontinuity_records)
         provenance = dict(provenance_source)
+        lifecycle_metadata = getattr(row, "metadata", {})
+        if isinstance(lifecycle_metadata, Mapping):
+            provenance["study_lifecycle"] = dict(lifecycle_metadata)
+        provenance["application_status"] = str(getattr(row, "status", "unknown"))
         provenance["execution_identity"] = {
             "study_id": str(row.study_id),
             "project_id": row.project_id,

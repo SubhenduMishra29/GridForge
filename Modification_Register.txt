@@ -1,4 +1,187 @@
 ======================================================================
+GF-AUD-170 — DRAFTNETWORK COMMIT / PROJECT SAVE SERIALIZATION RECONCILIATION
+======================================================================
+
+Audit date: 2026-11-06
+Repository baseline: main @ 2f576d0174a50db11e1559f79f39cede3dfb7862
+Issue reconciled: #945
+
+FETCH / AUDIT:
+- Application._save_project_scoped() acquires the existing
+  Application._execution_lock for the complete synchronous persistence
+  window. Under _commit_state_lock it rejects an in-flight DraftNetwork
+  commit and rejects a concurrent save, then sets _save_in_progress.
+- commit_draft_network_async() acquires that same _execution_lock before
+  entering the in-flight state. It checks _save_in_progress before setting
+  _commit_in_flight and the pending command. Therefore a commit cannot become
+  pending after save has passed its guard; if save wins the lock, the commit
+  is rejected, and if commit wins, save is rejected.
+- The asynchronous commit worker also acquires _execution_lock around the
+  authoritative CommandManager mutation. Application.execute() uses the
+  same lock for synchronous command mutation.
+- ProjectLifecycleService.save_project() still passes its active Network
+  reference to the configured saver, but Application serializes this call
+  under the same mutation lock. The Network is therefore not concurrently
+  mutated by the Application command/async-DraftNetwork paths during
+  serialization; a second lock or parallel transaction manager is not needed.
+- Application._save_project_scoped_locked() captures project identity,
+  activation generation and ProjectRevision before persistence, then
+  rechecks the revision and active project/generation before marking the
+  persisted revision or publishing ProjectSaved.
+- ProjectLifecycleService.save_project() rechecks activation/network identity
+  after the saver returns and only clears presentation dirty state when the
+  current serialized presentation matches the exact detached snapshot written.
+  Ambiguous comparisons retain dirty state.
+- The existing _save_in_progress guard prevents a new asynchronous DraftNetwork
+  commit from entering while save is active.
+
+RECONCILE:
+- The issue's source description reflects an earlier mainline state.
+  Current main already implements the shared execution-lock boundary and
+  two-sided save/commit single-flight coordination.
+- No production source correction was required for #945.
+
+CHECK / VERIFICATION BOUNDARY:
+- Source inspection only; no tests, CI, syntax/import checks or concurrent
+  runtime exercise were performed.
+- No project package or persisted Network data was modified.
+- The existing Application execution lock and commit-state guard are reused;
+  no new lock or transaction authority was introduced.
+
+DISPOSITION:
+- #945 closed as completed based on current-main source evidence.
+- The broader persistence snapshot and project revision concerns in #910
+  remain open for independent reconciliation.
+
+======================================================================
+
+======================================================================
+GF-AUD-169 — DEFAULT APPLICATION TRANSIENT STUDY HANDLER RECONCILIATION
+======================================================================
+
+Audit date: 2026-11-06
+Repository baseline: main @ 2f576d0174a50db11e1559f79f39cede3dfb7862
+Issue reconciled: #987
+
+FETCH / AUDIT:
+- core/application/bootstrap.py defines the canonical run_transient_stability
+  StudyService handler and registers it in the default create_application()
+  composition alongside Power Flow, Contingency and Short Circuit.
+- The handler consumes the typed TransientStabilityStudyConfiguration.
+  It accepts a prepared Power Flow input/result only as an explicitly supplied
+  matched pair; otherwise it requires the persisted typed
+  power_flow_configuration, prepares and solves that operating point, and
+  refuses to begin dynamics when Power Flow does not converge.
+- StudyPreparationService.prepare_transient_stability() verifies project,
+  activation, model/topology revision and topology snapshot identity, and
+  prepares the detached transient network and dynamic-machine model registry.
+- The handler constructs the detached TransientEventState, TransientNetworkRuntime,
+  EventManager, DAE solver and TransientStabilityAnalysis. Typed event inputs
+  are validated against the configured interval and detached equipment/bus
+  identities. Unsupported event types and invalid fault ordering fail closed.
+- The handler passes StudyCancellationToken.cancelled into the solver's
+  cooperative should_cancel callback and does not publish a result after
+  cancellation.
+- StudyService owns the execution lifecycle and terminal result persistence.
+  create_application() configures StudyResultArchive under
+  ~/.gridforge/study-results through Application.configure_study_result_archive().
+- Application.create_study_case() requires a registered handler and a typed
+  Study Case configuration. execute_study_case() checks project, activation
+  and source revision before rebuilding the StudyRequest and capturing the
+  detached ProjectSnapshot/TopologySnapshot.
+- ProjectPersistenceService serializes/restores typed
+  TransientStabilityStudyConfiguration, including start/end/dt, event metadata
+  and the initial Power Flow configuration. It rejects a transient Study Case
+  without a persisted Power Flow initialization configuration at save time,
+  and validates referenced Bus identities on load.
+- bootstrap.save_project() passes application.study_cases into the canonical
+  ProjectPersistenceService.save() boundary. The project-state activator
+  restores loaded Study Cases and rebinds their activation generation.
+- Existing source coverage is present in
+  tests/application/test_transient_stability_registration.py and
+  tests/application/test_transient_stability_execution.py.
+
+RECONCILE:
+- The issue's original claim that default Application composition does not
+  register transient_stability is stale. Registration is in bootstrap.py,
+  not Application.__init__, so inspection of Application alone was incomplete.
+- The typed handler, detached preparation, cancellation path, durable archive
+  and Study Case project save/load path are present on current main.
+- No production source correction was required for #987.
+
+BOUNDARIES / REMAINING:
+- StudyService.execute() is synchronous. UI-thread blocking and canonical
+  asynchronous study scheduling remain separately tracked by #946; this
+  closure does not claim asynchronous execution or UI responsiveness.
+- Numerical execution manifest, complete event scenario provenance and
+  transient result presentation remain separately tracked by #971/#972/#959.
+- No tests, CI, runtime study or archive write/read were executed in this audit.
+
+DISPOSITION:
+- #987 closed as completed based on current-main source and existing focused
+  source coverage.
+- No duplicate solver, lifecycle, event bus or result authority was added.
+
+======================================================================
+
+======================================================================
+GF-AUD-168 — TRANSIENT STUDY RESULT ARCHIVE TYPED ROUND-TRIP RECONCILIATION
+======================================================================
+
+Audit date: 2026-11-06
+Repository baseline: main @ 2f576d0174a50db11e1559f79f39cede3dfb7862
+Issues reconciled: #986 (implementation complete), #958 (duplicate of #986)
+
+FETCH / AUDIT:
+- core/persistence/study_result_archive.py is at archive schema v4 and
+  explicitly allowlists TransientStabilityResult, EventExecution,
+  EventTransition, TransientDiscontinuity and AlgebraicNetworkSolution.
+- Numeric ndarray payloads preserve dtype and shape; complex values use
+  explicit scalar encoding. Reconstruction rejects unsupported dtype/shape
+  payloads and invokes the canonical result/event constructors.
+- The transient result decoder checks exact allowlisted field sets and
+  validates nested algebraic-quality, event and discontinuity record types.
+  Unknown fields and incorrect tags fail closed with StudyResultArchiveError.
+- Schema-v1 generic dataclass payloads retain their documented historical
+  detached mapping semantics. Schema-v2/v3/v4 typed additions are gated by
+  explicit schema-version checks and documented legacy field migration.
+- TransientStabilityResult.__post_init__ validates sample alignment,
+  finite/strictly increasing time, output sample counts, typed event and
+  quality records, and freezes NumPy arrays and nested mappings.
+- StudyReadService uses one _transient_presentation adapter for live and
+  archived records. archived_transient_result marks archived records
+  historical and retains record_id/saved_at; historical frames are not
+  eligible for live SLD projection.
+- Existing source coverage is present in
+  tests/core/persistence/test_study_result_archive_transient.py, including
+  canonical round-trip, immutable arrays/maps, event identity/timing/status,
+  transition and discontinuity reconstruction, schema-v1 semantics,
+  schema-v2/v3 compatibility and malformed-field rejection.
+
+RECONCILE:
+- #958 describes the same original typed transient archive reconstruction
+  defect tracked more comprehensively by #986. The current main implementation
+  includes the later schema-v4 discontinuity contract and shared live/archive
+  presentation adapter.
+- Both issues were open despite the required implementation already being
+  present on main. No production source correction was necessary in this run.
+
+CHECK / VERIFICATION BOUNDARY:
+- Source and existing test-file inspection only; tests and CI were not run.
+- No Python syntax/import execution was performed for this audit.
+- No Core/UI architecture boundary changes were made.
+- No archive records were created, migrated or mutated during this audit.
+
+DISPOSITION:
+- #986 closed as completed based on current-main source and existing focused
+  regression coverage.
+- #958 closed as duplicate of #986.
+- This register-only audit record is submitted separately; no production
+  code, archive data, or project package schema was changed.
+
+======================================================================
+
+======================================================================
 GRIDFORGE V2 — CURRENT WORKSPACE / PANEL AUDIT STATUS
 ======================================================================
 
@@ -22990,3 +23173,14 @@ Follow-up source review tightened ANSI 81 pickup confirmation:
 - Accept a finite zero-Hz measurement as an under-frequency sample;
   zero is not rejected merely for being zero.
 
+
+
+2026-11-07 — GF-STUDY-CANCEL-01
+
+Implemented the remaining scoped Study cancellation path against the current main baseline (including merged PR #1135 asynchronous scheduling):
+- StudyCaseController captures project ID and activation generation at submission and forwards Cancel using that exact scope.
+- Study Cases panel exposes Cancel Study only while its exact Future is active, disables duplicate Run, displays cancellation-requested state, and restores controls on terminal Future completion.
+- StudyToolRuntime binds a real Cancel Study action through the same controller/Application path.
+- UIUpdateBoundary marshals Application events from worker threads through a queued QObject signal; the composition root enables this for Study lifecycle events.
+- Application Study scheduler shutdown is owned by UI lifecycle cleanup and startup-failure cleanup.
+No new scheduler or result store was introduced. No tests/CI were run.

@@ -30,6 +30,11 @@ from core.solver.dynamics.dae_solver import AlgebraicNetworkSolution
 from core.solver.dynamics.machine_models import ClassicalSynchronousMachine
 from core.solver.dynamics.multimachine import MultiMachineSystem
 from core.solver.power_flow.result import PowerFlowResult
+from core.analysis.transient_scenario import (
+    PowerFlowOperatingPointSnapshot,
+    TransientEventScenario,
+    TransientEventScenarioItem,
+)
 
 
 def _build_classical_synchronous_machine(
@@ -185,6 +190,8 @@ class PreparedTransientStability:
     bus_voltage_bases_kv: Mapping[str, float] = field(default_factory=lambda: MappingProxyType({}))
     nominal_frequency_hz: float | None = None
     canonical_topology_fingerprint: str | None = None
+    power_flow_operating_point: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    event_scenario: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -223,6 +230,10 @@ class PreparedTransientStability:
                 raise ValueError("Prepared canonical topology fingerprint must be a lowercase SHA-256 digest.")
             object.__setattr__(self, "canonical_topology_fingerprint", fingerprint)
         object.__setattr__(self, "initial_state", tuple(float(v) for v in self.initial_state))
+        if not isinstance(self.power_flow_operating_point, Mapping) or not isinstance(self.event_scenario, Mapping):
+            raise TypeError("Prepared transient operating-point and event-scenario manifests must be mappings.")
+        object.__setattr__(self, "power_flow_operating_point", MappingProxyType(dict(self.power_flow_operating_point)))
+        object.__setattr__(self, "event_scenario", MappingProxyType(dict(self.event_scenario)))
         if self.network.project_id != self.project_id:
             raise ValueError("Detached transient Network project identity does not match PreparedTransientStability.")
         if self.network.activation_generation != self.activation_generation:
@@ -358,6 +369,8 @@ class PreparedTransientStability:
             "switch_availability_states": dict(self.network.switch_available_states),
             "switch_connections": dict(self.network.switch_connections),
             "machine_model_manifest": MappingProxyType(manifest),
+            "power_flow_operating_point": self.power_flow_operating_point,
+            "event_scenario": self.event_scenario,
         }
         if len(state_signals) == global_index:
             result["state_signals"] = tuple(state_signals)
@@ -378,6 +391,8 @@ class PreparedTransientStability:
         switch_states: Mapping[str, bool],
         switch_available_states: Mapping[str, bool],
         switch_connections: Mapping[str, tuple[str, str]],
+        event_scenario: TransientEventScenario | tuple[TransientEventScenarioItem, ...] = (),
+        simulation_window: Mapping[str, float],
     ) -> "PreparedTransientStability":
         if not isinstance(prepared_power_flow, PreparedPowerFlow):
             raise TypeError("prepared_power_flow must be PreparedPowerFlow.")
@@ -385,6 +400,12 @@ class PreparedTransientStability:
             raise TypeError("power_flow_result must be PowerFlowResult.")
         if not isinstance(dynamic_models, DynamicMachineModelRegistry):
             raise TypeError("dynamic_models must be DynamicMachineModelRegistry.")
+        if not isinstance(source_revision, (tuple, list)) or len(source_revision) != 4 or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in source_revision
+        ):
+            raise ValueError("Transient source_revision must contain four non-negative revision integers.")
+        source_revision = tuple(source_revision)
         if not power_flow_result.success:
             raise ValueError("Transient stability requires a successful Power Flow operating point.")
         if not power_flow_result.bus_ids:
@@ -403,19 +424,19 @@ class PreparedTransientStability:
                 "Transient stability requires the canonical TopologySnapshot structural fingerprint "
                 "captured by Power Flow preparation."
             )
-        # Project activation provenance must agree with the prepared operating point.
-        # Optional metadata is tolerated only for legacy detached snapshots that
-        # genuinely lack that field; supplied caller values never override it.
-        if prepared_power_flow.project_id is not None:
-            if project_id.strip() != prepared_power_flow.project_id.strip():
-                raise ValueError(
-                    "Transient project_id must match the project that produced the prepared Power Flow snapshot."
-                )
-        if prepared_power_flow.activation_generation is not None:
-            if activation_generation != prepared_power_flow.activation_generation:
-                raise ValueError(
-                    "Transient activation_generation must match the prepared Power Flow snapshot."
-                )
+        # A transient run must be tied to the exact active project generation and topology.
+        if prepared_power_flow.project_id is None or prepared_power_flow.activation_generation is None:
+            raise ValueError("Transient stability requires project and activation provenance on the prepared Power Flow snapshot.")
+        if project_id.strip() != prepared_power_flow.project_id.strip():
+            raise ValueError("Transient project_id must match the prepared Power Flow snapshot.")
+        if activation_generation != prepared_power_flow.activation_generation:
+            raise ValueError("Transient activation_generation must match the prepared Power Flow snapshot.")
+        if source_revision[1] != prepared_power_flow.topology_revision:
+            raise ValueError("Transient source revision topology component must match the prepared Power Flow topology revision.")
+        if prepared_power_flow.source_revision is None:
+            raise ValueError("Transient stability requires the exact source revision captured by Power Flow preparation.")
+        if tuple(prepared_power_flow.source_revision[:2]) != tuple(source_revision[:2]):
+            raise ValueError("Power Flow operating-point model/topology revision does not match the transient preparation context.")
         bus_count = len(prepared_power_flow.bus_ids)
         if len(power_flow_result.voltage_magnitudes) != bus_count or len(power_flow_result.voltage_angles) != bus_count:
             raise ValueError("Power Flow result dimensions must match the prepared Power Flow snapshot.")
@@ -529,7 +550,94 @@ class PreparedTransientStability:
             prepared_power_flow.bus_voltage_bases,
             prepared_power_flow.nominal_frequency_hz,
             prepared_power_flow.canonical_topology_fingerprint,
+            cls._operating_point_manifest(prepared_power_flow, power_flow_result, project_id, activation_generation, tuple(prepared_power_flow.source_revision)),
+            cls._event_scenario_manifest(event_scenario, simulation_window),
         )
+
+    @staticmethod
+    def _operating_point_manifest(
+        prepared: PreparedPowerFlow,
+        result: PowerFlowResult,
+        project_id: str,
+        activation_generation: int,
+        source_revision: tuple[int, int, int, int],
+    ) -> Mapping[str, object]:
+        """Capture exact PF input, solved voltages and prepared network evidence."""
+        matrix = prepared.ybus.matrix.tocsr(copy=True)
+        matrix.sum_duplicates()
+        matrix.sort_indices()
+        matrix.eliminate_zeros()
+        digest = hashlib.sha256()
+        digest.update(str(matrix.shape).encode("ascii"))
+        for values in (matrix.indptr, matrix.indices, matrix.data):
+            digest.update(np.asarray(values).tobytes())
+        input_data = prepared.input.as_dict()
+        input_data["bus_types"] = tuple(value.value for value in prepared.input.bus_types)
+        network_model = {
+            "branches": tuple({
+                "id": item.branch_id, "from_bus_id": item.from_bus_id,
+                "to_bus_id": item.to_bus_id, "r_pu": item.r_pu,
+                "x_pu": item.x_pu, "b_pu": item.b_pu, "in_service": item.in_service,
+            } for item in prepared.branches),
+            "transformers": tuple({
+                "id": item.branch_id, "from_bus_id": item.from_bus_id,
+                "to_bus_id": item.to_bus_id, "r_pu": item.r_pu,
+                "x_pu": item.x_pu, "b_pu": item.b_pu, "tap": item.tap,
+                "shift": item.shift, "in_service": item.in_service,
+            } for item in prepared.transformers),
+            "shunts": tuple({
+                "id": item.shunt_id, "bus_id": item.bus_id,
+                "g_pu": item.g_pu, "b_pu": item.b_pu, "in_service": item.in_service,
+            } for item in prepared.shunts),
+        }
+        return PowerFlowOperatingPointSnapshot(
+            snapshot_id=prepared.input.snapshot_id,
+            project_id=project_id,
+            activation_generation=activation_generation,
+            source_revision=tuple(source_revision),
+            topology_revision=int(prepared.topology_revision),
+            bus_ids=prepared.bus_ids,
+            input_data=input_data,
+            solved_voltage_magnitudes=result.voltage_magnitudes,
+            solved_voltage_angles=result.voltage_angles,
+            solver_iterations=result.iterations,
+            solver_error=result.error,
+            solver_history=result.history,
+            pv_to_pq_transitions=result.pv_to_pq,
+            solver_message=result.message,
+            base_mva=prepared.base_mva,
+            bus_voltage_bases_kv=prepared.bus_voltage_bases,
+            nominal_frequency_hz=float(prepared.nominal_frequency_hz),
+            canonical_topology_fingerprint=str(prepared.canonical_topology_fingerprint),
+            network_model=network_model,
+            ybus_fingerprint=digest.hexdigest(),
+        ).as_dict()
+
+    @staticmethod
+    def _event_scenario_manifest(
+        scenario: TransientEventScenario | tuple[TransientEventScenarioItem, ...],
+        simulation_window: Mapping[str, float],
+    ) -> Mapping[str, object]:
+        if isinstance(scenario, TransientEventScenario):
+            event_data = scenario.as_dict()
+        else:
+            if isinstance(scenario, (str, bytes)):
+                raise TypeError("event_scenario must be a TransientEventScenario or sequence of scenario items.")
+            event_data = TransientEventScenario(tuple(scenario)).as_dict()
+        if not isinstance(simulation_window, Mapping) or set(simulation_window) != {"start_time", "end_time", "dt"}:
+            raise ValueError("Transient simulation_window must declare start_time, end_time and dt.")
+        start = float(simulation_window["start_time"])
+        end = float(simulation_window["end_time"])
+        step = float(simulation_window["dt"])
+        if not all(np.isfinite(value) for value in (start, end, step)) or start < 0.0 or end <= start or step <= 0.0:
+            raise ValueError("Transient simulation window must be finite, ordered and use a positive step.")
+        return MappingProxyType({
+            "schema_version": 1,
+            "start_time": start,
+            "end_time": end,
+            "dt": step,
+            "events": event_data["events"],
+        })
 
 
 class _PreparedTransientPassiveView:
