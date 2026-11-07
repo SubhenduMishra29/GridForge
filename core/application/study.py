@@ -389,13 +389,25 @@ class StudyService:
                 value=value,
                 message="Study cancelled; partial execution evidence retained." if cancelled and value is not None else ("Study cancelled." if cancelled else ""),
                 metadata=(
-                    {"partial_result_available": True, "termination": {
-                        "status": "cancelled",
-                        "reason": "cancellation_requested",
-                        "stage": "handler_return",
-                    }}
-                    if cancelled and value is not None
-                    else ({"termination": {"status": "cancelled", "reason": "cancellation_requested", "stage": "handler_return"}} if cancelled else {})
+                    {
+                        "partial_result_available": value is not None,
+                        "execution_status": "cancelled",
+                        "last_valid_time": getattr(value, "final_time", None),
+                        "termination": (
+                            dict(getattr(value, "provenance", {}).get("termination", {}))
+                            if isinstance(getattr(value, "provenance", {}), Mapping)
+                            and getattr(value, "provenance", {}).get("termination")
+                            else {
+                                "status": "cancelled",
+                                "reason": "cancellation_requested",
+                                "stage": "handler_return",
+                                "failing_time": getattr(value, "final_time", None),
+                                "diagnostic_message": "Study cancelled at a committed solver boundary.",
+                            }
+                        ),
+                        "event_schedule": tuple(getattr(value, "provenance", {}).get("event_schedule", ())),
+                    }
+                    if cancelled else {}
                 ),
             )
             try:
@@ -482,10 +494,13 @@ class StudyService:
                     else ("Study cancelled." if cancelled else str(exc))
                 ),
                 metadata={
-                    **(
-                        {"partial_result_available": True}
-                        if getattr(exc, "partial_result", None) is not None
-                        else {}
+                    "partial_result_available": getattr(exc, "partial_result", None) is not None,
+                    "execution_status": "cancelled" if cancelled else "failed",
+                    "last_valid_time": (
+                        getattr(getattr(exc, "partial_result", None), "final_time", None)
+                    ),
+                    "event_schedule": tuple(
+                        getattr(getattr(exc, "partial_result", None), "provenance", {}).get("event_schedule", ())
                     ),
                     "termination": {
                         "status": "cancelled" if cancelled else "failed",
