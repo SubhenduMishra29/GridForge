@@ -36,6 +36,11 @@ class PowerFlowOperatingPointSnapshot:
     input_data: Mapping[str, Any]
     solved_voltage_magnitudes: tuple[float, ...]
     solved_voltage_angles: tuple[float, ...]
+    solver_iterations: int
+    solver_error: float
+    solver_history: tuple[float, ...]
+    pv_to_pq_transitions: tuple[Mapping[str, Any], ...]
+    solver_message: str
     base_mva: float
     bus_voltage_bases_kv: Mapping[str, float]
     nominal_frequency_hz: float
@@ -62,6 +67,19 @@ class PowerFlowOperatingPointSnapshot:
             raise ValueError("Power Flow solved voltage arrays must match the canonical Bus ordering.")
         if any(not math.isfinite(v) or v <= 0.0 for v in vm) or any(not math.isfinite(v) for v in va):
             raise ValueError("Power Flow solved voltages must be finite and voltage magnitudes positive.")
+        if isinstance(self.solver_iterations, bool) or not isinstance(self.solver_iterations, int) or self.solver_iterations < 0:
+            raise ValueError("Power Flow solver iteration count must be a non-negative integer.")
+        error = float(self.solver_error)
+        history = tuple(float(value) for value in self.solver_history)
+        if not math.isfinite(error) and error != float("inf"):
+            raise ValueError("Power Flow solver error must be finite or positive infinity.")
+        if any(not math.isfinite(value) for value in history):
+            raise ValueError("Power Flow solver history must contain finite values.")
+        if not isinstance(self.solver_message, str):
+            raise TypeError("Power Flow solver message must be a string.")
+        object.__setattr__(self, "solver_error", error)
+        object.__setattr__(self, "solver_history", history)
+        object.__setattr__(self, "pv_to_pq_transitions", tuple(_freeze(item) for item in self.pv_to_pq_transitions))
         base = float(self.base_mva)
         frequency = float(self.nominal_frequency_hz)
         if not math.isfinite(base) or base <= 0 or not math.isfinite(frequency) or frequency <= 0:
@@ -95,6 +113,11 @@ class PowerFlowOperatingPointSnapshot:
             "input_data": self.input_data,
             "solved_voltage_magnitudes": self.solved_voltage_magnitudes,
             "solved_voltage_angles": self.solved_voltage_angles,
+            "solver_iterations": self.solver_iterations,
+            "solver_error": self.solver_error,
+            "solver_history": self.solver_history,
+            "pv_to_pq_transitions": self.pv_to_pq_transitions,
+            "solver_message": self.solver_message,
             "base_mva": self.base_mva,
             "bus_voltage_bases_kv": self.bus_voltage_bases_kv,
             "nominal_frequency_hz": self.nominal_frequency_hz,
