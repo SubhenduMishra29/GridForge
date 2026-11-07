@@ -108,6 +108,31 @@ class TransientResultViewWidget(QWidget):
             f"Algebraic quality records: {len(model.algebraic_quality)}",
             f"Event discontinuities: {len(model.discontinuities)}",
         ]
+        execution_status = str(model.provenance.get("execution_status", model.status))
+        last_valid_time = model.provenance.get("last_valid_time")
+        termination = model.provenance.get("termination", {})
+        event_schedule = model.provenance.get("event_schedule", ())
+        pending_count = sum(
+            1 for item in event_schedule
+            if isinstance(item, Mapping) and item.get("status") == "pending"
+        )
+        if execution_status in {"cancelled", "failed", "interrupted", "incomplete"}:
+            details.append(f"PARTIAL TRAJECTORY — {execution_status.upper()}")
+            details.append(
+                f"Last valid simulation time: {float(last_valid_time):.9g} s"
+                if isinstance(last_valid_time, (int, float))
+                else "Last valid simulation time: unavailable"
+            )
+            if isinstance(termination, Mapping):
+                details.append(
+                    "Termination: "
+                    + str(termination.get("reason", termination.get("stage", "unspecified")))
+                    + " / "
+                    + str(termination.get("diagnostic_message", ""))
+                )
+            details.append(f"Pending scheduled events: {pending_count}")
+        elif execution_status == "completed":
+            details.append("Trajectory completed at configured end time.")
         if model.record_id is not None:
             details.append(f"Archive record: {model.record_id}")
         if model.saved_at:
