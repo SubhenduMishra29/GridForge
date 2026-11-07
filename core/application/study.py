@@ -403,7 +403,8 @@ class StudyService:
                 metadata=(
                     {
                         "partial_result_available": value is not None,
-                        "execution_status": "cancelled",
+                        "execution_status": str(getattr(value, "provenance", {}).get("execution_status", "cancelled")),
+                        "trajectory_status": str(getattr(value, "provenance", {}).get("trajectory_status", "interrupted")),
                         "last_valid_time": last_valid_time(value),
                         "termination": (
                             dict(getattr(value, "provenance", {}).get("termination", {}))
@@ -507,7 +508,8 @@ class StudyService:
                 ),
                 metadata={
                     "partial_result_available": getattr(exc, "partial_result", None) is not None,
-                    "execution_status": "cancelled" if cancelled else "failed",
+                    "execution_status": str(getattr(getattr(exc, "partial_result", None), "provenance", {}).get("execution_status", "cancelled" if cancelled else "failed")),
+                    "trajectory_status": str(getattr(getattr(exc, "partial_result", None), "provenance", {}).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
                     "last_valid_time": (
                         last_valid_time(getattr(exc, "partial_result", None))
                     ),
