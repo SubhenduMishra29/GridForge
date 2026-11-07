@@ -393,7 +393,7 @@ SLD_SYMBOL_FIELDS = frozenset({"symbol_id", "definition_id", "representation_id"
 SLD_ENDPOINT_KINDS = frozenset({"equipment", "bus"})
 SLD_ROUTING_MODES = frozenset({"direct", "orthogonal", "manual"})
 SLD_ROUTE_OWNERSHIP = frozenset({"auto", "engineer"})
-SLD_ANNOTATION_BLOCK_FIELDS = frozenset({"block_id", "node_id", "visible", "fields", "offset_x", "offset_y"})
+SLD_ANNOTATION_BLOCK_FIELDS = frozenset({"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant"})
 
 
 def _sld_unknown(value: Mapping[str, Any], allowed: frozenset[str], context: str) -> None:
@@ -514,6 +514,10 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
             seen_fields.add(field)
         _sld_number(block["offset_x"], "offset_x", context)
         _sld_number(block["offset_y"], "offset_y", context)
+        if "quadrant" in block:
+            _sld_string(block["quadrant"], "quadrant", context)
+            if block["quadrant"] not in {"top_right", "top_left", "bottom_right", "bottom_left", "custom"}:
+                raise SLDMigrationError("Unsupported annotation quadrant " + repr(block["quadrant"]) + " in " + context + ".")
     connection_ids = set()
     for index, connection in enumerate(connections):
         context = "connection[" + str(index) + "]"
