@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Optional, Tuple
 
-from core.application.commands.sld_commands import SetSLDNodePositionCommand
+from core.application.commands.sld_commands import SetSLDNodePositionsCommand
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
 from .electrical_insertion_tool import ElectricalInsertionTool
 from ui.core.qt import QPointF
@@ -200,6 +200,16 @@ class SelectTool(ToolBase):
             object_id = getattr(item, "object_id", None)
             if object_id is None:
                 continue
+            # Connection graphics may expose object_id for compatibility,
+            # but marquee selection is node-only. Wires remain selectable by
+            # an explicit pointer hit or modifier-assisted click.
+            if (
+                getattr(item, "core_connection_id", None) is not None
+                or getattr(item, "connection_kind", None) is not None
+                or getattr(item, "source_node_id", None) is not None
+                or getattr(item, "target_node_id", None) is not None
+            ):
+                continue
             rect_method = getattr(item, "sceneBoundingRect", None)
             if not callable(rect_method):
                 continue
@@ -242,33 +252,31 @@ class SelectTool(ToolBase):
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
 
-        selected_ids = tuple(self.get_selection_manager().get_selected_ids())
+        manager = self.get_selection_manager()
+        selected_ids = tuple(manager.get_selected_ids(domain=manager.NODE))
         if object_id not in selected_ids:
             selected_ids = (object_id,)
 
+        positions = []
+        getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        node_getter = getattr(model, "get_node_optional", None)
         for selected_id in selected_ids:
-            node = None
-            getter = getattr(model, "get_node_by_equipment_id_optional", None)
-            if callable(getter):
-                node = getter(str(selected_id))
-            if node is None:
-                getter = getattr(model, "get_node_optional", None)
-                if callable(getter):
-                    node = getter(str(selected_id))
+            node = getter(str(selected_id)) if callable(getter) else None
+            if node is None and callable(node_getter):
+                node = node_getter(str(selected_id))
             if node is None:
                 continue
+            positions.append({
+                "node_id": str(node.node_id),
+                "x": float(node.x) + delta_x,
+                "y": float(node.y) + delta_y,
+            })
 
-            result = application.execute(
-                SetSLDNodePositionCommand(
-                    node_id=str(node.node_id),
-                    x=float(node.x) + delta_x,
-                    y=float(node.y) + delta_y,
-                )
-            )
-            if not getattr(result, "success", False):
-                raise RuntimeError(
-                    getattr(result, "message", "Failed to move SLD node.")
-                )
+        if not positions:
+            return
+        result = application.execute(SetSLDNodePositionsCommand(positions=positions))
+        if not getattr(result, "success", False):
+            raise RuntimeError(getattr(result, "message", "Failed to move selected SLD nodes."))
 
     def _equipment_type_for(self, object_id: Any) -> str | None:
         presentation = getattr(self.application, "presentation", None)

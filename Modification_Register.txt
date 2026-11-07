@@ -23198,3 +23198,12 @@ No new scheduler or result store was introduced. No tests/CI were run.
 - Scope: bounded navigation compatibility correction only. No event ordering, Application projection lifecycle, renderer threading, Core, or persistence changes.
 - Verification: source-level replacement and diff review only; no tests, CI, Qt runtime or touchpad hardware exercise run.
 - Remaining #818 scope: simultaneous multi-SLD split/multi-viewport presentation is still not implemented. Renderer performance impact remains unmeasured and must be profiled before refresh coalescing or worker rendering is considered.
+
+
+[2026-11-07] GF-UI-819 — Marquee node filtering and atomic multi-node drag
+- ui/tools/select_tool.py: marquee selection now excludes semantic SLD connection graphics (connection identity/kind/endpoints) while preserving explicit connection click selection and Shift/Ctrl modifier behavior. Multi-node drag now reads only the NODE selection domain and submits one SetSLDNodePositionsCommand rather than issuing independent per-node commands.
+- core/application/commands/sld_commands.py and commands/__init__.py: added validated SetSLDNodePositionsCommand with non-empty unique node identities and finite coordinates.
+- core/application/sld_command_handlers.py and services/sld_service.py: registered the batch command and apply each node position inside the one CommandManager transaction. Existing per-node inverse journal entries are registered on that shared transaction, so rollback/undo treats the group move as one history operation.
+- Architecture: SLD layout remains presentation state; no Core equipment, terminal, connectivity or topology mutation. Selection remains UI-local. No parallel group/selection authority added.
+- Remaining #819 scope: shared group/user/master pivot rotation and the reusable transform contract coordinated with #816 are not yet implemented. Do not close #819 until that capability is reconciled.
+- Verification: source-level wiring and diff review only; no tests, CI, syntax/import execution or Qt runtime interaction performed.
