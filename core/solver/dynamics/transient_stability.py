@@ -679,7 +679,7 @@ class TransientStabilitySolver:
                 "metadata": dict(event.metadata),
                 "status": (
                     execution_by_id[event.event_id].status
-                    if event.event_id in execution_by_id
+                    if event.triggered and event.event_id in execution_by_id
                     else (
                         "disabled" if not event.enabled
                         else (
@@ -690,7 +690,7 @@ class TransientStabilitySolver:
                 ),
                 "dispatch_time": (
                     execution_by_id[event.event_id].dispatch_time
-                    if event.event_id in execution_by_id else None
+                    if event.triggered and event.event_id in execution_by_id else None
                 ),
             }
             for event in self.event_manager.events
