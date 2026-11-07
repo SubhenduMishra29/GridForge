@@ -133,7 +133,7 @@ class TransientResultViewWidget(QWidget):
                     + " / "
                     + str(termination.get("diagnostic_message", ""))
                 )
-            details.append(f"Pending scheduled events: {pending_count}")
+            details.append(f"Undispatched scheduled events: {pending_count}")
         elif execution_status == "completed":
             details.append("Trajectory completed at configured end time.")
         if model.record_id is not None:
