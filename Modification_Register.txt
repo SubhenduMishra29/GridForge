@@ -23173,3 +23173,14 @@ Follow-up source review tightened ANSI 81 pickup confirmation:
 - Accept a finite zero-Hz measurement as an under-frequency sample;
   zero is not rejected merely for being zero.
 
+
+
+2026-11-07 — GF-STUDY-CANCEL-01
+
+Implemented the remaining scoped Study cancellation path against the current main baseline (including merged PR #1135 asynchronous scheduling):
+- StudyCaseController captures project ID and activation generation at submission and forwards Cancel using that exact scope.
+- Study Cases panel exposes Cancel Study only while its exact Future is active, disables duplicate Run, displays cancellation-requested state, and restores controls on terminal Future completion.
+- StudyToolRuntime binds a real Cancel Study action through the same controller/Application path.
+- UIUpdateBoundary marshals Application events from worker threads through a queued QObject signal; the composition root enables this for Study lifecycle events.
+- Application Study scheduler shutdown is owned by UI lifecycle cleanup and startup-failure cleanup.
+No new scheduler or result store was introduced. No tests/CI were run.

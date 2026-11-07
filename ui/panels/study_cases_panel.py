@@ -26,6 +26,9 @@ class StudyCasesPanelWidget(QWidget):
         self.setObjectName("GridForgePanel_study_cases")
         self._list = QListWidget(self)
         self._run_handler: Callable[[UUID], object] | None = None
+        self._cancel_handler: Callable[[UUID], bool] | None = None
+        self._run_error_handler: Callable[[BaseException], object] | None = None
+        self._active_study_id: UUID | None = None
         self._create_handler: Callable[..., object] | None = None
         self._result_selection_handler: Callable[[UUID | None], object] | None = None
         self._case_rows: tuple[object, ...] = ()
@@ -90,6 +93,9 @@ class StudyCasesPanelWidget(QWidget):
         self._compare_archive.clicked.connect(self._compare_selected_archives)
         self._run = QPushButton("Run Study", self)
         self._run.clicked.connect(self._run_selected)
+        self._cancel = QPushButton("Cancel Study", self)
+        self._cancel.setEnabled(False)
+        self._cancel.clicked.connect(self._cancel_active_study)
         self._list.currentRowChanged.connect(self._on_case_selected)
 
         layout = QVBoxLayout(self)
@@ -98,6 +104,7 @@ class StudyCasesPanelWidget(QWidget):
         layout.addWidget(self._create)
         layout.addWidget(self._list)
         layout.addWidget(self._run)
+        layout.addWidget(self._cancel)
         layout.addWidget(self._result_heading)
         layout.addWidget(self._result_list)
         layout.addWidget(self._transient_result_view)
@@ -156,6 +163,12 @@ class StudyCasesPanelWidget(QWidget):
 
     def set_run_handler(self, handler: Callable[[UUID], object] | None) -> None:
         self._run_handler = handler
+
+    def set_cancel_handler(self, handler: Callable[[UUID], bool] | None) -> None:
+        self._cancel_handler = handler
+
+    def set_run_error_handler(self, handler: Callable[[BaseException], object] | None) -> None:
+        self._run_error_handler = handler
 
     def set_result_selection_handler(self, handler: Callable[[UUID | None], object] | None) -> None:
         self._result_selection_handler = handler
@@ -301,9 +314,21 @@ class StudyCasesPanelWidget(QWidget):
         if not callable(getattr(submitted, "done", None)):
             return
         self._run_future = submitted
+        self._active_study_id = study_id
         self._run.setEnabled(False)
         self._run.setText("Study queued…")
+        self._cancel.setEnabled(True)
         self._run_timer.start()
+
+    def _cancel_active_study(self) -> None:
+        study_id = self._active_study_id
+        if study_id is None or self._cancel_handler is None:
+            return
+        self._cancel.setEnabled(False)
+        if self._cancel_handler(study_id):
+            self._cancel.setText("Cancellation Requested")
+        else:
+            self._cancel.setEnabled(True)
 
     def _poll_run_future(self) -> None:
         future = self._run_future
@@ -311,14 +336,19 @@ class StudyCasesPanelWidget(QWidget):
             return
         self._run_timer.stop()
         self._run_future = None
+        self._active_study_id = None
         try:
             future.result()
         except Exception as exc:
+            if self._run_error_handler is not None:
+                self._run_error_handler(exc)
             self._run.setText("Study failed")
             self._run.setToolTip(str(exc))
         else:
             self._run.setText("Run Study")
             self._run.setToolTip("Study execution finished; results are available through the Study read model.")
+        self._cancel.setEnabled(False)
+        self._cancel.setText("Cancel Study")
         self._run.setEnabled(True)
 
 
