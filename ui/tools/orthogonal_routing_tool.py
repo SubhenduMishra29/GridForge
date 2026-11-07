@@ -76,6 +76,9 @@ class OrthogonalRoutingTool(WireTool):
         # to WireTool's existing endpoint-identity and Application command path.
         target_snap = super()._snap(event)
         if target_snap is None or getattr(getattr(target_snap, "snap_type", None), "name", None) != "OBJECT":
+            self._route_valid = False
+            self._route_points = ()
+            self._show_preview()
             self._report_feedback("Orthogonal routing requires a stable electrical endpoint to commit.")
             return True
         target_position = self._position_tuple(target_snap.position)
@@ -108,6 +111,10 @@ class OrthogonalRoutingTool(WireTool):
         is_endpoint = snap is not None and getattr(getattr(snap, "snap_type", None), "name", None) == "OBJECT"
         target_position = self._position_tuple(snap.position) if is_endpoint else self._position_tuple(self._current_position)
         self._calculate_route(target_position, snap if is_endpoint else None)
+        if not is_endpoint:
+            # Geometrically routable is not electrically connectable: a free
+            # cursor position has no stable endpoint identity and stays red.
+            self._route_valid = False
         self._show_preview()
         return True
 
