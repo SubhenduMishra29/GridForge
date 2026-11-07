@@ -45,7 +45,9 @@ class SLDConnectionItem(QGraphicsPathItem):
         # Presentation and Core identities are independent; never synthesize one from the other.
         self._core_connection_id = str(core_connection_id) if core_connection_id is not None else None
         # SelectionManager uses object_id as the semantic selection key.
-        self._object_id = self._core_connection_id
+        self._object_id = self._core_connection_id or (
+            self._presentation_id if projection_source == "draft_network" else None
+        )
         self._source_object_id = source_object_id
         self._target_object_id = target_object_id
         self._source_endpoint = source_endpoint
@@ -58,7 +60,10 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._visual_source = QPointF()
         self._visual_target = QPointF()
         self._visual_state = VisualState.NORMAL
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, self._core_connection_id is not None)
+        self.setFlag(
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable,
+            self._core_connection_id is not None or projection_source == "draft_network",
+        )
         self.setAcceptHoverEvents(True)
 
     @property
@@ -187,9 +192,13 @@ class SLDConnectionItem(QGraphicsPathItem):
     def insertion_target(self, position: tuple[float, float]) -> dict[str, object]:
         """Return immutable insertion-hit data without mutating the graphics item."""
         if str(self._connection_kind or "").upper() != "SIMPLE_WIRE":
-            raise ValueError("Only persistent Simple Wire connections are insertion targets.")
-        if not isinstance(self._core_connection_id, str) or not self._core_connection_id:
-            raise ValueError("Simple Wire interaction requires an explicit Core connection identity.")
+            raise ValueError("Only Simple Wire connections are route-edit targets.")
+        is_draft = self._projection_source == "draft_network"
+        if is_draft:
+            if not isinstance(self._presentation_id, str) or not self._presentation_id:
+                raise ValueError("Draft route interaction requires a stable draft connection identity.")
+        elif not isinstance(self._core_connection_id, str) or not self._core_connection_id:
+            raise ValueError("Persistent Simple Wire interaction requires an explicit Core connection identity.")
         if not isinstance(position, (tuple, list)) or len(position) != 2:
             raise TypeError("position must contain exactly two coordinates.")
         px, py = float(position[0]), float(position[1])
@@ -219,6 +228,7 @@ class SLDConnectionItem(QGraphicsPathItem):
             raise ValueError("SLD connection has no non-zero route segment.")
         return {
             "connection_id": self._core_connection_id,
+            "draft_connection_id": self._presentation_id if is_draft else None,
             "presentation_id": self._presentation_id,
             "route": tuple(self._route_points),
             "closest_point": best_point,
@@ -235,8 +245,9 @@ class SLDConnectionItem(QGraphicsPathItem):
         A bend gesture therefore produces an interaction request only; the
         Application command decides whether the persistent SLD route changes.
         """
-        if self._core_connection_id is None:
-            raise RuntimeError("Cannot edit route for an SLD connection without an explicit Core connection identity.")
+        is_draft = self._projection_source == "draft_network"
+        if self._core_connection_id is None and not is_draft:
+            raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
         if index < 0 or index >= len(self._route_points):
             raise IndexError(index)
 
@@ -246,11 +257,14 @@ class SLDConnectionItem(QGraphicsPathItem):
 
         # Never assign proposed_route to _route_points here.  That tuple is the
         # last realized route from SLDCanvasProjection/SLDCanvasRenderSystem.
-        self.route_edit_requested.emit({
+        request = {
             "connection_id": self._presentation_id,
             "core_connection_id": self._core_connection_id,
             "points": proposed_route,
-        })
+        }
+        if is_draft:
+            request["draft_connection_id"] = self._presentation_id
+        self.route_edit_requested.emit(request)
         return proposed_route
 
     def _rebuild_visual_path(self) -> None:
