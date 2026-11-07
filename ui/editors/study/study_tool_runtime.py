@@ -42,8 +42,10 @@ class StudyToolRuntime:
         return self.TOOL_DEFINITIONS
 
     def bind_study_case_controller(self, controller: Any) -> None:
-        if controller is None or not callable(getattr(controller, "run_study", None)):
-            raise TypeError("controller must expose run_study().")
+        if (controller is None
+                or not callable(getattr(controller, "submit_study", None))
+                or not callable(getattr(controller, "cancel_study", None))):
+            raise TypeError("controller must expose submit_study() and cancel_study().")
         self._study_case_controller = controller
 
     def activate(self, tool_id: str) -> str:
@@ -56,7 +58,7 @@ class StudyToolRuntime:
     def run_selected(self, study_id: object) -> object:
         if self._study_case_controller is None:
             raise RuntimeError("StudyCaseController is not bound.")
-        return self._study_case_controller.run_study(study_id)
+        return self._study_case_controller.submit_study(study_id)
 
     def cancel_selected(self, study_id: object) -> bool:
         """Forward cancellation through the scoped Study Case controller."""

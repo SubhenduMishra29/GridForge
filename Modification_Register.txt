@@ -23183,3 +23183,4 @@ Changes: Added Application-owned Study executor separate from network-commit exe
 Acceptance: Source-level architecture and diff review only; tests/CI not run or requested. Verify import/syntax and inspect all affected UI exports before merge.
 
 Follow-up refinement: cancellation uses the project ID and activation generation captured at submission; the Study editor runtime now binds its advertised Cancel action; the UI panel displays cancellation-requested state and restores controls only after the matching Future terminates; startup-failure and normal UI lifecycle cleanup both release the Application-owned scheduler.
+The StudyToolRuntime Run action now submits asynchronously and its Cancel action forwards through the same scoped controller; the Study Case panel and contextual Study tool therefore share the canonical Application scheduler.

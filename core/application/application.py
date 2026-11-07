@@ -693,7 +693,6 @@ class Application:
     def submit_study(self, request: StudyRequest) -> Future[StudyResult]:
         """Prepare immutable snapshots on the caller thread, then queue only solver work."""
         prepared_request, execution_context = self._prepare_study_execution(request)
-        self._remember_study_case(prepared_request)
         return self._study_service.submit(prepared_request, execution_context, self._study_executor)
 
     def shutdown_studies(self, *, wait: bool = True, cancel_futures: bool = False) -> None:
