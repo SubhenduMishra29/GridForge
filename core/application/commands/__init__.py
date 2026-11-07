@@ -93,4 +93,10 @@ from .protection_configuration_commands import (
 from .model_commands import *
 from .control_commands import *
 
+
+from .draft_commands import (
+    UPDATE_DRAFT_CONNECTION_ROUTE,
+    UpdateDraftConnectionRouteCommand,
+)
+
 __all__ = [name for name in globals() if not name.startswith("_")]

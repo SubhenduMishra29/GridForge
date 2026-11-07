@@ -53,6 +53,7 @@ class DraftCommandHandlers:
             "draft.add_connection": self.add_connection,
             "draft.create_connection": self.add_connection,
             "draft.remove_connection": self.remove_connection,
+            "draft.update_connection_route": self.update_connection_route,
         }
 
     def add_equipment(self, command, context, transaction):
@@ -89,6 +90,45 @@ class DraftCommandHandlers:
         _record_draft_undo(draft, transaction)
         draft.add_connection(connection)
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
+
+    def update_connection_route(self, command, context, transaction):
+        draft = self._draft()
+        payload = command.payload
+        if str(payload.get("project_id", "")) != draft.project_id:
+            raise ValueError("Draft route update project_id does not match the active project.")
+        if int(payload.get("activation_generation", -1)) != draft.activation_generation:
+            raise ValueError(
+                "Draft route update activation_generation does not match the active project."
+            )
+        connection_id = str(payload["connection_id"])
+        # Build and validate the replacement before recording an inverse. A
+        # rejected edit must leave both the draft object and command history intact.
+        current = next(
+            (item for item in draft.connections if item.connection_id == connection_id),
+            None,
+        )
+        if current is None:
+            raise KeyError(f"Unknown draft connection: {connection_id}")
+        replacement = DraftConnection(
+            connection_id=current.connection_id,
+            source=current.source,
+            target=current.target,
+            connection_kind=current.connection_kind,
+            route=_thaw_payload(payload["route"]),
+            validation_state=dict(current.validation_state),
+        )
+        draft.validate_connection_candidate(
+            replacement,
+            replacing_connection_id=connection_id,
+        )
+        _record_draft_undo(draft, transaction)
+        updated = draft.update_connection_route(
+            connection_id,
+            _thaw_payload(payload["route"]),
+        )
+        return ApplicationResult.success_result(
+            value={"connection_id": updated.connection_id}
+        )
 
     def remove_connection(self, command, context, transaction):
         draft = self._draft()

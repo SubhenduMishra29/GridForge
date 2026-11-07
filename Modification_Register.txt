@@ -23207,3 +23207,34 @@ No new scheduler or result store was introduced. No tests/CI were run.
 - Architecture: SLD layout remains presentation state; no Core equipment, terminal, connectivity or topology mutation. Selection remains UI-local. No parallel group/selection authority added.
 - Remaining #819 scope: shared group/user/master pivot rotation and the reusable transform contract coordinated with #816 are not yet implemented. Do not close #819 until that capability is reconciled.
 - Verification: source-level wiring and diff review only; no tests, CI, syntax/import execution or Qt runtime interaction performed.
+
+======================================================================
+GF-AUD-826 — DRAFT CONNECTION ROUTE COMMAND / UNDO RECONCILIATION
+======================================================================
+
+Audit date: 2026-11-07
+Repository: SubhenduMishra29/GridForge (authoritative integration repository)
+Issue: #826
+
+CORRECTION:
+- Added UpdateDraftConnectionRouteCommand with project ID, activation generation, stable connection ID and route payload.
+- DraftNetwork validates route geometry and replaces only route metadata; connection identity, endpoints and kind are invariant.
+- DraftCommandHandlers validates active project/generation and records a DraftNetwork snapshot as the transaction inverse, keeping undo/redo in the canonical Application history.
+- Exported the command through core.application.commands and preserved the complete prior Modification Register history.
+
+REMAINING:
+- The Qt canvas still needs a draft-route bend-edit target and pointer interaction that submits this command. Persistent SLD route editing must remain separate.
+- Keep #826 open until the UI interaction, Escape cancellation behavior, and undo/redo path are reconciled end-to-end.
+
+VERIFICATION:
+- Source/diff inspection only. No tests, CI, syntax/import execution or Qt runtime interaction performed.
+
+UI COMPLETION — 2026-11-07
+- ui/sld/items/sld_connection_item.py: draft-network Simple Wire graphics are now selectable for hit testing and emit a separate draft_connection_id for route-bend proposals; no Core connection identity is fabricated.
+- ui/canvas/canvas_hit.py and ui/tools/select_tool.py: route segment hits carry either Core or DraftNetwork identity; SelectTool resolves the exact draft presentation item without adding it to Core selection.
+- ui/sld/sld_route_edit_controller.py: draft bend edits dispatch UpdateDraftConnectionRouteCommand through Application; persistent SLD route edits retain their existing command path.
+- Draft route editing remains presentation-only and uses DraftNetwork snapshot undo/redo; Escape continues to cancel the current pointer gesture.
+- ui/sld/items/sld_connection_item.py and ui/tools/select_tool.py: double-clicking a draft Simple Wire segment inserts an authored bend; dragging an existing bend updates the route. Both interactions dispatch the stable DraftNetwork identity through the Application route command.
+- ui/canvas/canvas_hit.py: added a distinct draft_connection_id to immutable route-hit metadata; a draft hit cannot be mistaken for a Core connection ID.
+- core/application/draft/network.py: allow a single intermediate bend; route.points excludes endpoint coordinates, so requiring two bend vertices incorrectly rejected the first bend.
+- ui/canvas/canvas_hit.py: added the missing dataclass field for draft_connection_id used by the distinct draft hit path.

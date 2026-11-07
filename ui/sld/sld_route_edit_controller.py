@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
+
+from core.application.commands.draft_commands import UpdateDraftConnectionRouteCommand
 
 
 class SLDRouteEditController:
@@ -47,9 +49,30 @@ class SLDRouteEditController:
         """Commit one graphics-item route edit through SLDController/Application."""
         if not isinstance(request, dict):
             raise TypeError("route edit request must be a mapping")
-        # Route geometry is persisted on the SLD connection, while the Core ID
-        # verifies that the presentation connection is still bound to the
-        # intended domain connection. These identities must not be conflated.
+        draft_connection_id = request.get("draft_connection_id")
+        if isinstance(draft_connection_id, str) and draft_connection_id:
+            application = getattr(self._controller, "application", None)
+            reader = getattr(application, "read_draft_network", None)
+            executor = getattr(application, "execute", None)
+            if not callable(reader) or not callable(executor):
+                raise RuntimeError("Draft route editing requires the active Application draft boundary.")
+            snapshot = reader()
+            if not isinstance(snapshot, Mapping):
+                raise RuntimeError("No active DraftNetwork is available for route editing.")
+            points = request.get("points")
+            if not isinstance(points, (tuple, list)):
+                raise TypeError("draft route edit request requires route points")
+            result = executor(UpdateDraftConnectionRouteCommand(
+                project_id=str(snapshot.get("project_id", "")),
+                activation_generation=snapshot.get("activation_generation"),
+                connection_id=draft_connection_id,
+                route={"routing_mode": "manual", "ownership": "engineer", "points": [list(point) for point in points]},
+            ))
+            if not getattr(result, "success", False):
+                raise RuntimeError(getattr(result, "message", "Draft route update was rejected."))
+            return
+        # Persistent SLD route geometry remains separate from DraftNetwork
+        # route metadata. The Core ID verifies the existing SLD binding.
         presentation_connection_id = request.get("connection_id")
         core_connection_id = request.get("core_connection_id")
         points = request.get("points")

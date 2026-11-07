@@ -14,6 +14,7 @@ REMOVE_DRAFT_EQUIPMENT = "draft.remove_equipment"
 ADD_DRAFT_CONNECTION = "draft.add_connection"
 CREATE_DRAFT_CONNECTION = "draft.create_connection"
 REMOVE_DRAFT_CONNECTION = "draft.remove_connection"
+UPDATE_DRAFT_CONNECTION_ROUTE = "draft.update_connection_route"
 COMMIT_NETWORK = "network.commit_draft"
 
 class _DraftCommand(Command):
@@ -41,8 +42,46 @@ class AddDraftConnectionCommand(_DraftCommand):
 class RemoveDraftConnectionCommand(_DraftCommand):
     def __init__(self, *, connection_id: str, command_id=None, correlation_id=None, causation_id=None):
         super().__init__(REMOVE_DRAFT_CONNECTION,{"connection_id":connection_id},command_id=command_id,correlation_id=correlation_id,causation_id=causation_id)
+class UpdateDraftConnectionRouteCommand(_DraftCommand):
+    """Replace route geometry on an existing DraftConnection."""
+    def __init__(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int,
+        connection_id: str,
+        route: Mapping[str, Any],
+        command_id=None,
+        correlation_id=None,
+        causation_id=None,
+    ):
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("Draft route update requires a project_id.")
+        if (
+            isinstance(activation_generation, bool)
+            or not isinstance(activation_generation, int)
+            or activation_generation < 1
+        ):
+            raise ValueError("Draft route update requires a positive integer activation_generation.")
+        if not isinstance(connection_id, str) or not connection_id.strip():
+            raise ValueError("Draft route update requires a connection_id.")
+        if not isinstance(route, Mapping):
+            raise TypeError("Draft route update route must be a mapping.")
+        super().__init__(
+            UPDATE_DRAFT_CONNECTION_ROUTE,
+            {
+                "project_id": project_id.strip(),
+                "activation_generation": int(activation_generation),
+                "connection_id": connection_id.strip(),
+                "route": dict(route),
+            },
+            command_id=command_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
 class CommitNetworkCommand(_DraftCommand):
     """One immutable boundary crossing from DraftNetwork to Core Network."""
     def __init__(self, *, project_id: str, activation_generation: int, draft_network: Mapping[str,Any], command_id=None, correlation_id=None, causation_id=None):
         super().__init__(COMMIT_NETWORK,{"project_id":project_id,"activation_generation":int(activation_generation),"draft_network":dict(draft_network)},command_id=command_id,correlation_id=correlation_id,causation_id=causation_id)
-__all__=["ADD_DRAFT_EQUIPMENT","UPDATE_DRAFT_EQUIPMENT","REMOVE_DRAFT_EQUIPMENT","ADD_DRAFT_CONNECTION","CREATE_DRAFT_CONNECTION","REMOVE_DRAFT_CONNECTION","COMMIT_NETWORK","AddDraftEquipmentCommand","UpdateDraftEquipmentCommand","RemoveDraftEquipmentCommand","CreateDraftConnectionCommand","AddDraftConnectionCommand","RemoveDraftConnectionCommand","CommitNetworkCommand"]
+__all__=["ADD_DRAFT_EQUIPMENT","UPDATE_DRAFT_EQUIPMENT","REMOVE_DRAFT_EQUIPMENT","ADD_DRAFT_CONNECTION","CREATE_DRAFT_CONNECTION","REMOVE_DRAFT_CONNECTION","UPDATE_DRAFT_CONNECTION_ROUTE","COMMIT_NETWORK","AddDraftEquipmentCommand","UpdateDraftEquipmentCommand","RemoveDraftEquipmentCommand","CreateDraftConnectionCommand","AddDraftConnectionCommand","RemoveDraftConnectionCommand","UpdateDraftConnectionRouteCommand","CommitNetworkCommand"]
