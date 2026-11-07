@@ -663,6 +663,10 @@ class TransientStabilitySolver:
         result_provenance["last_valid_time"] = float(times[-1]) if times else None
         # Persist only detached event intent; runtime callbacks and closures
         # remain in EventManager and are never serialized.
+        execution_by_id = {
+            execution.event_id: execution
+            for execution in self.event_manager.history
+        }
         result_provenance["event_schedule"] = tuple(
             {
                 "event_id": event.event_id,
@@ -671,7 +675,15 @@ class TransientStabilitySolver:
                 "priority": int(event.priority),
                 "description": str(event.description),
                 "metadata": dict(event.metadata),
-                "status": "dispatched" if event.triggered else ("pending" if event.enabled else "disabled"),
+                "status": (
+                    execution_by_id[event.event_id].status
+                    if event.event_id in execution_by_id
+                    else ("pending" if event.enabled and not event.triggered else "disabled")
+                ),
+                "dispatch_time": (
+                    execution_by_id[event.event_id].dispatch_time
+                    if event.event_id in execution_by_id else None
+                ),
             }
             for event in self.event_manager.events
         )
