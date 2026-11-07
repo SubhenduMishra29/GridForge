@@ -399,6 +399,12 @@ class PreparedTransientStability:
             raise TypeError("power_flow_result must be PowerFlowResult.")
         if not isinstance(dynamic_models, DynamicMachineModelRegistry):
             raise TypeError("dynamic_models must be DynamicMachineModelRegistry.")
+        if not isinstance(source_revision, (tuple, list)) or len(source_revision) != 4 or any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in source_revision
+        ):
+            raise ValueError("Transient source_revision must contain four non-negative revision integers.")
+        source_revision = tuple(source_revision)
         if not power_flow_result.success:
             raise ValueError("Transient stability requires a successful Power Flow operating point.")
         if not power_flow_result.bus_ids:
