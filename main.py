@@ -592,7 +592,10 @@ def _build_application_impl(
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids or operation not in {"copy", "delete"}:
             return False
-        draft_snapshot = gridforge_application.read_draft_network()
+        try:
+            draft_snapshot = gridforge_application.read_draft_network()
+        except (RuntimeError, ValueError, TypeError):
+            return False
         draft_snapshot = draft_snapshot if isinstance(draft_snapshot, dict) else {}
         draft_equipment = {
             str(item.get("draft_id", ""))
@@ -609,6 +612,8 @@ def _build_application_impl(
             if element is not None:
                 element_type = str(element.element_type).strip().lower()
                 if element_type not in {"bus", "transformer", "breaker"}:
+                    return False
+                if operation == "copy" and _find_sld_node(selected_id) is None:
                     return False
                 if operation == "copy" and element_type == "transformer":
                     read_model = gridforge_application.read_element(
