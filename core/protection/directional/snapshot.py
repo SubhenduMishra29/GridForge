@@ -24,6 +24,8 @@ class _AuthoritativeDirectionalSnapshot:
     voltage_channel_identity: int
     current_channel_identity: int
     sample_timestamp: float
+    voltage_sample_sequence: Any
+    current_sample_sequence: Any
     project_id: str
     activation_generation: int
     configuration_identity: int
