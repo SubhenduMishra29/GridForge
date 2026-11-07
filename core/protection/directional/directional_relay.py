@@ -647,7 +647,12 @@ class DirectionalRelay(RelayBase):
         if snapshot.voltage_channel_id == snapshot.current_channel_id:
             raise ValueError("Directional voltage and current channel identities must be distinct.")
         if snapshot.voltage_channel_identity == snapshot.current_channel_identity:
-            raise ValueError("Directional voltage and current channel objects must be distinct.")
+            raise ValueError("Directional voltage and current channel objects must be distinct.")        voltage_input = self.get_input(self.VOLTAGE_INPUT)
+        current_input = self.get_input(self.CURRENT_INPUT)
+        if getattr(voltage_input, "channel_id", None) != snapshot.voltage_channel_id or getattr(current_input, "channel_id", None) != snapshot.current_channel_id:
+            raise ValueError("Directional snapshot channel bindings do not match this relay element.")
+        if getattr(voltage_input, "sample_sequence", None) != snapshot.voltage_sample_sequence or getattr(current_input, "sample_sequence", None) != snapshot.current_sample_sequence:
+            raise ValueError("Directional snapshot sample sequence is stale or belongs to a different sample.")
         if not math.isfinite(snapshot.sample_timestamp):
             raise ValueError("Directional measurement snapshot timestamp is non-finite.")
         for name, value in (
