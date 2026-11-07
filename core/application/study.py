@@ -358,6 +358,10 @@ class StudyService:
             raise ValueError("Study execution context does not match StudyRequest revision.")
         key = (request.project_id, request.activation_generation, request.study_id)
 
+        def partial_provenance(partial: object | None) -> Mapping[str, Any]:
+            provenance = getattr(partial, "provenance", {})
+            return provenance if isinstance(provenance, Mapping) else {}
+
         def last_valid_time(partial: object | None) -> float | None:
             samples = getattr(partial, "time", None)
             if samples is None:
@@ -403,13 +407,12 @@ class StudyService:
                 metadata=(
                     {
                         "partial_result_available": value is not None,
-                        "execution_status": str(getattr(value, "provenance", {}).get("execution_status", "cancelled")),
-                        "trajectory_status": str(getattr(value, "provenance", {}).get("trajectory_status", "interrupted")),
+                        "execution_status": str(partial_provenance(value).get("execution_status", "cancelled")),
+                        "trajectory_status": str(partial_provenance(value).get("trajectory_status", "interrupted")),
                         "last_valid_time": last_valid_time(value),
                         "termination": (
-                            dict(getattr(value, "provenance", {}).get("termination", {}))
-                            if isinstance(getattr(value, "provenance", {}), Mapping)
-                            and getattr(value, "provenance", {}).get("termination")
+                            dict(partial_provenance(value).get("termination", {}))
+                            if partial_provenance(value).get("termination")
                             else {
                                 "status": "cancelled",
                                 "reason": "cancellation_requested",
@@ -418,7 +421,7 @@ class StudyService:
                                 "diagnostic_message": "Study cancelled at a committed solver boundary.",
                             }
                         ),
-                        "event_schedule": tuple(getattr(value, "provenance", {}).get("event_schedule", ())),
+                        "event_schedule": tuple(partial_provenance(value).get("event_schedule", ())),
                     }
                     if cancelled else {}
                 ),
@@ -508,13 +511,13 @@ class StudyService:
                 ),
                 metadata={
                     "partial_result_available": getattr(exc, "partial_result", None) is not None,
-                    "execution_status": str(getattr(getattr(exc, "partial_result", None), "provenance", {}).get("execution_status", "cancelled" if cancelled else "failed")),
-                    "trajectory_status": str(getattr(getattr(exc, "partial_result", None), "provenance", {}).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
+                    "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
+                    "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
                     "last_valid_time": (
                         last_valid_time(getattr(exc, "partial_result", None))
                     ),
                     "event_schedule": tuple(
-                        getattr(getattr(exc, "partial_result", None), "provenance", {}).get("event_schedule", ())
+                        partial_provenance(getattr(exc, "partial_result", None)).get("event_schedule", ())
                     ),
                     "termination": {
                         "status": "cancelled" if cancelled else "failed",
