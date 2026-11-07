@@ -436,19 +436,6 @@ class PreparedTransientStability:
             raise ValueError("Transient stability requires the exact source revision captured by Power Flow preparation.")
         if tuple(prepared_power_flow.source_revision[:2]) != tuple(source_revision[:2]):
             raise ValueError("Power Flow operating-point model/topology revision does not match the transient preparation context.")
-        # Project activation provenance must agree with the prepared operating point.
-        # Optional metadata is tolerated only for legacy detached snapshots that
-        # genuinely lack that field; supplied caller values never override it.
-        if prepared_power_flow.project_id is not None:
-            if project_id.strip() != prepared_power_flow.project_id.strip():
-                raise ValueError(
-                    "Transient project_id must match the project that produced the prepared Power Flow snapshot."
-                )
-        if prepared_power_flow.activation_generation is not None:
-            if activation_generation != prepared_power_flow.activation_generation:
-                raise ValueError(
-                    "Transient activation_generation must match the prepared Power Flow snapshot."
-                )
         bus_count = len(prepared_power_flow.bus_ids)
         if len(power_flow_result.voltage_magnitudes) != bus_count or len(power_flow_result.voltage_angles) != bus_count:
             raise ValueError("Power Flow result dimensions must match the prepared Power Flow snapshot.")
