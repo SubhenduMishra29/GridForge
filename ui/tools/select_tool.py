@@ -92,6 +92,30 @@ class SelectTool(ToolBase):
             self._handle_node_click(self._pressed_object_id, modifiers)
         return True
 
+    def on_mouse_double_click(self, event: Any) -> bool:
+        """Insert a route bend on a draft wire without committing Core topology."""
+        self._ensure_active()
+        hit = self._event_presentation_hit(event)
+        if hit.kind != CanvasHitKind.SIMPLE_WIRE_SEGMENT or hit.closest_point is None:
+            return False
+        is_draft = hit.draft_connection_id is not None
+        if not is_draft and hit.route_ownership != "engineer":
+            return False
+        item = self._connection_item_for_hit(hit)
+        if item is None:
+            return False
+        insert = getattr(item, "insert_bend", None)
+        if not callable(insert):
+            return False
+        insert(
+            len(hit.route_points) if hit.segment_index is None else min(
+                hit.segment_index, len(hit.route_points)
+            ),
+            hit.closest_point[0],
+            hit.closest_point[1],
+        )
+        return True
+
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
         if self._pressed_scene_position is None:
