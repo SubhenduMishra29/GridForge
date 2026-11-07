@@ -21,7 +21,7 @@ class StudyEditor(QWidget):
         header = EditorRegionFrame("Study Header", parent=self); header.set_widget(QLabel("Study Editor", header))
         canvas = EditorRegionFrame("Study Canvas", parent=self); canvas.set_widget(surface or QLabel("Study / Simulation results", self))
         shelf = EditorRegionFrame("Tool Shelf", parent=self)
-        shelf_widget = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "run", "cancel", "inspect", "fit", "diagnostics"), editor_type="study"), editor_type="study", parent=self)
+        shelf_widget = tool_shelf or ToolShelf(definitions=contextual_tool_definitions(("select", "run", "inspect", "fit", "diagnostics"), editor_type="study"), editor_type="study", parent=self)
         shelf.set_widget(shelf_widget)
         tool_settings_widget = tool_settings or ToolSettingsPanel(parent=self)
         settings = EditorRegionFrame("Tool Settings", parent=self); settings.set_widget(tool_settings_widget); settings.setVisible(False)
