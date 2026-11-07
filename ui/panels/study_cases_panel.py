@@ -338,15 +338,23 @@ class StudyCasesPanelWidget(QWidget):
         self._run_future = None
         self._active_study_id = None
         try:
-            future.result()
+            result = future.result()
         except Exception as exc:
             if self._run_error_handler is not None:
                 self._run_error_handler(exc)
             self._run.setText("Study failed")
             self._run.setToolTip(str(exc))
         else:
-            self._run.setText("Run Study")
-            self._run.setToolTip("Study execution finished; results are available through the Study read model.")
+            status = str(getattr(result, "status", "")).strip().lower()
+            message = str(getattr(result, "message", "") or "").strip()
+            terminal_labels = {
+                "completed": "Study completed",
+                "cancelled": "Study cancelled",
+                "failed": "Study failed",
+            }
+            label = terminal_labels.get(status, "Study finished")
+            self._run.setText(label)
+            self._run.setToolTip(message or f"StudyService terminal status: {status or 'not reported'}.")
         self._cancel.setEnabled(False)
         self._cancel.setText("Cancel Study")
         self._run.setEnabled(True)
