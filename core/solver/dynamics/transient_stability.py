@@ -652,6 +652,10 @@ class TransientStabilitySolver:
     ) -> TransientStabilityResult:
         result_provenance = dict(self.provenance if provenance is None else provenance)
         result_provenance["execution_status"] = str(execution_status)
+        result_provenance["trajectory_status"] = (
+            "interrupted" if execution_status == "cancelled"
+            else ("incomplete" if execution_status in {"failed", "incomplete"} else "completed")
+        )
         if termination is not None:
             result_provenance["termination"] = dict(termination)
         result_provenance["last_valid_time"] = float(times[-1]) if times else None
