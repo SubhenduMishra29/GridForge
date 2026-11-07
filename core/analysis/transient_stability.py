@@ -82,7 +82,9 @@ class TransientStabilityAnalysis:
         self.solver = solver
         self.configuration = configuration
         self.initial_state = tuple(float(value) for value in initial_state)
-        self.provenance = MappingProxyType(dict(provenance or {}))
+        prepared_provenance = dict(provenance or {})
+        prepared_provenance.setdefault("event_scenario", configuration.event_scenario.as_dict())
+        self.provenance = MappingProxyType(prepared_provenance)
         self.result: TransientStabilityStudyResult | None = None
 
     def _validate_event_scenario(self) -> None:
