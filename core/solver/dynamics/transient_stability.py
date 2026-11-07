@@ -678,7 +678,13 @@ class TransientStabilitySolver:
                 "status": (
                     execution_by_id[event.event_id].status
                     if event.event_id in execution_by_id
-                    else ("pending" if event.enabled and not event.triggered else "disabled")
+                    else (
+                        "disabled" if not event.enabled
+                        else (
+                            "cancelled" if execution_status == "cancelled"
+                            else ("skipped" if execution_status == "failed" else "pending")
+                        )
+                    )
                 ),
                 "dispatch_time": (
                     execution_by_id[event.event_id].dispatch_time
