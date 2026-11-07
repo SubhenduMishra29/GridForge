@@ -12,6 +12,8 @@ from .protection_system import ProtectionSystem
 from .relay_input import DerivedRelayMeasurement, RelayInput
 from .input_contracts import validate_protection_input_contracts
 from .configuration_fingerprint import canonical_configuration_value
+from .directional.snapshot import _AuthoritativeDirectionalSnapshot, _DIRECTIONAL_SNAPSHOT_SEAL
+import math
 
 
 class ProtectionRuntime:
@@ -23,6 +25,7 @@ class ProtectionRuntime:
         configuration: ProtectionProjectConfiguration,
         *,
         activation_generation: int,
+        snapshot_issuance_capability: object | None = None,
     ) -> None:
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
@@ -34,10 +37,84 @@ class ProtectionRuntime:
         self._configuration = configuration
         self._project_id = str(configuration.project_id)
         self._activation_generation = activation_generation
+        self._snapshot_issuance_capability = snapshot_issuance_capability
+        self._snapshot_issuer = object()
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
         self._composed_configuration_snapshot: Any | None = None
         self._composed_equipment_state_snapshot: Any | None = None
+
+    def issue_directional_snapshot(
+        self,
+        *,
+        capability: object,
+        element_id: str,
+        voltage_channel_id: str,
+        current_channel_id: str,
+        voltage_channel: Any,
+        current_channel: Any,
+        voltage_value: complex,
+        current_value: complex,
+        sample_timestamp: float,
+        voltage_sample_sequence: Any,
+        current_sample_sequence: Any,
+    ) -> _AuthoritativeDirectionalSnapshot:
+        """Issue a snapshot for this exact composed runtime.
+
+        Application supplies the private capability only after validating
+        live sample quality, freshness, timestamp and sequence coherence.
+        All project/runtime/configuration/channel identities are derived
+        here, never accepted as caller assertions.
+        """
+        if self._snapshot_issuance_capability is None or capability is not self._snapshot_issuance_capability:
+            raise PermissionError("Directional snapshot issuance requires the owning Application capability.")
+        if self._composed_configuration_snapshot is None or not self.configuration_matches_composition:
+            raise RuntimeError("Directional snapshot issuance requires the active composed configuration.")
+        if self._composed_equipment_state_snapshot is None or not self.equipment_state_matches_composition:
+            raise RuntimeError("Directional snapshot issuance requires unchanged composed equipment state.")
+        element = next((item for item in self._configuration.elements if item.element_id == element_id), None)
+        if element is None or not element.enabled or str(element.function_code).strip().upper() != "67":
+            raise ValueError("Directional snapshot element is not an enabled ANSI 67 element in this runtime.")
+        if element.input_channel_ids.get("voltage") != voltage_channel_id or element.input_channel_ids.get("current") != current_channel_id:
+            raise ValueError("Directional snapshot channel IDs do not match configured element bindings.")
+        if self._channels.get(voltage_channel_id) is not voltage_channel or self._channels.get(current_channel_id) is not current_channel:
+            raise ValueError("Directional snapshot channel objects do not belong to this composed runtime.")
+        if voltage_channel is current_channel or voltage_channel_id == current_channel_id:
+            raise ValueError("Directional voltage and current channels must be distinct.")
+        if not isinstance(voltage_value, complex) or not isinstance(current_value, complex):
+            raise TypeError("Directional snapshots require complex voltage and current phasors.")
+        for name, value in (("voltage", voltage_value), ("current", current_value)):
+            if not math.isfinite(value.real) or not math.isfinite(value.imag) or abs(value) == 0.0:
+                raise ValueError(f"Directional {name} phasor must be finite and nonzero.")
+        if getattr(voltage_channel, "sample_sequence", None) != voltage_sample_sequence or getattr(current_channel, "sample_sequence", None) != current_sample_sequence:
+            raise RuntimeError("Directional sample sequence changed after Application validation.")
+        timestamp = float(sample_timestamp)
+        if not math.isfinite(timestamp):
+            raise ValueError("Directional sample timestamp must be finite.")
+        return _AuthoritativeDirectionalSnapshot(
+            _seal=_DIRECTIONAL_SNAPSHOT_SEAL,
+            _issuer=self._snapshot_issuer,
+            element_id=element_id,
+            voltage_value=voltage_value,
+            current_value=current_value,
+            voltage_angle=math.degrees(math.atan2(voltage_value.imag, voltage_value.real)),
+            current_angle=math.degrees(math.atan2(current_value.imag, current_value.real)),
+            voltage_channel_id=voltage_channel_id,
+            current_channel_id=current_channel_id,
+            voltage_channel_identity=id(voltage_channel),
+            current_channel_identity=id(current_channel),
+            sample_timestamp=timestamp,
+            voltage_sample_sequence=voltage_sample_sequence,
+            current_sample_sequence=current_sample_sequence,
+            project_id=self._project_id,
+            activation_generation=self._activation_generation,
+            configuration_identity=id(self._configuration),
+            runtime_identity=id(self),
+        )
+    @property
+    def snapshot_issuer(self) -> object:
+        """Opaque per-runtime identity token for validating issued snapshots."""
+        return self._snapshot_issuer
 
     @property
     def activation_generation(self) -> int:
