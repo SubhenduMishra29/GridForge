@@ -23236,3 +23236,5 @@ UI COMPLETION — 2026-11-07
 - Draft route editing remains presentation-only and uses DraftNetwork snapshot undo/redo; Escape continues to cancel the current pointer gesture.
 - ui/sld/items/sld_connection_item.py and ui/tools/select_tool.py: double-clicking a draft Simple Wire segment inserts an authored bend; dragging an existing bend updates the route. Both interactions dispatch the stable DraftNetwork identity through the Application route command.
 - ui/canvas/canvas_hit.py: added a distinct draft_connection_id to immutable route-hit metadata; a draft hit cannot be mistaken for a Core connection ID.
+- core/application/draft/network.py: allow a single intermediate bend; route.points excludes endpoint coordinates, so requiring two bend vertices incorrectly rejected the first bend.
+- ui/canvas/canvas_hit.py: added the missing dataclass field for draft_connection_id used by the distinct draft hit path.
