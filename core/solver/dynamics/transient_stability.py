@@ -690,7 +690,7 @@ class TransientStabilitySolver:
                 "scheduled_time": float(event.time),
                 "priority": int(event.priority),
                 "description": str(event.description),
-                "metadata": dict(event.metadata),
+                "metadata": {str(key): value for key, value in event.metadata.items()},
                 "status": (
                     execution_by_id[event.event_id].status
                     if event.triggered and event.event_id in execution_by_id
