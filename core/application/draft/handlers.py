@@ -329,7 +329,8 @@ class CommitNetworkHandler:
         # Core mutation or draft clearing can discard newer engineer edits.
         if snapshot.to_dict() != active_draft.to_dict():
             raise ValueError(
-                "CommitNetworkCommand draft_network does not match the current active DraftNetwork snapshot."
+                "CommitNetworkCommand draft_network does not match "
+                "the current active DraftNetwork snapshot."
             )
         if not snapshot.equipment and not snapshot.connections:
             raise ValueError(
