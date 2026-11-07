@@ -16,6 +16,7 @@ from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
 from core.analysis.short_circuit_preparation import ShortCircuitPreparation
 from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.analysis.transient_network import PreparedTransientStability
+from core.analysis.transient_scenario import TransientEventScenario
 from core.network.electrical_boundary import conduction_state
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
 from core.solver.power_flow.result import PowerFlowResult
@@ -307,6 +308,7 @@ class StudyPreparationService:
             switch_states=switch_states,
             switch_available_states=switch_available_states,
             switch_connections=switch_connections,
+            event_scenario=configuration.event_scenario,
         )
 
 
