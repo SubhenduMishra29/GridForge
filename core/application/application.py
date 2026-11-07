@@ -1579,7 +1579,10 @@ class Application:
                     "sample_sequence": sample_sequence_after,
                 })
 
-        if getattr(self, "protection_runtime", None) is not runtime:
+        if (
+            any(element.enabled and str(element.function_code).strip().upper() == "67" for element in runtime.configuration.elements)
+            and getattr(self, "protection_runtime", None) is not runtime
+        ):
             return ProtectionExecutionResult(diagnostics=("Directional snapshot issuance refused: ProtectionRuntime is not the active Application runtime.",))
         directional_snapshots: dict[str, Any] = {}
         for element in runtime.configuration.elements:
