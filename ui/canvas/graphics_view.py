@@ -329,26 +329,29 @@ class GraphicsView(QGraphicsView):
         insertion_tool = self.tool_manager.get_tool("electrical-insertion")
         parameters = dict(draft.snapshot_values())
         orientation = float(draft.preview_state.get("rotation", 0.0))
-        insertion_tool.begin(
-            self._palette_drag_equipment_type,
-            creation_parameters=parameters,
-            orientation=orientation,
-        )
-        candidate = insertion_tool.insertion_target(semantic)
-        if (
-            candidate is None
-            or str(candidate.get("connection_id", "")) != hit.core_connection_id
-        ):
-            return False
-        return bool(
-            self.tool_manager.begin_equipment_insertion(
+        try:
+            insertion_tool.begin(
                 self._palette_drag_equipment_type,
                 creation_parameters=parameters,
                 orientation=orientation,
-                equipment_id=None,
-                initial_event=semantic,
             )
-        )
+            candidate = insertion_tool.insertion_target(semantic)
+            if (
+                candidate is None
+                or str(candidate.get("connection_id", "")) != hit.core_connection_id
+            ):
+                return False
+            return bool(
+                self.tool_manager.begin_equipment_insertion(
+                    self._palette_drag_equipment_type,
+                    creation_parameters=parameters,
+                    orientation=orientation,
+                    equipment_id=None,
+                    initial_event=semantic,
+                )
+            )
+        except (KeyError, TypeError, ValueError, RuntimeError):
+            return False
 
     def _finish_palette_drag(self, *, restore_previous_tool: bool) -> None:
         previous_tool_id = self._palette_drag_previous_tool_id
@@ -429,8 +432,11 @@ class GraphicsView(QGraphicsView):
                 self._finish_palette_drag(restore_previous_tool=True)
                 event.ignore()
                 return
-            insertion_tool = self.tool_manager.get_tool("electrical-insertion")
-            candidate = insertion_tool.insertion_target(semantic)
+            try:
+                insertion_tool = self.tool_manager.get_tool("electrical-insertion")
+                candidate = insertion_tool.insertion_target(semantic)
+            except (KeyError, TypeError, ValueError, RuntimeError):
+                candidate = None
             if candidate is None or str(candidate.get("connection_id", "")) != hit.core_connection_id:
                 self._finish_palette_drag(restore_previous_tool=True)
                 event.ignore()
