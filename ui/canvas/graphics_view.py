@@ -119,6 +119,13 @@ class GraphicsView(QGraphicsView):
                 lambda _checked=False, op=operation: self._apply_contextual_symbol_action(op)
             )
             strip_layout.addWidget(button)
+        self._annotation_quadrant_button = QToolButton(self._contextual_strip)
+        self._annotation_quadrant_button.setToolTip(
+            "Cycle selected equipment annotations through top-right, top-left, bottom-right, and bottom-left quadrants"
+        )
+        self._annotation_quadrant_button.setAccessibleName("Change annotation quadrant")
+        self._annotation_quadrant_button.clicked.connect(self._cycle_contextual_annotation_quadrant)
+        strip_layout.addWidget(self._annotation_quadrant_button)
         self._contextual_strip.hide()
         self._scene.selectionChanged.connect(self._refresh_contextual_tool_strip)
         self.horizontalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
@@ -177,6 +184,13 @@ class GraphicsView(QGraphicsView):
         if node is None or item is None:
             self._contextual_strip.hide()
             return
+        document = getattr(self.controller, "active_document", None)
+        annotation_blocks = tuple(
+            block for block in getattr(document, "annotation_blocks", ())
+            if block.node_id == node.node_id
+        )
+        self._annotation_quadrant_button.setEnabled(bool(annotation_blocks))
+        self._annotation_quadrant_button.setText("Label ↻")
         bounds = item.mapRectToScene(item.boundingRect())
         anchor = self.mapFromScene(bounds.topRight())
         self._contextual_strip.adjustSize()
@@ -187,6 +201,30 @@ class GraphicsView(QGraphicsView):
         self._contextual_strip.move(x, y)
         self._contextual_strip.show()
         self._contextual_strip.raise_()
+
+    def _cycle_contextual_annotation_quadrant(self) -> None:
+        """Persist annotation placement through the existing Application command path."""
+        node, _item = self._selected_presentation_node()
+        document = getattr(self.controller, "active_document", None)
+        if node is None or document is None:
+            return
+        blocks = tuple(getattr(document, "annotation_blocks", ()))
+        selected_blocks = tuple(block for block in blocks if block.node_id == node.node_id)
+        if not selected_blocks:
+            return
+        quadrants = ("top_right", "top_left", "bottom_right", "bottom_left")
+        updated = []
+        for block in blocks:
+            payload = block.to_dict()
+            if block.node_id == node.node_id:
+                current = block.quadrant
+                payload["quadrant"] = (
+                    quadrants[(quadrants.index(current) + 1) % len(quadrants)]
+                    if current in quadrants else "top_right"
+                )
+            updated.append(payload)
+        self.controller.set_annotation_blocks(updated)
+        self._refresh_contextual_tool_strip()
 
     def _apply_contextual_symbol_action(self, operation: str) -> None:
         """Persist a symbol-only transform through the SLD Application command."""
