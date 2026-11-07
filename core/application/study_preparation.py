@@ -308,6 +308,11 @@ class StudyPreparationService:
             switch_available_states=switch_available_states,
             switch_connections=switch_connections,
             event_scenario=configuration.event_scenario,
+            simulation_window={
+                "start_time": configuration.start_time,
+                "end_time": configuration.end_time,
+                "dt": configuration.dt,
+            },
         )
 
 
