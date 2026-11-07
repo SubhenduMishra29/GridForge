@@ -190,15 +190,7 @@ class GraphicsView(QGraphicsView):
             if block.node_id == node.node_id
         )
         self._annotation_quadrant_button.setEnabled(bool(annotation_blocks))
-        quadrants = ("top_right", "top_left", "bottom_right", "bottom_left")
-        current = {block.quadrant for block in annotation_blocks}
-        next_quadrant = "top_right"
-        if len(current) == 1:
-            value = next(iter(current))
-            if value in quadrants:
-                next_quadrant = quadrants[(quadrants.index(value) + 1) % len(quadrants)]
-        arrow = {"top_right": "↗", "top_left": "↖", "bottom_right": "↘", "bottom_left": "↙"}[next_quadrant]
-        self._annotation_quadrant_button.setText("Label " + arrow)
+        self._annotation_quadrant_button.setText("Label ↻")
         bounds = item.mapRectToScene(item.boundingRect())
         anchor = self.mapFromScene(bounds.topRight())
         self._contextual_strip.adjustSize()
@@ -221,17 +213,15 @@ class GraphicsView(QGraphicsView):
         if not selected_blocks:
             return
         quadrants = ("top_right", "top_left", "bottom_right", "bottom_left")
-        current = {block.quadrant for block in selected_blocks}
-        next_quadrant = "top_right"
-        if len(current) == 1:
-            value = next(iter(current))
-            if value in quadrants:
-                next_quadrant = quadrants[(quadrants.index(value) + 1) % len(quadrants)]
         updated = []
         for block in blocks:
             payload = block.to_dict()
             if block.node_id == node.node_id:
-                payload["quadrant"] = next_quadrant
+                current = block.quadrant
+                payload["quadrant"] = (
+                    quadrants[(quadrants.index(current) + 1) % len(quadrants)]
+                    if current in quadrants else "top_right"
+                )
             updated.append(payload)
         self.controller.set_annotation_blocks(updated)
         self._refresh_contextual_tool_strip()
