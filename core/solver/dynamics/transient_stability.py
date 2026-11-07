@@ -333,8 +333,7 @@ class TransientStabilitySolver:
                     discontinuities.append(boundary)
                     executions.extend(boundary.event_executions)
                     self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
-                    raise TransientStabilityError(str(exc), partial_result=partial) from exc
+                    raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
                 raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
             if self._last_due_discontinuity is not None:
                 discontinuities.append(self._last_due_discontinuity)
@@ -383,10 +382,6 @@ class TransientStabilitySolver:
                 # The last accepted boundary remains valid even when the
                 # next numerical step fails. Persist that committed prefix;
                 # never expose a partially computed integrator candidate.
-                partial = self._build_result(
-                    times, states, voltages, powers, algebraic_quality,
-                    executions, discontinuities,
-                )
                 raise failure(
                     f"Transient-stability simulation failed during integration at t={previous_time:.12g} s.",
                     stage="dae_step", cause=exc, failing_time=previous_time,
@@ -413,7 +408,6 @@ class TransientStabilitySolver:
                         discontinuities.append(self._make_discontinuity(pre_event_solution, attempted, None, post_status="dispatch_failed"))
                     if not times or not math.isclose(times[-1], pre_event_solution.time, rel_tol=0.0, abs_tol=1e-12):
                         self._record(pre_event_solution, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
                     raise failure(
                         f"Event dispatch failed at t={self._time:.12g} s; partial trajectory retained.",
                         stage="event_action", cause=exc, failing_time=self._time,
