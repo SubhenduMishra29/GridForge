@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ui.core.qt import QGraphicsItem, QPointF
+from ui.core.qt import QGraphicsItem, QPointF, Qt
 from ui.canvas.canvas_hit import CanvasHitTarget
 
 
@@ -33,6 +33,7 @@ class CanvasMouseEvent:
     modifiers: int = 0
     event_type: Optional[int] = None
     timestamp: Optional[int] = None
+    insertion_intent: bool = False
 
     @property
     def hit_target(self) -> CanvasHitTarget:
@@ -62,11 +63,15 @@ class MouseEventAdapter:
     def adapt(self, event: Any) -> CanvasMouseEvent:
         if event is None:
             raise ValueError("event must not be None.")
+        if isinstance(event, CanvasMouseEvent):
+            return event
         viewport_position = self._event_position(event)
         scene_position = self._map_to_scene(viewport_position)
         viewport_point = self._point(viewport_position)
         scene_point = self._point(scene_position)
         hit = self._hit_test(scene_point)
+        modifiers = self._event_flag(event, "modifiers", default=0)
+        shift_mask = int(Qt.KeyboardModifier.ShiftModifier.value)
         return CanvasMouseEvent(
             position=viewport_point,
             scene_position=scene_point,
@@ -74,7 +79,8 @@ class MouseEventAdapter:
             presentation_hit=hit,
             button=self._event_flag(event, "button", allow_none=True),
             buttons=self._event_flag(event, "buttons", default=0),
-            modifiers=self._event_flag(event, "modifiers", default=0),
+            modifiers=modifiers,
+            insertion_intent=bool(modifiers & shift_mask),
             event_type=self._event_flag(event, "type", allow_none=True),
             timestamp=self._event_integer(event, "timestamp", allow_none=True),
         )
