@@ -392,6 +392,11 @@ class StudyService:
             value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
+            retained_value = (
+                value
+                if partial_provenance(value).get("execution_status") in {"completed", "cancelled", "failed"}
+                else None
+            )
             result = StudyResult(
                 study_id=request.study_id,
                 project_id=request.project_id,
@@ -402,26 +407,26 @@ class StudyService:
                 # A cooperative handler may return a valid partial trajectory
                 # when cancellation is observed. Keep that evidence while the
                 # terminal lifecycle status remains cancelled.
-                value=value,
-                message="Study cancelled; partial execution evidence retained." if cancelled and value is not None else ("Study cancelled." if cancelled else ""),
+                value=retained_value if cancelled else value,
+                message="Study cancelled; partial execution evidence retained." if cancelled and retained_value is not None else ("Study cancelled." if cancelled else ""),
                 metadata=(
                     {
-                        "partial_result_available": value is not None,
-                        "execution_status": str(partial_provenance(value).get("execution_status", "cancelled")),
-                        "trajectory_status": str(partial_provenance(value).get("trajectory_status", "interrupted")),
-                        "last_valid_time": last_valid_time(value),
+                        "partial_result_available": retained_value is not None,
+                        "execution_status": str(partial_provenance(retained_value).get("execution_status", "cancelled")),
+                        "trajectory_status": str(partial_provenance(retained_value).get("trajectory_status", "interrupted")),
+                        "last_valid_time": last_valid_time(retained_value),
                         "termination": (
-                            dict(partial_provenance(value).get("termination", {}))
-                            if partial_provenance(value).get("termination")
+                            dict(partial_provenance(retained_value).get("termination", {}))
+                            if partial_provenance(retained_value).get("termination")
                             else {
                                 "status": "cancelled",
                                 "reason": "cancellation_requested",
                                 "stage": "handler_return",
-                                "failing_time": last_valid_time(value),
+                                "failing_time": last_valid_time(retained_value),
                                 "diagnostic_message": "Study cancelled at a committed solver boundary.",
                             }
                         ),
-                        "event_schedule": tuple(partial_provenance(value).get("event_schedule", ())),
+                        "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
                     }
                     if cancelled else {}
                 ),
