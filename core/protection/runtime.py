@@ -56,6 +56,8 @@ class ProtectionRuntime:
         voltage_value: complex,
         current_value: complex,
         sample_timestamp: float,
+        voltage_sample_sequence: Any,
+        current_sample_sequence: Any,
     ) -> _AuthoritativeDirectionalSnapshot:
         """Issue a snapshot for this exact composed runtime.
 
@@ -84,6 +86,8 @@ class ProtectionRuntime:
         for name, value in (("voltage", voltage_value), ("current", current_value)):
             if not math.isfinite(value.real) or not math.isfinite(value.imag) or abs(value) == 0.0:
                 raise ValueError(f"Directional {name} phasor must be finite and nonzero.")
+        if getattr(voltage_channel, "sample_sequence", None) != voltage_sample_sequence or getattr(current_channel, "sample_sequence", None) != current_sample_sequence:
+            raise RuntimeError("Directional sample sequence changed after Application validation.")
         timestamp = float(sample_timestamp)
         if not math.isfinite(timestamp):
             raise ValueError("Directional sample timestamp must be finite.")
@@ -100,6 +104,8 @@ class ProtectionRuntime:
             voltage_channel_identity=id(voltage_channel),
             current_channel_identity=id(current_channel),
             sample_timestamp=timestamp,
+            voltage_sample_sequence=voltage_sample_sequence,
+            current_sample_sequence=current_sample_sequence,
             project_id=self._project_id,
             activation_generation=self._activation_generation,
             configuration_identity=id(self._configuration),
