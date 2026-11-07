@@ -13,7 +13,7 @@ from ui.panels.transient_result_view import TransientResultViewWidget
 from core.application.read_models import TransientResultPresentationReadModel
 
 from ui.core.qt import (
-    QComboBox, QFormLayout, QLabel, QLineEdit, QListWidget,
+    QComboBox, QFormLayout, QLabel, QLineEdit, QListWidget, QTimer,
     QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -26,6 +26,13 @@ class StudyCasesPanelWidget(QWidget):
         self.setObjectName("GridForgePanel_study_cases")
         self._list = QListWidget(self)
         self._run_handler: Callable[[UUID], object] | None = None
+        self._cancel_handler: Callable[[UUID], bool] | None = None
+        self._run_error_handler: Callable[[BaseException], object] | None = None
+        self._active_study_id: UUID | None = None
+        self._active_future: object | None = None
+        self._run_poll_timer = QTimer(self)
+        self._run_poll_timer.setInterval(100)
+        self._run_poll_timer.timeout.connect(self._poll_study_future)
         self._create_handler: Callable[..., object] | None = None
         self._result_selection_handler: Callable[[UUID | None], object] | None = None
         self._case_rows: tuple[object, ...] = ()
@@ -86,6 +93,9 @@ class StudyCasesPanelWidget(QWidget):
         self._compare_archive.clicked.connect(self._compare_selected_archives)
         self._run = QPushButton("Run Study", self)
         self._run.clicked.connect(self._run_selected)
+        self._cancel = QPushButton("Cancel Study", self)
+        self._cancel.setEnabled(False)
+        self._cancel.clicked.connect(self._cancel_active_study)
         self._list.currentRowChanged.connect(self._on_case_selected)
 
         layout = QVBoxLayout(self)
@@ -94,6 +104,7 @@ class StudyCasesPanelWidget(QWidget):
         layout.addWidget(self._create)
         layout.addWidget(self._list)
         layout.addWidget(self._run)
+        layout.addWidget(self._cancel)
         layout.addWidget(self._result_heading)
         layout.addWidget(self._result_list)
         layout.addWidget(self._transient_result_view)
@@ -152,6 +163,12 @@ class StudyCasesPanelWidget(QWidget):
 
     def set_run_handler(self, handler: Callable[[UUID], object] | None) -> None:
         self._run_handler = handler
+
+    def set_cancel_handler(self, handler: Callable[[UUID], bool] | None) -> None:
+        self._cancel_handler = handler
+
+    def set_run_error_handler(self, handler: Callable[[BaseException], object] | None) -> None:
+        self._run_error_handler = handler
 
     def set_result_selection_handler(self, handler: Callable[[UUID | None], object] | None) -> None:
         self._result_selection_handler = handler
@@ -291,8 +308,40 @@ class StudyCasesPanelWidget(QWidget):
 
     def _run_selected(self) -> None:
         study_id = self.selected_case_id()
-        if study_id is not None and self._run_handler is not None:
-            self._run_handler(study_id)
+        if study_id is None or self._run_handler is None or self._active_study_id is not None:
+            return
+        submitted = self._run_handler(study_id)
+        if not callable(getattr(submitted, "done", None)):
+            return
+        self._active_study_id = study_id
+        self._active_future = submitted
+        self._run.setEnabled(False)
+        self._cancel.setEnabled(True)
+        self._run_poll_timer.start()
+
+    def _cancel_active_study(self) -> None:
+        study_id = self._active_study_id
+        if study_id is None or self._cancel_handler is None:
+            return
+        self._cancel.setEnabled(False)
+        if not self._cancel_handler(study_id):
+            self._cancel.setEnabled(True)
+
+    def _poll_study_future(self) -> None:
+        future = self._active_future
+        if future is None or not future.done():
+            return
+        self._run_poll_timer.stop()
+        try:
+            future.result()
+        except BaseException as exc:
+            if self._run_error_handler is not None:
+                self._run_error_handler(exc)
+        finally:
+            self._active_future = None
+            self._active_study_id = None
+            self._cancel.setEnabled(False)
+            self._run.setEnabled(True)
 
 
 __all__ = ["StudyCasesPanelWidget"]

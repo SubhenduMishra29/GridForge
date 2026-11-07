@@ -23173,3 +23173,11 @@ Follow-up source review tightened ANSI 81 pickup confirmation:
 - Accept a finite zero-Hz measurement as an under-frequency sample;
   zero is not rejected merely for being zero.
 
+
+
+GF-STUDY-ASYNC-01 | Study execution scheduler and scoped cancellation
+Date: 2026-11-07
+Baseline: main 66b96eca8eb5c174236d86f5f3a03c6c95ac555e
+Branch: feature/study-async-cancellation
+Changes: Added Application-owned Study executor separate from network-commit executor; captured and validated immutable StudyExecutionContext before submission; reserved project/activation/study identity before queueing; added queued and running cancellation with terminal cancellation persistence/event; retained synchronous execution API; added Study Case controller submission/cancellation, panel Run/Cancel state, and queued Qt event delivery for worker-published Application events; bound scheduler shutdown to UI lifecycle cleanup.
+Acceptance: Source-level architecture and diff review only; tests/CI not run or requested. Verify import/syntax and inspect all affected UI exports before merge.

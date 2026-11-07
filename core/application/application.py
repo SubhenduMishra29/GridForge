@@ -160,6 +160,7 @@ class Application:
         self._draft_network: Any | None = None
         self._execution_lock = RLock()
         self._commit_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gridforge-network-commit")
+        self._study_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="gridforge-study")
         self._commit_state_lock = RLock()
         self._commit_in_flight = False
         self._save_in_progress = False
@@ -669,6 +670,36 @@ class Application:
             configuration=case.configuration,
         )
         return self.execute_study(request)
+
+    def submit_study_case(self, study_id: UUID) -> Future[StudyResult]:
+        """Capture and validate the complete Study context before worker submission."""
+        case = self.study_case(study_id)
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot submit a Study Case without an active project activation.")
+        if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
+            raise ValueError("Study Case project scope does not match the active project generation.")
+        if not case.source_revision.matches_study_state(self.revision):
+            raise ValueError("Study Case configuration is stale for the active electrical model/topology.")
+        request = StudyRequest(
+            study_id=case.study_id, project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            source_revision=self.revision, study_type=case.study_type,
+            configuration=case.configuration,
+        )
+        return self.submit_study(request)
+
+    def submit_study(self, request: StudyRequest) -> Future[StudyResult]:
+        """Prepare immutable snapshots on the caller thread, then queue only solver work."""
+        prepared_request, execution_context = self._prepare_study_execution(request)
+        self._remember_study_case(prepared_request)
+        return self._study_service.submit(prepared_request, execution_context, self._study_executor)
+
+    def shutdown_studies(self, *, wait: bool = True, cancel_futures: bool = False) -> None:
+        """Shut down the Application-owned Study scheduler during composition teardown."""
+        self._study_executor.shutdown(wait=wait, cancel_futures=cancel_futures)
+
     @property
     def project_lifecycle(self) -> ProjectLifecycleService:
         if self._project_lifecycle is None: raise RuntimeError("Application project lifecycle is not configured.")
@@ -2992,7 +3023,7 @@ class Application:
             dynamic_models=dynamic_models,
         )
 
-    def execute_study(self, request: StudyRequest) -> StudyResult:
+    def _prepare_study_execution(self, request: StudyRequest) -> tuple[StudyRequest, StudyExecutionContext]:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
         lifecycle = self.project_lifecycle
@@ -3051,7 +3082,11 @@ class Application:
         # Only register a runnable Study Case after the request has passed
         # project-generation, revision, validation, and topology provenance gates.
         self._remember_study_case(request)
-        return self._study_service.execute(request, execution_context)
+        return request, execution_context
+
+    def execute_study(self, request: StudyRequest) -> StudyResult:
+        prepared_request, execution_context = self._prepare_study_execution(request)
+        return self._study_service.execute(prepared_request, execution_context)
 
     def read_study_result(self, study_id) -> Any:
         """Return the current project-scoped study result read model."""

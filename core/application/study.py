@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Executor, Future
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
@@ -238,6 +239,7 @@ class StudyService:
         self._handlers: dict[str, StudyHandler] = {}
         self._results: dict[tuple[str, int, UUID], StudyResult] = {}
         self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
+        self._futures: dict[tuple[str, int, UUID], Future[StudyResult]] = {}
         self._result_persister: Callable[[StudyResult], Any] | None = None
         # Counts by study type prevent teardown while any execution is active.
         self._active_study_types: dict[str, int] = {}
@@ -312,7 +314,10 @@ class StudyService:
             del self._handlers[key]
             return True
 
-    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
+    def execute(
+        self, request: StudyRequest, execution_context: StudyExecutionContext,
+        *, _reserved_token: StudyCancellationToken | None = None,
+    ) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
         if not isinstance(execution_context, StudyExecutionContext):
@@ -322,20 +327,24 @@ class StudyService:
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
         key = (request.project_id, request.activation_generation, request.study_id)
-        token = StudyCancellationToken()
+        token = _reserved_token or StudyCancellationToken()
         with self._lock:
             handler = self._handlers.get(request.study_type)
             if handler is None:
                 raise KeyError(f"No study handler registered for {request.study_type!r}.")
-            if key in self._tokens:
+            existing = self._tokens.get(key)
+            if existing is not None and existing is not token:
                 raise ValueError(f"Study is already active: {request.study_id}")
-            self._tokens[key] = token
-            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            if existing is None:
+                self._tokens[key] = token
+                self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            elif _reserved_token is None:
+                raise ValueError(f"Study is already active: {request.study_id}")
 
         terminal_result_committed = False
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
-            value = handler(request, execution_context, token)
+            value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
             result = StudyResult(
@@ -467,6 +476,76 @@ class StudyService:
                 else:
                     self._active_study_types[request.study_type] = active_count - 1
 
+    def submit(
+        self, request: StudyRequest, execution_context: StudyExecutionContext,
+        executor: Executor,
+    ) -> Future[StudyResult]:
+        """Reserve an exact project-generation scope before queueing worker execution."""
+        if not isinstance(executor, Executor):
+            raise TypeError("executor must implement concurrent.futures.Executor.")
+        if not isinstance(request, StudyRequest) or not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("submit requires a StudyRequest and StudyExecutionContext.")
+        if (execution_context.project_id != request.project_id
+                or execution_context.activation_generation != request.activation_generation
+                or execution_context.source_revision != request.source_revision):
+            raise ValueError("Study execution context does not match StudyRequest scope and revision.")
+        key = (request.project_id, request.activation_generation, request.study_id)
+        token = StudyCancellationToken()
+        with self._lock:
+            if request.study_type not in self._handlers:
+                raise KeyError(f"No study handler registered for {request.study_type!r}.")
+            if key in self._tokens:
+                raise ValueError(f"Study is already active: {request.study_id}")
+            self._tokens[key] = token
+            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+        try:
+            future = executor.submit(self.execute, request, execution_context, _reserved_token=token)
+        except BaseException:
+            with self._lock:
+                self._tokens.pop(key, None)
+                count = self._active_study_types.get(request.study_type, 0)
+                if count <= 1:
+                    self._active_study_types.pop(request.study_type, None)
+                else:
+                    self._active_study_types[request.study_type] = count - 1
+            raise
+        with self._lock:
+            self._futures[key] = future
+        def _finish_cancelled(completed: Future[StudyResult]) -> None:
+            if not completed.cancelled():
+                with self._lock:
+                    if self._futures.get(key) is completed:
+                        self._futures.pop(key, None)
+                return
+            result = StudyResult(
+                study_id=request.study_id, project_id=request.project_id,
+                activation_generation=request.activation_generation,
+                source_revision=request.source_revision, study_type=request.study_type,
+                status="cancelled", message="Study cancelled before worker execution.",
+            )
+            try:
+                self._persist_result(result)
+            except Exception as exc:
+                result = StudyResult(
+                    study_id=result.study_id, project_id=result.project_id,
+                    activation_generation=result.activation_generation,
+                    source_revision=result.source_revision, study_type=result.study_type,
+                    status="cancelled", message=f"{result.message} Archive write failed: {type(exc).__name__}: {exc}",
+                    metadata={"archive_write_failed": True},
+                )
+            with self._lock:
+                self._results[key] = result
+                self._tokens.pop(key, None)
+                self._futures.pop(key, None)
+                count = self._active_study_types.get(request.study_type, 0)
+                if count <= 1:
+                    self._active_study_types.pop(request.study_type, None)
+                else:
+                    self._active_study_types[request.study_type] = count - 1
+            self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
+        future.add_done_callback(_finish_cancelled)
+        return future
+
     @property
     def has_active_studies(self) -> bool:
         with self._lock:
@@ -482,11 +561,20 @@ class StudyService:
                 raise RuntimeError(f"Project transition blocked by active study scope(s): {scopes}")
 
     def cancel(self, study_id: UUID, *, project_id: str, activation_generation: int) -> bool:
+        key = (project_id, activation_generation, study_id)
         with self._lock:
-            token = self._tokens.get((project_id, activation_generation, study_id))
+            token = self._tokens.get(key)
+            future = self._futures.get(key)
             if token is None:
                 return False
-            return token.cancel()
+            accepted = token.cancel()
+        if not accepted:
+            return False
+        # A queued Future can be cancelled before it enters execute(); its
+        # completion callback persists and publishes the terminal outcome.
+        if future is not None:
+            future.cancel()
+        return True
 
     def get_result(self, study_id: UUID, *, project_id: str, activation_generation: int) -> StudyResult | None:
         with self._lock:

@@ -45,6 +45,35 @@ class StudyCaseController:
         except Exception as exc:
             return self._handle_error(exc)
 
+    def submit_study(self, study_id: UUID) -> object | None:
+        """Submit a validated Study Case without blocking the Qt event loop."""
+        if not isinstance(study_id, UUID):
+            try:
+                study_id = UUID(str(study_id))
+            except (TypeError, ValueError) as exc:
+                return self._handle_error(ValueError("Selected Study Case identity is invalid."), cause=exc)
+        try:
+            return self._application.submit_study_case(study_id)
+        except Exception as exc:
+            return self._handle_error(exc)
+
+    def cancel_study(self, study_id: UUID) -> bool:
+        """Cancel only the exact project activation captured by this Study Case."""
+        try:
+            case = self._application.study_case(study_id)
+            return bool(self._application.cancel_study(
+                study_id, project_id=case.project_id,
+                activation_generation=case.activation_generation,
+            ))
+        except Exception as exc:
+            self._handle_error(exc)
+            return False
+
+    def handle_async_error(self, error: BaseException) -> None:
+        """Surface a Future failure on the UI thread after panel polling."""
+        if self._error_handler is not None:
+            self._error_handler(error)
+
     def export_study_comparison(
         self, left_source: str, left_record_id: UUID | str,
         right_source: str, right_record_id: UUID | str,

@@ -1333,7 +1333,9 @@ def _build_application_impl(
         error_handler=study_case_error_handler,
     )
     study_tool_runtime.bind_study_case_controller(study_case_controller)
-    study_cases_panel.set_run_handler(study_case_controller.run_study)
+    study_cases_panel.set_run_handler(study_case_controller.submit_study)
+    study_cases_panel.set_cancel_handler(study_case_controller.cancel_study)
+    study_cases_panel.set_run_error_handler(study_case_controller.handle_async_error)
     study_cases_panel.set_create_handler(study_case_controller.create_study_case)
     resources["study_case_controller"] = study_case_controller
 
@@ -1381,7 +1383,7 @@ def _build_application_impl(
 
     element_list_projection = ElementListProjection(application=gridforge_application, panel=element_list_panel); event_messages_projection = ApplicationEventMessagesProjection(panel=messages_panel); project_hierarchy_projection = ProjectHierarchyProjection(adapter=project_workspace_adapter, panel=project_panel, application=gridforge_application); validation_projection = ValidationProjection(application=gridforge_application, panel=messages_panel); study_projection = StudyProjection(application=gridforge_application, panel=study_cases_panel, result_changed=_update_study_result_overlay)
     projection_coordinator = UIProjectionCoordinator(projections=(sld_update_coordinator, control_update_coordinator, selection_projection, element_list_projection, event_messages_projection, project_hierarchy_projection, validation_projection, study_projection)); resources["ui_projection_coordinator"] = projection_coordinator
-    ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
+    ui_update_boundary = UIUpdateBoundary(event_bus=gridforge_application.event_bus, projection_coordinator=projection_coordinator, queued=True); resources["ui_update_boundary"] = ui_update_boundary; ui_update_boundary.subscribe()
     sld_update_coordinator.reconcile_current_state()
     control_workspace.refresh()
     element_list_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); event_messages_projection.refresh(ProjectLoaded(metadata={"project_id": project_context.project_id, "operation": "initial"})); validation_projection.refresh_from_application(); selection_projection.refresh()
@@ -1400,7 +1402,7 @@ def _build_application_impl(
         document_ready=lambda: project_workspace_adapter.state.document is not None,
         document_close=project_workspace_lifecycle.close_document,
         workspace_teardown=workspace_controller.close,
-        cleanup=_dispose_sld_editor,
+        cleanup=lambda: (_dispose_sld_editor(), gridforge_application.shutdown_studies(wait=True, cancel_futures=False)),
     ); resources["ui_lifecycle"] = ui_lifecycle
 
     def project_transition_decision(context: object) -> object:
