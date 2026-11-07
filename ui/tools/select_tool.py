@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
+from math import cos, radians, sin
 
-from core.application.commands.sld_commands import SetSLDNodePositionsCommand
+from core.application.commands.sld_commands import SetSLDNodePositionsCommand, SetSLDNodeTransformsCommand
+from ui.equipment.symbol.symbol_base import SymbolBase
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
 from .electrical_insertion_tool import ElectricalInsertionTool
 from ui.core.qt import QPointF
@@ -40,6 +42,10 @@ class SelectTool(ToolBase):
         self._route_edit_item: Any | None = None
         self._route_edit_bend_index: int | None = None
         self._route_edit_position: Tuple[float, float] | None = None
+        self._grab_mode = False
+        self._grab_axis: str | None = None
+        self._rotation_pivot: Tuple[float, float] | None = None
+        self._pivot_pick_pending = False
 
     @property
     def tool_id(self) -> str:
@@ -55,10 +61,18 @@ class SelectTool(ToolBase):
 
     def on_activate(self) -> None:
         self._clear_pointer_state()
+        self._grab_mode = False
+        self._grab_axis = None
+        self._rotation_pivot = None
+        self._pivot_pick_pending = False
 
     def on_deactivate(self) -> None:
         self._cancel_transient_insertion()
         self._clear_pointer_state()
+        self._grab_mode = False
+        self._grab_axis = None
+        self._rotation_pivot = None
+        self._pivot_pick_pending = False
 
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
@@ -70,6 +84,18 @@ class SelectTool(ToolBase):
         self._route_edit_bend_index = None
         self._route_edit_position = None
         modifiers = self._event_modifiers(event)
+
+        if self._pivot_pick_pending:
+            self._rotation_pivot = self._pressed_scene_position
+            self._pivot_pick_pending = False
+            return True
+        if self._grab_mode:
+            if not self._selected_transform_nodes():
+                self._grab_mode = False
+                self._grab_axis = None
+                self._clear_pointer_state()
+                return False
+            return True
 
         if self._pressed_hit.kind == CanvasHitKind.SIMPLE_WIRE_SEGMENT:
             core_connection_id = self._pressed_hit.core_connection_id
@@ -125,6 +151,9 @@ class SelectTool(ToolBase):
             self._distance(self._pressed_scene_position, current) >= self.DRAG_TOLERANCE
         )
 
+        if self._grab_mode:
+            return True
+
         if self._route_edit_bend_index is not None and self._route_edit_item is not None:
             if self._dragging:
                 self._route_edit_position = current
@@ -155,6 +184,32 @@ class SelectTool(ToolBase):
             self._clear_pointer_state()
             return False
         end = self._xy(self._event_scene_position(event))
+        if self._grab_mode:
+            try:
+                if self._dragging:
+                    start = self._pressed_scene_position
+                    snap = getattr(self.get_snap_system(), "snap", None)
+                    if callable(snap):
+                        snapped = snap(
+                            QPointF(end[0], end[1]),
+                            allow_grid=True,
+                            allow_object=False,
+                            intent="MOVE",
+                        )
+                        position = getattr(snapped, "position", None)
+                        if position is not None:
+                            end = (float(position.x()), float(position.y()))
+                    delta_x, delta_y = end[0] - start[0], end[1] - start[1]
+                    if self._grab_axis == "x":
+                        delta_y = 0.0
+                    elif self._grab_axis == "y":
+                        delta_x = 0.0
+                    self._commit_group_transform(delta_x=delta_x, delta_y=delta_y)
+            finally:
+                self._grab_mode = False
+                self._grab_axis = None
+                self._clear_pointer_state()
+            return True
 
         if self._route_edit_bend_index is not None and self._route_edit_item is not None:
             try:
@@ -196,8 +251,30 @@ class SelectTool(ToolBase):
             if callable(dispatch):
                 dispatch()
             return True
-        if key == 16777216:  # Qt.Key_Escape
+        if key == 16777216 or key in ("Escape", "escape"):  # Qt.Key_Escape
             return self.on_cancel()
+        if key in (71, "G", "g"):  # Grab: arm the next pointer drag for the selected group.
+            self._grab_mode = True
+            self._grab_axis = None
+            self._clear_pointer_state()
+            return True
+        if self._grab_mode and key in (88, "X", "x"):
+            self._grab_axis = "x"
+            return True
+        if self._grab_mode and key in (89, "Y", "y"):
+            self._grab_axis = "y"
+            return True
+        if key in (80, "P", "p"):  # Pick a transient shared pivot with the next canvas click.
+            self._pivot_pick_pending = True
+            return True
+        if key in (82, "R", "r"):
+            angle = -90.0 if self._event_modifiers(event) & self.SHIFT_MODIFIER else 90.0
+            self._commit_group_transform(rotation_degrees=angle)
+            return True
+        if key in (83, "S", "s"):
+            factor = (1.0 / 1.1) if self._event_modifiers(event) & self.SHIFT_MODIFIER else 1.1
+            self._commit_group_transform(scale_factor=factor)
+            return True
         return False
 
     def on_cancel(self) -> bool:
@@ -206,10 +283,127 @@ class SelectTool(ToolBase):
             or self._dragging
             or self._insertion_active
             or self._route_edit_bend_index is not None
+            or self._grab_mode
+            or self._pivot_pick_pending
         )
         self._cancel_transient_insertion()
+        self._grab_mode = False
+        self._grab_axis = None
+        self._pivot_pick_pending = False
+        self._rotation_pivot = None
         self._clear_pointer_state()
         return had_state
+
+    def _selected_transform_nodes(self) -> list[Any]:
+        presentation = getattr(self.application, "presentation", None)
+        model = getattr(presentation, "model", None)
+        if model is None:
+            return []
+        manager = self.get_selection_manager()
+        selected_ids = tuple(manager.get_selected_ids(domain=manager.NODE))
+        equipment_getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        node_getter = getattr(model, "get_node_optional", None)
+        nodes = []
+        seen = set()
+        scene = self._scene()
+        items = tuple(scene.items()) if scene is not None and callable(getattr(scene, "items", None)) else ()
+        for selected_id in selected_ids:
+            selected_key = str(selected_id)
+            node = equipment_getter(selected_key) if callable(equipment_getter) else None
+            if node is None and callable(node_getter):
+                node = node_getter(selected_key)
+            if node is None and selected_key.startswith("presentation:") and callable(node_getter):
+                node = node_getter(selected_key[len("presentation:"):])
+            if node is None or str(node.node_id) in seen:
+                continue
+            seen.add(str(node.node_id))
+            symbol = node.presentation
+            if symbol is None:
+                item = next((candidate for candidate in items
+                             if str(getattr(candidate, "object_id", "")) in {str(selected_id), str(node.node_id)}
+                             and getattr(candidate, "symbol_instance", None) is not None), None)
+                symbol = getattr(item, "symbol_instance", None)
+            if symbol is None:
+                continue
+            nodes.append((node, SymbolBase.from_dict(symbol.to_dict())))
+        return nodes
+
+    def _commit_group_transform(
+        self,
+        *,
+        rotation_degrees: float = 0.0,
+        scale_factor: float = 1.0,
+        delta_x: float = 0.0,
+        delta_y: float = 0.0,
+    ) -> None:
+        selected = self._selected_transform_nodes()
+        if not selected:
+            return
+        values = (rotation_degrees, scale_factor, delta_x, delta_y)
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
+            raise TypeError("group transform values must be numeric")
+        if scale_factor <= 0.0:
+            raise ValueError("group scale factor must be positive")
+        nodes = [node for node, _symbol in selected]
+        if self._rotation_pivot is None:
+            scene = self._scene()
+            items = tuple(scene.items()) if scene is not None and callable(getattr(scene, "items", None)) else ()
+            object_ids = {
+                str(value)
+                for node in nodes
+                for value in (
+                    node.equipment_id,
+                    f"presentation:{node.node_id}",
+                    node.node_id,
+                )
+                if value is not None
+            }
+            bounds = []
+            for item in items:
+                if str(getattr(item, "object_id", "")) not in object_ids:
+                    continue
+                # Use the same symbol-bearing graphics item selected for each
+                # node; labels/handles sharing object_id must not skew the pivot.
+                if getattr(item, "symbol_instance", None) is None:
+                    continue
+                getter = getattr(item, "sceneBoundingRect", None)
+                if not callable(getter):
+                    continue
+                rect = getter()
+                x = float(rect.x())
+                y = float(rect.y())
+                width = float(rect.width())
+                height = float(rect.height())
+                bounds.append((x, y, x + width, y + height))
+            if bounds:
+                pivot = (
+                    (min(value[0] for value in bounds) + max(value[2] for value in bounds)) / 2.0,
+                    (min(value[1] for value in bounds) + max(value[3] for value in bounds)) / 2.0,
+                )
+            else:
+                xs = [float(node.x) for node in nodes]
+                ys = [float(node.y) for node in nodes]
+                pivot = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+        else:
+            pivot = self._rotation_pivot
+        angle = radians(float(rotation_degrees))
+        c, sn = cos(angle), sin(angle)
+        transforms = []
+        for node, symbol in selected:
+            dx, dy = float(node.x) - pivot[0], float(node.y) - pivot[1]
+            x = pivot[0] + (dx * c - dy * sn) * scale_factor + delta_x
+            y = pivot[1] + (dx * sn + dy * c) * scale_factor + delta_y
+            symbol.rotation = (symbol.rotation + float(rotation_degrees)) % 360.0
+            symbol.scale = symbol.scale * scale_factor
+            transforms.append({
+                "node_id": str(node.node_id),
+                "x": x,
+                "y": y,
+                "presentation": symbol.to_dict(),
+            })
+        result = self.application.execute(SetSLDNodeTransformsCommand(transforms=transforms))
+        if not getattr(result, "success", False):
+            raise RuntimeError(getattr(result, "message", "Failed to transform selected SLD nodes."))
 
     def _box_select(self, start: Tuple[float, float], end: Tuple[float, float], modifiers: int) -> None:
         scene = self._scene()
@@ -594,6 +788,10 @@ class SelectTool(ToolBase):
             "route_edit_active": self._route_edit_bend_index is not None,
             "route_edit_bend_index": self._route_edit_bend_index,
             "route_edit_position": self._route_edit_position,
+            "grab_mode": self._grab_mode,
+            "grab_axis": self._grab_axis,
+            "rotation_pivot": self._rotation_pivot,
+            "pivot_pick_pending": self._pivot_pick_pending,
         })
         return state
 

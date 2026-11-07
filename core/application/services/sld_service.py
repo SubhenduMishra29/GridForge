@@ -39,6 +39,7 @@ class SLDService:
     COMMAND_TYPES = frozenset({
         "sld.set_node_position",
         "sld.set_node_positions",
+        "sld.set_node_transforms",
         "sld.set_node_presentation",
         "sld.add_node",
         "sld.remove_node",
@@ -572,6 +573,7 @@ class SLDService:
         handler = {
             "sld.set_node_position": self._set_node_position,
             "sld.set_node_positions": self._set_node_positions,
+            "sld.set_node_transforms": self._set_node_transforms,
             "sld.set_node_presentation": self._set_node_presentation,
             "sld.add_node": lambda cmd, tx: self._add_node(
                 cmd, tx, authoritative_value=authoritative_value
@@ -596,6 +598,89 @@ class SLDService:
         # committed inverse journal still marks the document dirty on undo.
         transaction.record_rollback_finalizer(restore_dirty_state)
         return handler(command, transaction)
+
+    def _set_node_transforms(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        """Apply positions and symbol orientations for a group in one transaction."""
+        entries = command.payload["transforms"]
+        prepared = []
+        for entry in entries:
+            node = self.document.model.get_node(entry["node_id"])
+            presentation = entry["presentation"]
+            if not isinstance(presentation, Mapping):
+                raise TypeError("group transform presentation must be a mapping")
+            # Validate the complete renderer-neutral symbol DTO before any mutation.
+            # SLDNode owns renderer-neutral presentation validation/normalization.
+            normalized_presentation = dict(presentation)
+            prepared.append({
+                "node_id": str(node.node_id),
+                "node": node,
+                "x": float(entry["x"]),
+                "y": float(entry["y"]),
+                "presentation": normalized_presentation,
+                "previous_position": tuple(node.position),
+                "previous_presentation": None if node.presentation is None else node.presentation.to_dict(),
+                "previous_properties": deepcopy(node.properties),
+                "equipment_id": node.equipment_id,
+                "identity": {
+                    key: deepcopy(node.properties.get(key))
+                    for key in (
+                        "element_type", "terminal_ids", "terminal_connectivity",
+                        "projection_source", "lifecycle_state",
+                    )
+                },
+            })
+
+        def restore() -> None:
+            targets = []
+            # Validate the complete inverse set before restoring any node so
+            # an identity conflict cannot leave a partially reverted group.
+            for snapshot in reversed(prepared):
+                target = self.document.model.get_node_optional(snapshot["node_id"])
+                if target is None:
+                    raise ValueError(
+                        "Cannot undo SLD group transform; node is absent: "
+                        f"{snapshot['node_id']!r}."
+                    )
+                target_identity = {
+                    key: deepcopy(target.properties.get(key))
+                    for key in snapshot["identity"]
+                }
+                if target.equipment_id != snapshot["equipment_id"] or target_identity != snapshot["identity"]:
+                    raise ValueError(
+                        "Cannot undo SLD group transform; logical node identity changed for "
+                        f"{snapshot['node_id']!r}."
+                    )
+                targets.append((snapshot, target))
+            for snapshot, target in targets:
+                self.document.set_node_position(
+                    snapshot["node_id"], *snapshot["previous_position"]
+                )
+                if snapshot["previous_presentation"] is None:
+                    target.clear_presentation()
+                else:
+                    target.set_presentation(snapshot["previous_presentation"])
+                target.properties.clear()
+                target.properties.update(deepcopy(snapshot["previous_properties"]))
+            self.document.mark_modified()
+
+        # One inverse journal entry makes the complete group transform atomic
+        # for undo/redo and protects against partial mutation on failure.
+        transaction.record_undo(restore)
+        for snapshot in prepared:
+            self.document.set_node_position(
+                snapshot["node_id"], snapshot["x"], snapshot["y"]
+            )
+            snapshot["node"].set_presentation(snapshot["presentation"])
+            snapshot["node"].properties["position_owner"] = "engineer"
+            snapshot["node"].properties["symbol_owner"] = "engineer"
+        self.document.mark_modified()
+        return ApplicationResult.success_result(
+            message="SLD group transform updated atomically.",
+            metadata={
+                "presentation_operation": "set_node_transforms",
+                "node_ids": tuple(item["node_id"] for item in prepared),
+            },
+        )
 
     def _set_node_positions(self, command: Command, transaction: Transaction) -> ApplicationResult:
         """Apply all requested node positions within the caller's one transaction."""
