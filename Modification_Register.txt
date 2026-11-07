@@ -23234,3 +23234,4 @@ UI COMPLETION — 2026-11-07
 - ui/canvas/canvas_hit.py and ui/tools/select_tool.py: route segment hits carry either Core or DraftNetwork identity; SelectTool resolves the exact draft presentation item without adding it to Core selection.
 - ui/sld/sld_route_edit_controller.py: draft bend edits dispatch UpdateDraftConnectionRouteCommand through Application; persistent SLD route edits retain their existing command path.
 - Draft route editing remains presentation-only and uses DraftNetwork snapshot undo/redo; Escape continues to cancel the current pointer gesture.
+- ui/sld/items/sld_connection_item.py and ui/tools/select_tool.py: double-clicking a draft Simple Wire segment inserts an authored bend; dragging an existing bend updates the route. Both interactions dispatch the stable DraftNetwork identity through the Application route command.
