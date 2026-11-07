@@ -357,6 +357,18 @@ class StudyService:
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
         key = (request.project_id, request.activation_generation, request.study_id)
+
+        def last_valid_time(partial: object | None) -> float | None:
+            samples = getattr(partial, "time", None)
+            if samples is None:
+                return None
+            try:
+                if len(samples) == 0:
+                    return None
+                return float(samples[-1])
+            except (TypeError, ValueError, IndexError):
+                return None
+
         token = _reserved_token or StudyCancellationToken()
         with self._lock:
             handler = self._handlers.get(request.study_type)
@@ -392,7 +404,7 @@ class StudyService:
                     {
                         "partial_result_available": value is not None,
                         "execution_status": "cancelled",
-                        "last_valid_time": getattr(value, "final_time", None),
+                        "last_valid_time": last_valid_time(value),
                         "termination": (
                             dict(getattr(value, "provenance", {}).get("termination", {}))
                             if isinstance(getattr(value, "provenance", {}), Mapping)
@@ -401,7 +413,7 @@ class StudyService:
                                 "status": "cancelled",
                                 "reason": "cancellation_requested",
                                 "stage": "handler_return",
-                                "failing_time": getattr(value, "final_time", None),
+                                "failing_time": last_valid_time(value),
                                 "diagnostic_message": "Study cancelled at a committed solver boundary.",
                             }
                         ),
@@ -497,7 +509,7 @@ class StudyService:
                     "partial_result_available": getattr(exc, "partial_result", None) is not None,
                     "execution_status": "cancelled" if cancelled else "failed",
                     "last_valid_time": (
-                        getattr(getattr(exc, "partial_result", None), "final_time", None)
+                        last_valid_time(getattr(exc, "partial_result", None))
                     ),
                     "event_schedule": tuple(
                         getattr(getattr(exc, "partial_result", None), "provenance", {}).get("event_schedule", ())
