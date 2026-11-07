@@ -62,9 +62,9 @@ from .connection_commands import (
     ConnectTerminalCommand, DisconnectTerminalCommand, ReconnectTerminalCommand,
 )
 from .sld_commands import (
-    SET_SLD_NODE_POSITION, SET_SLD_NODE_POSITIONS, ADD_SLD_NODE, REMOVE_SLD_NODE,
+    SET_SLD_NODE_POSITION, SET_SLD_NODE_POSITIONS, SET_SLD_NODE_TRANSFORMS, ADD_SLD_NODE, REMOVE_SLD_NODE,
     ADD_SLD_CONNECTION, REMOVE_SLD_CONNECTION,
-    SetSLDNodePositionCommand, SetSLDNodePositionsCommand, AddSLDNodeCommand, RemoveSLDNodeCommand,
+    SetSLDNodePositionCommand, SetSLDNodePositionsCommand, SetSLDNodeTransformsCommand, AddSLDNodeCommand, RemoveSLDNodeCommand,
     AddSLDConnectionCommand, RemoveSLDConnectionCommand,
     SET_SLD_NODE_PRESENTATION, SET_SLD_CONNECTION_ROUTE, SET_SLD_NODE_PROPERTIES,
     SET_SLD_ANNOTATION_BLOCKS, SetSLDNodePresentationCommand,
