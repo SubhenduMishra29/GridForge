@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from core.application.commands.draft_commands import UpdateDraftConnectionRouteCommand
 
@@ -57,7 +57,7 @@ class SLDRouteEditController:
             if not callable(reader) or not callable(executor):
                 raise RuntimeError("Draft route editing requires the active Application draft boundary.")
             snapshot = reader()
-            if not isinstance(snapshot, dict):
+            if not isinstance(snapshot, Mapping):
                 raise RuntimeError("No active DraftNetwork is available for route editing.")
             points = request.get("points")
             if not isinstance(points, (tuple, list)):
