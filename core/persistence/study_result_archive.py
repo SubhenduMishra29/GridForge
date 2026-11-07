@@ -176,8 +176,14 @@ def _validate_transient_input_manifest(provenance: Any) -> None:
         raise StudyResultArchiveError("Transient operating-point voltage-base evidence is malformed.")
     if set(operating_point["bus_voltage_bases_kv"]) != set(buses):
         raise StudyResultArchiveError("Transient operating-point voltage bases do not cover its Bus identities.")
-    if not isinstance(event_scenario, Mapping) or set(event_scenario) != {"schema_version", "events"} or event_scenario.get("schema_version") != 1:
+    if not isinstance(event_scenario, Mapping) or set(event_scenario) != {"schema_version", "start_time", "end_time", "dt", "events"} or event_scenario.get("schema_version") != 1:
         raise StudyResultArchiveError("Transient event-scenario manifest has an unsupported schema.")
+    try:
+        start, end, step = (float(event_scenario[key]) for key in ("start_time", "end_time", "dt"))
+    except (TypeError, ValueError, KeyError) as exc:
+        raise StudyResultArchiveError("Transient event-scenario simulation window is malformed.") from exc
+    if not all(math.isfinite(value) for value in (start, end, step)) or start < 0.0 or end <= start or step <= 0.0:
+        raise StudyResultArchiveError("Transient event-scenario simulation window is invalid.")
     events = event_scenario.get("events")
     if not isinstance(events, (tuple, list)):
         raise StudyResultArchiveError("Transient event-scenario events must be an ordered sequence.")
