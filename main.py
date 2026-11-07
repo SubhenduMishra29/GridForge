@@ -587,9 +587,68 @@ def _build_application_impl(
             if object_id is not None:
                 manager.add_to_selection(object_id)
 
+    def _selection_supports(operation: str) -> bool:
+        """Return whether the complete SLD selection has a safe semantic operation."""
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
+        if not selected_ids or operation not in {"copy", "delete"}:
+            return False
+        draft_snapshot = gridforge_application.read_draft_network()
+        draft_snapshot = draft_snapshot if isinstance(draft_snapshot, dict) else {}
+        draft_equipment = {
+            str(item.get("draft_id", ""))
+            for item in draft_snapshot.get("equipment", ())
+            if isinstance(item, dict)
+        }
+        draft_connections = {
+            str(item.get("connection_id", ""))
+            for item in draft_snapshot.get("connections", ())
+            if isinstance(item, dict)
+        }
+        for selected_id in selected_ids:
+            element = _find_network_element(selected_id)
+            if element is not None:
+                element_type = str(element.element_type).strip().lower()
+                if element_type not in {"bus", "transformer", "breaker"}:
+                    return False
+                if operation == "copy" and element_type == "transformer":
+                    read_model = gridforge_application.read_element(
+                        str(element.element_type), str(element.object_id)
+                    )
+                    if not bool(getattr(read_model, "attributes", {}).get("in_service", True)):
+                        return False
+                continue
+            try:
+                wire = gridforge_application.read_simple_wire(str(selected_id))
+            except (KeyError, RuntimeError):
+                wire = None
+            if wire is not None:
+                if operation == "copy":
+                    return False
+                continue
+            if str(selected_id) in draft_equipment or str(selected_id) in draft_connections:
+                if operation == "copy":
+                    return False
+                continue
+            node = _find_sld_node(selected_id)
+            if node is not None and getattr(node, "equipment_id", None) is None:
+                if operation == "copy":
+                    return False
+                continue
+            return False
+        return True
+
     def _copy_selection() -> None:
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         sld_clipboard.clear()
-        for selected_id in canvas_composition.selection_manager.get_selected_ids():
+        if not selected_ids:
+            return
+        if not _selection_supports("copy"):
+            messages_panel.append_message(
+                "Copy canceled: the complete selection contains an element without a "
+                "supported semantic clone. Nothing was copied."
+            )
+            return
+        for selected_id in selected_ids:
             element = _find_network_element(selected_id)
             node = _find_sld_node(selected_id)
             if element is None or node is None:
@@ -600,21 +659,16 @@ def _build_application_impl(
             )
             element_type = str(read_model.element_type).strip().lower()
             if element_type not in {"bus", "transformer", "breaker"}:
-                messages_panel.append_message(
-                    f"Copy skipped: semantic paste is not defined for {element_type}."
+                raise RuntimeError(
+                    f"Copy preflight invariant failed for unsupported {element_type!r}."
                 )
-                continue
             if element_type == "transformer" and not bool(
                 getattr(read_model, "attributes", {}).get("in_service", True)
             ):
-                # CreateTransformerCommand has no in_service field and there
-                # is no canonical Transformer service-state command. Pasting
-                # this item would silently reactivate an out-of-service unit.
-                messages_panel.append_message(
-                    "Copy skipped: Transformer service state cannot yet be "
-                    "preserved by the canonical create command."
+                raise RuntimeError(
+                    "Copy preflight invariant failed: Transformer service state "
+                    "cannot be preserved by the canonical create command."
                 )
-                continue
             sld_clipboard.append({
                 "element_type": element_type,
                 "attributes": dict(getattr(read_model, "attributes", {}) or {}),
@@ -699,6 +753,18 @@ def _build_application_impl(
     def _delete_selection() -> None:
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
+            return
+        if len(selected_ids) != 1:
+            messages_panel.append_message(
+                "Delete canceled: multi-object deletion is disabled until an atomic "
+                "Application batch command is available. Nothing was deleted."
+            )
+            return
+        if not _selection_supports("delete"):
+            messages_panel.append_message(
+                "Delete canceled: the selected object has no supported semantic "
+                "delete command. Nothing was deleted."
+            )
             return
 
         for selected_id in selected_ids:
@@ -862,14 +928,48 @@ def _build_application_impl(
             selected_ids=(),
         )
 
-    def _toggle_sld_maximize() -> None:
-        _activate_workspace(SLD_WORKSPACE_ID, "sld")
-        maximized = workspace_surface_host.editor_host.maximized_area_id == "main-sld"
-        workspace_surface_host.editor_host.set_area_maximized("main-sld", not maximized)
+    def _active_workspace_area_id() -> str | None:
+        layout = workspace_controller.realized_layout
+        if layout is None:
+            return None
+        focused = workspace_controller.realizer.focused_area_id
+        if focused is not None and layout.get_area(focused) is not None:
+            return focused
+        main_area = next(
+            (area for area in layout.areas if area.metadata.get("role") == "main"),
+            None,
+        )
+        return None if main_area is None else main_area.area_id
 
-    def _toggle_sld_region(region_id: str) -> None:
-        _activate_workspace(SLD_WORKSPACE_ID, "sld")
-        workspace_surface_host.toggle_region("sld", region_id)
+    def _active_workspace_has_region(region_id: str) -> bool:
+        layout = workspace_controller.realized_layout
+        if layout is None:
+            return False
+        area_id = _active_workspace_area_id()
+        area = layout.get_area(area_id) if area_id is not None else None
+        if area is None:
+            return False
+        editor = workspace_surface_host.editor_host.widget(area.editor.editor_id)
+        if editor is None:
+            return False
+        region = getattr(editor, "region_widget", lambda _id: None)(region_id)
+        return region is not None
+
+    def _toggle_active_region(region_id: str) -> None:
+        workspace_id = workspace_controller.active_workspace_id
+        if workspace_id is None or not _active_workspace_has_region(region_id):
+            messages_panel.append_message(
+                f"{region_id.title()} is not available in the active workspace."
+            )
+            return
+        workspace_surface_host.toggle_region(workspace_id, region_id)
+
+    def _toggle_active_editor_maximize() -> None:
+        area_id = _active_workspace_area_id()
+        if area_id is None:
+            return
+        maximized = workspace_surface_host.editor_host.maximized_area_id == area_id
+        workspace_surface_host.editor_host.set_area_maximized(area_id, not maximized)
 
     action_router.register_many({
         "project.new": _new_project,
@@ -894,11 +994,11 @@ def _build_application_impl(
         "view.topology": lambda: _activate_surface("topology"),
         "view.map": lambda: _activate_surface("map"),
         "view.reports": lambda: _activate_workspace(STUDY_WORKSPACE_ID, "study"),
-        "view.maximize_editor": _toggle_sld_maximize,
-        "view.toggle_explorer": lambda: _toggle_sld_region("explorer"),
-        "view.toggle_inspector": lambda: _toggle_sld_region("sidebar"),
-        "view.toggle_messages": lambda: _toggle_sld_region("diagnostics"),
-        "view.toggle_tool_settings": lambda: _toggle_sld_region("tool_settings"),
+        "view.maximize_editor": _toggle_active_editor_maximize,
+        "view.toggle_explorer": lambda: _toggle_active_region("explorer"),
+        "view.toggle_inspector": lambda: _toggle_active_region("sidebar"),
+        "view.toggle_messages": lambda: _toggle_active_region("diagnostics"),
+        "view.toggle_tool_settings": lambda: _toggle_active_region("tool_settings"),
         "view.equipment_browser": _show_equipment_browser,
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
@@ -1036,12 +1136,23 @@ def _build_application_impl(
         if action_id in sld_only_actions and (not project_active or discipline != "sld"):
             return False
 
+        if action_id in {"view.toggle_explorer", "view.toggle_inspector",
+                         "view.toggle_messages", "view.toggle_tool_settings"}:
+            region_id = {
+                "view.toggle_explorer": "explorer",
+                "view.toggle_inspector": "sidebar",
+                "view.toggle_messages": "diagnostics",
+                "view.toggle_tool_settings": "tool_settings",
+            }[action_id]
+            return project_active and _active_workspace_has_region(region_id)
         if action_id in {"project.save", "project.save_as", "project.close",
                          "study.cases", "view.sld_workspace", "view.control_workspace",
-                         "view.protection_workspace", "view.topology", "view.map", "view.reports",
-                         "view.maximize_editor", "view.toggle_explorer", "view.toggle_inspector",
-                         "view.toggle_messages", "view.toggle_tool_settings"}:
-            return project_active
+                         "view.protection_workspace", "view.study_workspace",
+                         "view.topology", "view.map", "view.reports",
+                         "view.maximize_editor"}:
+            return project_active and (
+                action_id != "view.maximize_editor" or _active_workspace_area_id() is not None
+            )
         if action_id.startswith("tool."):
             try:
                 definition = action_router.definition(action_id)
@@ -1076,8 +1187,20 @@ def _build_application_impl(
             draft_equipment = draft_snapshot.get("equipment", ())
             draft_connections = draft_snapshot.get("connections", ())
             return bool(draft_equipment or draft_connections)
-        if action_id in {"delete", "edit.delete_selection", "copy", "edit.copy", "edit.cut", "edit.rotate",
-                         "edit.mirror_horizontal", "edit.mirror_vertical"}:
+        if action_id in {"delete", "edit.delete_selection"}:
+            return (
+                project_active and discipline == "sld" and selected
+                and len(context.selected_ids) == 1 and _selection_supports("delete")
+            )
+        if action_id in {"copy", "edit.copy"}:
+            return project_active and discipline == "sld" and selected and _selection_supports("copy")
+        if action_id == "edit.cut":
+            return (
+                project_active and discipline == "sld" and selected
+                and len(context.selected_ids) == 1
+                and _selection_supports("copy") and _selection_supports("delete")
+            )
+        if action_id in {"edit.rotate", "edit.mirror_horizontal", "edit.mirror_vertical"}:
             return project_active and discipline == "sld" and selected
         if action_id in {"paste", "edit.paste"}:
             return project_active and bool(sld_clipboard) and discipline == "sld"
