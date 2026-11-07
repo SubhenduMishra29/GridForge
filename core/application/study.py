@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from concurrent.futures import Future, ThreadPoolExecutor
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 from threading import Lock, RLock
@@ -231,7 +232,7 @@ StudyHandler = Callable[[StudyRequest, StudyExecutionContext, StudyCancellationT
 class StudyService:
     """Single Application-owned study execution/orchestration boundary."""
 
-    def __init__(self, event_bus: ApplicationEventBus) -> None:
+    def __init__(self, event_bus: ApplicationEventBus, *, max_workers: int = 2) -> None:
         if not isinstance(event_bus, ApplicationEventBus):
             raise TypeError("event_bus must be an ApplicationEventBus.")
         self._event_bus = event_bus
@@ -242,6 +243,10 @@ class StudyService:
         # Counts by study type prevent teardown while any execution is active.
         self._active_study_types: dict[str, int] = {}
         self._lock = RLock()
+        if not isinstance(max_workers, int) or isinstance(max_workers, bool) or max_workers < 1:
+            raise ValueError("max_workers must be a positive integer.")
+        self._executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="gridforge-study")
+        self._shutdown = False
 
     @property
     def registered_study_types(self) -> tuple[str, ...]:
@@ -312,7 +317,37 @@ class StudyService:
             del self._handlers[key]
             return True
 
-    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext) -> StudyResult:
+    def submit(self, request: StudyRequest, execution_context: StudyExecutionContext) -> Future[StudyResult]:
+        """Queue a provenance-bound study on the canonical Application scheduler."""
+        if not isinstance(request, StudyRequest) or not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("submit requires a StudyRequest and StudyExecutionContext.")
+        if (execution_context.project_id != request.project_id
+                or execution_context.activation_generation != request.activation_generation
+                or execution_context.source_revision != request.source_revision):
+            raise ValueError("Study execution context does not match StudyRequest provenance.")
+        key = (request.project_id, request.activation_generation, request.study_id)
+        token = StudyCancellationToken()
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("StudyService scheduler is shut down.")
+            if request.study_type not in self._handlers:
+                raise KeyError(f"No study handler registered for {request.study_type!r}.")
+            if key in self._tokens:
+                raise ValueError(f"Study is already active: {request.study_id}")
+            self._tokens[key] = token
+            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            try:
+                return self._executor.submit(self.execute, request, execution_context, _reserved_token=token)
+            except BaseException:
+                self._tokens.pop(key, None)
+                count = self._active_study_types.get(request.study_type, 0)
+                if count <= 1:
+                    self._active_study_types.pop(request.study_type, None)
+                else:
+                    self._active_study_types[request.study_type] = count - 1
+                raise
+
+    def execute(self, request: StudyRequest, execution_context: StudyExecutionContext, *, _reserved_token: StudyCancellationToken | None = None) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
         if not isinstance(execution_context, StudyExecutionContext):
@@ -322,20 +357,23 @@ class StudyService:
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
         key = (request.project_id, request.activation_generation, request.study_id)
-        token = StudyCancellationToken()
+        token = _reserved_token or StudyCancellationToken()
         with self._lock:
             handler = self._handlers.get(request.study_type)
             if handler is None:
                 raise KeyError(f"No study handler registered for {request.study_type!r}.")
-            if key in self._tokens:
-                raise ValueError(f"Study is already active: {request.study_id}")
-            self._tokens[key] = token
-            self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            if _reserved_token is None:
+                if key in self._tokens:
+                    raise ValueError(f"Study is already active: {request.study_id}")
+                self._tokens[key] = token
+                self._active_study_types[request.study_type] = self._active_study_types.get(request.study_type, 0) + 1
+            elif self._tokens.get(key) is not token:
+                raise RuntimeError("Reserved Study cancellation token lost its active scope.")
 
         terminal_result_committed = False
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
-            value = handler(request, execution_context, token)
+            value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
             result = StudyResult(
@@ -466,6 +504,17 @@ class StudyService:
                     self._active_study_types.pop(request.study_type, None)
                 else:
                     self._active_study_types[request.study_type] = active_count - 1
+
+    def shutdown(self, *, wait: bool = True) -> None:
+        """Stop accepting work, request cancellation, and drain the scheduler."""
+        with self._lock:
+            if self._shutdown:
+                return
+            self._shutdown = True
+            tokens = tuple(self._tokens.values())
+        for token in tokens:
+            token.cancel()
+        self._executor.shutdown(wait=wait, cancel_futures=False)
 
     @property
     def has_active_studies(self) -> bool:

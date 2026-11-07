@@ -27,8 +27,8 @@ class StudyCaseController:
             raise ValueError("application is required.")
         if not callable(getattr(application, "study_case", None)):
             raise TypeError("application must expose study_case().")
-        if not callable(getattr(application, "execute_study_case", None)):
-            raise TypeError("application must expose execute_study_case().")
+        if not callable(getattr(application, "submit_study_case", None)):
+            raise TypeError("application must expose submit_study_case().")
         self._application = application
         self._error_handler = error_handler
 
@@ -41,7 +41,7 @@ class StudyCaseController:
                 return self._handle_error(ValueError("Selected Study Case identity is invalid."), cause=exc)
         try:
             self._application.study_case(study_id)
-            return self._application.execute_study_case(study_id)
+            return self._application.submit_study_case(study_id)
         except Exception as exc:
             return self._handle_error(exc)
 
