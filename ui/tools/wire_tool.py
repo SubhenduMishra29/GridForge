@@ -215,7 +215,15 @@ class WireTool(ToolBase):
             return None
         return result
 
-    def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
+    def _execute_connection(
+        self,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        *,
+        source_snap: Any,
+        target_snap: Any,
+        presentation_route: dict | None = None,
+    ) -> Any:
         del source_snap, target_snap
         if endpoint_from is None or endpoint_to is None:
             raise ValueError("WireTool requires two canonical electrical endpoint references.")
@@ -249,12 +257,14 @@ class WireTool(ToolBase):
                     "source": source.to_dict(),
                     "target": target.to_dict(),
                     "connection_kind": "simple_wire",
+                    "route": dict(presentation_route or {}),
                 }
             )
         else:
             command = CreateSimpleWireConnectionCommand(
                 endpoint_a=endpoint_from,
                 endpoint_b=endpoint_to,
+                presentation_route=presentation_route,
             )
         return self.execute_command(command)
 
