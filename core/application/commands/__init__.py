@@ -94,3 +94,8 @@ from .model_commands import *
 from .control_commands import *
 
 __all__ = [name for name in globals() if not name.startswith("_")]
+
+from .draft_commands import (
+    UPDATE_DRAFT_CONNECTION_ROUTE,
+    UpdateDraftConnectionRouteCommand,
+)
