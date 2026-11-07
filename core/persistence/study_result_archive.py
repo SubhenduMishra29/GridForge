@@ -186,31 +186,31 @@ def _validate_transient_input_manifest(provenance: Any) -> None:
             raise StudyResultArchiveError("Transient event-scenario simulation window is malformed.") from exc
         if not all(math.isfinite(value) for value in (start, end, step)) or start < 0.0 or end <= start or step <= 0.0:
             raise StudyResultArchiveError("Transient event-scenario simulation window is invalid.")
-    events = event_scenario.get("events")
-    if not isinstance(events, (tuple, list)):
-        raise StudyResultArchiveError("Transient event-scenario events must be an ordered sequence.")
-    event_ids = []
-    ordering = []
-    required_event = {"event_id", "event_type", "time", "priority", "enabled", "description", "metadata", "operation"}
-    for event in events:
-        if not isinstance(event, Mapping) or set(event) != required_event:
-            raise StudyResultArchiveError("Transient event-scenario entry has missing or unknown fields.")
-        if not isinstance(event["event_id"], str) or not event["event_id"].strip():
-            raise StudyResultArchiveError("Transient event-scenario identity is invalid.")
-        if not isinstance(event["event_type"], str) or not event["event_type"].strip():
-            raise StudyResultArchiveError("Transient event-scenario type is invalid.")
-        if isinstance(event["time"], bool) or not isinstance(event["time"], (int, float)) or not math.isfinite(float(event["time"])) or event["time"] < 0:
-            raise StudyResultArchiveError("Transient event-scenario time is invalid.")
-        if isinstance(event["priority"], bool) or not isinstance(event["priority"], int) or type(event["enabled"]) is not bool:
-            raise StudyResultArchiveError("Transient event-scenario priority or enabled state is invalid.")
-        if not isinstance(event["description"], str) or not isinstance(event["metadata"], Mapping):
-            raise StudyResultArchiveError("Transient event-scenario descriptive metadata is invalid.")
-        if event["operation"] is not None and not isinstance(event["operation"], Mapping):
-            raise StudyResultArchiveError("Transient event-scenario operation is invalid.")
-        event_ids.append(event["event_id"])
-        ordering.append((float(event["time"]), event["priority"], event["event_id"]))
-    if len(event_ids) != len(set(event_ids)) or ordering != sorted(ordering):
-        raise StudyResultArchiveError("Transient event-scenario identities or deterministic ordering are invalid.")
+        events = event_scenario.get("events")
+        if not isinstance(events, (tuple, list)):
+            raise StudyResultArchiveError("Transient event-scenario events must be an ordered sequence.")
+        event_ids = []
+        ordering = []
+        required_event = {"event_id", "event_type", "time", "priority", "enabled", "description", "metadata", "operation"}
+        for event in events:
+            if not isinstance(event, Mapping) or set(event) != required_event:
+                raise StudyResultArchiveError("Transient event-scenario entry has missing or unknown fields.")
+            if not isinstance(event["event_id"], str) or not event["event_id"].strip():
+                raise StudyResultArchiveError("Transient event-scenario identity is invalid.")
+            if not isinstance(event["event_type"], str) or not event["event_type"].strip():
+                raise StudyResultArchiveError("Transient event-scenario type is invalid.")
+            if isinstance(event["time"], bool) or not isinstance(event["time"], (int, float)) or not math.isfinite(float(event["time"])) or event["time"] < 0:
+                raise StudyResultArchiveError("Transient event-scenario time is invalid.")
+            if isinstance(event["priority"], bool) or not isinstance(event["priority"], int) or type(event["enabled"]) is not bool:
+                raise StudyResultArchiveError("Transient event-scenario priority or enabled state is invalid.")
+            if not isinstance(event["description"], str) or not isinstance(event["metadata"], Mapping):
+                raise StudyResultArchiveError("Transient event-scenario descriptive metadata is invalid.")
+            if event["operation"] is not None and not isinstance(event["operation"], Mapping):
+                raise StudyResultArchiveError("Transient event-scenario operation is invalid.")
+            event_ids.append(event["event_id"])
+            ordering.append((float(event["time"]), event["priority"], event["event_id"]))
+        if len(event_ids) != len(set(event_ids)) or ordering != sorted(ordering):
+            raise StudyResultArchiveError("Transient event-scenario identities or deterministic ordering are invalid.")
 
 
 def _encode_value(value: Any) -> Any:
