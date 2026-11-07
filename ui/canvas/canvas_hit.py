@@ -34,6 +34,7 @@ class CanvasHitTarget:
     object_id: Any = None
     presentation_id: str | None = None
     core_connection_id: str | None = None
+    draft_connection_id: str | None = None
     segment_index: int | None = None
     closest_point: Point | None = None
     distance: float | None = None
