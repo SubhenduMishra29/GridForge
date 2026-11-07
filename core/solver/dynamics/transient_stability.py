@@ -358,6 +358,7 @@ class TransientStabilitySolver:
                     self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
                     raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
                 raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
+            executions.extend(due_executions)
             if self._last_due_discontinuity is not None:
                 discontinuities.append(self._last_due_discontinuity)
                 if self._last_due_post_solution is not None:
