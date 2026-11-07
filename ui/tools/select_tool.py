@@ -101,6 +101,7 @@ class SelectTool(ToolBase):
             core_connection_id = self._pressed_hit.core_connection_id
             if core_connection_id is not None:
                 self._handle_connection_click(core_connection_id, modifiers)
+            if core_connection_id is not None or self._pressed_hit.draft_connection_id is not None:
                 self._capture_route_edit_target(self._pressed_hit)
             return True
 
@@ -117,6 +118,30 @@ class SelectTool(ToolBase):
             self._handle_node_click(self._pressed_object_id, modifiers)
         return True
 
+    def on_mouse_double_click(self, event: Any) -> bool:
+        """Insert a route bend on a draft wire without committing Core topology."""
+        self._ensure_active()
+        hit = self._event_presentation_hit(event)
+        if hit.kind != CanvasHitKind.SIMPLE_WIRE_SEGMENT or hit.closest_point is None:
+            return False
+        is_draft = hit.draft_connection_id is not None
+        if not is_draft and hit.route_ownership != "engineer":
+            return False
+        item = self._connection_item_for_hit(hit)
+        if item is None:
+            return False
+        insert = getattr(item, "insert_bend", None)
+        if not callable(insert):
+            return False
+        insert(
+            len(hit.route_points) if hit.segment_index is None else min(
+                hit.segment_index, len(hit.route_points)
+            ),
+            hit.closest_point[0],
+            hit.closest_point[1],
+        )
+        return True
+
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
         if self._pressed_scene_position is None:
@@ -125,6 +150,7 @@ class SelectTool(ToolBase):
         self._dragging = self._dragging or (
             self._distance(self._pressed_scene_position, current) >= self.DRAG_TOLERANCE
         )
+
         if self._grab_mode:
             return True
 
@@ -158,31 +184,44 @@ class SelectTool(ToolBase):
             self._clear_pointer_state()
             return False
         end = self._xy(self._event_scene_position(event))
+
         if self._grab_mode:
-            try:
-                if self._dragging:
-                    start = self._pressed_scene_position
-                    snap = getattr(self.get_snap_system(), "snap", None)
-                    if callable(snap):
-                        snapped = snap(
-                            QPointF(end[0], end[1]),
-                            allow_grid=True,
-                            allow_object=False,
-                            intent="MOVE",
-                        )
-                        position = getattr(snapped, "position", None)
-                        if position is not None:
-                            end = (float(position.x()), float(position.y()))
-                    delta_x, delta_y = end[0] - start[0], end[1] - start[1]
-                    if self._grab_axis == "x":
-                        delta_y = 0.0
-                    elif self._grab_axis == "y":
-                        delta_x = 0.0
-                    self._commit_group_transform(delta_x=delta_x, delta_y=delta_y)
-            finally:
+            if not self._selected_transform_nodes():
                 self._grab_mode = False
                 self._grab_axis = None
                 self._clear_pointer_state()
+                return False
+            return True
+
+        if self._pressed_hit.kind == CanvasHitKind.SIMPLE_WIRE_SEGMENT:
+            core_connection_id = self._pressed_hit.core_connection_id
+            if core_connection_id is not None:
+                self._handle_connection_click(core_connection_id, modifiers)
+                self._capture_route_edit_target(self._pressed_hit)
+            return True
+
+        if self._pressed_hit.kind == CanvasHitKind.CONNECTION:
+            core_connection_id = self._pressed_hit.core_connection_id
+            if core_connection_id is not None:
+                self._handle_connection_click(core_connection_id, modifiers)
+            return True
+
+        if self._pressed_object_id is None:
+            if not self._has_additive_modifier(modifiers) and not self._has_toggle_modifier(modifiers):
+                self.get_selection_manager().clear()
+        else:
+            self._handle_node_click(self._pressed_object_id, modifiers)
+        return True
+
+    def on_mouse_move(self, event: Any) -> bool:
+        self._ensure_active()
+        if self._pressed_scene_position is None:
+            return False
+        current = self._xy(self._event_scene_position(event))
+        self._dragging = self._dragging or (
+            self._distance(self._pressed_scene_position, current) >= self.DRAG_TOLERANCE
+        )
+        if self._grab_mode:
             return True
 
         if self._route_edit_bend_index is not None and self._route_edit_item is not None:
@@ -657,6 +696,10 @@ class SelectTool(ToolBase):
             if (
                 getattr(item, "presentation_id", None) == hit.presentation_id
                 and getattr(item, "core_connection_id", None) == hit.core_connection_id
+                and (
+                    hit.draft_connection_id is None
+                    or getattr(item, "projection_source", None) == "draft_network"
+                )
             ):
                 return item
         return None
