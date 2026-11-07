@@ -17,7 +17,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt, QDrag, QMimeData,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -139,6 +139,23 @@ class ProjectPanelWidget(QWidget):
         studies.setExpanded(True)
 
 
+class EquipmentPaletteListWidget(QListWidget):
+    """Equipment palette drag source carrying only a stable catalogue type."""
+
+    MIME_TYPE = "application/x-gridforge-equipment-type"
+
+    def startDrag(self, supported_actions: Any) -> None:
+        item = self.currentItem()
+        equipment_type = None if item is None else item.data(32)
+        if not isinstance(equipment_type, str) or not equipment_type.strip():
+            return
+        drag = QDrag(self)
+        mime = QMimeData()
+        mime.setData(self.MIME_TYPE, equipment_type.encode("utf-8"))
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+
 class EquipmentPanelWidget(QWidget):
     """Canonical Equipment Browser backed by the project-independent catalogue."""
 
@@ -158,7 +175,8 @@ class EquipmentPanelWidget(QWidget):
         self._search = QLineEdit(self)
         self._search.setPlaceholderText("Search components…")
         self._search.setObjectName("EquipmentSearch")
-        self._list = QListWidget(self)
+        self._list = EquipmentPaletteListWidget(self)
+        self._list.setDragEnabled(True)
         self._list.setViewMode(QListWidget.ViewMode.IconMode)
         self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._list.setMovement(QListWidget.Movement.Static)
