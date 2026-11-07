@@ -74,6 +74,18 @@ class ElectricalInsertionTool(ToolBase):
     def on_deactivate(self) -> None:
         self._clear_target()
 
+    def on_mouse_press(self, event: Any) -> bool:
+        """Accept an explicit insertion gesture only on a resolvable Core wire."""
+        self._ensure_active()
+        if self._equipment_type is None:
+            return False
+        target = self._resolve_target(event)
+        if target is None:
+            self._clear_target()
+            return False
+        self._set_target(target)
+        return True
+
     def on_mouse_move(self, event: Any) -> bool:
         self._ensure_active()
         target = self._resolve_target(event)
