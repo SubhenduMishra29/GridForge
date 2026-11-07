@@ -1,9 +1,10 @@
 
+
 GF-AUD-217 / Issue #999 / PR #1139 — Directional snapshot issuance authority
-- Removed the unrestricted Core directional snapshot minting helper and Application's private relay-module import.
+- Removed the unrestricted Core directional snapshot minting helper and Application's direct private relay-module import.
 - Moved the immutable snapshot contract to a private directional snapshot module; it is not exported from the public directional package.
-- Bound issuance to the Application-injected capability and the exact composed ProtectionRuntime; runtime derives project, activation, configuration, runtime and channel identities.
+- Bound issuance to the Application-injected capability and exact composed ProtectionRuntime; runtime derives project, activation, configuration, runtime and channel identities.
 - Added per-runtime issuer validation and voltage/current sample-sequence binding; relay checks element channel bindings and rejects stale/different sample sequences.
 - Preserved Application-side measurement quality, timestamp-domain, freshness, coherence and representation validation; stale runtime/configuration/equipment issuance fails closed.
-- Related Application-to-Core private-helper dependency #947 reconciled.
+- Reconciled the related Application-to-Core private-helper dependency in #947.
 - Static source review completed; tests/CI and live protection-cycle execution not run.
