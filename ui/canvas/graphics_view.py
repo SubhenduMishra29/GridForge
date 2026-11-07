@@ -388,7 +388,9 @@ class GraphicsView(QGraphicsView):
             self._palette_drag_preview_started = True
         if insertion_requested and not self._palette_drag_insertion_started:
             if not self._begin_palette_insertion(event):
-                event.ignore()
+                # Keep the drag session alive while the engineer moves away
+                # from an ambiguous crossing or onto a valid canonical wire.
+                event.acceptProposedAction()
                 return
             self._palette_drag_insertion_started = True
         elif self._palette_drag_insertion_started:
@@ -403,6 +405,9 @@ class GraphicsView(QGraphicsView):
             return
         shift_mask = int(Qt.KeyboardModifier.ShiftModifier.value)
         insertion_requested = bool(int(event.modifiers()) & shift_mask)
+        if not self._palette_drag_preview_started:
+            self.interaction_manager.mouse_move(self._palette_event_without_hit(event))
+            self._palette_drag_preview_started = True
         if insertion_requested:
             if not self._palette_drag_insertion_started:
                 if not self._begin_palette_insertion(event):
@@ -421,6 +426,12 @@ class GraphicsView(QGraphicsView):
                 or not isinstance(hit.core_connection_id, str)
                 or hit.draft_connection_id is not None
             ):
+                self._finish_palette_drag(restore_previous_tool=True)
+                event.ignore()
+                return
+            insertion_tool = self.tool_manager.get_tool("electrical-insertion")
+            candidate = insertion_tool.insertion_target(semantic)
+            if candidate is None or str(candidate.get("connection_id", "")) != hit.core_connection_id:
                 self._finish_palette_drag(restore_previous_tool=True)
                 event.ignore()
                 return
