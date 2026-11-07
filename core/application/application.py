@@ -1638,6 +1638,8 @@ class Application:
                 voltage_channel=voltage_channel,
                 current_channel=current_channel,
                 sample_timestamp=voltage_timestamp,
+                voltage_sample_sequence=validated_measurement_snapshots[(element.element_id, "voltage")]["sample_sequence"],
+                current_sample_sequence=validated_measurement_snapshots[(element.element_id, "current")]["sample_sequence"],
             )
 
         if diagnostics:
