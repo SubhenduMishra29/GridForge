@@ -52,6 +52,15 @@ class SLDAnnotationBlock:
     visible: bool = True
     offset_x: float = 70.0
     offset_y: float = -20.0
+    quadrant: str = "custom"
+
+    QUADRANT_OFFSETS = {
+        "top_right": (70.0, -20.0),
+        "top_left": (-70.0, -20.0),
+        "bottom_right": (70.0, 20.0),
+        "bottom_left": (-70.0, 20.0),
+    }
+    VALID_QUADRANTS = frozenset((*QUADRANT_OFFSETS, "custom"))
 
     def __post_init__(self) -> None:
         if not isinstance(self.block_id, str) or not self.block_id.strip():
@@ -73,6 +82,11 @@ class SLDAnnotationBlock:
                 raise ValueError("unsupported annotation field: " + field)
         if not isinstance(self.visible, bool):
             raise TypeError("visible must be boolean")
+        if not isinstance(self.quadrant, str) or self.quadrant not in self.VALID_QUADRANTS:
+            raise ValueError("quadrant must be one of: " + ", ".join(sorted(self.VALID_QUADRANTS)))
+        if self.quadrant in self.QUADRANT_OFFSETS:
+            object.__setattr__(self, "offset_x", self.QUADRANT_OFFSETS[self.quadrant][0])
+            object.__setattr__(self, "offset_y", self.QUADRANT_OFFSETS[self.quadrant][1])
         for name in ("offset_x", "offset_y"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -91,15 +105,17 @@ class SLDAnnotationBlock:
             "fields": list(self.fields),
             "offset_x": self.offset_x,
             "offset_y": self.offset_y,
+            "quadrant": self.quadrant,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDAnnotationBlock":
         if not isinstance(data, Mapping):
             raise TypeError("SLD annotation block payload must be a mapping")
-        allowed = {"block_id", "node_id", "visible", "fields", "offset_x", "offset_y"}
+        allowed = {"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant"}
+        required = allowed - {"quadrant"}
         unknown = sorted(set(data) - allowed)
-        missing = sorted(allowed - set(data))
+        missing = sorted(required - set(data))
         if unknown:
             raise ValueError("Unknown SLD annotation block fields: " + ", ".join(unknown))
         if missing:
@@ -111,6 +127,7 @@ class SLDAnnotationBlock:
             fields=tuple(data["fields"]) if isinstance(data["fields"], (tuple, list)) else data["fields"],
             offset_x=data["offset_x"],
             offset_y=data["offset_y"],
+            quadrant=data.get("quadrant", "custom"),
         )
 
 
