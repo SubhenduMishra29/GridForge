@@ -357,6 +357,22 @@ class StudyService:
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
         key = (request.project_id, request.activation_generation, request.study_id)
+
+        def partial_provenance(partial: object | None) -> Mapping[str, Any]:
+            provenance = getattr(partial, "provenance", {})
+            return provenance if isinstance(provenance, Mapping) else {}
+
+        def last_valid_time(partial: object | None) -> float | None:
+            samples = getattr(partial, "time", None)
+            if samples is None:
+                return None
+            try:
+                if len(samples) == 0:
+                    return None
+                return float(samples[-1])
+            except (TypeError, ValueError, IndexError):
+                return None
+
         token = _reserved_token or StudyCancellationToken()
         with self._lock:
             handler = self._handlers.get(request.study_type)
@@ -376,6 +392,11 @@ class StudyService:
             value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
+            retained_value = (
+                value
+                if partial_provenance(value).get("execution_status") in {"completed", "cancelled", "failed"}
+                else None
+            )
             result = StudyResult(
                 study_id=request.study_id,
                 project_id=request.project_id,
@@ -383,8 +404,32 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "completed",
-                value=None if cancelled else value,
-                message="Study cancelled." if cancelled else "",
+                # A cooperative handler may return a valid partial trajectory
+                # when cancellation is observed. Keep that evidence while the
+                # terminal lifecycle status remains cancelled.
+                value=retained_value if cancelled else value,
+                message="Study cancelled; partial execution evidence retained." if cancelled and retained_value is not None else ("Study cancelled." if cancelled else ""),
+                metadata=(
+                    {
+                        "partial_result_available": retained_value is not None,
+                        "execution_status": str(partial_provenance(retained_value).get("execution_status", "cancelled")),
+                        "trajectory_status": str(partial_provenance(retained_value).get("trajectory_status", "interrupted")),
+                        "last_valid_time": last_valid_time(retained_value),
+                        "termination": (
+                            dict(partial_provenance(retained_value).get("termination", {}))
+                            if partial_provenance(retained_value).get("termination")
+                            else {
+                                "status": "cancelled",
+                                "reason": "cancellation_requested",
+                                "stage": "handler_return",
+                                "failing_time": last_valid_time(retained_value),
+                                "diagnostic_message": "Study cancelled at a committed solver boundary.",
+                            }
+                        ),
+                        "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
+                    }
+                    if cancelled else {}
+                ),
             )
             try:
                 self._persist_result(result)
@@ -461,13 +506,34 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "failed",
-                value=None if cancelled else getattr(exc, "partial_result", None),
-                message="Study cancelled." if cancelled else str(exc),
-                metadata=(
-                    {}
-                    if cancelled or getattr(exc, "partial_result", None) is None
-                    else {"partial_result_available": True}
+                # Preserve a solver-provided partial result even when a
+                # concurrent cancellation request wins terminal linearization.
+                value=getattr(exc, "partial_result", None),
+                message=(
+                    "Study cancelled after a solver/handler termination; partial execution evidence retained."
+                    if cancelled and getattr(exc, "partial_result", None) is not None
+                    else ("Study cancelled." if cancelled else str(exc))
                 ),
+                metadata={
+                    "partial_result_available": getattr(exc, "partial_result", None) is not None,
+                    "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
+                    "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
+                    "last_valid_time": (
+                        last_valid_time(getattr(exc, "partial_result", None))
+                    ),
+                    "event_schedule": tuple(
+                        partial_provenance(getattr(exc, "partial_result", None)).get("event_schedule", ())
+                    ),
+                    "termination": {
+                        "status": "cancelled" if cancelled else "failed",
+                        "reason": "cancellation_requested" if cancelled else "handler_exception",
+                        "stage": getattr(exc, "failing_stage", "handler_execution"),
+                        "termination_reason": getattr(exc, "termination_reason", "handler_exception"),
+                        "failing_time": getattr(exc, "failing_time", None),
+                        "exception_type": getattr(exc, "cause_type", None) or type(exc).__name__,
+                        "diagnostic_message": getattr(exc, "diagnostic_message", str(exc)),
+                    },
+                },
             )
             try:
                 self._persist_result(result)

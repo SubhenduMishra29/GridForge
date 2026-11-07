@@ -18,12 +18,40 @@ from .dae_solver import AlgebraicNetworkSolution, DAESolution, DAESolver
 from .events import EventExecution, EventManager
 
 
+def _freeze_provenance_value(value: object) -> object:
+    """Recursively detach provenance containers before publishing a result."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({
+            key: _freeze_provenance_value(item)
+            for key, item in value.items()
+        })
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_provenance_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_provenance_value(item) for item in value)
+    return value
+
+
 class TransientStabilityError(RuntimeError):
     """Raised when a transient-stability simulation cannot proceed."""
 
-    def __init__(self, message: str, *, partial_result: "TransientStabilityResult | None" = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        partial_result: "TransientStabilityResult | None" = None,
+        termination_reason: str = "solver_failure",
+        failing_time: float | None = None,
+        failing_stage: str = "solver",
+        cause_type: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.partial_result = partial_result
+        self.termination_reason = str(termination_reason)
+        self.failing_time = None if failing_time is None else float(failing_time)
+        self.failing_stage = str(failing_stage)
+        self.cause_type = None if cause_type is None else str(cause_type)
+        self.diagnostic_message = str(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,7 +208,7 @@ class TransientStabilityResult:
         object.__setattr__(self, "algebraic_quality", tuple(self.algebraic_quality))
         object.__setattr__(self, "events", events)
         object.__setattr__(self, "discontinuities", discontinuities)
-        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+        object.__setattr__(self, "provenance", _freeze_provenance_value(self.provenance))
 
     @property
     def final_time(self) -> float:
@@ -280,6 +308,36 @@ class TransientStabilitySolver:
         executions: list[EventExecution] = []
         discontinuities: list[TransientDiscontinuity] = []
 
+        def failure(
+            message: str,
+            *,
+            stage: str,
+            cause: Exception | None = None,
+            failing_time: float | None = None,
+        ) -> TransientStabilityError:
+            diagnostic = str(cause) if cause is not None else str(message)
+            partial = self._build_result(
+                times, states, voltages, powers, algebraic_quality,
+                executions, discontinuities,
+                execution_status="failed",
+                termination={
+                    "status": "failed",
+                    "reason": stage,
+                    "stage": stage,
+                    "failing_time": failing_time,
+                    "exception_type": type(cause).__name__ if cause is not None else None,
+                    "diagnostic_message": diagnostic,
+                },
+            )
+            return TransientStabilityError(
+                message,
+                partial_result=partial,
+                termination_reason=stage,
+                failing_time=failing_time,
+                failing_stage=stage,
+                cause_type=type(cause).__name__ if cause is not None else None,
+            )
+
         if not (should_cancel is not None and should_cancel()):
             try:
                 due_executions = self._process_due_events()
@@ -289,9 +347,8 @@ class TransientStabilitySolver:
                     discontinuities.append(boundary)
                     executions.extend(boundary.event_executions)
                     self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
-                    raise TransientStabilityError(str(exc), partial_result=partial) from exc
-                raise
+                    raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
+                raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
             executions.extend(due_executions)
             if self._last_due_discontinuity is not None:
                 discontinuities.append(self._last_due_discontinuity)
@@ -313,9 +370,8 @@ class TransientStabilitySolver:
                     discontinuities.append(boundary)
                     executions.extend(boundary.event_executions)
                     self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
-                    raise TransientStabilityError(str(exc), partial_result=partial) from exc
-                raise
+                    raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
+                raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
             executions.extend(due_executions)
             if self._last_due_discontinuity is not None:
                 discontinuities.append(self._last_due_discontinuity)
@@ -333,23 +389,25 @@ class TransientStabilitySolver:
                 target_time = min(float(next_event_time), self.end_time)
             step_dt = target_time - previous_time
             if step_dt <= self.event_manager.tolerance:
-                raise TransientStabilityError("Simulation failed to advance toward the next event or end time.")
+                raise failure("Simulation failed to advance toward the next event or end time.", stage="time_advance", failing_time=previous_time)
 
             try:
                 solution = self.dae_solver.step(self._state, previous_time, step_dt)
             except Exception as exc:
-                raise TransientStabilityError(
-                    f"Transient-stability simulation failed at t={previous_time:.12g} s."
+                # The last accepted boundary remains valid even when the
+                # next numerical step fails. Persist that committed prefix;
+                # never expose a partially computed integrator candidate.
+                raise failure(
+                    f"Transient-stability simulation failed during integration at t={previous_time:.12g} s.",
+                    stage="dae_step", cause=exc, failing_time=previous_time,
                 ) from exc
 
             if not math.isfinite(float(solution.time)):
-                raise TransientStabilityError("Integrator returned a non-finite simulation time.")
+                raise failure("Integrator returned a non-finite simulation time.", stage="invalid_integrator_time", failing_time=previous_time)
             if solution.time <= previous_time:
-                raise TransientStabilityError("Simulation time failed to advance.")
+                raise failure("Simulation time failed to advance.", stage="non_advancing_integrator", failing_time=previous_time)
             if solution.time > target_time + self.event_manager.tolerance:
-                raise TransientStabilityError(
-                    "Integrator advanced beyond the requested event or end-time boundary."
-                )
+                raise failure("Integrator advanced beyond the requested event or end-time boundary.", stage="integrator_boundary_violation", failing_time=previous_time)
             self._state = solution.state.copy()
             self._time = float(solution.time)
 
@@ -365,10 +423,9 @@ class TransientStabilitySolver:
                         discontinuities.append(self._make_discontinuity(pre_event_solution, attempted, None, post_status="dispatch_failed"))
                     if not times or not math.isclose(times[-1], pre_event_solution.time, rel_tol=0.0, abs_tol=1e-12):
                         self._record(pre_event_solution, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
-                    raise TransientStabilityError(
+                    raise failure(
                         f"Event dispatch failed at t={self._time:.12g} s; partial trajectory retained.",
-                        partial_result=partial,
+                        stage="event_action", cause=exc, failing_time=self._time,
                     ) from exc
                 try:
                     solution = self.dae_solver.evaluate(self._state, self._time)
@@ -379,10 +436,9 @@ class TransientStabilitySolver:
                         discontinuities.append(self._make_discontinuity(pre_event_solution, annotated, None, post_status="post_evaluation_failed"))
                     if not times or not math.isclose(times[-1], pre_event_solution.time, rel_tol=0.0, abs_tol=1e-12):
                         self._record(pre_event_solution, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
-                    raise TransientStabilityError(
+                    raise failure(
                         f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s; partial trajectory retained.",
-                        partial_result=partial,
+                        stage="post_event_algebraic_evaluation", cause=exc, failing_time=self._time,
                     ) from exc
                 if event_batch:
                     annotated = self.event_manager.annotate_post_event_re_evaluation(event_batch, succeeded=True)
@@ -391,11 +447,15 @@ class TransientStabilitySolver:
 
             self._record(solution, times, states, voltages, powers, algebraic_quality)
 
-        cancelled = should_cancel is not None and should_cancel()
+        cancelled = (
+            should_cancel is not None
+            and should_cancel()
+            and self._time < self.end_time - self.event_manager.tolerance
+        )
         if not cancelled and self._time < self.end_time - self.event_manager.tolerance:
-            raise TransientStabilityError(
-                f"Simulation ended at t={self._time:.12g} s before configured "
-                f"end_time={self.end_time:.12g} s."
+            raise failure(
+                f"Simulation ended at t={self._time:.12g} s before configured end_time={self.end_time:.12g} s.",
+                stage="early_termination", failing_time=self._time,
             )
 
         result_provenance = dict(self.provenance)
@@ -406,7 +466,19 @@ class TransientStabilitySolver:
             result_provenance["final_switch_states"] = dict(runtime_event_state.breaker_states)
             result_provenance["switch_availability_states"] = dict(runtime_event_state.snapshot.switch_available_states)
 
-        return self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities, provenance=result_provenance)
+        return self._build_result(
+            times, states, voltages, powers, algebraic_quality, executions, discontinuities,
+            provenance=result_provenance,
+            execution_status="cancelled" if cancelled else "completed",
+            termination={
+                "status": "cancelled" if cancelled else "completed",
+                "reason": "cancellation_requested" if cancelled else "configured_end_time_reached",
+                "stage": "cooperative_cancellation" if cancelled else "normal_completion",
+                "failing_time": self._time if cancelled else None,
+                "exception_type": None,
+                "diagnostic_message": "Simulation cancelled at a committed boundary." if cancelled else "",
+            },
+        )
 
     def step(self, dt: float | None = None) -> DAESolution:
         if self._state is None:
@@ -593,8 +665,50 @@ class TransientStabilitySolver:
         discontinuities: list[TransientDiscontinuity],
         *,
         provenance: Mapping[str, object] | None = None,
+        execution_status: str = "incomplete",
+        termination: Mapping[str, object] | None = None,
     ) -> TransientStabilityResult:
         result_provenance = dict(self.provenance if provenance is None else provenance)
+        result_provenance["execution_status"] = str(execution_status)
+        result_provenance["trajectory_status"] = (
+            "interrupted" if execution_status == "cancelled"
+            else ("incomplete" if execution_status in {"failed", "incomplete"} else "completed")
+        )
+        if termination is not None:
+            result_provenance["termination"] = dict(termination)
+        result_provenance["last_valid_time"] = float(times[-1]) if times else None
+        # Persist only detached event intent; runtime callbacks and closures
+        # remain in EventManager and are never serialized.
+        execution_by_id = {
+            execution.event_id: execution
+            for execution in self.event_manager.history
+        }
+        result_provenance["event_schedule"] = tuple(
+            {
+                "event_id": event.event_id,
+                "event_type": event.event_type,
+                "scheduled_time": float(event.time),
+                "priority": int(event.priority),
+                "description": str(event.description),
+                "metadata": {str(key): value for key, value in event.metadata.items()},
+                "status": (
+                    execution_by_id[event.event_id].status
+                    if event.triggered and event.event_id in execution_by_id
+                    else (
+                        "disabled" if not event.enabled
+                        else (
+                            "cancelled" if execution_status == "cancelled"
+                            else ("skipped" if execution_status == "failed" else "pending")
+                        )
+                    )
+                ),
+                "dispatch_time": (
+                    execution_by_id[event.event_id].dispatch_time
+                    if event.triggered and event.event_id in execution_by_id else None
+                ),
+            }
+            for event in self.event_manager.events
+        )
         runtime_owner = getattr(self.dae_solver.network_solver, "__self__", None)
         runtime_event_state = getattr(runtime_owner, "event_state", None)
         if runtime_event_state is not None:
