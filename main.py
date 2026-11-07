@@ -851,6 +851,18 @@ def _build_application_impl(
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
             return
+        if len(selected_ids) != 1:
+            messages_panel.append_message(
+                "Cut canceled: multi-object Cut is disabled until an atomic "
+                "Application batch command is available. Nothing was changed."
+            )
+            return
+        if not _selection_supports("copy") or not _selection_supports("delete"):
+            messages_panel.append_message(
+                "Cut canceled: the complete selection does not support both "
+                "semantic copy and delete. Nothing was changed."
+            )
+            return
 
         _copy_selection()
         if len(sld_clipboard) != len(selected_ids):
