@@ -333,41 +333,30 @@ class NavigationController:
 
         self._ensure_active()
 
-        angle_delta = getattr(
-            event,
-            "angleDelta",
-            None,
-        )
+        # Prefer conventional wheel notches when available. High-resolution
+        # touchpads commonly emit pixelDelta() with no angleDelta(); normalize
+        # both representations to fractional wheel steps so cursor-anchored
+        # zoom remains continuous and uses the same zoom limits.
+        value = 0.0
+        for delta_name in ("angleDelta", "pixelDelta"):
+            delta_method = getattr(event, delta_name, None)
+            if not callable(delta_method):
+                continue
+            try:
+                delta = delta_method()
+                y_method = getattr(delta, "y", None)
+                candidate = y_method() if callable(y_method) else None
+            except Exception:
+                continue
+            if (
+                isinstance(candidate, (int, float))
+                and not isinstance(candidate, bool)
+                and candidate != 0
+            ):
+                value = float(candidate)
+                break
 
-        if not callable(angle_delta):
-            return False
-
-        delta = angle_delta()
-
-        if delta is None:
-            return False
-
-        y_method = getattr(
-            delta,
-            "y",
-            None,
-        )
-
-        if not callable(y_method):
-            return False
-
-        try:
-            value = y_method()
-        except Exception:
-            return False
-
-        if isinstance(value, bool):
-            return False
-
-        if not isinstance(value, (int, float)):
-            return False
-
-        if value == 0:
+        if value == 0.0:
             return False
 
         steps = value / 120.0
