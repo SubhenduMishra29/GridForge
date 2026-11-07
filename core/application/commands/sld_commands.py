@@ -7,11 +7,13 @@
 from __future__ import annotations
 
 from uuid import UUID, uuid4
+import math
 
 from ..command import Command
 
 
 SET_SLD_NODE_POSITION = "sld.set_node_position"
+SET_SLD_NODE_POSITIONS = "sld.set_node_positions"
 ADD_SLD_NODE = "sld.add_node"
 REMOVE_SLD_NODE = "sld.remove_node"
 SET_SLD_NODE_PRESENTATION = "sld.set_node_presentation"
@@ -29,6 +31,43 @@ class SetSLDNodePositionCommand(Command):
         super().__init__(command_type=SET_SLD_NODE_POSITION,
                          payload={"node_id": node_id, "x": float(x), "y": float(y)},
                          command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
+class SetSLDNodePositionsCommand(Command):
+    """Move multiple SLD nodes atomically as one undoable presentation command."""
+
+    def __init__(
+        self,
+        *,
+        positions: list[dict],
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(positions, list) or not positions:
+            raise ValueError("positions must be a non-empty list.")
+        normalized = []
+        seen = set()
+        for item in positions:
+            if not isinstance(item, dict):
+                raise TypeError("each position must be a dictionary.")
+            node_id = item.get("node_id")
+            if not isinstance(node_id, str) or not node_id.strip():
+                raise ValueError("each position requires a non-empty node_id.")
+            if node_id in seen:
+                raise ValueError(f"duplicate node_id in group move: {node_id!r}.")
+            seen.add(node_id)
+            x, y = item.get("x"), item.get("y")
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) for value in (x, y)):
+                raise ValueError("group move coordinates must be finite numbers.")
+            normalized.append({"node_id": node_id, "x": float(x), "y": float(y)})
+        super().__init__(
+            command_type=SET_SLD_NODE_POSITIONS,
+            payload={"positions": normalized},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
 
 
 class AddSLDNodeCommand(Command):
@@ -186,8 +225,8 @@ class RemoveSLDConnectionCommand(Command):
 
 
 __all__ = [
-    "SET_SLD_NODE_POSITION", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
+    "SET_SLD_NODE_POSITION", "SET_SLD_NODE_POSITIONS", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
     "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS",
-    "SetSLDNodePositionCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
+    "SetSLDNodePositionCommand", "SetSLDNodePositionsCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
     "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand",
 ]
