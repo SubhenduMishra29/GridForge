@@ -161,9 +161,12 @@ class ConnectionRouter:
     obstacles are scene-space (left, top, right, bottom) bounds. Existing
     routes may be ConnectionPath objects or iterables of scene-space points.
     Omit the endpoint-owning equipment from obstacles, or supply terminal
-    anchors outside its clearance bounds. Route geometry never establishes
-    electrical connectivity. A blocked route raises ValueError rather than
-    silently drawing through an obstacle.
+    anchors outside its clearance bounds. Existing-route intersections and
+    parallel runs closer than route_clearance are hard constraints. The
+    crossing_penalty argument remains accepted for source compatibility but
+    is no longer used. Route geometry never establishes electrical
+    connectivity. A blocked route raises ValueError rather than silently
+    drawing through an obstacle.
     """
 
     def route(
