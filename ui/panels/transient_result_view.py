@@ -111,15 +111,16 @@ class TransientResultViewWidget(QWidget):
             f"Event discontinuities: {len(model.discontinuities)}",
         ]
         execution_status = str(model.provenance.get("execution_status", model.status))
+        trajectory_status = str(model.provenance.get("trajectory_status", execution_status))
         last_valid_time = model.provenance.get("last_valid_time")
         termination = model.provenance.get("termination", {})
         event_schedule = model.provenance.get("event_schedule", ())
         pending_count = sum(
             1 for item in event_schedule
-            if isinstance(item, Mapping) and item.get("status") == "pending"
+            if isinstance(item, Mapping) and item.get("status") in {"pending", "cancelled", "skipped"}
         )
-        if execution_status in {"cancelled", "failed", "interrupted", "incomplete"}:
-            details.append(f"PARTIAL TRAJECTORY — {execution_status.upper()}")
+        if trajectory_status in {"interrupted", "incomplete"} or execution_status in {"cancelled", "failed"}:
+            details.append(f"PARTIAL TRAJECTORY — {trajectory_status.upper()}")
             details.append(
                 f"Last valid simulation time: {float(last_valid_time):.9g} s"
                 if isinstance(last_valid_time, (int, float))
@@ -183,7 +184,17 @@ class TransientResultViewWidget(QWidget):
                     f"{event.post_event_re_evaluation_failure_message or ''}"
                 )
             self._event_list.addItem(line)
-        if model.events:
+        for item in event_schedule:
+            if not isinstance(item, Mapping):
+                continue
+            status = str(item.get("status", "pending"))
+            if status in {"pending", "cancelled", "skipped", "disabled"}:
+                self._event_list.addItem(
+                    f"Not dispatched — {status.upper()} | "
+                    f"{item.get('event_type', 'event')} — {item.get('event_id', '')} | "
+                    f"scheduled {float(item.get('scheduled_time', 0.0)):.9g} s"
+                )
+        if model.events or pending_count:
             self._event_list.setCurrentRow(0)
         else:
             self._event_details.setText("No event executions were recorded.")
