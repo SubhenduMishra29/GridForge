@@ -23238,3 +23238,45 @@ UI COMPLETION — 2026-11-07
 - ui/canvas/canvas_hit.py: added a distinct draft_connection_id to immutable route-hit metadata; a draft hit cannot be mistaken for a Core connection ID.
 - core/application/draft/network.py: allow a single intermediate bend; route.points excludes endpoint coordinates, so requiring two bend vertices incorrectly rejected the first bend.
 - ui/canvas/canvas_hit.py: added the missing dataclass field for draft_connection_id used by the distinct draft hit path.
+
+
+======================================================================
+GF-AUD-827 — REJECT STALE DRAFTNETWORK COMMIT SNAPSHOTS
+======================================================================
+
+Audit date: 2026-11-07
+Repository: SubhenduMishra29/GridForge
+Issue: #813 — Multi-Terminal Creation Commits Race Hazard
+
+FETCH / AUDIT:
+- core/application/draft/handlers.py: CommitNetworkHandler.__call__ validated
+  project identity and activation generation, and required the supplied
+  command payload to be canonical. It did not compare that snapshot with the
+  current Application-owned active DraftNetwork.
+- Application.execute(CommitNetworkCommand(...)) is a supported command
+  boundary. A command carrying an earlier, otherwise canonical snapshot
+  could therefore commit an older subset and clear newer active draft edits.
+- The normal Application commit helpers already serialize their own snapshot
+  capture/execution path; this correction closes the handler-level stale
+  command boundary rather than replacing those locks.
+
+CORRECTION:
+- CommitNetworkHandler now compares the canonical command snapshot with
+  active_draft.to_dict() before validation, Core command preparation or
+  mutation. A mismatch fails closed and leaves the current draft intact.
+- Added a regression case that captures a commit snapshot, applies a later
+  AddDraftEquipmentCommand, and verifies the stale commit is rejected while
+  both draft equipment entries remain and Core stays unchanged.
+- No Core topology, SLD route geometry, Qt/UI or persistence schema changed.
+  No public exports changed; core/application/draft/__init__.py remains valid.
+
+VERIFICATION:
+- Remote source inspection and patch/diff review only.
+- Tests and CI were not run, as they are not acceptance gates for this work.
+- Python syntax/import execution and runtime concurrency reproduction remain
+  unverified in this environment.
+
+REMAINING:
+- #813 should remain open until this focused correction is reviewed and merged.
+- Continue tracing external mutation paths that bypass Application commands;
+  DraftNetwork mutation must remain Application-owned and serialized.
