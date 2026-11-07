@@ -99,6 +99,47 @@ def _crosses(a: Point, b: Point, c: Point, d: Point) -> bool:
     )
 
 
+def _route_conflicts(
+    a: Point,
+    b: Point,
+    c: Point,
+    d: Point,
+    *,
+    clearance: float,
+    allowed_junctions: set[Point],
+) -> bool:
+    """Return whether a candidate segment crosses or crowds an existing route.
+
+    A single endpoint touch is permitted only at an explicitly shared route
+    endpoint. Collinear overlap and all other crossings are prohibited.
+    Parallel runs must retain the configured centre-line separation wherever
+    their projected intervals overlap.
+    """
+    a_horizontal = a[1] == b[1]
+    c_horizontal = c[1] == d[1]
+    if _crosses(a, b, c, d):
+        if a_horizontal != c_horizontal:
+            horizontal_start, horizontal_end = (a, b) if a_horizontal else (c, d)
+            vertical_start, vertical_end = (c, d) if a_horizontal else (a, b)
+            intersection = (vertical_start[0], horizontal_start[1])
+            if (
+                intersection in allowed_junctions
+                and intersection in (a, b)
+                and intersection in (c, d)
+            ):
+                return False
+        return True
+    if a_horizontal != c_horizontal or clearance <= 0:
+        return False
+    if a_horizontal:
+        separation = abs(a[1] - c[1])
+        overlap = min(max(a[0], b[0]), max(c[0], d[0])) - max(min(a[0], b[0]), min(c[0], d[0]))
+    else:
+        separation = abs(a[0] - c[0])
+        overlap = min(max(a[1], b[1]), max(c[1], d[1])) - max(min(a[1], b[1]), min(c[1], d[1]))
+    return overlap > 0 and separation < clearance
+
+
 def _simplify(points: list[Point]) -> tuple[Point, ...]:
     result: list[Point] = []
     for p in points:
@@ -120,9 +161,12 @@ class ConnectionRouter:
     obstacles are scene-space (left, top, right, bottom) bounds. Existing
     routes may be ConnectionPath objects or iterables of scene-space points.
     Omit the endpoint-owning equipment from obstacles, or supply terminal
-    anchors outside its clearance bounds. Route geometry never establishes
-    electrical connectivity. A blocked route raises ValueError rather than
-    silently drawing through an obstacle.
+    anchors outside its clearance bounds. Existing-route intersections and
+    parallel runs closer than route_clearance are hard constraints. The
+    crossing_penalty argument remains accepted for source compatibility but
+    is no longer used. Route geometry never establishes electrical
+    connectivity. A blocked route raises ValueError rather than silently
+    drawing through an obstacle.
     """
 
     def route(
@@ -135,10 +179,11 @@ class ConnectionRouter:
         clearance: float = 8.0,
         bend_penalty: float = 12.0,
         crossing_penalty: float = 24.0,
+        route_clearance: float = 8.0,
     ) -> ConnectionPath:
         source = _point(source_position, "source_position")
         target = _point(target_position, "target_position")
-        for value, name in ((clearance, "clearance"), (bend_penalty, "bend_penalty"), (crossing_penalty, "crossing_penalty")):
+        for value, name in ((clearance, "clearance"), (bend_penalty, "bend_penalty"), (crossing_penalty, "crossing_penalty"), (route_clearance, "route_clearance")):
             if isinstance(value, bool) or not isinstance(value, Real) or not isfinite(float(value)) or value < 0:
                 raise ValueError(f"{name} must be a finite non-negative number.")
         if source == target:
@@ -161,20 +206,33 @@ class ConnectionRouter:
         for l, t, r, b in rects:
             xs.update((l, r))
             ys.update((t, b))
-        # Include a guaranteed exterior corridor. Without coordinates beyond
-        # the obstacle envelope, overlapping clearance regions can eliminate
-        # every visibility-grid node even when a route exists around the group.
-        if rects:
-            span = max(
-                1.0,
-                max(r for _, _, r, _ in rects) - min(l for l, _, _, _ in rects),
-                max(b for _, _, _, b in rects) - min(t for _, t, _, _ in rects),
-            )
-            margin = span + max(1.0, float(clearance))
-            xs.update((min(l for l, _, _, _ in rects) - margin,
-                       max(r for _, _, r, _ in rects) + margin))
-            ys.update((min(t for _, t, _, _ in rects) - margin,
-                       max(b for _, _, _, b in rects) + margin))
+        # Add visibility coordinates around existing routes as well as
+        # obstacles; otherwise hard conflict rejection could disconnect the
+        # graph without giving the search a corridor around a finite segment.
+        route_xs: list[float] = []
+        route_ys: list[float] = []
+        route_margin = float(route_clearance)
+        for route in routes:
+            for a, b in zip(route, route[1:]):
+                route_xs.extend((a[0], b[0]))
+                route_ys.extend((a[1], b[1]))
+                if a[1] == b[1]:
+                    xs.update((min(a[0], b[0]) - route_margin, max(a[0], b[0]) + route_margin))
+                    ys.update((a[1] - route_margin, a[1] + route_margin))
+                else:
+                    xs.update((a[0] - route_margin, a[0] + route_margin))
+                    ys.update((min(a[1], b[1]) - route_margin, max(a[1], b[1]) + route_margin))
+        # Include a guaranteed exterior corridor around both obstacle and
+        # existing-route envelopes, even when the scene contains routes only.
+        if rects or route_xs:
+            min_x = min([l for l, _, _, _ in rects] + route_xs)
+            max_x = max([r for _, _, r, _ in rects] + route_xs)
+            min_y = min([t for _, t, _, _ in rects] + route_ys)
+            max_y = max([b for _, _, _, b in rects] + route_ys)
+            span = max(1.0, max_x - min_x, max_y - min_y)
+            margin = span + max(1.0, float(clearance), route_margin)
+            xs.update((min_x - margin, max_x + margin))
+            ys.update((min_y - margin, max_y + margin))
         nodes = [(x, y) for y in sorted(ys) for x in sorted(xs) if not any(_inside((x, y), r) for r in rects)]
         index = {p: i for i, p in enumerate(nodes)}
         if source not in index or target not in index:
@@ -186,15 +244,21 @@ class ConnectionRouter:
             rows.setdefault(p[1], []).append(p)
             cols.setdefault(p[0], []).append(p)
 
+        allowed_junctions = {source, target}
+
         def connect(a: Point, b: Point) -> None:
             if any(_blocked(a, b, rect) for rect in rects):
                 return
-            penalty = 0.0
-            for route in routes:
-                if any(_crosses(a, b, c, d) for c, d in zip(route, route[1:])):
-                    penalty += crossing_penalty
+            # Route conflicts are hard constraints, not finite-cost preferences:
+            # no shorter path may cross or run too close to an existing circuit.
+            if any(
+                _route_conflicts(a, b, c, d, clearance=float(route_clearance), allowed_junctions=allowed_junctions)
+                for route in routes
+                for c, d in zip(route, route[1:])
+            ):
+                return
             direction = 0 if a[1] == b[1] else 1
-            distance = abs(a[0] - b[0]) + abs(a[1] - b[1]) + penalty
+            distance = abs(a[0] - b[0]) + abs(a[1] - b[1])
             ia, ib = index[a], index[b]
             adjacency[ia].append((ib, distance, direction))
             adjacency[ib].append((ia, distance, direction))

@@ -79,6 +79,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from ui.core.qt import (
+    QComboBox,
     QHBoxLayout,
     QLayout,
     QLabel,
@@ -144,6 +145,7 @@ class ShellPlugin:
         self._header_widget: Optional[QWidget] = None
         self._engineering_context_store: Any = None
         self._engineering_context_label: Optional[QLabel] = None
+        self._workspace_switcher: Optional[QComboBox] = None
 
         self._initialized = False
 
@@ -406,6 +408,7 @@ class ShellPlugin:
             self._engineering_context_store.unsubscribe(self._refresh_engineering_context_label)
         self._engineering_context_store = None
         self._engineering_context_label = None
+        self._workspace_switcher = None
         self._context = None
 
         self._initialized = False
@@ -638,6 +641,25 @@ class ShellPlugin:
         context_label.setObjectName("GridForgeEngineeringContext")
         self._engineering_context_label = context_label
         layout.addWidget(context_label)
+
+        workspace_switcher = QComboBox(header)
+        workspace_switcher.setObjectName("GridForgeWorkspaceSwitcher")
+        workspace_switcher.setToolTip("Switch between engineering workspaces")
+        workspace_switcher.addItem("SLD", "sld")
+        workspace_switcher.addItem("Control", "control")
+        workspace_switcher.addItem("Protection", "protection")
+        workspace_switcher.addItem("Study", "study")
+        workspace_switcher.setCurrentIndex(
+            max(0, workspace_switcher.findData(
+                getattr(context_store.current, "discipline", "sld")
+                if context_store is not None else "sld"
+            ))
+        )
+        router = self._context.action_router
+        workspace_switcher.setEnabled(router is not None)
+        workspace_switcher.activated.connect(self._activate_workspace_from_switcher)
+        self._workspace_switcher = workspace_switcher
+        layout.addWidget(workspace_switcher)
         layout.addStretch(1)
 
         self._header_widget = header
@@ -652,9 +674,30 @@ class ShellPlugin:
         state = getattr(context, "system_state", None) or "Not provided"
         return f"Engineering: {discipline} · Study: {study} · State: {state}"
 
-    def _refresh_engineering_context_label(self, _context: Any) -> None:
+    def _refresh_engineering_context_label(self, context: Any) -> None:
         if self._engineering_context_label is not None:
             self._engineering_context_label.setText(self._format_engineering_context())
+        if self._workspace_switcher is not None:
+            index = self._workspace_switcher.findData(
+                str(getattr(context, "discipline", "sld")).lower()
+            )
+            self._workspace_switcher.setCurrentIndex(index)
+
+    def _activate_workspace_from_switcher(self, index: int) -> None:
+        if self._context is None:
+            return
+        switcher = self._workspace_switcher
+        router = self._context.action_router
+        if switcher is None or router is None:
+            return
+        action_id = {
+            "sld": "view.sld_workspace",
+            "control": "view.control_workspace",
+            "protection": "view.protection_workspace",
+            "study": "view.study_workspace",
+        }.get(str(switcher.itemData(index)))
+        if action_id is not None and router.has(action_id):
+            router.dispatch(action_id)
 
     def _search_project(self, query: str, parent: QWidget) -> None:
         """Search canonical Application read models without mutating state."""
