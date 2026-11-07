@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from core.application.bootstrap import create_application
-from core.application.commands.draft_commands import CommitNetworkCommand
+from core.application.commands.draft_commands import AddDraftEquipmentCommand, CommitNetworkCommand
 from core.application.creation import CreationCommitIntent, CreationCommandPreparer
 from core.application.creation_schema import creation_contracts_from_definitions
 
@@ -477,6 +477,30 @@ def test_commit_route_save_reload_preserves_persistent_sld_route(tmp_path):
     restored = SLDDocument.from_dict(loaded.presentation)
 
     assert restored.model.get_connection("sld-wire-wire-persist").route.to_dict() == authored_route
+def test_commit_rejects_stale_snapshot_without_discarding_newer_draft_changes():
+    app = create_application(Network())
+    draft = DraftNetwork("project-stale-snapshot", 1)
+    draft.add_equipment(_bus("b1"))
+    app.set_draft_network(draft)
+    stale_payload = draft.to_dict()
+
+    # Model a later, valid Application-owned authoring command after the
+    # original commit snapshot was captured.
+    app.execute(AddDraftEquipmentCommand(equipment=_bus("b2").to_dict()))
+
+    with pytest.raises(Exception, match="current active DraftNetwork snapshot"):
+        app.execute(
+            CommitNetworkCommand(
+                project_id=draft.project_id,
+                activation_generation=draft.activation_generation,
+                draft_network=stale_payload,
+            )
+        )
+
+    assert app.read_network().elements == ()
+    assert {item.draft_id for item in app.draft_network.equipment} == {"b1", "b2"}
+
+
 def test_empty_draft_commit_is_rejected_and_retained():
     app = create_application(Network())
     draft = DraftNetwork("project-5", 1)

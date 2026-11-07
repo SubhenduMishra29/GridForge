@@ -323,6 +323,14 @@ class CommitNetworkHandler:
         )
         if snapshot.to_dict() != draft_payload:
             raise ValueError("CommitNetworkCommand draft_network payload is not canonical.")
+        # The command payload may have been captured before a later draft edit.
+        # Project/generation equality alone does not prove that the payload still
+        # represents the active authoring state. Refuse stale commits before any
+        # Core mutation or draft clearing can discard newer engineer edits.
+        if snapshot.to_dict() != active_draft.to_dict():
+            raise ValueError(
+                "CommitNetworkCommand draft_network does not match the current active DraftNetwork snapshot."
+            )
         if not snapshot.equipment and not snapshot.connections:
             raise ValueError(
                 "DraftNetwork commit is empty; add equipment or connections before committing."
