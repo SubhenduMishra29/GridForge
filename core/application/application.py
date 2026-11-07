@@ -1627,20 +1627,23 @@ class Application:
                     f"{prefix}: zero-magnitude voltage/current phasor has no defined phase angle."
                 )
                 continue
-            # Runtime derives angles and binds samples to its own composed identities.
-            directional_snapshots[element.element_id] = runtime.issue_directional_snapshot(
-                capability=self._directional_snapshot_issuance_capability,
-                element_id=element.element_id,
-                voltage_value=voltage_value,
-                current_value=current_value,
-                voltage_channel_id=voltage_id,
-                current_channel_id=current_id,
-                voltage_channel=voltage_channel,
-                current_channel=current_channel,
-                sample_timestamp=voltage_timestamp,
-                voltage_sample_sequence=validated_measurement_snapshots[(element.element_id, "voltage")]["sample_sequence"],
-                current_sample_sequence=validated_measurement_snapshots[(element.element_id, "current")]["sample_sequence"],
-            )
+            # Runtime binds validated samples to its own composed identities.
+            try:
+                directional_snapshots[element.element_id] = runtime.issue_directional_snapshot(
+                    capability=self._directional_snapshot_issuance_capability,
+                    element_id=element.element_id,
+                    voltage_value=voltage_value,
+                    current_value=current_value,
+                    voltage_channel_id=voltage_id,
+                    current_channel_id=current_id,
+                    voltage_channel=voltage_channel,
+                    current_channel=current_channel,
+                    sample_timestamp=voltage_timestamp,
+                    voltage_sample_sequence=validated_measurement_snapshots[(element.element_id, "voltage")]["sample_sequence"],
+                    current_sample_sequence=validated_measurement_snapshots[(element.element_id, "current")]["sample_sequence"],
+                )
+            except (PermissionError, RuntimeError, TypeError, ValueError) as exc:
+                diagnostics.append(f"{prefix}: authoritative directional snapshot issuance refused: {exc}")
 
         if diagnostics:
             return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
