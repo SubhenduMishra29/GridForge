@@ -39,12 +39,15 @@ from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF,
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
+from ui.canvas.mouse_event_adapter import CanvasMouseEvent
+from ui.canvas.canvas_hit import CanvasHitTarget
 
 
 class GraphicsView(QGraphicsView):
     """Canonical GridForge Canvas viewport."""
 
     cursor_scene_position = Signal(object)
+    PALETTE_EQUIPMENT_MIME = "application/x-gridforge-equipment-type"
 
     def __init__(
         self,
@@ -70,10 +73,16 @@ class GraphicsView(QGraphicsView):
         self._last_cursor_scene_position: tuple[float, float] | None = None
         self.interaction_manager = interaction_manager
         self.navigation_controller = navigation_controller
+        self._palette_drag_equipment_type: str | None = None
+        self._palette_drag_previous_tool_id: str | None = None
+        self._palette_drag_insertion_started = False
+        self._palette_drag_preview_started = False
 
         if self._scene.parent() is None:
             self._scene.setParent(self)
         self.setScene(self._scene)
+        self.setAcceptDrops(True)
+        self.viewport().setAcceptDrops(True)
         self.setObjectName("SLDCanvasView")
         self.setBackgroundBrush(QBrush(token_color("canvas_background")))
         # Electrical symbols and connection routes are vector geometry. Enable
@@ -247,6 +256,194 @@ class GraphicsView(QGraphicsView):
             raise ValueError(f"Unsupported contextual symbol action: {operation}")
         self.controller.set_node_presentation(node.node_id, presentation)
         self._refresh_contextual_tool_strip()
+
+    def _palette_type_from_event(self, event: Any) -> str | None:
+        mime = event.mimeData()
+        if mime is None or not mime.hasFormat(self.PALETTE_EQUIPMENT_MIME):
+            return None
+        try:
+            value = bytes(mime.data(self.PALETTE_EQUIPMENT_MIME)).decode("utf-8").strip()
+        except (TypeError, UnicodeDecodeError):
+            return None
+        return value or None
+
+    def _begin_palette_drag(self, equipment_type: str) -> bool:
+        if self.interaction_manager is None:
+            return False
+        registry = getattr(self.tool_manager, "equipment_registry", None)
+        creation_context = getattr(self.tool_manager, "creation_context", None)
+        if registry is None or creation_context is None or creation_context.active:
+            return False
+        try:
+            definition = registry.require(equipment_type)
+            previous_tool_id = self.tool_manager.active_tool_id
+            self.tool_manager.activate(definition.tool_id, cancel_active_creation=False)
+        except (KeyError, TypeError, ValueError, RuntimeError):
+            return False
+        self._palette_drag_equipment_type = definition.equipment_type
+        self._palette_drag_previous_tool_id = previous_tool_id
+        self._palette_drag_insertion_started = False
+        self._palette_drag_preview_started = False
+        return True
+
+    def _palette_event_without_hit(self, event: Any) -> CanvasMouseEvent:
+        position = event.position()
+        viewport_point = QPointF(float(position.x()), float(position.y()))
+        scene_point = self.mapToScene(viewport_point.toPoint())
+        modifiers = int(event.modifiers())
+        return CanvasMouseEvent(
+            position=viewport_point,
+            scene_position=QPointF(scene_point),
+            presentation_hit=CanvasHitTarget.none(),
+            button=int(Qt.MouseButton.LeftButton.value),
+            buttons=int(Qt.MouseButton.LeftButton.value),
+            modifiers=modifiers,
+            insertion_intent=False,
+        )
+
+    def _adapt_palette_event(self, event: Any) -> CanvasMouseEvent | None:
+        adapter = getattr(self.interaction_manager, "input_adapter", None)
+        if adapter is None:
+            return None
+        try:
+            return adapter.adapt(event)
+        except (AttributeError, TypeError, ValueError, RuntimeError):
+            return None
+
+    def _begin_palette_insertion(self, event: Any) -> bool:
+        semantic = self._adapt_palette_event(event)
+        if semantic is None:
+            return False
+        hit = semantic.hit_target
+        if (
+            getattr(getattr(hit, "kind", None), "value", None) != "simple_wire_segment"
+            or not isinstance(hit.core_connection_id, str)
+            or not hit.core_connection_id
+            or hit.draft_connection_id is not None
+        ):
+            return False
+        creation_context = self.tool_manager.creation_context
+        if not creation_context.active:
+            return False
+        draft = creation_context.require_draft()
+        insertion_tool = self.tool_manager.get_tool("electrical-insertion")
+        parameters = dict(draft.snapshot_values())
+        orientation = float(draft.preview_state.get("rotation", 0.0))
+        insertion_tool.begin(
+            self._palette_drag_equipment_type,
+            creation_parameters=parameters,
+            orientation=orientation,
+        )
+        candidate = insertion_tool.insertion_target(semantic)
+        if (
+            candidate is None
+            or str(candidate.get("connection_id", "")) != hit.core_connection_id
+        ):
+            return False
+        return bool(
+            self.tool_manager.begin_equipment_insertion(
+                self._palette_drag_equipment_type,
+                creation_parameters=parameters,
+                orientation=orientation,
+                equipment_id=None,
+                initial_event=semantic,
+            )
+        )
+
+    def _finish_palette_drag(self, *, restore_previous_tool: bool) -> None:
+        previous_tool_id = self._palette_drag_previous_tool_id
+        try:
+            if restore_previous_tool:
+                self.tool_manager.cancel()
+                if self.tool_manager.active_tool_id != previous_tool_id:
+                    self.tool_manager.activate(previous_tool_id)
+        finally:
+            self._palette_drag_equipment_type = None
+            self._palette_drag_previous_tool_id = None
+            self._palette_drag_insertion_started = False
+            self._palette_drag_preview_started = False
+
+    def dragEnterEvent(self, event: Any) -> None:
+        equipment_type = self._palette_type_from_event(event)
+        if equipment_type is None:
+            event.ignore()
+            return
+        if self._palette_drag_equipment_type is None and not self._begin_palette_drag(equipment_type):
+            event.ignore()
+            return
+        if self._palette_drag_equipment_type != equipment_type:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event: Any) -> None:
+        if self._palette_drag_equipment_type is None or self.interaction_manager is None:
+            event.ignore()
+            return
+        shift_mask = int(Qt.KeyboardModifier.ShiftModifier.value)
+        insertion_requested = bool(int(event.modifiers()) & shift_mask)
+        if not self._palette_drag_preview_started:
+            preview_event = self._palette_event_without_hit(event)
+            self.interaction_manager.mouse_move(preview_event)
+            self._palette_drag_preview_started = True
+        if insertion_requested and not self._palette_drag_insertion_started:
+            if not self._begin_palette_insertion(event):
+                event.ignore()
+                return
+            self._palette_drag_insertion_started = True
+        elif self._palette_drag_insertion_started:
+            self.interaction_manager.mouse_move(event)
+        elif not insertion_requested:
+            self.interaction_manager.mouse_move(self._palette_event_without_hit(event))
+        event.acceptProposedAction()
+
+    def dropEvent(self, event: Any) -> None:
+        if self._palette_drag_equipment_type is None or self.interaction_manager is None:
+            event.ignore()
+            return
+        shift_mask = int(Qt.KeyboardModifier.ShiftModifier.value)
+        insertion_requested = bool(int(event.modifiers()) & shift_mask)
+        if insertion_requested:
+            if not self._palette_drag_insertion_started:
+                if not self._begin_palette_insertion(event):
+                    self._finish_palette_drag(restore_previous_tool=True)
+                    event.ignore()
+                    return
+                self._palette_drag_insertion_started = True
+            semantic = self._adapt_palette_event(event)
+            if semantic is None or not self._palette_drag_insertion_started:
+                self._finish_palette_drag(restore_previous_tool=True)
+                event.ignore()
+                return
+            hit = semantic.hit_target
+            if (
+                getattr(getattr(hit, "kind", None), "value", None) != "simple_wire_segment"
+                or not isinstance(hit.core_connection_id, str)
+                or hit.draft_connection_id is not None
+            ):
+                self._finish_palette_drag(restore_previous_tool=True)
+                event.ignore()
+                return
+            handled = self.interaction_manager.mouse_release(event)
+        else:
+            if self._palette_drag_insertion_started:
+                self._finish_palette_drag(restore_previous_tool=True)
+                event.ignore()
+                return
+            semantic = self._palette_event_without_hit(event)
+            pressed = self.interaction_manager.mouse_press(semantic)
+            handled = self.interaction_manager.mouse_release(semantic) if pressed else False
+        if handled:
+            self._finish_palette_drag(restore_previous_tool=False)
+            event.acceptProposedAction()
+        else:
+            self._finish_palette_drag(restore_previous_tool=True)
+            event.ignore()
+
+    def dragLeaveEvent(self, event: Any) -> None:
+        if self._palette_drag_equipment_type is not None:
+            self._finish_palette_drag(restore_previous_tool=True)
+        super().dragLeaveEvent(event)
 
     def mousePressEvent(self, event: Any) -> None:
         if self.interaction_manager is not None and self.interaction_manager.mouse_press(event):
