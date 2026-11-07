@@ -158,13 +158,17 @@ Proprietary and confidential.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from core.protection.context import ProtectionContext
 from core.protection.decision import ProtectionDecision
 from core.protection.relay_base import RelayBase
+from core.protection.directional.snapshot import (
+    _AuthoritativeDirectionalSnapshot,
+    _DIRECTIONAL_SNAPSHOT_SEAL,
+)
 
 
 # =====================================================================
@@ -181,70 +185,6 @@ DEFAULT_FORWARD_ANGLE = 90.0
 DEFAULT_TOLERANCE = 90.0
 
 ANGLE_RANGE = 360.0
-
-# A sealed, immutable evaluation-cycle snapshot. The private seal prevents
-# ordinary ProtectionContext metadata from impersonating Application-resolved
-# measurement provenance.
-_DIRECTIONAL_SNAPSHOT_SEAL = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _AuthoritativeDirectionalSnapshot:
-    _seal: object
-    element_id: str
-    voltage_value: complex
-    current_value: complex
-    voltage_angle: float
-    current_angle: float
-    voltage_channel_id: str
-    current_channel_id: str
-    voltage_channel_identity: int
-    current_channel_identity: int
-    sample_timestamp: float
-    project_id: str
-    activation_generation: int
-    configuration_identity: int
-    runtime_identity: int
-
-
-def _create_authoritative_directional_snapshot(
-    *,
-    element_id: str,
-    voltage_value: complex,
-    current_value: complex,
-    voltage_angle: float,
-    current_angle: float,
-    voltage_channel_id: str,
-    current_channel_id: str,
-    voltage_channel_identity: int,
-    current_channel_identity: int,
-    sample_timestamp: float,
-    project_id: str,
-    activation_generation: int,
-    configuration_identity: int,
-    runtime_identity: int,
-) -> _AuthoritativeDirectionalSnapshot:
-    """Create a sealed snapshot after Application validates channel provenance."""
-    return _AuthoritativeDirectionalSnapshot(
-        _seal=_DIRECTIONAL_SNAPSHOT_SEAL,
-        element_id=element_id,
-        voltage_value=voltage_value,
-        current_value=current_value,
-        voltage_angle=float(voltage_angle),
-        current_angle=float(current_angle),
-        voltage_channel_id=voltage_channel_id,
-        current_channel_id=current_channel_id,
-        voltage_channel_identity=voltage_channel_identity,
-        current_channel_identity=current_channel_identity,
-        sample_timestamp=float(sample_timestamp),
-        project_id=project_id,
-        activation_generation=activation_generation,
-        configuration_identity=configuration_identity,
-        runtime_identity=runtime_identity,
-    )
-
-
-
 
 # =====================================================================
 # DIRECTIONAL SETTINGS
@@ -699,6 +639,8 @@ class DirectionalRelay(RelayBase):
             raise ValueError(f"No authoritative measurement snapshot exists for element {self.element_id!r}.")
         if snapshot._seal is not _DIRECTIONAL_SNAPSHOT_SEAL:
             raise ValueError("Directional measurement snapshot seal is invalid.")
+        if snapshot._issuer is not metadata.get("directional_snapshot_issuance_capability"):
+            raise ValueError("Directional snapshot was not issued by the active Application capability.")
         if snapshot.element_id != self.element_id:
             raise ValueError("Directional measurement snapshot element identity mismatch.")
         if not snapshot.project_id or not snapshot.voltage_channel_id or not snapshot.current_channel_id:
@@ -707,6 +649,12 @@ class DirectionalRelay(RelayBase):
             raise ValueError("Directional voltage and current channel identities must be distinct.")
         if snapshot.voltage_channel_identity == snapshot.current_channel_identity:
             raise ValueError("Directional voltage and current channel objects must be distinct.")
+        voltage_input = self.get_input(self.VOLTAGE_INPUT)
+        current_input = self.get_input(self.CURRENT_INPUT)
+        if getattr(voltage_input, "channel_id", None) != snapshot.voltage_channel_id or getattr(current_input, "channel_id", None) != snapshot.current_channel_id:
+            raise ValueError("Directional snapshot channel bindings do not match this relay element.")
+        if getattr(voltage_input, "sample_sequence", None) != snapshot.voltage_sample_sequence or getattr(current_input, "sample_sequence", None) != snapshot.current_sample_sequence:
+            raise ValueError("Directional snapshot sample sequence is stale or belongs to a different sample.")
         if not math.isfinite(snapshot.sample_timestamp):
             raise ValueError("Directional measurement snapshot timestamp is non-finite.")
         for name, value in (
