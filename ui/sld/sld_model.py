@@ -32,7 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, ClassVar, Dict, Mapping, Optional, Tuple
 
 from ui.equipment.symbol.symbol_base import SymbolBase
 
@@ -54,13 +54,13 @@ class SLDAnnotationBlock:
     offset_y: float = -20.0
     quadrant: str = "custom"
 
-    QUADRANT_OFFSETS = {
+    QUADRANT_OFFSETS: ClassVar[dict[str, tuple[float, float]]] = {
         "top_right": (70.0, -20.0),
         "top_left": (-70.0, -20.0),
         "bottom_right": (70.0, 20.0),
         "bottom_left": (-70.0, 20.0),
     }
-    VALID_QUADRANTS = frozenset((*QUADRANT_OFFSETS, "custom"))
+    VALID_QUADRANTS: ClassVar[frozenset[str]] = frozenset((*QUADRANT_OFFSETS, "custom"))
 
     def __post_init__(self) -> None:
         if not isinstance(self.block_id, str) or not self.block_id.strip():
@@ -84,15 +84,15 @@ class SLDAnnotationBlock:
             raise TypeError("visible must be boolean")
         if not isinstance(self.quadrant, str) or self.quadrant not in self.VALID_QUADRANTS:
             raise ValueError("quadrant must be one of: " + ", ".join(sorted(self.VALID_QUADRANTS)))
-        if self.quadrant in self.QUADRANT_OFFSETS:
-            object.__setattr__(self, "offset_x", self.QUADRANT_OFFSETS[self.quadrant][0])
-            object.__setattr__(self, "offset_y", self.QUADRANT_OFFSETS[self.quadrant][1])
         for name in ("offset_x", "offset_y"):
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise TypeError(name + " must be numeric")
             if not math.isfinite(float(value)):
                 raise ValueError(name + " must be finite")
+        if self.quadrant in self.QUADRANT_OFFSETS:
+            object.__setattr__(self, "offset_x", self.QUADRANT_OFFSETS[self.quadrant][0])
+            object.__setattr__(self, "offset_y", self.QUADRANT_OFFSETS[self.quadrant][1])
         object.__setattr__(self, "fields", tuple(self.fields))
         object.__setattr__(self, "offset_x", float(self.offset_x))
         object.__setattr__(self, "offset_y", float(self.offset_y))
