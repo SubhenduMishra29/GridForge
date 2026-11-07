@@ -383,8 +383,20 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "completed",
-                value=None if cancelled else value,
-                message="Study cancelled." if cancelled else "",
+                # A cooperative handler may return a valid partial trajectory
+                # when cancellation is observed. Keep that evidence while the
+                # terminal lifecycle status remains cancelled.
+                value=value,
+                message="Study cancelled; partial execution evidence retained." if cancelled and value is not None else ("Study cancelled." if cancelled else ""),
+                metadata=(
+                    {"partial_result_available": True, "termination": {
+                        "status": "cancelled",
+                        "reason": "cancellation_requested",
+                        "stage": "handler_return",
+                    }}
+                    if cancelled and value is not None
+                    else ({"termination": {"status": "cancelled", "reason": "cancellation_requested", "stage": "handler_return"}} if cancelled else {})
+                ),
             )
             try:
                 self._persist_result(result)
@@ -461,13 +473,30 @@ class StudyService:
                 source_revision=request.source_revision,
                 study_type=request.study_type,
                 status="cancelled" if cancelled else "failed",
-                value=None if cancelled else getattr(exc, "partial_result", None),
-                message="Study cancelled." if cancelled else str(exc),
-                metadata=(
-                    {}
-                    if cancelled or getattr(exc, "partial_result", None) is None
-                    else {"partial_result_available": True}
+                # Preserve a solver-provided partial result even when a
+                # concurrent cancellation request wins terminal linearization.
+                value=getattr(exc, "partial_result", None),
+                message=(
+                    "Study cancelled after a solver/handler termination; partial execution evidence retained."
+                    if cancelled and getattr(exc, "partial_result", None) is not None
+                    else ("Study cancelled." if cancelled else str(exc))
                 ),
+                metadata={
+                    **(
+                        {"partial_result_available": True}
+                        if getattr(exc, "partial_result", None) is not None
+                        else {}
+                    ),
+                    "termination": {
+                        "status": "cancelled" if cancelled else "failed",
+                        "reason": "cancellation_requested" if cancelled else "handler_exception",
+                        "stage": getattr(exc, "failing_stage", "handler_execution"),
+                        "termination_reason": getattr(exc, "termination_reason", "handler_exception"),
+                        "failing_time": getattr(exc, "failing_time", None),
+                        "exception_type": getattr(exc, "cause_type", None) or type(exc).__name__,
+                        "diagnostic_message": getattr(exc, "diagnostic_message", str(exc)),
+                    },
+                },
             )
             try:
                 self._persist_result(result)
