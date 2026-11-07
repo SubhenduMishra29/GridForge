@@ -85,6 +85,45 @@ class TransientStabilityAnalysis:
         self.provenance = MappingProxyType(dict(provenance or {}))
         self.result: TransientStabilityStudyResult | None = None
 
+    def _validate_event_scenario(self) -> None:
+        """Fail closed unless runtime event registrations exactly match prepared scenario intent."""
+        manifest = self.provenance.get("event_scenario")
+        if not isinstance(manifest, Mapping) or manifest.get("schema_version") != 1:
+            raise ValueError("Transient execution requires a versioned prepared event-scenario manifest.")
+        expected = manifest.get("events")
+        if not isinstance(expected, (tuple, list)):
+            raise ValueError("Prepared event-scenario manifest must contain an ordered events sequence.")
+        actual = self.solver.event_manager.events
+        if len(actual) != len(expected):
+            raise ValueError(
+                "Runtime transient event registrations do not match the prepared event scenario "
+                f"(expected {len(expected)}, received {len(actual)})."
+            )
+        for index, (declared, registered) in enumerate(zip(expected, actual)):
+            if not isinstance(declared, Mapping):
+                raise ValueError(f"Prepared event scenario entry {index} is not a mapping.")
+            operation = registered.operation
+            actual_operation = None if operation is None else {
+                "target_kind": operation.target_kind,
+                "target_id": operation.target_id,
+                "operation": operation.operation,
+            }
+            checks = (
+                declared.get("event_id") == registered.event_id,
+                declared.get("event_type") == registered.event_type,
+                math.isclose(float(declared.get("time")), float(registered.time), rel_tol=0.0, abs_tol=1e-12),
+                declared.get("priority") == registered.priority,
+                declared.get("enabled") == registered.enabled,
+                declared.get("description") == registered.description,
+                declared.get("metadata") == dict(registered.metadata),
+                declared.get("operation") == actual_operation,
+            )
+            if not all(checks):
+                raise ValueError(
+                    "Runtime transient event registration differs from the immutable prepared "
+                    f"scenario at ordered event index {index} (event_id={registered.event_id!r})."
+                )
+
     def run(
         self,
         *,
@@ -94,6 +133,7 @@ class TransientStabilityAnalysis:
         self.solver.start_time = self.configuration.start_time
         self.solver.end_time = self.configuration.end_time
         self.solver.dt = self.configuration.dt
+        self._validate_event_scenario()
         self.solver.initialize(self.initial_state, time=self.configuration.start_time)
         numerical = self.solver.run(record_initial=True, should_cancel=should_cancel)
         # The solver owns numerical/runtime provenance (including detached
