@@ -88,7 +88,6 @@ class SelectTool(ToolBase):
         if self._pivot_pick_pending:
             self._rotation_pivot = self._pressed_scene_position
             self._pivot_pick_pending = False
-            self._clear_pointer_state()
             return True
         if self._grab_mode:
             if not self._selected_transform_nodes():
