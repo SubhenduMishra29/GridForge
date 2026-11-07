@@ -82,7 +82,6 @@ from .protection_execution import (
 from .protection_execution_audit import ProtectionExecutionAuditStore, ProtectionExecutionAuditRecord
 from core.protection.context import ProtectionContext
 from core.protection.runtime import ProtectionRuntime
-from core.protection.directional.directional_relay import _create_authoritative_directional_snapshot
 from core.protection.input_contracts import APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY, validate_protection_input_contracts, validate_directional_context, validate_sample_representation, input_contract_for
 from core.measurement.measurement_channel import MeasurementQuality, MeasurementValidity
 from math import isfinite, atan2, degrees
@@ -129,6 +128,8 @@ class Application:
         if protection_execution_audit_store is not None and not isinstance(protection_execution_audit_store, ProtectionExecutionAuditStore):
             raise TypeError("protection_execution_audit_store must be a ProtectionExecutionAuditStore or None.")
         self._protection_execution_audit_store = protection_execution_audit_store
+        # Opaque capability retained only by this Application and injected into its active runtimes.
+        self._directional_snapshot_issuance_capability = object()
         self._command_manager = command_manager
         self._read_service = read_service
         self._protection_read_service = protection_read_service
@@ -1629,23 +1630,17 @@ class Application:
             if not isfinite(voltage_angle) or not isfinite(current_angle):
                 diagnostics.append(f"{prefix}: derived phasor angle is non-finite.")
                 continue
-            # Seal the exact validated samples and their internally-derived angles.
-            # The relay consumes current from this snapshot, never a later live RelayInput read.
-            directional_snapshots[element.element_id] = _create_authoritative_directional_snapshot(
+            # Runtime binds validated samples to its own composed identities.
+            directional_snapshots[element.element_id] = runtime.issue_directional_snapshot(
+                capability=self._directional_snapshot_issuance_capability,
                 element_id=element.element_id,
                 voltage_value=voltage_value,
                 current_value=current_value,
-                voltage_angle=voltage_angle,
-                current_angle=current_angle,
                 voltage_channel_id=voltage_id,
                 current_channel_id=current_id,
-                voltage_channel_identity=id(voltage_channel),
-                current_channel_identity=id(current_channel),
+                voltage_channel=voltage_channel,
+                current_channel=current_channel,
                 sample_timestamp=voltage_timestamp,
-                project_id=str(project.project_id),
-                activation_generation=lifecycle.activation_generation,
-                configuration_identity=id(runtime.configuration),
-                runtime_identity=id(runtime),
             )
 
         if diagnostics:
@@ -1876,6 +1871,7 @@ class Application:
             snapshots_by_element[element_id] = MappingProxyType(per_element)
         context_metadata["validated_measurement_snapshots_by_element"] = MappingProxyType(snapshots_by_element)
         context_metadata["validated_measurement_snapshot_authority"] = APPLICATION_MEASUREMENT_SNAPSHOT_AUTHORITY
+        context_metadata["directional_snapshot_issuance_capability"] = self._directional_snapshot_issuance_capability
         # Only Application-created sealed snapshots authorize ANSI 67. Caller
         # metadata remains ordinary context and cannot supply phasors or provenance.
         for element in runtime.configuration.elements:
@@ -3741,7 +3737,7 @@ class Application:
             if network is None:
                 raise RuntimeError("Active Network is unavailable during transactional protection recomposition.")
             previous_runtime = getattr(self, "protection_runtime", None)
-            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration, activation_generation=self.project_lifecycle.activation_generation)
+            candidate_runtime = ProtectionRuntime(network, configuration_service.configuration, activation_generation=self.project_lifecycle.activation_generation, snapshot_issuance_capability=self._directional_snapshot_issuance_capability)
             candidate_runtime.compose(channel_service.channels)
             self.protection_runtime = candidate_runtime
             transaction.record_undo(
@@ -4685,6 +4681,7 @@ class Application:
                 network,
                 configuration_service.configuration,
                 activation_generation=self.project_lifecycle.activation_generation,
+                snapshot_issuance_capability=self._directional_snapshot_issuance_capability,
             )
             candidate.compose(channel_service.channels)
             self.protection_runtime = candidate
