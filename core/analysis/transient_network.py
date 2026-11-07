@@ -392,6 +392,7 @@ class PreparedTransientStability:
         switch_available_states: Mapping[str, bool],
         switch_connections: Mapping[str, tuple[str, str]],
         event_scenario: TransientEventScenario | tuple[TransientEventScenarioItem, ...] = (),
+        simulation_window: Mapping[str, float],
     ) -> "PreparedTransientStability":
         if not isinstance(prepared_power_flow, PreparedPowerFlow):
             raise TypeError("prepared_power_flow must be PreparedPowerFlow.")
@@ -550,7 +551,7 @@ class PreparedTransientStability:
             prepared_power_flow.nominal_frequency_hz,
             prepared_power_flow.canonical_topology_fingerprint,
             cls._operating_point_manifest(prepared_power_flow, power_flow_result, project_id, activation_generation, tuple(prepared_power_flow.source_revision)),
-            cls._event_scenario_manifest(event_scenario),
+            cls._event_scenario_manifest(event_scenario, simulation_window),
         )
 
     @staticmethod
@@ -562,7 +563,10 @@ class PreparedTransientStability:
         source_revision: tuple[int, int, int, int],
     ) -> Mapping[str, object]:
         """Capture exact PF input, solved voltages and prepared network evidence."""
-        matrix = prepared.ybus.matrix.tocsr()
+        matrix = prepared.ybus.matrix.tocsr(copy=True)
+        matrix.sum_duplicates()
+        matrix.sort_indices()
+        matrix.eliminate_zeros()
         digest = hashlib.sha256()
         digest.update(str(matrix.shape).encode("ascii"))
         for values in (matrix.indptr, matrix.indices, matrix.data):
@@ -612,12 +616,28 @@ class PreparedTransientStability:
     @staticmethod
     def _event_scenario_manifest(
         scenario: TransientEventScenario | tuple[TransientEventScenarioItem, ...],
+        simulation_window: Mapping[str, float],
     ) -> Mapping[str, object]:
         if isinstance(scenario, TransientEventScenario):
-            return scenario.as_dict()
-        if isinstance(scenario, (str, bytes)):
-            raise TypeError("event_scenario must be a TransientEventScenario or sequence of scenario items.")
-        return TransientEventScenario(tuple(scenario)).as_dict()
+            event_data = scenario.as_dict()
+        else:
+            if isinstance(scenario, (str, bytes)):
+                raise TypeError("event_scenario must be a TransientEventScenario or sequence of scenario items.")
+            event_data = TransientEventScenario(tuple(scenario)).as_dict()
+        if not isinstance(simulation_window, Mapping) or set(simulation_window) != {"start_time", "end_time", "dt"}:
+            raise ValueError("Transient simulation_window must declare start_time, end_time and dt.")
+        start = float(simulation_window["start_time"])
+        end = float(simulation_window["end_time"])
+        step = float(simulation_window["dt"])
+        if not all(np.isfinite(value) for value in (start, end, step)) or start < 0.0 or end <= start or step <= 0.0:
+            raise ValueError("Transient simulation window must be finite, ordered and use a positive step.")
+        return MappingProxyType({
+            "schema_version": 1,
+            "start_time": start,
+            "end_time": end,
+            "dt": step,
+            "events": event_data["events"],
+        })
 
 
 class _PreparedTransientPassiveView:
