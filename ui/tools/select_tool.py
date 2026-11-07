@@ -282,9 +282,12 @@ class SelectTool(ToolBase):
         scene = self._scene()
         items = tuple(scene.items()) if scene is not None and callable(getattr(scene, "items", None)) else ()
         for selected_id in selected_ids:
-            node = equipment_getter(str(selected_id)) if callable(equipment_getter) else None
+            selected_key = str(selected_id)
+            node = equipment_getter(selected_key) if callable(equipment_getter) else None
             if node is None and callable(node_getter):
-                node = node_getter(str(selected_id))
+                node = node_getter(selected_key)
+            if node is None and selected_key.startswith("presentation:") and callable(node_getter):
+                node = node_getter(selected_key[len("presentation:"):])
             if node is None or str(node.node_id) in seen:
                 continue
             seen.add(str(node.node_id))
