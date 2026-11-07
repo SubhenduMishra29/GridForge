@@ -23235,3 +23235,4 @@ UI COMPLETION — 2026-11-07
 - ui/sld/sld_route_edit_controller.py: draft bend edits dispatch UpdateDraftConnectionRouteCommand through Application; persistent SLD route edits retain their existing command path.
 - Draft route editing remains presentation-only and uses DraftNetwork snapshot undo/redo; Escape continues to cancel the current pointer gesture.
 - ui/sld/items/sld_connection_item.py and ui/tools/select_tool.py: double-clicking a draft Simple Wire segment inserts an authored bend; dragging an existing bend updates the route. Both interactions dispatch the stable DraftNetwork identity through the Application route command.
+- ui/canvas/canvas_hit.py: added a distinct draft_connection_id to immutable route-hit metadata; a draft hit cannot be mistaken for a Core connection ID.
