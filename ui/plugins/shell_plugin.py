@@ -681,8 +681,7 @@ class ShellPlugin:
             index = self._workspace_switcher.findData(
                 str(getattr(context, "discipline", "sld")).lower()
             )
-            if index >= 0:
-                self._workspace_switcher.setCurrentIndex(index)
+            self._workspace_switcher.setCurrentIndex(index)
 
     def _activate_workspace_from_switcher(self, index: int) -> None:
         if self._context is None:
