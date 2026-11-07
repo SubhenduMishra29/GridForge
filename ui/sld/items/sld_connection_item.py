@@ -238,6 +238,29 @@ class SLDConnectionItem(QGraphicsPathItem):
             "target": (float(self._visual_target.x()), float(self._visual_target.y())),
             "route_ownership": self._route_ownership,
         }
+    def insert_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
+        """Insert one authored bend into a draft or persistent route proposal."""
+        is_draft = self._projection_source == "draft_network"
+        if self._core_connection_id is None and not is_draft:
+            raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index > len(self._route_points):
+            raise IndexError(index)
+        point = (float(x), float(y))
+        if not all(math.isfinite(value) for value in point):
+            raise ValueError("Route bend coordinates must be finite.")
+        points = list(self._route_points)
+        points.insert(index, point)
+        proposed_route = tuple(points)
+        request = {
+            "connection_id": self._presentation_id,
+            "core_connection_id": self._core_connection_id,
+            "points": proposed_route,
+        }
+        if is_draft:
+            request["draft_connection_id"] = self._presentation_id
+        self.route_edit_requested.emit(request)
+        return proposed_route
+
     def set_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
         """Propose one bend without changing the realized/persisted route.
 
