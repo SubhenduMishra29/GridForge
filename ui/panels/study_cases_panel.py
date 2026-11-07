@@ -14,7 +14,7 @@ from core.application.read_models import TransientResultPresentationReadModel
 
 from ui.core.qt import (
     QComboBox, QFormLayout, QLabel, QLineEdit, QListWidget,
-    QPushButton, QVBoxLayout, QWidget,
+    QPushButton, QTimer, QVBoxLayout, QWidget,
 )
 
 
@@ -29,6 +29,10 @@ class StudyCasesPanelWidget(QWidget):
         self._create_handler: Callable[..., object] | None = None
         self._result_selection_handler: Callable[[UUID | None], object] | None = None
         self._case_rows: tuple[object, ...] = ()
+        self._run_future = None
+        self._run_timer = QTimer(self)
+        self._run_timer.setInterval(100)
+        self._run_timer.timeout.connect(self._poll_run_future)
 
         self._case_name = QLineEdit(self)
         self._case_name.setPlaceholderText("Optional Study Case name")
@@ -291,8 +295,31 @@ class StudyCasesPanelWidget(QWidget):
 
     def _run_selected(self) -> None:
         study_id = self.selected_case_id()
-        if study_id is not None and self._run_handler is not None:
-            self._run_handler(study_id)
+        if study_id is None or self._run_handler is None or self._run_future is not None:
+            return
+        submitted = self._run_handler(study_id)
+        if not callable(getattr(submitted, "done", None)):
+            return
+        self._run_future = submitted
+        self._run.setEnabled(False)
+        self._run.setText("Study queued…")
+        self._run_timer.start()
+
+    def _poll_run_future(self) -> None:
+        future = self._run_future
+        if future is None or not future.done():
+            return
+        self._run_timer.stop()
+        self._run_future = None
+        try:
+            future.result()
+        except Exception as exc:
+            self._run.setText("Study failed")
+            self._run.setToolTip(str(exc))
+        else:
+            self._run.setText("Run Study")
+            self._run.setToolTip("Study execution finished; results are available through the Study read model.")
+        self._run.setEnabled(True)
 
 
 __all__ = ["StudyCasesPanelWidget"]
