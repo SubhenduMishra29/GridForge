@@ -63,13 +63,15 @@ class CanvasHitTarget:
 
     @classmethod
     def simple_wire_segment(
-        cls, *, object_id: Any, presentation_id: str, core_connection_id: str,
-        segment_index: int, closest_point: Point, distance: float,
+        cls, *, object_id: Any, presentation_id: str, core_connection_id: str | None,
+        draft_connection_id: str | None = None, segment_index: int, closest_point: Point, distance: float,
         source_point: Point, target_point: Point, route_points: RoutePoints,
         route_ownership: str | None,
     ) -> "CanvasHitTarget":
         """Create a validated routed Simple Wire segment hit."""
-        if not isinstance(core_connection_id, str) or not core_connection_id:
+        has_core_identity = isinstance(core_connection_id, str) and bool(core_connection_id)
+        has_draft_identity = isinstance(draft_connection_id, str) and bool(draft_connection_id)
+        if has_core_identity == has_draft_identity:
             return cls.none()
         if not isinstance(presentation_id, str) or not presentation_id:
             return cls.none()
@@ -86,7 +88,7 @@ class CanvasHitTarget:
                 return cls.none()
         except (TypeError, ValueError, IndexError):
             return cls.none()
-        return cls(kind=CanvasHitKind.SIMPLE_WIRE_SEGMENT, object_id=object_id, presentation_id=presentation_id, core_connection_id=core_connection_id, segment_index=segment_index, closest_point=normalized_closest, distance=float(distance), source_point=normalized_source, target_point=normalized_target, route_points=normalized_route, route_ownership=None if route_ownership is None else str(route_ownership))
+        return cls(kind=CanvasHitKind.SIMPLE_WIRE_SEGMENT, object_id=object_id, presentation_id=presentation_id, core_connection_id=core_connection_id, draft_connection_id=draft_connection_id, segment_index=segment_index, closest_point=normalized_closest, distance=float(distance), source_point=normalized_source, target_point=normalized_target, route_points=normalized_route, route_ownership=None if route_ownership is None else str(route_ownership))
 
     @classmethod
     def from_connection_item(cls, item: Any, hit: Mapping[str, Any]) -> "CanvasHitTarget":
@@ -94,11 +96,13 @@ class CanvasHitTarget:
         object_id = getattr(item, "object_id", None)
         presentation_id = getattr(item, "presentation_id", None)
         core_connection_id = getattr(item, "core_connection_id", None)
-        if not isinstance(core_connection_id, str) or not core_connection_id:
+        is_draft = getattr(item, "projection_source", None) == "draft_network"
+        draft_connection_id = presentation_id if is_draft else None
+        if not is_draft and (not isinstance(core_connection_id, str) or not core_connection_id):
             return cls.none()
         connection_kind = str(getattr(item, "connection_kind", "") or "").upper()
         if connection_kind == "SIMPLE_WIRE":
-            return cls.simple_wire_segment(object_id=object_id, presentation_id=presentation_id, core_connection_id=core_connection_id, segment_index=hit.get("segment_index"), closest_point=hit.get("closest_point"), distance=hit.get("distance"), source_point=hit.get("source"), target_point=hit.get("target"), route_points=hit.get("route", ()), route_ownership=hit.get("route_ownership"))
+            return cls.simple_wire_segment(object_id=object_id, presentation_id=presentation_id, core_connection_id=core_connection_id, draft_connection_id=draft_connection_id, segment_index=hit.get("segment_index"), closest_point=hit.get("closest_point"), distance=hit.get("distance"), source_point=hit.get("source"), target_point=hit.get("target"), route_points=hit.get("route", ()), route_ownership=hit.get("route_ownership"))
         return cls.connection(object_id=object_id, presentation_id=presentation_id, core_connection_id=core_connection_id)
 
 __all__ = ["CanvasHitKind", "CanvasHitTarget"]
