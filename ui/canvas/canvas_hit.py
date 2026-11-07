@@ -64,9 +64,9 @@ class CanvasHitTarget:
     @classmethod
     def simple_wire_segment(
         cls, *, object_id: Any, presentation_id: str, core_connection_id: str | None,
-        draft_connection_id: str | None = None, segment_index: int, closest_point: Point, distance: float,
+        segment_index: int, closest_point: Point, distance: float,
         source_point: Point, target_point: Point, route_points: RoutePoints,
-        route_ownership: str | None,
+        route_ownership: str | None, draft_connection_id: str | None = None,
     ) -> "CanvasHitTarget":
         """Create a validated routed Simple Wire segment hit."""
         has_core_identity = isinstance(core_connection_id, str) and bool(core_connection_id)
