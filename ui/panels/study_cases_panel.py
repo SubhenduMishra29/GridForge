@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import CancelledError
 from typing import Callable, Iterable
 from uuid import UUID
 
@@ -336,6 +337,9 @@ class StudyCasesPanelWidget(QWidget):
         self._run_poll_timer.stop()
         try:
             future.result()
+        except CancelledError:
+            # A queued cancellation is a normal Study lifecycle outcome, not a UI error.
+            pass
         except BaseException as exc:
             if self._run_error_handler is not None:
                 self._run_error_handler(exc)
