@@ -75,6 +75,7 @@ class SelectTool(ToolBase):
             core_connection_id = self._pressed_hit.core_connection_id
             if core_connection_id is not None:
                 self._handle_connection_click(core_connection_id, modifiers)
+            if core_connection_id is not None or self._pressed_hit.draft_connection_id is not None:
                 self._capture_route_edit_target(self._pressed_hit)
             return True
 
@@ -468,6 +469,10 @@ class SelectTool(ToolBase):
             if (
                 getattr(item, "presentation_id", None) == hit.presentation_id
                 and getattr(item, "core_connection_id", None) == hit.core_connection_id
+                and (
+                    hit.draft_connection_id is None
+                    or getattr(item, "projection_source", None) == "draft_network"
+                )
             ):
                 return item
         return None
