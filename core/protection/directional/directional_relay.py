@@ -159,6 +159,7 @@ Proprietary and confidential.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any, Mapping
 
 from core.protection.context import ProtectionContext
