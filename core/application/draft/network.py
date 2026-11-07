@@ -369,10 +369,24 @@ class DraftNetwork:
         """Return an orientation-independent key for one semantic wire pair."""
         return tuple(sorted((source, target), key=lambda endpoint: repr(endpoint.to_dict())))
 
-    def validate_connection_candidate(self, connection: DraftConnection) -> None:
-        """Validate a candidate without changing draft state or transaction history."""
-        if connection.connection_id in self._connections:
+    def validate_connection_candidate(
+        self,
+        connection: DraftConnection,
+        *,
+        replacing_connection_id: str | None = None,
+    ) -> None:
+        """Validate a candidate without changing draft state or transaction history.
+
+        ``replacing_connection_id`` permits an immutable route replacement while
+        retaining the existing connection identity and endpoint pair. All other
+        connections remain subject to duplicate-ID and duplicate-pair checks.
+        """
+        existing = self._connections.get(connection.connection_id)
+        if existing is not None and connection.connection_id != replacing_connection_id:
             raise ValueError(f"Draft connection already exists: {connection.connection_id}")
+        if replacing_connection_id is not None:
+            if replacing_connection_id != connection.connection_id or existing is None:
+                raise ValueError("Draft route replacement must target its existing connection identity.")
         if connection.connection_kind != "simple_wire":
             raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
         self._validate_endpoint(connection.source, connection_id=connection.connection_id)
@@ -397,6 +411,8 @@ class DraftNetwork:
 
         candidate_pair = self._endpoint_pair_key(connection.source, connection.target)
         for existing in self._connections.values():
+            if existing.connection_id == replacing_connection_id:
+                continue
             if self._endpoint_pair_key(existing.source, existing.target) == candidate_pair:
                 raise ValueError(
                     f"{connection.connection_id}: duplicate endpoint pair; "
@@ -409,6 +425,29 @@ class DraftNetwork:
         # cannot leave partially updated draft state.
         self._connections[connection.connection_id] = connection
         self.validation_state = {}
+
+    def update_connection_route(
+        self,
+        connection_id: str,
+        route: Mapping[str, Any],
+    ) -> DraftConnection:
+        """Replace presentation route metadata without changing electrical identity."""
+        current = self._connections[connection_id]
+        updated = DraftConnection(
+            connection_id=current.connection_id,
+            source=current.source,
+            target=current.target,
+            connection_kind=current.connection_kind,
+            route=dict(route),
+            validation_state=dict(current.validation_state),
+        )
+        self.validate_connection_candidate(
+            updated,
+            replacing_connection_id=connection_id,
+        )
+        self._connections[connection_id] = updated
+        self.validation_state = {}
+        return updated
 
     def remove_connection(self, connection_id: str) -> DraftConnection:
         connection = self._connections.pop(connection_id)
