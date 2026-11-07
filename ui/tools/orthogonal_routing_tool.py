@@ -91,11 +91,20 @@ class OrthogonalRoutingTool(WireTool):
     def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
         if not self._route_valid or len(self._route_points) < 2:
             raise ValueError("Orthogonal routing cannot commit without a valid computed route.")
+        # ConnectionRouter returns both electrical endpoint positions and
+        # interior bends. SLDRoute stores only interior presentation bends;
+        # the canonical endpoint identities remain in the Application command.
+        route = {
+            "routing_mode": "orthogonal",
+            "ownership": "engineer",
+            "points": [list(point) for point in self._route_points[1:-1]],
+        }
         return super()._execute_connection(
             endpoint_from,
             endpoint_to,
             source_snap=source_snap,
             target_snap=target_snap,
+            presentation_route=route,
         )
 
     def on_mouse_move(self, event: Any) -> bool:

@@ -4057,7 +4057,11 @@ class Application:
                 target_node_id=target["node_id"],
                 source_endpoint=source,
                 target_endpoint=target,
-                route={"routing_mode": "orthogonal", "ownership": "auto", "points": []},
+                route=command.payload.get("presentation_route") or {
+                    "routing_mode": "orthogonal",
+                    "ownership": "auto",
+                    "points": [],
+                },
                 connection_kind=connection_kind,
                 presentation_owner="projection",
                 projection_source="core_transaction",
