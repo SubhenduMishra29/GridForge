@@ -7,6 +7,7 @@ capability attached to the Application-created ProtectionContext.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 _DIRECTIONAL_SNAPSHOT_SEAL = object()
 
