@@ -228,8 +228,8 @@ class DraftConnection:
                 normalized = (point[0], point[1])
                 if not normalized_points or normalized != normalized_points[-1]:
                     normalized_points.append(normalized)
-            if raw_points and len(normalized_points) < 2:
-                raise ValueError("Draft connection route must contain at least two distinct consecutive points.")
+            # Route points are intermediate bends, not endpoint-inclusive
+            # polylines; a single bend is a valid authored route.
             route["points"] = tuple(normalized_points)
         object.__setattr__(self, "route", MappingProxyType(route))
         object.__setattr__(self, "validation_state", MappingProxyType(dict(self.validation_state)))
