@@ -355,8 +355,7 @@ class TransientStabilitySolver:
                     discontinuities.append(boundary)
                     executions.extend(boundary.event_executions)
                     self._append_discontinuity_pre_sample(boundary, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
-                    raise TransientStabilityError(str(exc), partial_result=partial) from exc
+                    raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
                 raise failure(str(exc), stage="event_dispatch", cause=exc, failing_time=self._time) from exc
             if self._last_due_discontinuity is not None:
                 discontinuities.append(self._last_due_discontinuity)
@@ -421,7 +420,6 @@ class TransientStabilitySolver:
                         discontinuities.append(self._make_discontinuity(pre_event_solution, annotated, None, post_status="post_evaluation_failed"))
                     if not times or not math.isclose(times[-1], pre_event_solution.time, rel_tol=0.0, abs_tol=1e-12):
                         self._record(pre_event_solution, times, states, voltages, powers, algebraic_quality)
-                    partial = self._build_result(times, states, voltages, powers, algebraic_quality, executions, discontinuities)
                     raise failure(
                         f"Post-event algebraic re-evaluation failed at t={self._time:.12g} s; partial trajectory retained.",
                         stage="post_event_algebraic_evaluation", cause=exc, failing_time=self._time,
@@ -433,7 +431,11 @@ class TransientStabilitySolver:
 
             self._record(solution, times, states, voltages, powers, algebraic_quality)
 
-        cancelled = should_cancel is not None and should_cancel()
+        cancelled = (
+            should_cancel is not None
+            and should_cancel()
+            and self._time < self.end_time - self.event_manager.tolerance
+        )
         if not cancelled and self._time < self.end_time - self.event_manager.tolerance:
             raise failure(
                 f"Simulation ended at t={self._time:.12g} s before configured end_time={self.end_time:.12g} s.",
