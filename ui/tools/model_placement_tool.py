@@ -309,6 +309,10 @@ class ModelPlacementTool(ToolBase):
         return True
 
     def _try_begin_wire_insertion(self, event: Any, draft: CreationDraft) -> bool:
+        # Electrical insertion is a distinct gesture. A nearby wire is only a
+        # candidate; Shift explicitly authorizes the insertion intent.
+        if not bool(getattr(event, "insertion_intent", False)):
+            return False
         manager_getter = getattr(self.controller, "get_tool_manager", None)
         if callable(manager_getter):
             tool_manager = manager_getter()
