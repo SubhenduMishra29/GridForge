@@ -16,7 +16,7 @@ class StudyToolRuntime:
     """Own contextual Study actions without becoming a second study authority."""
 
     TOOL_DEFINITIONS = (
-        ToolDefinition("run_study", "Run Study", "Execute the selected Study Case through Application.", icon_id=None, editor_types=("study",), capabilities=("study",), supported_modes=("select", "edit"), default_mode="edit", category="study"),
+        ToolDefinition("run_study", "Run Study", "Submit the selected Study Case through Application.", icon_id=None, editor_types=("study",), capabilities=("study",), supported_modes=("select", "edit"), default_mode="edit", category="study"),
         ToolDefinition("inspect_result", "Inspect Result", "Inspect the selected Study Result.", icon_id=None, editor_types=("study",), capabilities=("result", "inspect"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("compare_results", "Compare Results", "Select Study Results for comparison.", icon_id=None, editor_types=("study",), capabilities=("result", "compare"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("plot", "Plot", "Prepare the selected Study Result for plotting.", icon_id="plot", editor_types=("study",), capabilities=("result", "plot"), supported_modes=("select",), default_mode="select", category="results"),
@@ -41,8 +41,10 @@ class StudyToolRuntime:
         return self.TOOL_DEFINITIONS
 
     def bind_study_case_controller(self, controller: Any) -> None:
-        if controller is None or not callable(getattr(controller, "run_study", None)):
-            raise TypeError("controller must expose run_study().")
+        if (controller is None
+                or not callable(getattr(controller, "run_study", None))
+                or not callable(getattr(controller, "cancel_study", None))):
+            raise TypeError("controller must expose run_study() and cancel_study().")
         self._study_case_controller = controller
 
     def activate(self, tool_id: str) -> str:
