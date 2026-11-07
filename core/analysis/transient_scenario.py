@@ -83,8 +83,8 @@ class PowerFlowOperatingPointSnapshot:
             raise ValueError("Power Flow solver iteration count must be a non-negative integer.")
         error = float(self.solver_error)
         history = tuple(float(value) for value in self.solver_history)
-        if not math.isfinite(error) and error != float("inf"):
-            raise ValueError("Power Flow solver error must be finite or positive infinity.")
+        if not math.isfinite(error):
+            raise ValueError("Successful Power Flow solver error evidence must be finite.")
         if any(not math.isfinite(value) for value in history):
             raise ValueError("Power Flow solver history must contain finite values.")
         if not isinstance(self.solver_message, str):
@@ -101,8 +101,8 @@ class PowerFlowOperatingPointSnapshot:
             raise ValueError("Power Flow voltage bases must cover every Bus with positive finite values.")
         if len(self.canonical_topology_fingerprint) != 64 or any(ch not in "0123456789abcdef" for ch in self.canonical_topology_fingerprint):
             raise ValueError("Canonical topology fingerprint must be a lowercase SHA-256 digest.")
-        if self.ybus_fingerprint and len(self.ybus_fingerprint) != 64:
-            raise ValueError("YBus fingerprint must be a SHA-256 digest.")
+        if self.ybus_fingerprint and (len(self.ybus_fingerprint) != 64 or any(ch not in "0123456789abcdef" for ch in self.ybus_fingerprint)):
+            raise ValueError("YBus fingerprint must be a lowercase SHA-256 digest.")
         object.__setattr__(self, "source_revision", revision)
         object.__setattr__(self, "bus_ids", buses)
         object.__setattr__(self, "solved_voltage_magnitudes", vm)
