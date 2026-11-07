@@ -6,21 +6,33 @@ closures, Qt objects and live Core model references are deliberately excluded.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 import math
 from types import MappingProxyType
 from typing import Any, Mapping
 
 
 def _freeze(value: Any) -> Any:
+    """Normalize evidence to immutable, archive-safe scalar/container values."""
+    if isinstance(value, Enum):
+        return _freeze(value.value)
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("Transient scenario evidence must contain only finite floats.")
+        return value
     if isinstance(value, Mapping):
-        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+        if any(not isinstance(key, str) for key in value):
+            raise TypeError("Transient scenario evidence mapping keys must be strings.")
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
     if isinstance(value, (tuple, list)):
         return tuple(_freeze(item) for item in value)
     if isinstance(value, (set, frozenset)):
         return frozenset(_freeze(item) for item in value)
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError("Transient scenario evidence must contain only finite floats.")
-    return value
+    raise TypeError(
+        f"Transient scenario evidence cannot contain runtime value {type(value).__name__}."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,12 +63,12 @@ class PowerFlowOperatingPointSnapshot:
     def __post_init__(self) -> None:
         if not self.snapshot_id or not self.project_id:
             raise ValueError("Power Flow operating-point snapshot identity is required.")
-        if isinstance(self.activation_generation, bool) or self.activation_generation < 1:
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
             raise ValueError("Power Flow activation generation must be positive.")
         revision = tuple(self.source_revision)
         if len(revision) != 4 or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in revision):
             raise ValueError("Power Flow source revision must contain four non-negative integers.")
-        if isinstance(self.topology_revision, bool) or self.topology_revision < 0:
+        if isinstance(self.topology_revision, bool) or not isinstance(self.topology_revision, int) or self.topology_revision < 0:
             raise ValueError("Power Flow topology revision must be non-negative.")
         buses = tuple(self.bus_ids)
         if not buses or len(set(buses)) != len(buses):
@@ -87,8 +99,8 @@ class PowerFlowOperatingPointSnapshot:
         bases = {str(k): float(v) for k, v in self.bus_voltage_bases_kv.items()}
         if set(bases) != set(buses) or any(not math.isfinite(v) or v <= 0 for v in bases.values()):
             raise ValueError("Power Flow voltage bases must cover every Bus with positive finite values.")
-        if len(self.canonical_topology_fingerprint) != 64:
-            raise ValueError("Canonical topology fingerprint must be a SHA-256 digest.")
+        if len(self.canonical_topology_fingerprint) != 64 or any(ch not in "0123456789abcdef" for ch in self.canonical_topology_fingerprint):
+            raise ValueError("Canonical topology fingerprint must be a lowercase SHA-256 digest.")
         if self.ybus_fingerprint and len(self.ybus_fingerprint) != 64:
             raise ValueError("YBus fingerprint must be a SHA-256 digest.")
         object.__setattr__(self, "source_revision", revision)
