@@ -57,8 +57,12 @@ class UpdateDraftConnectionRouteCommand(_DraftCommand):
     ):
         if not isinstance(project_id, str) or not project_id.strip():
             raise ValueError("Draft route update requires a project_id.")
-        if isinstance(activation_generation, bool) or int(activation_generation) < 1:
-            raise ValueError("Draft route update requires a positive activation_generation.")
+        if (
+            isinstance(activation_generation, bool)
+            or not isinstance(activation_generation, int)
+            or activation_generation < 1
+        ):
+            raise ValueError("Draft route update requires a positive integer activation_generation.")
         if not isinstance(connection_id, str) or not connection_id.strip():
             raise ValueError("Draft route update requires a connection_id.")
         if not isinstance(route, Mapping):
