@@ -14,6 +14,7 @@ from ..command import Command
 
 SET_SLD_NODE_POSITION = "sld.set_node_position"
 SET_SLD_NODE_POSITIONS = "sld.set_node_positions"
+SET_SLD_NODE_TRANSFORMS = "sld.set_node_transforms"
 ADD_SLD_NODE = "sld.add_node"
 REMOVE_SLD_NODE = "sld.remove_node"
 SET_SLD_NODE_PRESENTATION = "sld.set_node_presentation"
@@ -64,6 +65,56 @@ class SetSLDNodePositionsCommand(Command):
         super().__init__(
             command_type=SET_SLD_NODE_POSITIONS,
             payload={"positions": normalized},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class SetSLDNodeTransformsCommand(Command):
+    """Apply one atomic group transform to SLD presentation nodes."""
+
+    def __init__(
+        self,
+        *,
+        transforms: list[dict],
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        if not isinstance(transforms, list) or not transforms:
+            raise ValueError("transforms must be a non-empty list.")
+        normalized = []
+        seen = set()
+        for item in transforms:
+            if not isinstance(item, dict):
+                raise TypeError("each transform must be a dictionary.")
+            node_id = item.get("node_id")
+            if not isinstance(node_id, str) or not node_id.strip():
+                raise ValueError("each transform requires a non-empty node_id.")
+            if node_id in seen:
+                raise ValueError(f"duplicate node_id in group transform: {node_id!r}.")
+            seen.add(node_id)
+            x, y = item.get("x"), item.get("y")
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in (x, y)
+            ):
+                raise ValueError("group transform coordinates must be finite numbers.")
+            presentation = item.get("presentation")
+            if not isinstance(presentation, dict):
+                raise TypeError("each group transform requires a presentation dictionary.")
+            normalized.append({
+                "node_id": node_id,
+                "x": float(x),
+                "y": float(y),
+                "presentation": dict(presentation),
+            })
+        super().__init__(
+            command_type=SET_SLD_NODE_TRANSFORMS,
+            payload={"transforms": normalized},
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
             causation_id=causation_id,
@@ -225,8 +276,8 @@ class RemoveSLDConnectionCommand(Command):
 
 
 __all__ = [
-    "SET_SLD_NODE_POSITION", "SET_SLD_NODE_POSITIONS", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
+    "SET_SLD_NODE_POSITION", "SET_SLD_NODE_POSITIONS", "SET_SLD_NODE_TRANSFORMS", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
     "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS",
-    "SetSLDNodePositionCommand", "SetSLDNodePositionsCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
+    "SetSLDNodePositionCommand", "SetSLDNodePositionsCommand", "SetSLDNodeTransformsCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
     "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand",
 ]
