@@ -306,27 +306,21 @@ def default_menus() -> tuple[MenuSpec, ...]:
             ),
             a("view.maximize_editor", "Maximize Editor", "Ctrl+Space"),
         )),
-        MenuSpec("design", "Design", (
-            sub("design.workspace", "Workspace",
-                a("view.sld_workspace", "SLD Workspace"),
-                a("view.map", "Geographic / Layout Map"),
-            ),
+        MenuSpec("workspaces", "Workspaces", (
+            a("view.sld_workspace", "SLD Workspace"),
+            a("view.control_workspace", "Control Workspace"),
+            a("view.protection_workspace", "Protection Workspace"),
+            a("view.study_workspace", "Study Workspace"),
+            a("view.topology", "Network Topology", separator_before=True),
+            a("view.map", "Geographic / Layout Map"),
+            a("view.reports", "Study Reports"),
         )),
         MenuSpec("tools", "Tools", ()),
         MenuSpec("network", "Network", (
             a("network.commit_draft", "Commit Network Draft", "Ctrl+Shift+Enter"),
-            a("view.topology", "Network Topology"),
         )),
         MenuSpec("study", "Studies", (
             a("study.cases", "Study Cases"),
-            a("view.study_workspace", "Study Workspace"),
-        )),
-        MenuSpec("protection_control", "Protection & Control", (
-            a("view.protection_workspace", "Protection Workspace"),
-            a("view.control_workspace", "Control Workspace"),
-        )),
-        MenuSpec("reports", "Reports", (
-            a("view.reports", "Study Reports"),
         )),
         MenuSpec("help", "Help", (
             a("help.about", "About GridForge"),
