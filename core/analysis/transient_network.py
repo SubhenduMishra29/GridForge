@@ -426,6 +426,8 @@ class PreparedTransientStability:
             raise ValueError("Transient activation_generation must match the prepared Power Flow snapshot.")
         if source_revision[1] != prepared_power_flow.topology_revision:
             raise ValueError("Transient source revision topology component must match the prepared Power Flow topology revision.")
+        if prepared_power_flow.source_revision is None or tuple(prepared_power_flow.source_revision) != tuple(source_revision):
+            raise ValueError("Transient source revision must exactly match the revision captured by Power Flow preparation.")
         # Project activation provenance must agree with the prepared operating point.
         # Optional metadata is tolerated only for legacy detached snapshots that
         # genuinely lack that field; supplied caller values never override it.
