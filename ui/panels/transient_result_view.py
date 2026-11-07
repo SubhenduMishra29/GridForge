@@ -114,6 +114,7 @@ class TransientResultViewWidget(QWidget):
         trajectory_status = str(model.provenance.get("trajectory_status", execution_status))
         last_valid_time = model.provenance.get("last_valid_time")
         termination = model.provenance.get("termination", {})
+        study_lifecycle = model.provenance.get("study_lifecycle", {})
         event_schedule = model.provenance.get("event_schedule", ())
         pending_count = sum(
             1 for item in event_schedule
@@ -134,6 +135,15 @@ class TransientResultViewWidget(QWidget):
                     + str(termination.get("diagnostic_message", ""))
                 )
             details.append(f"Undispatched scheduled events: {pending_count}")
+            if isinstance(study_lifecycle, Mapping):
+                lifecycle_termination = study_lifecycle.get("termination", {})
+                if isinstance(lifecycle_termination, Mapping):
+                    details.append(
+                        "Application termination: "
+                        + str(lifecycle_termination.get("reason", "unspecified"))
+                        + " / "
+                        + str(lifecycle_termination.get("diagnostic_message", ""))
+                    )
         elif execution_status == "completed":
             details.append("Trajectory completed at configured end time.")
         if model.record_id is not None:
