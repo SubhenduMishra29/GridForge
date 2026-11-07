@@ -132,7 +132,9 @@ class OrthogonalRoutingTool(WireTool):
             clearance = self.CLEARANCE_PIXELS / self._view_scale()
             signature = (
                 self._start_position,
+                source_id,
                 target_position,
+                target_id,
                 tuple(obstacles),
                 tuple(existing_routes),
                 clearance,
