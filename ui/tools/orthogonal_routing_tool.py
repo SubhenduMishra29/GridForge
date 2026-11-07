@@ -24,6 +24,7 @@ class OrthogonalRoutingTool(WireTool):
 
     TOOL_ID = "orthogonal-routing"
     CLEARANCE_PIXELS = 5.0
+    ROUTE_CLEARANCE_PIXELS = 8.0
     PREVIEW_DATA_ROLE = 0
     PREVIEW_DATA_KEY = "gridforge.orthogonal-routing.preview"
 
@@ -75,9 +76,13 @@ class OrthogonalRoutingTool(WireTool):
         # to WireTool's existing endpoint-identity and Application command path.
         target_snap = super()._snap(event)
         if target_snap is None or getattr(getattr(target_snap, "snap_type", None), "name", None) != "OBJECT":
+            self._route_valid = False
+            self._route_points = ()
+            self._show_preview()
             self._report_feedback("Orthogonal routing requires a stable electrical endpoint to commit.")
             return True
         target_position = self._position_tuple(target_snap.position)
+        self._current_position = target_position
         if not self._calculate_route(target_position, target_snap):
             self._show_preview()
             self._report_feedback(self._failure_reason or "No valid orthogonal route is available.")
@@ -106,6 +111,10 @@ class OrthogonalRoutingTool(WireTool):
         is_endpoint = snap is not None and getattr(getattr(snap, "snap_type", None), "name", None) == "OBJECT"
         target_position = self._position_tuple(snap.position) if is_endpoint else self._position_tuple(self._current_position)
         self._calculate_route(target_position, snap if is_endpoint else None)
+        if not is_endpoint:
+            # Geometrically routable is not electrically connectable: a free
+            # cursor position has no stable endpoint identity and stays red.
+            self._route_valid = False
         self._show_preview()
         return True
 
@@ -123,7 +132,9 @@ class OrthogonalRoutingTool(WireTool):
             clearance = self.CLEARANCE_PIXELS / self._view_scale()
             signature = (
                 self._start_position,
+                source_id,
                 target_position,
+                target_id,
                 tuple(obstacles),
                 tuple(existing_routes),
                 clearance,
@@ -137,6 +148,7 @@ class OrthogonalRoutingTool(WireTool):
                 obstacles=obstacles,
                 existing_routes=existing_routes,
                 clearance=clearance,
+                route_clearance=self.ROUTE_CLEARANCE_PIXELS / self._view_scale(),
             ).points
         except (TypeError, ValueError, RuntimeError) as exc:
             self._route_valid = False
@@ -258,27 +270,38 @@ class OrthogonalRoutingTool(WireTool):
         layer = self._preview_layer
         if layer is None:
             return
-        if not self._route_valid or len(self._route_points) < 2:
+        points = self._route_points if self._route_valid and len(self._route_points) >= 2 else ()
+        if not points and self._start_position is not None and self._current_position is not None:
+            # Keep a conspicuous invalid guide visible instead of silently
+            # removing the preview when no collision-free route exists.
+            points = (self._start_position, self._position_tuple(self._current_position))
+        if len(points) < 2:
             self._remove_route_item()
             return
         path = QPainterPath()
-        path.moveTo(QPointF(*self._route_points[0]))
-        for point in self._route_points[1:]:
+        path.moveTo(QPointF(*points[0]))
+        for point in points[1:]:
             path.lineTo(QPointF(*point))
         if self._route_item is None:
             self._route_item = QGraphicsPathItem()
             self._route_item.setData(self.PREVIEW_DATA_ROLE, self.PREVIEW_DATA_KEY)
-            pen = QPen(QColor("#1976D2"), 2.0, Qt.PenStyle.DashLine)
-            pen.setCosmetic(True)
-            self._route_item.setPen(pen)
             self._route_item.setZValue(15.0)
             add = getattr(layer, "add", None)
             if not callable(add):
                 self._route_item = None
                 return
             add(self._route_item)
+        color = "#1976D2" if self._route_valid else "#D32F2F"
+        pen = QPen(QColor(color), 2.0, Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        self._route_item.setPen(pen)
         self._route_item.setPath(path)
-        self._route_item.setToolTip("Live orthogonal route preview — not committed connectivity.")
+        tooltip = (
+            "Live orthogonal route preview — not committed connectivity."
+            if self._route_valid
+            else "INVALID ROUTE — no collision-free path; this guide cannot be committed."
+        )
+        self._route_item.setToolTip(tooltip)
 
     def _remove_route_item(self) -> None:
         item = self._route_item

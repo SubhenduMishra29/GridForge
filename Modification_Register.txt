@@ -23184,3 +23184,10 @@ Implemented the remaining scoped Study cancellation path against the current mai
 - UIUpdateBoundary marshals Application events from worker threads through a queued QObject signal; the composition root enables this for Study lifecycle events.
 - Application Study scheduler shutdown is owned by UI lifecycle cleanup and startup-failure cleanup.
 No new scheduler or result store was introduced. No tests/CI were run.
+
+
+[2026-11-07] GF-ROUTING-ORTHOGONAL — Issue #817 residual route-conflict correction
+- ui/connections/connection_router.py: changed existing-route crossings/overlaps from finite-cost penalties to hard edge rejection; added configurable minimum centre-line separation for parallel runs. A route that cannot satisfy obstacle and route-clearance constraints now fails closed with no computed path.
+- ui/tools/orthogonal_routing_tool.py: passes view-scale-aware route clearance and retains a red dashed, explicitly invalid preview guide when no compliant route exists. Invalid geometry remains blocked from the Application commit path.
+- Architecture: route geometry and collision policy remain presentation-only; stable endpoint identity and Application/Core connectivity authority are unchanged. No Qt types or SLD symbols added to Core.
+- Verification: source-level review only; no tests/CI or live Qt scene interaction run.
