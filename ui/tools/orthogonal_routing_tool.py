@@ -79,6 +79,7 @@ class OrthogonalRoutingTool(WireTool):
             self._report_feedback("Orthogonal routing requires a stable electrical endpoint to commit.")
             return True
         target_position = self._position_tuple(target_snap.position)
+        self._current_position = target_position
         if not self._calculate_route(target_position, target_snap):
             self._show_preview()
             self._report_feedback(self._failure_reason or "No valid orthogonal route is available.")
