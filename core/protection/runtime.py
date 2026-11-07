@@ -38,6 +38,7 @@ class ProtectionRuntime:
         self._project_id = str(configuration.project_id)
         self._activation_generation = activation_generation
         self._snapshot_issuance_capability = snapshot_issuance_capability
+        self._snapshot_issuer = object()
         self._system = ProtectionSystem()
         self._channels: dict[str, Any] = {}
         self._composed_configuration_snapshot: Any | None = None
@@ -88,7 +89,7 @@ class ProtectionRuntime:
             raise ValueError("Directional sample timestamp must be finite.")
         return _AuthoritativeDirectionalSnapshot(
             _seal=_DIRECTIONAL_SNAPSHOT_SEAL,
-            _issuer=capability,
+            _issuer=self._snapshot_issuer,
             element_id=element_id,
             voltage_value=voltage_value,
             current_value=current_value,
@@ -104,6 +105,11 @@ class ProtectionRuntime:
             configuration_identity=id(self._configuration),
             runtime_identity=id(self),
         )
+    @property
+    def snapshot_issuer(self) -> object:
+        """Opaque per-runtime identity token for validating issued snapshots."""
+        return self._snapshot_issuer
+
     @property
     def activation_generation(self) -> int:
         """Project lifecycle generation for which this runtime was composed."""
