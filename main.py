@@ -122,9 +122,11 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
         _invoke_cleanup(engineering_plugin_host.shutdown_all, errors)
 
 
-def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController, ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager, engineering_plugin_host: EngineeringPluginHost | None = None, motor_dynamics_dashboard: MotorTelemetryDashboardWidget | None = None) -> None:
+def _shutdown_components(*, ui_lifecycle: UILifecycle, workspace_controller: WorkspaceController, ui_update_boundary: UIUpdateBoundary, plugin_manager: PluginManager, engineering_plugin_host: EngineeringPluginHost | None = None, motor_dynamics_dashboard: MotorTelemetryDashboardWidget | None = None, application: Application | None = None) -> None:
     errors: list[BaseException] = []; _invoke_cleanup(ui_lifecycle.close, errors)
     if not ui_lifecycle.closed: _invoke_cleanup(workspace_controller.close, errors)
+    if application is not None:
+        _invoke_cleanup(application.shutdown_studies, errors)
     _invoke_cleanup(ui_update_boundary.dispose, errors)
     # The UI subscriber is closed before its headless engineering publisher.
     if motor_dynamics_dashboard is not None:
@@ -1666,6 +1668,7 @@ def recover_application_shell(
             plugin_manager=current_plugins,
             engineering_plugin_host=current_resources.get("engineering_plugin_host"),
             motor_dynamics_dashboard=current_resources.get("motor_dynamics_dashboard"),
+            application=current_resources.get("application") if isinstance(current_resources.get("application"), Application) else None,
         )
     except BaseException:
         logging.getLogger(__name__).exception(
@@ -1684,7 +1687,7 @@ def main() -> int:
     if not isinstance(motor_dynamics_dashboard, MotorTelemetryDashboardWidget):
         raise RuntimeError("Motor Dynamics dashboard was not retained by the composition root.")
     try: return int(app.exec())
-    finally: _shutdown_components(ui_lifecycle=ui_lifecycle, workspace_controller=workspace_controller, ui_update_boundary=ui_update_boundary, plugin_manager=plugin_manager, engineering_plugin_host=engineering_plugin_host, motor_dynamics_dashboard=motor_dynamics_dashboard)
+    finally: _shutdown_components(ui_lifecycle=ui_lifecycle, workspace_controller=workspace_controller, ui_update_boundary=ui_update_boundary, plugin_manager=plugin_manager, engineering_plugin_host=engineering_plugin_host, motor_dynamics_dashboard=motor_dynamics_dashboard, application=getattr(window, "_gridforge_resources", {}).get("application"))
 
 
 if __name__ == "__main__": raise SystemExit(main())
