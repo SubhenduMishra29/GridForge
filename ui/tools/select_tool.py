@@ -375,6 +375,10 @@ class SelectTool(ToolBase):
             for item in items:
                 if str(getattr(item, "object_id", "")) not in object_ids:
                     continue
+                # Use the same symbol-bearing graphics item selected for each
+                # node; labels/handles sharing object_id must not skew the pivot.
+                if getattr(item, "symbol_instance", None) is None:
+                    continue
                 getter = getattr(item, "sceneBoundingRect", None)
                 if not callable(getter):
                     continue
