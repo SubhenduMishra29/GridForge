@@ -18,6 +18,20 @@ from .dae_solver import AlgebraicNetworkSolution, DAESolution, DAESolver
 from .events import EventExecution, EventManager
 
 
+def _freeze_provenance_value(value: object) -> object:
+    """Recursively detach provenance containers before publishing a result."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({
+            key: _freeze_provenance_value(item)
+            for key, item in value.items()
+        })
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_provenance_value(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_provenance_value(item) for item in value)
+    return value
+
+
 class TransientStabilityError(RuntimeError):
     """Raised when a transient-stability simulation cannot proceed."""
 
@@ -194,7 +208,7 @@ class TransientStabilityResult:
         object.__setattr__(self, "algebraic_quality", tuple(self.algebraic_quality))
         object.__setattr__(self, "events", events)
         object.__setattr__(self, "discontinuities", discontinuities)
-        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+        object.__setattr__(self, "provenance", _freeze_provenance_value(self.provenance))
 
     @property
     def final_time(self) -> float:
