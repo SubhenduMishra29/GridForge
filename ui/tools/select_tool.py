@@ -163,6 +163,17 @@ class SelectTool(ToolBase):
             try:
                 if self._dragging:
                     start = self._pressed_scene_position
+                    snap = getattr(self.get_snap_system(), "snap", None)
+                    if callable(snap):
+                        snapped = snap(
+                            QPointF(end[0], end[1]),
+                            allow_grid=True,
+                            allow_object=False,
+                            intent="MOVE",
+                        )
+                        position = getattr(snapped, "position", None)
+                        if position is not None:
+                            end = (float(position.x()), float(position.y()))
                     delta_x, delta_y = end[0] - start[0], end[1] - start[1]
                     if self._grab_axis == "x":
                         delta_y = 0.0
@@ -307,9 +318,40 @@ class SelectTool(ToolBase):
             raise ValueError("group scale factor must be positive")
         nodes = [node for node, _symbol in selected]
         if self._rotation_pivot is None:
-            xs = [float(node.x) for node in nodes]
-            ys = [float(node.y) for node in nodes]
-            pivot = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+            scene = self._scene()
+            items = tuple(scene.items()) if scene is not None and callable(getattr(scene, "items", None)) else ()
+            object_ids = {
+                str(value)
+                for node in nodes
+                for value in (
+                    node.equipment_id,
+                    f"presentation:{node.node_id}",
+                    node.node_id,
+                )
+                if value is not None
+            }
+            bounds = []
+            for item in items:
+                if str(getattr(item, "object_id", "")) not in object_ids:
+                    continue
+                getter = getattr(item, "sceneBoundingRect", None)
+                if not callable(getter):
+                    continue
+                rect = getter()
+                x = float(rect.x())
+                y = float(rect.y())
+                width = float(rect.width())
+                height = float(rect.height())
+                bounds.append((x, y, x + width, y + height))
+            if bounds:
+                pivot = (
+                    (min(value[0] for value in bounds) + max(value[2] for value in bounds)) / 2.0,
+                    (min(value[1] for value in bounds) + max(value[3] for value in bounds)) / 2.0,
+                )
+            else:
+                xs = [float(node.x) for node in nodes]
+                ys = [float(node.y) for node in nodes]
+                pivot = ((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
         else:
             pivot = self._rotation_pivot
         angle = radians(float(rotation_degrees))
