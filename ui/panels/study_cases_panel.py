@@ -324,7 +324,9 @@ class StudyCasesPanelWidget(QWidget):
         if study_id is None or self._cancel_handler is None:
             return
         self._cancel.setEnabled(False)
-        if not self._cancel_handler(study_id):
+        if self._cancel_handler(study_id):
+            self._cancel.setText("Cancellation Requested")
+        else:
             self._cancel.setEnabled(True)
 
     def _poll_study_future(self) -> None:
@@ -341,6 +343,7 @@ class StudyCasesPanelWidget(QWidget):
             self._active_future = None
             self._active_study_id = None
             self._cancel.setEnabled(False)
+            self._cancel.setText("Cancel Study")
             self._run.setEnabled(True)
 
 

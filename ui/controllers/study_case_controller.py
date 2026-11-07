@@ -31,6 +31,7 @@ class StudyCaseController:
             raise TypeError("application must expose execute_study_case().")
         self._application = application
         self._error_handler = error_handler
+        self._active_scopes: dict[UUID, tuple[str, int]] = {}
 
     def run_study(self, study_id: UUID) -> object | None:
         """Run the selected structured Study Case through Application only."""
@@ -53,17 +54,30 @@ class StudyCaseController:
             except (TypeError, ValueError) as exc:
                 return self._handle_error(ValueError("Selected Study Case identity is invalid."), cause=exc)
         try:
-            return self._application.submit_study_case(study_id)
+            case = self._application.study_case(study_id)
+            scope = (case.project_id, case.activation_generation)
+            self._active_scopes[study_id] = scope
+            future = self._application.submit_study_case(study_id)
+            future.add_done_callback(
+                lambda _completed, identity=study_id, captured=scope:
+                self._active_scopes.pop(identity, None)
+                if self._active_scopes.get(identity) == captured else None
+            )
+            return future
         except Exception as exc:
+            self._active_scopes.pop(study_id, None)
             return self._handle_error(exc)
 
     def cancel_study(self, study_id: UUID) -> bool:
-        """Cancel only the exact project activation captured by this Study Case."""
+        """Cancel only the exact activation captured when this UI run was submitted."""
+        scope = self._active_scopes.get(study_id)
+        if scope is None:
+            return False
+        project_id, activation_generation = scope
         try:
-            case = self._application.study_case(study_id)
             return bool(self._application.cancel_study(
-                study_id, project_id=case.project_id,
-                activation_generation=case.activation_generation,
+                study_id, project_id=project_id,
+                activation_generation=activation_generation,
             ))
         except Exception as exc:
             self._handle_error(exc)

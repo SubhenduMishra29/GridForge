@@ -16,7 +16,8 @@ class StudyToolRuntime:
     """Own contextual Study actions without becoming a second study authority."""
 
     TOOL_DEFINITIONS = (
-        ToolDefinition("run_study", "Run Study", "Execute the selected Study Case through Application.", icon_id=None, editor_types=("study",), capabilities=("study",), supported_modes=("select", "edit"), default_mode="edit", category="study"),
+        ToolDefinition("run_study", "Run Study", "Submit the selected Study Case through Application.", icon_id=None, editor_types=("study",), capabilities=("study",), supported_modes=("select", "edit"), default_mode="edit", category="study"),
+        ToolDefinition("cancel", "Cancel Study", "Request cancellation of the active Study Case through Application.", icon_id=None, editor_types=("study",), capabilities=("study", "cancel"), supported_modes=("select", "edit"), default_mode="edit", category="study"),
         ToolDefinition("inspect_result", "Inspect Result", "Inspect the selected Study Result.", icon_id=None, editor_types=("study",), capabilities=("result", "inspect"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("compare_results", "Compare Results", "Select Study Results for comparison.", icon_id=None, editor_types=("study",), capabilities=("result", "compare"), supported_modes=("select",), default_mode="select", category="results"),
         ToolDefinition("plot", "Plot", "Prepare the selected Study Result for plotting.", icon_id="plot", editor_types=("study",), capabilities=("result", "plot"), supported_modes=("select",), default_mode="select", category="results"),
@@ -56,6 +57,15 @@ class StudyToolRuntime:
         if self._study_case_controller is None:
             raise RuntimeError("StudyCaseController is not bound.")
         return self._study_case_controller.run_study(study_id)
+
+    def cancel_selected(self, study_id: object) -> bool:
+        """Forward cancellation through the scoped Study Case controller."""
+        if self._study_case_controller is None:
+            raise RuntimeError("StudyCaseController is not bound.")
+        cancel = getattr(self._study_case_controller, "cancel_study", None)
+        if not callable(cancel):
+            raise RuntimeError("StudyCaseController does not expose scoped Study cancellation.")
+        return bool(cancel(study_id))
 
     def export_selected_comparison(
         self, left_source: str, left_record_id: object,

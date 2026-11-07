@@ -107,6 +107,9 @@ def _cleanup_startup_failure(resources: dict[str, object]) -> None:
         adapter = resources.get("project_workspace_adapter")
         if isinstance(adapter, ProjectWorkspaceApplicationAdapter): _invoke_cleanup(adapter.close_project, errors)
         if isinstance(workspace_controller, WorkspaceController): _invoke_cleanup(workspace_controller.close, errors)
+    application = resources.get("application")
+    if isinstance(application, Application):
+        _invoke_cleanup(application.shutdown_studies, errors)
     ui_update_boundary = resources.get("ui_update_boundary")
     if isinstance(ui_update_boundary, UIUpdateBoundary): _invoke_cleanup(ui_update_boundary.dispose, errors)
     motor_dynamics_dashboard = resources.get("motor_dynamics_dashboard")
@@ -1397,12 +1400,18 @@ def _build_application_impl(
         # the CanvasComposition and its renderer/navigation/interaction owners.
         workspace_surface_host.editor_host.unregister_editor("sld-editor")
 
+    def _cleanup_presentation_and_studies() -> None:
+        try:
+            _dispose_sld_editor()
+        finally:
+            gridforge_application.shutdown_studies(wait=True, cancel_futures=False)
+
     ui_lifecycle = UILifecycle(
         workspace_ready=lambda: project_workspace_adapter.state.workspace_id is not None,
         document_ready=lambda: project_workspace_adapter.state.document is not None,
         document_close=project_workspace_lifecycle.close_document,
         workspace_teardown=workspace_controller.close,
-        cleanup=lambda: (_dispose_sld_editor(), gridforge_application.shutdown_studies(wait=True, cancel_futures=False)),
+        cleanup=_cleanup_presentation_and_studies,
     ); resources["ui_lifecycle"] = ui_lifecycle
 
     def project_transition_decision(context: object) -> object:
