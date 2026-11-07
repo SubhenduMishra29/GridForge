@@ -387,6 +387,14 @@ class DraftNetwork:
         if replacing_connection_id is not None:
             if replacing_connection_id != connection.connection_id or existing is None:
                 raise ValueError("Draft route replacement must target its existing connection identity.")
+            if (
+                existing.source != connection.source
+                or existing.target != connection.target
+                or existing.connection_kind != connection.connection_kind
+            ):
+                raise ValueError(
+                    "Draft route replacement cannot change connection endpoints or kind."
+                )
         if connection.connection_kind != "simple_wire":
             raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
         self._validate_endpoint(connection.source, connection_id=connection.connection_id)
