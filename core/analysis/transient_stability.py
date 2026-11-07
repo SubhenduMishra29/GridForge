@@ -7,13 +7,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from core.solver.dynamics import TransientStabilityResult, TransientStabilitySolver
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.analysis.transient_scenario import TransientEventScenario
 
 
 def _freeze_metadata_value(value: Any) -> Any:
@@ -36,6 +37,7 @@ class TransientStabilityStudyConfiguration:
     dt: float = 0.01
     metadata: Mapping[str, Any] = MappingProxyType({})
     power_flow_configuration: PowerFlowStudyConfiguration | None = None
+    event_scenario: TransientEventScenario = field(default_factory=TransientEventScenario)
 
     def __post_init__(self) -> None:
         start = float(self.start_time)
@@ -57,6 +59,8 @@ class TransientStabilityStudyConfiguration:
             self.power_flow_configuration, PowerFlowStudyConfiguration
         ):
             raise TypeError("power_flow_configuration must be PowerFlowStudyConfiguration or None.")
+        if not isinstance(self.event_scenario, TransientEventScenario):
+            raise TypeError("event_scenario must be a TransientEventScenario.")
 
 
 # Compatibility alias: the solver's immutable TransientStabilityResult is
