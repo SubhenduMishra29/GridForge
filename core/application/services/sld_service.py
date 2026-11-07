@@ -38,6 +38,7 @@ class SLDService:
 
     COMMAND_TYPES = frozenset({
         "sld.set_node_position",
+        "sld.set_node_positions",
         "sld.set_node_presentation",
         "sld.add_node",
         "sld.remove_node",
@@ -570,6 +571,7 @@ class SLDService:
             raise ValueError(f"Unsupported SLD command: {command.command_type}")
         handler = {
             "sld.set_node_position": self._set_node_position,
+            "sld.set_node_positions": self._set_node_positions,
             "sld.set_node_presentation": self._set_node_presentation,
             "sld.add_node": lambda cmd, tx: self._add_node(
                 cmd, tx, authoritative_value=authoritative_value
@@ -594,6 +596,24 @@ class SLDService:
         # committed inverse journal still marks the document dirty on undo.
         transaction.record_rollback_finalizer(restore_dirty_state)
         return handler(command, transaction)
+
+    def _set_node_positions(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        """Apply all requested node positions within the caller's one transaction."""
+        from ..commands.sld_commands import SetSLDNodePositionCommand
+
+        results = []
+        for position in command.payload["positions"]:
+            single = SetSLDNodePositionCommand(
+                node_id=position["node_id"], x=position["x"], y=position["y"]
+            )
+            result = self._set_node_position(single, transaction)
+            if not result.success:
+                return result
+            results.append(position["node_id"])
+        return ApplicationResult.success_result(
+            message="SLD node positions updated atomically.",
+            metadata={"presentation_operation": "set_node_positions", "node_ids": tuple(results)},
+        )
 
     def _set_node_position(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
