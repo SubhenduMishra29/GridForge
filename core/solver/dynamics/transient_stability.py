@@ -21,9 +21,23 @@ from .events import EventExecution, EventManager
 class TransientStabilityError(RuntimeError):
     """Raised when a transient-stability simulation cannot proceed."""
 
-    def __init__(self, message: str, *, partial_result: "TransientStabilityResult | None" = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        partial_result: "TransientStabilityResult | None" = None,
+        termination_reason: str = "solver_failure",
+        failing_time: float | None = None,
+        failing_stage: str = "solver",
+        cause_type: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.partial_result = partial_result
+        self.termination_reason = str(termination_reason)
+        self.failing_time = None if failing_time is None else float(failing_time)
+        self.failing_stage = str(failing_stage)
+        self.cause_type = None if cause_type is None else str(cause_type)
+        self.diagnostic_message = str(message)
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,8 +352,20 @@ class TransientStabilitySolver:
             try:
                 solution = self.dae_solver.step(self._state, previous_time, step_dt)
             except Exception as exc:
+                # The last accepted boundary remains valid even when the
+                # next numerical step fails. Persist that committed prefix;
+                # never expose a partially computed integrator candidate.
+                partial = self._build_result(
+                    times, states, voltages, powers, algebraic_quality,
+                    executions, discontinuities,
+                )
                 raise TransientStabilityError(
-                    f"Transient-stability simulation failed at t={previous_time:.12g} s."
+                    f"Transient-stability simulation failed during integration at t={previous_time:.12g} s.",
+                    partial_result=partial,
+                    termination_reason="integration_step_failed",
+                    failing_time=previous_time,
+                    failing_stage="dae_step",
+                    cause_type=type(exc).__name__,
                 ) from exc
 
             if not math.isfinite(float(solution.time)):
