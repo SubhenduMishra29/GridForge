@@ -83,15 +83,23 @@ class TransientStabilityAnalysis:
         self.configuration = configuration
         self.initial_state = tuple(float(value) for value in initial_state)
         prepared_provenance = dict(provenance or {})
-        prepared_provenance.setdefault("event_scenario", configuration.event_scenario.as_dict())
+        prepared_provenance.setdefault("event_scenario", {
+            **dict(configuration.event_scenario.as_dict()),
+            "start_time": configuration.start_time,
+            "end_time": configuration.end_time,
+            "dt": configuration.dt,
+        })
         self.provenance = MappingProxyType(prepared_provenance)
         self.result: TransientStabilityStudyResult | None = None
 
     def _validate_event_scenario(self) -> None:
         """Fail closed unless runtime event registrations exactly match prepared scenario intent."""
         manifest = self.provenance.get("event_scenario")
-        if not isinstance(manifest, Mapping) or manifest.get("schema_version") != 1:
-            raise ValueError("Transient execution requires a versioned prepared event-scenario manifest.")
+        if not isinstance(manifest, Mapping) or set(manifest) != {"schema_version", "start_time", "end_time", "dt", "events"} or manifest.get("schema_version") != 1:
+            raise ValueError("Transient execution requires a versioned complete event-scenario manifest.")
+        for key, configured in (("start_time", self.configuration.start_time), ("end_time", self.configuration.end_time), ("dt", self.configuration.dt)):
+            if not math.isclose(float(manifest[key]), configured, rel_tol=0.0, abs_tol=1e-12):
+                raise ValueError(f"Transient configured {key} differs from the prepared scenario manifest.")
         expected = manifest.get("events")
         if not isinstance(expected, (tuple, list)):
             raise ValueError("Prepared event-scenario manifest must contain an ordered events sequence.")
