@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from core.application.read_models import TransientResultPresentationReadModel
 from ui.core.qt import (
     QChart,
