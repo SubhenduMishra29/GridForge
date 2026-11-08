@@ -23312,6 +23312,9 @@ CORRECTION:
   the same execution lock.
 - The draft-inspector fixture now creates equipment through
   AddDraftEquipmentCommand, preserving command, transaction and event ownership.
+- Added a regression proving caller-owned and property-returned DraftNetwork
+  values cannot mutate the active Application draft; commands remain the
+  supported authoring mutation path.
 - Core topology, SLD geometry, Qt integration and public package exports are
   unchanged. DraftNetwork remains Application-owned authoring state.
 
