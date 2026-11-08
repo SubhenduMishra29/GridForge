@@ -29,6 +29,7 @@ from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
 from .commands.draft_commands import CommitNetworkCommand, UpdateDraftEquipmentCommand
+from .draft.network import DraftNetwork
 from .commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
@@ -249,11 +250,32 @@ class Application:
         )
 
     @property
-    def draft_network(self) -> Any | None:
-        return self._draft_network
+    def draft_network(self) -> DraftNetwork | None:
+        """Return a detached snapshot; active draft mutation is Application-command-only."""
+        with self._execution_lock:
+            draft = self._draft_network
+            if draft is None:
+                return None
+            return DraftNetwork.from_dict(
+                draft.to_dict(),
+                project_id=draft.project_id,
+                activation_generation=draft.activation_generation,
+            )
 
-    def set_draft_network(self, draft_network: Any | None) -> None:
-        self._draft_network = draft_network
+    def set_draft_network(self, draft_network: DraftNetwork | None) -> None:
+        """Install a detached draft snapshot through the serialized Application boundary."""
+        if draft_network is not None and not isinstance(draft_network, DraftNetwork):
+            raise TypeError("draft_network must be a DraftNetwork or None.")
+        with self._execution_lock:
+            self._reject_during_async_commit()
+            if draft_network is None:
+                self._draft_network = None
+                return
+            self._draft_network = DraftNetwork.from_dict(
+                draft_network.to_dict(),
+                project_id=draft_network.project_id,
+                activation_generation=draft_network.activation_generation,
+            )
 
     def _recovery_snapshot(self) -> Mapping[str, Any]:
         """Return a JSON-serializable snapshot of volatile authoring state.
@@ -4585,12 +4607,13 @@ class Application:
                 raise RuntimeError("Project persistence is in progress; retry the mutation after save completes.")
 
     def read_draft_network(self) -> Mapping[str, Any] | None:
-        """Return an isolated serialized snapshot for Application read/projection consumers."""
-        draft = self._draft_network
-        if draft is None:
-            return None
+        """Return one lock-consistent serialized snapshot for read/projection consumers."""
         from copy import deepcopy
-        return deepcopy(draft.to_dict())
+        with self._execution_lock:
+            draft = self._draft_network
+            if draft is None:
+                return None
+            return deepcopy(draft.to_dict())
 
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command):
