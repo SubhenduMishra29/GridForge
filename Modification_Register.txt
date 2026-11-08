@@ -23280,3 +23280,49 @@ REMAINING:
 - #813 should remain open until this focused correction is reviewed and merged.
 - Continue tracing external mutation paths that bypass Application commands;
   DraftNetwork mutation must remain Application-owned and serialized.
+
+
+======================================================================
+GF-AUD-828 — ISOLATE APPLICATION-OWNED DRAFTNETWORK STATE
+======================================================================
+
+Audit date: 2026-11-08
+Repository: SubhenduMishra29/GridForge
+Issue: #813 — Multi-Terminal Creation Commits Race Hazard
+
+FETCH / AUDIT:
+- Application.draft_network returned the live mutable internal DraftNetwork.
+  Callers could therefore mutate active authoring state without an
+  Application command, transaction, event or undo record.
+- Application.set_draft_network retained the caller's mutable DraftNetwork
+  object and did not serialize replacement with the Application execution
+  lock or asynchronous commit guard.
+- Application.read_draft_network returned a detached mapping, but did not
+  hold the execution lock while taking the snapshot.
+- tests/core/application/test_draft_inspector_update.py seeded equipment by
+  mutating application.draft_network directly, bypassing the command boundary.
+
+CORRECTION:
+- Application.draft_network now returns a detached DraftNetwork value snapshot;
+  mutations to that returned value cannot change active Application state.
+- set_draft_network validates the value type, clones the supplied snapshot,
+  and replaces the active draft under the execution lock after the
+  asynchronous-commit guard.
+- read_draft_network now captures its serialized projection snapshot under
+  the same execution lock.
+- The draft-inspector fixture now creates equipment through
+  AddDraftEquipmentCommand, preserving command, transaction and event ownership.
+- Core topology, SLD geometry, Qt integration and public package exports are
+  unchanged. DraftNetwork remains Application-owned authoring state.
+
+VERIFICATION:
+- Remote source and diff review only; changed Python fragments were parsed
+  separately for syntax.
+- Tests and CI were not run, as they are not acceptance gates for this work.
+- Full module import execution and Qt/runtime interaction remain unverified.
+
+REMAINING:
+- Keep #813 open until PR review and merge.
+- Continue checking external integrations for reliance on mutable draft object
+  identity; inspected active UI projection/placement paths use read_draft_network
+  and Application commands rather than direct active-object mutation.
