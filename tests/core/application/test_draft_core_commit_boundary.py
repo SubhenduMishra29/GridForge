@@ -493,7 +493,7 @@ def test_commit_rejects_stale_snapshot_without_discarding_newer_draft_changes():
     # original commit snapshot was captured.
     app.execute(AddDraftEquipmentCommand(equipment=_bus("b2").to_dict()))
 
-    with pytest.raises(Exception, match="current active DraftNetwork snapshot"):
+    with pytest.raises(ValueError, match="current active DraftNetwork snapshot"):
         app.execute(
             CommitNetworkCommand(
                 project_id=draft.project_id,
