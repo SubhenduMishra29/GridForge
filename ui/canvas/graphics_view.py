@@ -117,8 +117,8 @@ class GraphicsView(QGraphicsView):
         strip_layout.setContentsMargins(4, 3, 4, 3)
         strip_layout.setSpacing(2)
         for label, tooltip, operation in (
-            ("↶", "Rotate selected symbol 90° counter-clockwise", "rotate_ccw"),
-            ("↷", "Rotate selected symbol 90° clockwise", "rotate_cw"),
+            ("↶", "Rotate selected symbol 90° counter-clockwise (Q)", "rotate_ccw"),
+            ("↷", "Rotate selected symbol 90° clockwise (E)", "rotate_cw"),
             ("Flip H", "Mirror selected symbol horizontally", "flip_h"),
             ("Flip V", "Mirror selected symbol vertically", "flip_v"),
         ):
@@ -571,7 +571,6 @@ class GraphicsView(QGraphicsView):
     def keyPressEvent(self, event: Any) -> None:
         key = event.key()
         modifiers = self._event_flag_value(event, "modifiers")
-        shift = int(Qt.KeyboardModifier.ShiftModifier.value)
         no_modifiers = modifiers == 0
         navigation = self.navigation_controller
 
