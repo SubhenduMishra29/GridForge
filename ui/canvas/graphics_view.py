@@ -571,6 +571,7 @@ class GraphicsView(QGraphicsView):
     def keyPressEvent(self, event: Any) -> None:
         key = event.key()
         modifiers = self._event_flag_value(event, "modifiers")
+        shift = int(Qt.KeyboardModifier.ShiftModifier.value)
         no_modifiers = modifiers == 0
         navigation = self.navigation_controller
 
