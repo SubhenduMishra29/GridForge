@@ -578,23 +578,27 @@ class GraphicsView(QGraphicsView):
             self._space_pan_active = True
             event.accept()
             return
-        if navigation is not None and no_modifiers:
-            if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+        if navigation is not None:
+            zoom_in_key = (
+                (key == Qt.Key.Key_Plus and modifiers in (0, shift))
+                or (key == Qt.Key.Key_Equal and no_modifiers)
+            )
+            if zoom_in_key:
                 navigation.zoom_in()
                 event.accept()
                 self._refresh_contextual_tool_strip()
                 return
-            if key == Qt.Key.Key_Minus:
+            if no_modifiers and key == Qt.Key.Key_Minus:
                 navigation.zoom_out()
                 event.accept()
                 self._refresh_contextual_tool_strip()
                 return
-            if key == Qt.Key.Key_0:
+            if no_modifiers and key == Qt.Key.Key_0:
                 navigation.fit_content()
                 event.accept()
                 self._refresh_contextual_tool_strip()
                 return
-            if key == Qt.Key.Key_Home:
+            if no_modifiers and key == Qt.Key.Key_Home:
                 navigation.reset_view()
                 event.accept()
                 self._refresh_contextual_tool_strip()
