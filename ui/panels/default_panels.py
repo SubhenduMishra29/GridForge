@@ -677,6 +677,45 @@ class PropertiesPanelWidget(QWidget):
                 any(item.editable and not item.derived for item in target.engineering_parameters)
             )
 
+    @staticmethod
+    def _draft_required_connection_errors(draft: Any) -> tuple[str, ...]:
+        """Return commit-blocking terminal gaps from a serialized DraftNetwork snapshot."""
+        if not isinstance(draft, dict):
+            return ()
+        equipment = draft.get("equipment", ())
+        connections = draft.get("connections", ())
+        errors: list[str] = []
+        for item in equipment:
+            if not isinstance(item, dict):
+                continue
+            draft_id = str(item.get("draft_id", ""))
+            equipment_type = str(item.get("equipment_type", "")).strip().lower()
+            for role in item.get("required_connection_terminals", ()):
+                matches = 0
+                for connection in connections:
+                    if not isinstance(connection, dict):
+                        continue
+                    for endpoint_name in ("source", "target"):
+                        endpoint = connection.get(endpoint_name, {})
+                        if (
+                            isinstance(endpoint, dict)
+                            and endpoint.get("kind") == "terminal"
+                            and endpoint.get("scope", "draft") == "draft"
+                            and endpoint.get("object_id") == draft_id
+                            and str(endpoint.get("equipment_type", "")).strip().lower() == equipment_type
+                            and endpoint.get("terminal_role") == role
+                        ):
+                            matches += 1
+                if matches == 0:
+                    errors.append(
+                        f"{item.get('display_name') or equipment_type} — terminal {role!r} is not connected"
+                    )
+                elif matches > 1:
+                    errors.append(
+                        f"{item.get('display_name') or equipment_type} — terminal {role!r} has multiple connections"
+                    )
+        return tuple(errors)
+
     def _refresh_commit_network_action(self, *args: Any) -> None:
         del args
         button = self._commit_network_button
@@ -684,10 +723,17 @@ class PropertiesPanelWidget(QWidget):
             return
         application = self._application
         try:
-            has_draft = bool(application is not None and application.read_draft_network())
+            draft = application.read_draft_network() if application is not None else None
         except (RuntimeError, TypeError, ValueError):
-            has_draft = False
-        button.setEnabled(has_draft)
+            draft = None
+        has_draft = bool(draft and (draft.get("equipment") or draft.get("connections")))
+        topology_errors = self._draft_required_connection_errors(draft) if has_draft else ()
+        button.setEnabled(has_draft and not topology_errors)
+        if topology_errors and self._validation_label is not None:
+            self._validation_label.setText(
+                "Connect required terminals before committing: " + "; ".join(topology_errors)
+            )
+            self._validation_label.setProperty("role", "validationError")
 
     def _commit_network(self) -> None:
         controller = self._creation_controller
@@ -721,20 +767,22 @@ class PropertiesPanelWidget(QWidget):
             cause = exc.cause or exc.__cause__
             reason = str(cause).strip() if cause is not None else ""
             normalized_reason = reason.lower()
-            is_empty_draft_rejection = (
+            is_expected_draft_validation = (
                 exc.code == "COMMAND_EXECUTION_FAILED"
                 and isinstance(cause, ValueError)
-                and "empty" in normalized_reason
-                and ("draft" in normalized_reason or "network" in normalized_reason)
+                and (
+                    "draft validation failed:" in normalized_reason
+                    or ("empty" in normalized_reason and ("draft" in normalized_reason or "network" in normalized_reason))
+                )
             )
-            if not is_empty_draft_rejection:
+            if not is_expected_draft_validation:
                 logging.getLogger(__name__).error(
                     "Unexpected DraftNetwork commit execution failure",
                     exc_info=(type(exc), exc, exc.__traceback__),
                 )
                 message = str(exc)
             else:
-                message = reason or "Draft network is empty. Add equipment or connections before committing."
+                message = reason or "Draft network is not ready to commit. Complete the required connections first."
             if self._validation_label is not None:
                 self._validation_label.setText(message)
                 self._validation_label.setProperty("role", "validationError")
