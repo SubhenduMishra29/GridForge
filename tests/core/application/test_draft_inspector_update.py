@@ -9,7 +9,10 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from core.application import create_application
-from core.application.commands.draft_commands import UpdateDraftEquipmentCommand
+from core.application.commands.draft_commands import (
+    AddDraftEquipmentCommand,
+    UpdateDraftEquipmentCommand,
+)
 from core.application.draft.network import DraftEquipment, DraftNetwork
 from core.application.events import DraftChanged
 from core.network.network import Network
@@ -20,18 +23,17 @@ def _application_with_transformer_draft():
     application.set_draft_network(
         DraftNetwork.empty("project-test", 1)
     )
-    application.draft_network.add_equipment(
-        DraftEquipment(
-            draft_id="transformer-draft-1",
-            equipment_type="transformer",
-            display_name="Transformer",
-            terminal_contract=("HV", "LV"),
-            engineering_data={"r": 0.01, "x": 0.05, "rate_mva": 10.0},
-            placement=(120.0, 80.0),
-            command_type="model.create_transformer",
-            id_field="transformer_id",
-        )
+    equipment = DraftEquipment(
+        draft_id="transformer-draft-1",
+        equipment_type="transformer",
+        display_name="Transformer",
+        terminal_contract=("HV", "LV"),
+        engineering_data={"r": 0.01, "x": 0.05, "rate_mva": 10.0},
+        placement=(120.0, 80.0),
+        command_type="model.create_transformer",
+        id_field="transformer_id",
     )
+    application.execute(AddDraftEquipmentCommand(equipment=equipment.to_dict()))
     return application
 
 

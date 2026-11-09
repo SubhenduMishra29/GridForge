@@ -21,3 +21,24 @@ Verification:
 - Final GraphicsView source commit: 2547822dc276f806e172d4d468b77d6cc5a578a1.
 - Register entry commit: d705c7c5b4dc944a9dd53dd74ec5cb5e67b359a4.
 - User-machine runtime behavior remains unverified; restart/retest required.
+
+======================================================================
+GF-AUD-827 — REJECT STALE DRAFTNETWORK COMMIT SNAPSHOTS
+======================================================================
+Audit date: 2026-11-09 | Issue: #813
+
+- CommitNetworkHandler previously checked project/generation and payload canonicality but did not compare the command snapshot with the current active Application DraftNetwork.
+- Added a fail-closed snapshot equality check before Core command preparation or mutation; stale commits cannot clear later draft edits.
+- Added regression coverage for a stale commit after a subsequent Application-owned equipment command.
+
+======================================================================
+GF-AUD-828 — ISOLATE APPLICATION-OWNED DRAFTNETWORK STATE
+======================================================================
+Audit date: 2026-11-09 | Issue: #813
+
+- Application.draft_network now returns a detached DraftNetwork snapshot; set_draft_network clones input and serializes replacement under the Application execution lock and async-commit guard.
+- read_draft_network captures its serialized projection under the same lock.
+- Draft inspector fixture now creates equipment through AddDraftEquipmentCommand; regression coverage verifies caller-owned and property-returned snapshots cannot mutate active state.
+
+Architecture: Core remains electrical authority; Application owns draft mutation and commit; UI remains projection-only. No Qt/QGraphics dependency or Core topology change.
+Verification: source/diff review and syntax checks only; tests/CI and GUI runtime were not run.
