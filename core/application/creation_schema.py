@@ -534,8 +534,6 @@ _BUILTIN_COMMAND_FIELD_DISPOSITIONS: Mapping[str, Mapping[str, Mapping[str, str]
     },
     "breaker": {
         "name": _field_disposition("metadata", "Human-facing asset label; not electrical configuration."),
-        "in_service": _field_disposition("lifecycle_state", "Service state belongs to the switching-device lifecycle.", "Breaker service commands (#938)"),
-        "closed": _field_disposition("operational_state", "Initial contact state belongs to the switching-device lifecycle.", "Breaker state commands and switching configurator (#938)"),
         "failed": _field_disposition("operational_state", "Failure state is runtime/operational state, not nameplate configuration.", "Breaker operational-state commands (#938)"),
     },
     "disconnector": {
