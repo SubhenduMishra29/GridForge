@@ -77,6 +77,8 @@ class GraphicsView(QGraphicsView):
         self._palette_drag_previous_tool_id: str | None = None
         self._palette_drag_insertion_started = False
         self._palette_drag_preview_started = False
+        self._space_pan_active = False
+        self._navigation_pan_button: int | None = None
 
         if self._scene.parent() is None:
             self._scene.setParent(self)
@@ -462,12 +464,50 @@ class GraphicsView(QGraphicsView):
             self._finish_palette_drag(restore_previous_tool=True)
         super().dragLeaveEvent(event)
 
+    @staticmethod
+    def _event_flag_value(event: Any, name: str) -> int:
+        value = getattr(event, name, None)
+        value = value() if callable(value) else value
+        raw = getattr(value, "value", value)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _event_viewport_position(event: Any) -> QPointF:
+        position = getattr(event, "position", None)
+        if callable(position):
+            value = position()
+            return QPointF(float(value.x()), float(value.y()))
+        point = event.pos()
+        return QPointF(float(point.x()), float(point.y()))
+
     def mousePressEvent(self, event: Any) -> None:
+        navigation = self.navigation_controller
+        button = self._event_flag_value(event, "button")
+        middle_button = int(Qt.MouseButton.MiddleButton.value)
+        left_button = int(Qt.MouseButton.LeftButton.value)
+        if navigation is not None and (
+            button == middle_button
+            or (self._space_pan_active and button == left_button)
+        ):
+            navigation.start_pan(self._event_viewport_position(event))
+            self._navigation_pan_button = button
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
         if self.interaction_manager is not None and self.interaction_manager.mouse_press(event):
             return
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: Any) -> None:
+        navigation = self.navigation_controller
+        if navigation is not None and navigation.is_panning:
+            navigation.update_pan(self._event_viewport_position(event))
+            event.accept()
+            self._refresh_contextual_tool_strip()
+            return
         # mapToScene(QPoint) rounds/truncates QPointF mouse positions to
         # integer viewport coordinates. Invert the current viewport transform
         # instead so cursor feedback remains aligned during pan and placement.
@@ -497,6 +537,19 @@ class GraphicsView(QGraphicsView):
         self._refresh_contextual_tool_strip()
 
     def mouseReleaseEvent(self, event: Any) -> None:
+        navigation = self.navigation_controller
+        button = self._event_flag_value(event, "button")
+        if (
+            navigation is not None
+            and navigation.is_panning
+            and button == self._navigation_pan_button
+        ):
+            navigation.end_pan()
+            self._navigation_pan_button = None
+            self.unsetCursor()
+            event.accept()
+            self._refresh_contextual_tool_strip()
+            return
         if self.interaction_manager is not None and self.interaction_manager.mouse_release(event):
             self._refresh_contextual_tool_strip()
             return
@@ -516,11 +569,54 @@ class GraphicsView(QGraphicsView):
         self._refresh_contextual_tool_strip()
 
     def keyPressEvent(self, event: Any) -> None:
+        key = event.key()
+        modifiers = self._event_flag_value(event, "modifiers")
+        shift = int(Qt.KeyboardModifier.ShiftModifier.value)
+        no_modifiers = modifiers == 0
+        navigation = self.navigation_controller
+
+        if key == Qt.Key.Key_Space:
+            self._space_pan_active = True
+            event.accept()
+            return
+        if navigation is not None and no_modifiers:
+            if key in (Qt.Key.Key_Plus, Qt.Key.Key_Equal):
+                navigation.zoom_in()
+                event.accept()
+                self._refresh_contextual_tool_strip()
+                return
+            if key == Qt.Key.Key_Minus:
+                navigation.zoom_out()
+                event.accept()
+                self._refresh_contextual_tool_strip()
+                return
+            if key == Qt.Key.Key_0:
+                navigation.fit_content()
+                event.accept()
+                self._refresh_contextual_tool_strip()
+                return
+            if key == Qt.Key.Key_Home:
+                navigation.reset_view()
+                event.accept()
+                self._refresh_contextual_tool_strip()
+                return
+        if no_modifiers and key == Qt.Key.Key_E:
+            self._apply_contextual_symbol_action("rotate_cw")
+            event.accept()
+            return
+        if no_modifiers and key == Qt.Key.Key_Q:
+            self._apply_contextual_symbol_action("rotate_ccw")
+            event.accept()
+            return
         if self.interaction_manager is not None and self.interaction_manager.key_press(event):
             return
         super().keyPressEvent(event)
 
     def keyReleaseEvent(self, event: Any) -> None:
+        if event.key() == Qt.Key.Key_Space:
+            self._space_pan_active = False
+            event.accept()
+            return
         if self.interaction_manager is not None and self.interaction_manager.key_release(event):
             return
         super().keyReleaseEvent(event)
