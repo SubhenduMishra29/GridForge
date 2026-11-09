@@ -668,6 +668,11 @@ def creation_definition_for(
             },
             topology=single_terminal_topology,
             endpoint_mapping={"terminal": "endpoint"},
+            conditional=(ConditionalParameterRequirement(
+                "Grid impedance base requires both MVA and voltage base values.",
+                require_any=("impedance_base_mva", "impedance_base_voltage_kv"),
+                require_all=("impedance_base_mva", "impedance_base_voltage_kv"),
+            ),),
             terminal_names=_BUILTIN_TERMINAL_NAMES["grid"]),
         "generator": _definition("generator", "generator", (
             _p("p", "Active power", unit="MW", required=True),
