@@ -18,4 +18,6 @@ Architecture:
 
 Verification:
 - Updated source fetched back from upstream main and blob SHA confirmed.
+- Final GraphicsView source commit: 2547822dc276f806e172d4d468b77d6cc5a578a1.
+- Register entry commit: d705c7c5b4dc944a9dd53dd74ec5cb5e67b359a4.
 - User-machine runtime behavior remains unverified; restart/retest required.
