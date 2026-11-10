@@ -387,6 +387,10 @@ class SLDUpdateCoordinator:
         if self._disposed:
             return
         self._canvas_refresh = lambda: None
+        self._documents_provider = None
+        self._background_fingerprints.clear()
+        self._background_diagnostics.clear()
+        self._background_reconciliation_error = None
         self._last_reconciliation_error = None
         self._disposed = True
 
