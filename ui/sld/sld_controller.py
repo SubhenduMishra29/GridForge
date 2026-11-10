@@ -58,6 +58,7 @@ class SLDController:
         self._projection_manager = projection_manager
         self._application = application
         self._workspace_lifecycle = workspace_lifecycle
+        self._document_activation_handler = None
         if self._application is not None:
             self._application.event_bus.subscribe(ProjectLoaded, self._on_project_loaded)
             self._application.event_bus.subscribe(ProjectClosed, self._on_project_closed)
@@ -91,6 +92,21 @@ class SLDController:
                 "SLDController is already bound to a different ProjectWorkspaceLifecycle."
             )
         self._workspace_lifecycle = lifecycle
+
+    def bind_document_activation_handler(self, handler: Any) -> None:
+        """Bind document activation to the coordinated workspace transaction.
+
+        The composition root supplies ProjectWorkspaceApplicationAdapter.activate_document
+        so controller callers cannot bypass transition guards, presentation bridging,
+        workspace publication, and projection reconciliation.
+        """
+        if not callable(handler):
+            raise TypeError("document activation handler must be callable.")
+        if self._document_activation_handler is handler:
+            return
+        if self._document_activation_handler is not None:
+            raise RuntimeError("A document activation handler is already bound.")
+        self._document_activation_handler = handler
 
     @property
     def active_document(self) -> Optional[SLDDocument]:
@@ -155,21 +171,37 @@ class SLDController:
         document = lifecycle.documents.require(document_id)
         if not isinstance(document, SLDDocument):
             raise TypeError("Document is not an SLDDocument.")
-        previous = lifecycle.documents.active_document_id
-        if previous != document_id:
-            lifecycle.activate_document_id(document_id)
-            try:
-                self.application.activate_presentation(document)
-            except BaseException:
-                if previous is not None:
-                    lifecycle.documents.activate(previous)
-                    previous_document = lifecycle.documents.active_document
-                    if previous_document is not None:
-                        try:
-                            self.application.activate_presentation(previous_document)
-                        except BaseException:
-                            pass
-                raise
+        activation_handler = self._document_activation_handler
+        if activation_handler is not None:
+            activation_handler(document_id)
+            # The workspace adapter publishes the committed transition; its
+            # subscriber reconciles controller state and all document projections.
+            if lifecycle.documents.active_document is not document:
+                raise RuntimeError(
+                    "Workspace activation completed without adopting the requested SLD document."
+                )
+            if self.application.presentation is not document:
+                raise RuntimeError(
+                    "Workspace activation completed without updating the Application presentation."
+                )
+        else:
+            # Compatibility path for isolated controller compositions that have
+            # not yet installed the workspace adapter.
+            previous = lifecycle.documents.active_document_id
+            if previous != document_id:
+                lifecycle.activate_document_id(document_id)
+                try:
+                    self.application.activate_presentation(document)
+                except BaseException:
+                    if previous is not None:
+                        lifecycle.documents.activate(previous)
+                        previous_document = lifecycle.documents.active_document
+                        if previous_document is not None:
+                            try:
+                                self.application.activate_presentation(previous_document)
+                            except BaseException:
+                                pass
+                    raise
         self._state.active_document_id = document_id
         self._state.clear_selection()
         self._state.mark_clean() if not lifecycle.documents.is_dirty(document_id) else None
