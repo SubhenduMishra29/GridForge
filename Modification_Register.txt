@@ -850,3 +850,51 @@ Remaining:
 Verification boundary:
 - Source changes committed and fetched back from main.
 - No syntax/import execution, tests/CI, or desktop GUI verification run.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-003 — FAMILY-SAFE SEMANTIC PRESENTATION REALIZATION
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Issue: #823
+
+Corrections:
+- SemanticPresentationRealization now resolves persisted symbol identity
+  through SymbolRegistry and permits a non-default definition only when
+  it belongs to the equipment definition's canonical symbol family.
+- Persisted family/standard/variant metadata must exactly match the
+  registered SymbolDefinition; forged or stale metadata is rejected.
+- Each selected definition is reconciled against the owning equipment's
+  CreationDefinition and terminal-anchor role contract before realization.
+- SymbolFactory reconstructs the selected renderer-neutral SymbolBase
+  while preserving scale, rotation, visibility, representation ID, and
+  presentation properties.
+- PresentationSelection now exposes resolved family/standard/variant
+  identity and verifies that metadata against its symbol instance.
+- New PresentationSelection fields were appended after existing fields
+  to preserve positional-construction compatibility.
+- Existing SLDNode serialization already stores SymbolBase.to_dict();
+  family/standard/variant identity therefore travels through the
+  canonical SLD presentation payload with backward-compatible defaults.
+
+Architecture:
+- EquipmentDefinition remains the equipment-type authority.
+- SymbolRegistry remains the definition identity authority.
+- Core equipment IDs, terminal IDs/roles, topology and connectivity
+  are not modified by presentation variant selection.
+- No electrical model or wire connectivity mutation was introduced.
+
+Remaining:
+- A concrete ANSI/IEC catalogue pair must be added only after engineering
+  review of each symbol's primitives and terminal-anchor geometry.
+- Verify rotation/flip transforms move symbol geometry, terminal anchors,
+  and displayed wire endpoints together while preserving endpoint identity,
+  manual route ownership, undo/redo, and save/reopen.
+- Add an explicit variant selection workflow only after catalogue and
+  projection round-trip acceptance.
+- Issue #823 remains open.
+
+Verification boundary:
+- Changed source and register were fetched back from main.
+- No syntax/import execution, tests/CI, or desktop GUI verification run.
