@@ -771,6 +771,13 @@ class SLDService:
         }
         previous = None if node.presentation is None else node.presentation.to_dict()
         previous_properties = deepcopy(node.properties)
+        # The inverse is allowed to restore only the exact state installed by
+        # this command (or the unchanged pre-state if mutation failed before
+        # completion). This prevents stale history from overwriting an
+        # out-of-band presentation/property change.
+        expected_presentation = previous
+        expected_properties = deepcopy(previous_properties)
+
         def restore() -> None:
             target = self.document.model.get_node_optional(p["node_id"])
             if target is None:
@@ -782,19 +789,31 @@ class SLDService:
                 for key in original_node_identity
             }
             if (
-                target.equipment_id != original_node_equipment_id
+                target is not original_node
+                or target.equipment_id != original_node_equipment_id
                 or target_identity != original_node_identity
             ):
                 raise ValueError(
                     "Cannot undo SLD node presentation edit; the live node's logical "
                     f"identity changed for {p['node_id']!r}."
                 )
+            current_presentation = (
+                None if target.presentation is None else target.presentation.to_dict()
+            )
+            if (
+                current_presentation != expected_presentation
+                or target.properties != expected_properties
+            ):
+                raise ValueError(
+                    "Cannot undo SLD node presentation edit; the live presentation "
+                    f"state changed after the command for {p['node_id']!r}."
+                )
             if previous is None:
                 target.clear_presentation()
             else:
                 target.set_presentation(previous)
             target.properties.clear()
-            target.properties.update(previous_properties)
+            target.properties.update(deepcopy(previous_properties))
             self.document.mark_modified()
 
         # Register before normalization/mutation so malformed presentation
@@ -804,6 +823,8 @@ class SLDService:
         node.properties["symbol_owner"] = "engineer"
         node.properties.setdefault("presentation_owner", "projection" if node.properties.get("projection_source") else "engineer")
         updated = None if node.presentation is None else node.presentation.to_dict()
+        expected_presentation = updated
+        expected_properties = deepcopy(node.properties)
         if updated == previous and node.properties == previous_properties:
             # No state changed; the inverse is harmless and idempotent.
             return ApplicationResult.success_result(
