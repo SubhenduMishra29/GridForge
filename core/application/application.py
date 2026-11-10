@@ -307,7 +307,9 @@ class Application:
             active_id = getattr(active, "document_id", None) if active is not None else None
             if not active_id:
                 raise RuntimeError("Draft command requires an active SLD document identity.")
-            if document_id is not None and document_id != active_id:
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise ValueError("Draft command requires a captured document_id.")
+            if document_id != active_id:
                 raise RuntimeError(
                     f"Draft command targets SLD document {document_id!r}, "
                     f"but active document is {active_id!r}."
