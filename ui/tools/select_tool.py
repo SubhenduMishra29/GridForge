@@ -188,22 +188,27 @@ class SelectTool(ToolBase):
             try:
                 if self._dragging:
                     start = self._pressed_scene_position
+                    # Snap the translation vector, not the absolute pointer
+                    # endpoint. Snapping an endpoint and subtracting an
+                    # arbitrary press position introduces a fractional delta,
+                    # shifting every selected node off the engineering grid.
+                    delta_x, delta_y = end[0] - start[0], end[1] - start[1]
+                    if self._grab_axis == "x":
+                        delta_y = 0.0
+                    elif self._grab_axis == "y":
+                        delta_x = 0.0
                     snap = getattr(self.get_snap_system(), "snap", None)
                     if callable(snap):
                         snapped = snap(
-                            QPointF(end[0], end[1]),
+                            QPointF(delta_x, delta_y),
                             allow_grid=True,
                             allow_object=False,
                             intent="MOVE",
                         )
                         position = getattr(snapped, "position", None)
                         if position is not None:
-                            end = (float(position.x()), float(position.y()))
-                    delta_x, delta_y = end[0] - start[0], end[1] - start[1]
-                    if self._grab_axis == "x":
-                        delta_y = 0.0
-                    elif self._grab_axis == "y":
-                        delta_x = 0.0
+                            delta_x = float(position.x())
+                            delta_y = float(position.y())
                     self._commit_group_transform(delta_x=delta_x, delta_y=delta_y)
             finally:
                 self._grab_mode = False
@@ -462,16 +467,24 @@ class SelectTool(ToolBase):
         start = self._pressed_scene_position
         if start is None:
             return
-        snap = getattr(self.get_snap_system(), "snap", None)
-        if callable(snap):
-            # SnapSystem consumes QPointF-compatible scene coordinates;
-            # SelectTool's semantic pointer positions are normalized tuples.
-            snapped = snap(QPointF(end[0], end[1]), allow_grid=True, allow_object=False, intent="MOVE")
-            position = getattr(snapped, "position", None)
-            if position is not None:
-                end = (float(position.x()), float(position.y()))
+        # Keep the pointer's grab offset out of the engineering translation.
+        # Snap the delta once so every selected node receives the same
+        # grid-aligned movement and relative geometry is preserved.
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
+        snap = getattr(self.get_snap_system(), "snap", None)
+        if callable(snap):
+            # SnapSystem consumes QPointF-compatible scene-space vectors.
+            snapped = snap(
+                QPointF(delta_x, delta_y),
+                allow_grid=True,
+                allow_object=False,
+                intent="MOVE",
+            )
+            position = getattr(snapped, "position", None)
+            if position is not None:
+                delta_x = float(position.x())
+                delta_y = float(position.y())
 
         manager = self.get_selection_manager()
         selected_ids = tuple(manager.get_selected_ids(domain=manager.NODE))
