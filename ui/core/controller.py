@@ -40,6 +40,7 @@ class Controller(QObject):
             raise TypeError("application must be a core.application.Application.")
         self.application = application
         self._tool_manager: Any | None = None
+        self._sld_controller: Any | None = None
         self._status_plugin: Any | None = None
         self._project: Any | None = None
         self._disposed = False
@@ -72,6 +73,26 @@ class Controller(QObject):
             raise RuntimeError("Controller is already bound to a different ToolManager.")
         self._tool_manager = tool_manager
         self.state_changed.emit()
+
+    def bind_sld_controller(self, sld_controller: Any) -> None:
+        """Bind the canonical SLD deletion capability for canvas tool dispatch."""
+        self._ensure_active()
+        if sld_controller is None or not callable(getattr(sld_controller, "delete_selection", None)):
+            raise TypeError("sld_controller must provide delete_selection().")
+        if self._sld_controller is not None and self._sld_controller is not sld_controller:
+            raise RuntimeError("Controller is already bound to a different SLDController.")
+        self._sld_controller = sld_controller
+
+    def delete_selection(self) -> bool:
+        """Dispatch the active canvas selection to the canonical SLD controller."""
+        self._ensure_active()
+        controller = self._sld_controller
+        if controller is None:
+            raise RuntimeError("Controller has no canonical SLDController deletion capability.")
+        try:
+            return bool(controller.delete_selection())
+        finally:
+            self.state_changed.emit()
 
     def bind_status_plugin(self, status_plugin: Any) -> None:
         """Bind the canonical StatusPlugin presentation capability."""
@@ -292,6 +313,7 @@ class Controller(QObject):
         return {
             "tool_id": self.tool_id,
             "has_application": self.application is not None,
+            "has_sld_controller": self._sld_controller is not None,
             "has_project": self._project is not None,
             "disposed": self._disposed,
         }
@@ -308,6 +330,7 @@ class Controller(QObject):
                     pass
             callbacks.clear()
         self._tool_manager = None
+        self._sld_controller = None
         self._status_plugin = None
         self._project = None
         self.application = None
