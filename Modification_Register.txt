@@ -376,3 +376,34 @@ Verification boundary:
 - Source-level inspection only. No tests/CI, Python startup, Qt runtime, interactive multi-selection, undo/redo, failure-injection rollback, or save/reopen were run.
 - The aggregate uses one shared Application transaction; handler-level domain validation still occurs during child execution. Any later child failure must be observed to restore all prior mutations through the transaction inverse journal.
 - GUI acceptance remains outstanding for multi-select Delete/Cut, mixed connection/equipment selections, undo/redo, failure rollback, and document isolation.
+
+
+GF-SLD-ROUTE-COALESCE-001 — COALESCE LIVE ORTHOGONAL ROUTE PREVIEW UPDATES
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+Issue: implementation issue #128
+
+Correction:
+- OrthogonalRoutingTool coalesces pointer movement into at most one queued Qt event-loop callback, replacing pending work with the latest pointer sample.
+- Pending routes are displayed as red, non-committable guides; final endpoint acquisition and route calculation remain synchronous on click and use the stable SnapResult passed through WireTool/Application.
+- Route geometry remains transient presentation state; Core connectivity remains based on canonical endpoint identities.
+- Exposes the 16 ms coalescing window, 32 ms preview-latency target, last/maximum latency, compute duration, recomputation count, coalesced-event count and target status.
+
+Verification boundary:
+- Source transplant reviewed against the current root-main base; QTimer is exported through ui/core/qt.py.
+- No tests/CI, application startup, GUI interaction or runtime performance measurement performed. The 32 ms value is a target, not a measured result.
+
+GF-CREATION-DISPOSITION-001 — VALIDATE DRAFT COMMAND-FIELD DISPOSITIONS
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+Issues: root #994; implementation #32
+
+Correction:
+- CommitNetworkHandler now passes each DraftEquipment command_field_dispositions map to the canonical creation-contract validator before Core command preparation or mutation.
+- Non-empty draft maps are structurally compared with the trusted Application CreationDefinition contract. Empty legacy recovery snapshots remain compatible; the canonical registry remains the commit authority.
+- No new registry, Core field, Qt dependency, or mutation authority was introduced.
+
+Verification boundary:
+- Source-level transplant against current root main; no tests/CI, startup, GUI or runtime experiments performed.
