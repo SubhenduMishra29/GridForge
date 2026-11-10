@@ -248,8 +248,10 @@ class SelectTool(ToolBase):
         key = self._event_key(event)
         if key in {16777223, 127}:  # Qt.Key_Delete
             dispatch = getattr(self.get_controller(), "delete_selection", None)
-            if callable(dispatch):
-                dispatch()
+            if not callable(dispatch):
+                # Do not consume Delete in a partially composed tool host.
+                return False
+            dispatch()
             return True
         if key == 16777216 or key in ("Escape", "escape"):  # Qt.Key_Escape
             return self.on_cancel()
