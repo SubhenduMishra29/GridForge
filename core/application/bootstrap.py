@@ -673,7 +673,7 @@ def create_application(
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             control_signal_mapping=application.control_signal_mapping,
-            draft_network=application.draft_network,
+            draft_network_collection=application.draft_network_collection,
             presentation_collection=presentation_collection,
             study_cases=application.study_cases,
             protection_presentation=(                application.protection_presentation.to_dict()
