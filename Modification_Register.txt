@@ -359,12 +359,12 @@ Issue: #128
 Base: authoritative root main d16cd11eed0b7dce7bda5f073fff84f471bc7a4b
 
 Correction:
-- OrthogonalRoutingTool now keeps at most one queued Qt event-loop callback for pending route work and replaces the pending request with the latest pointer sample. Pointer bursts therefore do not enqueue one A* computation per mouse event.
+- OrthogonalRoutingTool now keeps at most one queued Qt event-loop callback for pending route work and replaces the pending request with the latest pointer sample. Pointer events arriving during the 16 ms window replace the pending sample; at most one route callback is outstanding, so stale A* work cannot accumulate in a queue.
 - A pending route is shown as a red, non-committable guide. Final endpoint acquisition and route calculation on click remain synchronous and use the exact stable SnapResult passed through the existing WireTool/Application command path.
 - Route geometry remains transient presentation state; Core connectivity continues to use canonical endpoint identities only.
-- Expose a 16 ms preview-latency target, last and maximum end-to-end preview latency, route compute duration, recomputation count, coalesced-event count, and target status through the tool's diagnostic state.
+- Expose a 16 ms coalescing window and 32 ms preview-latency target, last and maximum end-to-end preview latency, route compute duration, recomputation count, coalesced-event count, and target status through the tool's diagnostic state.
 
 Verification boundary:
 - Source inspection only. QTimer is imported through ui.core.qt; default tool registration, contextual metadata, and existing WireTool/Application commit path were inspected on root main.
-- No tests, CI, application startup, GUI interaction, or runtime performance measurements were executed. The 16 ms value is an observable design target, not a measured performance claim.
+- No tests, CI, application startup, GUI interaction, or runtime performance measurements were executed. The 32 ms value is an observable design target, not a measured performance claim.
 - Root integration PR pending review; do not close Issue #128 before root merge.
