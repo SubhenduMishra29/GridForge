@@ -1057,3 +1057,54 @@ Verification boundary:
   has been added.
 - Exact IEC symbol IDs and licensed source geometry, plus terminal-anchor
   mapping review, remain required before marking #823 complete.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-009 — IEC 60617 IDENTITY AND APPLICATION AUDIT
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related: Issue #823; IEC catalogue and variant selector
+
+Primary-source findings (IEC 60617 preview, IEC Webstore):
+- IEC identifies S00287 as "Circuit breaker" and S00288 as
+  "Disconnector; Isolator".
+- The corresponding function qualifiers are separately identified:
+  S00219 "Circuit breaker function", S00220 "Disconnector (isolator)
+  function", and S00221 "Switch-disconnector function".
+- IEC identifies S00841 as "Transformer with two windings, general
+  symbol"; S00842 is an alternative entry/form. Three-winding general
+  symbols are S00844 and S00845.
+- IEC explains that a symbol identity number identifies a symbol record,
+  while forms/alternative forms and "Applies" links define relationships.
+  The ID itself does not encode geometry or meaning.
+- IEC permits symbols to be combined with supplementary qualifiers and
+  says symbols may be rotated/mirrored only where meaning is not changed.
+  Most IEC symbols are designed for left-to-right signal flow.
+- IEC preview explicitly states that database content is copyright and
+  prohibits substantial extraction or duplication without written approval.
+
+Primary source:
+https://webstore.iec.ch/en/iec_catalog/product/preview/?id=L3B1Yi9wZGYvcHJldmlldy9pbmZvX2llYzYwNjE3e2VkMS4wfWIucGRm
+IEC Webstore catalogue:
+https://webstore.iec.ch/en/publication/2723
+
+Engineering disposition:
+- Record the IEC identity references as provenance only; do not copy IEC
+  database graphics or bulk-extract catalogue records into GridForge.
+- Do not assume S00287/S00288 alone define the complete single-line symbol:
+  review the symbol data sheet, application class, forms, qualifiers,
+  "Applies" relationships, and terminal representation before drawing.
+- The generic built-in breaker/disconnector/transformer primitives remain
+  provisional GridForge renderer geometry, not certified IEC artwork.
+- ANSI/IEEE counterpart mapping and licensing/provenance must be verified
+  independently; IEC IDs cannot be used as ANSI variant IDs.
+- UI selector must expose only reviewed, registered variants; never offer
+  an empty or merely relabelled standard choice.
+
+Verification boundary:
+- This entry is a source-backed catalogue research record, not a geometry
+  implementation or compliance declaration.
+- No IEC artwork copied; no selector or new standard variant added.
+- #823 remains open pending permitted geometry source, reviewed anchors,
+  selector integration, and runtime save/reopen acceptance.
