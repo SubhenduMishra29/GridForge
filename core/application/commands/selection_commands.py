@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID, uuid4
 
-from .command import Command
+from ..command import Command
 
 
 DELETE_SELECTION_BATCH = "sld.delete_selection_batch"
