@@ -1534,11 +1534,11 @@ def _build_application_impl(
     sld_update_coordinator_ref: dict[str, object | None] = {"value": None}
 
     def synchronize_canvas():
-        """Refresh active and comparison SLD projections after background topology audits."""
-        snapshot = _refresh_active_canvas()
+        """Audit background SLD topology before refreshing active/comparison projections."""
         coordinator = sld_update_coordinator_ref["value"]
         if isinstance(coordinator, SLDUpdateCoordinator):
             coordinator.reconcile_background_documents()
+        snapshot = _refresh_active_canvas()
         active_document_id = project_workspace_lifecycle.documents.active_document_id
         if pending_viewport_restore["document_id"] == active_document_id:
             _restore_document_viewport(
