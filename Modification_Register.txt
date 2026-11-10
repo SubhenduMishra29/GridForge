@@ -181,3 +181,6 @@ Lifecycle audit:
 
 Verification boundary:
 - Static source inspection only. No desktop interaction or runtime undo/redo was performed.
+
+
+[2026-11-10] SLD equipment-delete selection reconciliation: SelectionProjectionCoordinator now checks the removed Core identity against every selected ID, not only the first additive-selection entry. When any selected object is removed, the transient selection and inspector projection are cleared to prevent stale references after the SLD/Core projection is deleted. Added focused regression coverage for removal of a non-leading selected element. Static source change; GUI runtime remains unverified.
