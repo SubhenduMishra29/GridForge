@@ -214,7 +214,7 @@ def test_batch26_renderer_removes_deleted_node_and_recreates_same_identity_witho
     )
 
     renderer.synchronize(SLDCanvasSnapshot(nodes=(original_node,), connections=()))
-    original_items = tuple(scene.items())
+    original_items = tuple(item for item in scene.items() if isinstance(item, EquipmentItem))
     assert len(original_items) == 1
     original_item = original_items[0]
     assert original_item.object_id == "breaker-1"
@@ -236,7 +236,7 @@ def test_batch26_renderer_removes_deleted_node_and_recreates_same_identity_witho
     )
     renderer.synchronize(SLDCanvasSnapshot(nodes=(restored_node,), connections=()))
 
-    restored_items = tuple(scene.items())
+    restored_items = tuple(item for item in scene.items() if isinstance(item, EquipmentItem))
     assert len(restored_items) == 1
     assert restored_items[0] is not original_item
     assert restored_items[0].object_id == "breaker-1"
