@@ -228,6 +228,7 @@ class ProjectPersistenceService:
              control_configuration: ControlConfiguration | None = None,
              control_signal_mapping: ControlSignalMapping | None = None,
              draft_network: DraftNetwork | None = None,
+             draft_network_collection: DraftNetworkCollection | None = None,
              protection_presentation: Mapping[str, Any] | None = None,
              presentation_collection: Mapping[str, Any] | None = None,
              study_cases: Sequence[StudyCaseDefinition] = ()) -> None:
