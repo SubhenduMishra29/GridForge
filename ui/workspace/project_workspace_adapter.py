@@ -635,6 +635,8 @@ class ProjectWorkspaceApplicationAdapter:
 
     def replace_document(self, document: SLDDocument) -> ProjectWorkspaceState:
         """Replace one registered SLD document through the Application presentation boundary."""
+        if self._presentation_state_capture_provider is not None:
+            self._presentation_state_capture_provider()
         if not isinstance(document, SLDDocument):
             raise TypeError("Only SLDDocument replacement is supported by the SLD document lifecycle.")
         existing = self._lifecycle.documents.require(document.document_id)
@@ -740,6 +742,8 @@ class ProjectWorkspaceApplicationAdapter:
         decision: str = "cancel",
     ) -> ProjectWorkspaceState:
         """Close exactly one SLD document with save/discard/cancel semantics."""
+        if self._presentation_state_capture_provider is not None:
+            self._presentation_state_capture_provider()
         document = self._lifecycle.documents.require(document_id)
         if not isinstance(document, SLDDocument):
             raise TypeError("Only SLDDocument documents can be closed here.")
