@@ -364,7 +364,7 @@ Finding:
 
 Correction:
 - validate_creation_contract_metadata now optionally compares command_field_dispositions using the same normalized contract comparison as the other trusted schema fields.
-- CommitNetworkHandler passes the serialized DraftEquipment disposition map into that validation before preparing any Core create command or mutating Core.
+- CommitNetworkHandler passes the serialized DraftEquipment disposition map into that validation before preparing any Core create command or mutating Core. Non-empty maps must match exactly; empty legacy recovery snapshots remain compatible and continue to use the trusted canonical registry rather than draft-supplied metadata.
 - Existing callers that validate CreationCommitIntent continue to use the same function without a draft metadata argument; command construction and Core mutation ownership are unchanged.
 
 Scope and limitation:
