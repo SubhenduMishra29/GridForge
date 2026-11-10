@@ -262,6 +262,23 @@ class Application:
                 activation_generation=draft.activation_generation,
             )
 
+    def _draft_network_for_command(self, document_id: str | None = None) -> DraftNetwork | None:
+        """Resolve the mutable draft only for the Application-active SLD document.
+
+        The document-scoped collection is wired in the following lifecycle slice;
+        until then this compatibility bridge rejects commands captured for a
+        different document instead of applying them to the currently visible one.
+        """
+        with self._execution_lock:
+            active = self.presentation
+            active_id = getattr(active, "document_id", None) if active is not None else None
+            if document_id is not None and document_id != active_id:
+                raise RuntimeError(
+                    f"Draft command targets SLD document {document_id!r}, "
+                    f"but active document is {active_id!r}."
+                )
+            return self._draft_network
+
     def set_draft_network(self, draft_network: DraftNetwork | None) -> None:
         """Install a detached draft snapshot through the serialized Application boundary."""
         if draft_network is not None and not isinstance(draft_network, DraftNetwork):
