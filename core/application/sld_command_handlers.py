@@ -16,6 +16,7 @@ from .commands.sld_commands import (
     ADD_SLD_NODE,
     REMOVE_SLD_CONNECTION,
     REMOVE_SLD_NODE,
+    DELETE_SLD_SELECTION,
     SET_SLD_NODE_POSITION,
     SET_SLD_NODE_POSITIONS,
     SET_SLD_NODE_TRANSFORMS,
@@ -46,6 +47,7 @@ class SLDCommandHandlers:
             SET_SLD_NODE_PRESENTATION: self.set_node_presentation,
             ADD_SLD_NODE: self.add_node,
             REMOVE_SLD_NODE: self.remove_node,
+            DELETE_SLD_SELECTION: self.delete_selection,
             ADD_SLD_CONNECTION: self.add_connection,
             REMOVE_SLD_CONNECTION: self.remove_connection,
         }
@@ -75,6 +77,9 @@ class SLDCommandHandlers:
         return self._execute(command, context, transaction)
 
     def remove_node(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def delete_selection(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         return self._execute(command, context, transaction)
 
     def add_connection(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
