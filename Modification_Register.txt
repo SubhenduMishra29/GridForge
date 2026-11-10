@@ -184,3 +184,6 @@ Verification boundary:
 
 
 [2026-11-10] SLD equipment-delete selection reconciliation: SelectionProjectionCoordinator now checks the removed Core identity against every selected ID, not only the first additive-selection entry. When any selected object is removed, the transient selection and inspector projection are cleared to prevent stale references after the SLD/Core projection is deleted. Added focused regression coverage for removal of a non-leading selected element. Static source change; GUI runtime remains unverified.
+
+
+[2026-11-10] SLD graphics deletion/undo recreation audit: traced ElementRemoved and SLDPresentationChanged through SLDUpdateCoordinator to the canonical CanvasPlugin.refresh_canvas path. Each refresh projects the complete active SLDDocument into an immutable snapshot; SLDCanvasRenderSystem removes stale realized IDs, unregisters snap candidates, unbinds route-edit callbacks, and removes graphics items. Undo/redo presentation events rebuild from the restored document; unchanged identities are incrementally reused, while a removed-then-restored identity is realized as one fresh item. Added a Qt-scene regression case covering delete, empty-scene reconciliation, same-node-identity recreation, duplicate prevention, and renderer disposal. Static source review only; GUI runtime remains unverified.
