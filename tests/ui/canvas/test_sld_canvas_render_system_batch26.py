@@ -14,6 +14,15 @@ from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbo
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.items.bus_item import BusItem
 from ui.items.equipment_item import EquipmentItem
+from ui.core.qt import QApplication, QGraphicsScene
+import os
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance()
+    return app if app is not None else QApplication([])
 
 
 NETWORK_TYPES = (
@@ -189,3 +198,48 @@ def test_batch26_renderer_preserves_committed_position() -> None:
     item = scene.items[0]
     assert isinstance(item, EquipmentItem)
     assert item.get_scene_position() == (512.5, 618.25)
+
+
+
+def test_batch26_renderer_removes_deleted_node_and_recreates_same_identity_without_duplicates(qapp) -> None:
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    renderer = SLDCanvasRenderSystem(scene, factory, realization)
+    original_node = SLDCanvasNode(
+        node_id="sld-breaker-lifecycle-1",
+        equipment_id="breaker-1",
+        x=300.0,
+        y=410.0,
+        properties={"element_type": "BREAKER"},
+    )
+
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(original_node,), connections=()))
+    original_items = tuple(scene.items())
+    assert len(original_items) == 1
+    original_item = original_items[0]
+    assert original_item.object_id == "breaker-1"
+
+    # Core equipment deletion removes the node from the complete SLD snapshot.
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(), connections=()))
+    assert scene.items() == []
+    assert original_item.scene() is None
+
+    # Undo restores the same persistent SLD node identity. The renderer must
+    # create exactly one fresh graphics projection, not retain or duplicate the
+    # deleted Qt item.
+    restored_node = SLDCanvasNode(
+        node_id="sld-breaker-lifecycle-1",
+        equipment_id="breaker-1",
+        x=300.0,
+        y=410.0,
+        properties={"element_type": "BREAKER"},
+    )
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(restored_node,), connections=()))
+
+    restored_items = tuple(scene.items())
+    assert len(restored_items) == 1
+    assert restored_items[0] is not original_item
+    assert restored_items[0].object_id == "breaker-1"
+    assert restored_items[0].scene() is scene
+    renderer.dispose()
+    assert scene.items() == []
