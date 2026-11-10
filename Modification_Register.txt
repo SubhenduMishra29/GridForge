@@ -541,3 +541,17 @@ Correction:
 
 Verification boundary:
 - Source inspection and fetch-back only. No Qt runtime, GUI drag, modifier transitions, insertion, cancellation, tests, or CI were executed.
+
+
+GF-UI-INSERTION-TARGET-HIGHLIGHT-001 — RESTORE PREVIOUS WIRE VISUAL STATE
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Made electrical insertion target resolution side-effect free with respect to the currently highlighted graphics item. The resolved candidate carries its graphics-item reference until the target is applied.
+- When the insertion target changes, _set_target now clears the previous wire's preview visual state before replacing the stored graphics item and highlighting the new target.
+- Prevents a previously hovered wire from being left in preview/highlight state after the engineer moves to another eligible wire.
+- Preserved geometric nearest-target ranking, ambiguous-crossing fail-closed behavior, release-time target revalidation, canonical Core connection identity, and Application InsertEquipmentIntoConnectionCommand execution.
+
+Verification boundary:
+- Source inspection and fetch-back only. No Qt scene interaction, visual-state transition, insertion, cancellation, tests, or CI were executed.
