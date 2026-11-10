@@ -295,20 +295,24 @@ class SLDController:
             selected_connections = tuple(
                 document.model.get_connection(connection_id) for connection_id in connection_ids
             )
-            core_backed = tuple(
+            simple_wires = tuple(
                 connection for connection in selected_connections
-                if connection.properties.get("core_connection_id")
-                or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+                if connection.properties.get("connection_kind") == "SIMPLE_WIRE"
             )
-            if core_backed:
-                if len(selected_connections) != 1:
+            if simple_wires:
+                if len(selected_connections) != 1 or len(simple_wires) != 1:
                     raise RuntimeError(
-                        "Multi-selection containing Core-backed connections cannot be deleted "
+                        "Multi-selection containing Simple Wires cannot be deleted "
                         "as a presentation-only batch. Delete each electrical connection "
                         "through its canonical Application command."
                     )
                 self.remove_connection(connection_ids[0])
                 return True
+            if any(connection.properties.get("core_connection_id") for connection in selected_connections):
+                raise RuntimeError(
+                    "Selected connection is bound to Core connectivity but has no supported "
+                    "SLD deletion command; refusing presentation-only deletion."
+                )
 
         result = self.application.execute(
             DeleteSLDSelectionCommand(node_ids=node_ids, connection_ids=connection_ids)
