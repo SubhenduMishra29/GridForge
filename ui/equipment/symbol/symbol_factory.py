@@ -33,7 +33,10 @@ class SymbolFactory:
                           definition_id=definition.symbol_id,
                           scale=scale, rotation=rotation,
                           visible=visible, representation_id=representation_id,
-                          properties=properties)
+                          properties=properties,
+                          symbol_family_id=definition.symbol_family_id,
+                          standard_id=definition.standard_id,
+                          variant_id=definition.variant_id)
 
 
 __all__ = ["SymbolFactory"]
