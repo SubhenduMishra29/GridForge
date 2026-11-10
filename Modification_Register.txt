@@ -56,3 +56,16 @@ Verification boundary:
 - Source-path audit completed for direct creation, atomic SLD companion creation, route editing, document serialization, and project save/reopen DTO flow.
 - Runtime GUI interaction and actual save/reopen on a desktop session remain unverified.
 - No tests/CI treated as acceptance gates.
+
+
+GridForge V2 — Orthogonal routing commit contract correction
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Correction:
+- OrthogonalRoutingTool._execute_connection now accepts the shared presentation_route keyword supplied by WireTool.on_mouse_press(). The orthogonal tool deliberately retains its own obstacle-aware engineer-owned route rather than replacing it with WireTool's basic fallback route.
+- This removes a runtime TypeError on the orthogonal routing commit path while preserving the canonical endpoint/Application command path.
+
+Verification boundary:
+- Static call-signature and dispatch trace reviewed. Desktop runtime interaction remains unverified.
