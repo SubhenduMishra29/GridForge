@@ -232,6 +232,7 @@ class SLDController:
             self._application.event_bus.unsubscribe(ProjectLoaded, self._on_project_loaded)
             self._application.event_bus.unsubscribe(ProjectClosed, self._on_project_closed)
         self._state.reset()
+        self._document_activation_handler = None
 
     @property
     def document_count(self) -> int:
