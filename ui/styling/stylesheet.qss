@@ -753,3 +753,22 @@ QTabWidget#GridForgeExplorerTabs QTabBar::tab:hover:!selected {
     background: {{hover_background}};
     color: {{text_primary}};
 }
+
+
+/* Engineering input ergonomics: readable text and reliable pointer targets. */
+QLineEdit, QComboBox,
+QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit {
+    min-height: 30px;
+    padding: 5px 9px;
+    font-size: 11pt;
+}
+QLineEdit#EquipmentSearch,
+QLineEdit#GridForgeProjectSearch {
+    min-height: 32px;
+    font-size: 11pt;
+}
+QPlainTextEdit, QTextEdit {
+    min-height: 84px;
+    padding: 7px 9px;
+    font-size: 11pt;
+}
