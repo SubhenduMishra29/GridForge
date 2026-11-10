@@ -10,10 +10,11 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from core.model import EndpointReference, EquipmentType
+from core.network import TopologyEndpointReference
 from ..creation import CreationCommitIntent, CreationCommandPreparer, validate_creation_contract_metadata
 from ..results import ApplicationResult
 from ..services.simple_wire_service import SimpleWireConnectionService
-from .network import DraftConnection, DraftNetwork
+from .network import DraftConnection, DraftEquipment, DraftNetwork
 
 
 def _thaw_payload(value: Any) -> Any:
@@ -55,11 +56,12 @@ class DraftCommandHandlers:
             "draft.create_connection": self.add_connection,
             "draft.remove_connection": self.remove_connection,
             "draft.update_connection_route": self.update_connection_route,
+            "draft.paste_selection": self.paste_selection,
         }
 
     def add_equipment(self, command, context, transaction):
         draft = self._draft(command)
-        equipment = __import__("core.application.draft.network", fromlist=["DraftEquipment"]).DraftEquipment.from_dict(
+        equipment = DraftEquipment.from_dict(
             _thaw_payload(command.payload["equipment"])
         )
         _record_draft_undo(draft, transaction)
@@ -67,7 +69,7 @@ class DraftCommandHandlers:
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def update_equipment(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         _record_draft_undo(draft, transaction)
         equipment = draft.update_equipment(
             str(command.payload["draft_id"]),
@@ -76,24 +78,25 @@ class DraftCommandHandlers:
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def remove_equipment(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         _record_draft_undo(draft, transaction)
         equipment = draft.remove_equipment(str(command.payload["draft_id"]))
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def add_connection(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
         # Reject invalid candidates before registering a transaction inverse.
         # A failed preflight must not trigger snapshot restoration that replaces
         # otherwise unchanged draft objects and can stale UI projection references.
-        draft.validate_connection_candidate(connection)
+        network = getattr(context, "network", None)
+        draft.validate_connection_candidate(connection, network=network)
         _record_draft_undo(draft, transaction)
-        draft.add_connection(connection)
+        draft.add_connection(connection, network=network)
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
     def update_connection_route(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         payload = command.payload
         if str(payload.get("project_id", "")) != draft.project_id:
             raise ValueError("Draft route update project_id does not match the active project.")
@@ -121,6 +124,7 @@ class DraftCommandHandlers:
         draft.validate_connection_candidate(
             replacement,
             replacing_connection_id=connection_id,
+            network=getattr(context, "network", None),
         )
         _record_draft_undo(draft, transaction)
         updated = draft.update_connection_route(
@@ -132,10 +136,58 @@ class DraftCommandHandlers:
         )
 
     def remove_connection(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         _record_draft_undo(draft, transaction)
         connection = draft.remove_connection(str(command.payload["connection_id"]))
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
+
+    def paste_selection(self, command, context, transaction):
+        """Preflight and add a complete clipboard graph under one transaction."""
+        draft = self._draft(command)
+        payload = _thaw_payload(command.payload)
+        equipment = tuple(
+            DraftEquipment.from_dict(item)
+            for item in payload.get("equipment", ())
+        )
+        connections = tuple(
+            DraftConnection.from_dict(item)
+            for item in payload.get("connections", ())
+        )
+        if not equipment:
+            raise ValueError("A draft clipboard paste requires at least one equipment item.")
+        equipment_ids = tuple(item.draft_id for item in equipment)
+        connection_ids = tuple(item.connection_id for item in connections)
+        if len(set(equipment_ids)) != len(equipment_ids):
+            raise ValueError("Clipboard paste contains duplicate draft equipment identities.")
+        if len(set(connection_ids)) != len(connection_ids):
+            raise ValueError("Clipboard paste contains duplicate draft connection identities.")
+        if set(equipment_ids) & {item.draft_id for item in draft.equipment}:
+            raise ValueError("Clipboard paste collides with existing DraftNetwork equipment.")
+        if set(connection_ids) & {item.connection_id for item in draft.connections}:
+            raise ValueError("Clipboard paste collides with existing DraftNetwork connections.")
+
+        # Validate the complete candidate graph before touching the live DraftNetwork.
+        candidate = DraftNetwork.from_dict(
+            draft.to_dict(),
+            project_id=draft.project_id,
+            activation_generation=draft.activation_generation,
+        )
+        for item in equipment:
+            candidate.add_equipment(item)
+        network = getattr(context, "network", None)
+        for connection in connections:
+            candidate.add_connection(connection, network=network)
+
+        # One inverse snapshot makes the complete group atomic for rollback/undo.
+        _record_draft_undo(draft, transaction)
+        for item in equipment:
+            draft.add_equipment(item)
+        for connection in connections:
+            draft.add_connection(connection, network=network)
+        return ApplicationResult.success_result(
+            value={"draft_ids": equipment_ids, "connection_ids": connection_ids},
+            metadata={"draft_ids": equipment_ids, "connection_ids": connection_ids},
+        )
 
 
 class DraftConnectivityResolver:
@@ -150,6 +202,9 @@ class DraftConnectivityResolver:
                 ) from exc
         else:
             core_id = endpoint.object_id
+
+        if endpoint.is_junction:
+            return TopologyEndpointReference.from_junction(core_id)
 
         if endpoint.is_bus:
             return EndpointReference.bus(

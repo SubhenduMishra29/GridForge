@@ -241,3 +241,12 @@ Verification boundary:
 - Mark draft projections with a distinct configuration_review_required status when a field is deferred to a later workflow; study applicability remains owned by the applicable engineering workflow.
 - Remove fabricated default Fuse current, voltage, and interrupting ratings from CreateFuseCommand and SwitchingModelService.create_fuse. Unspecified ratings remain unknown (None), consistent with the existing Core Fuse optional-positive rating contract.
 - Root integration PR is based on the current authoritative main after document-scoped DraftNetwork command routing. GUI/property-panel behavior and persisted-draft round trips remain to be confirmed interactively; no CI/test acceptance gate was requested or run.
+
+[2026-11-10] Atomic semantic clipboard paste through document-scoped DraftNetwork (reconciled from madhuri196mishra-cpu/GridForge#201):
+- Replaced immediate per-element Core creation during paste with a staged, identity-free canvas preview and one draft.paste_selection Application command on acceptance.
+- Added command-level document identity; every DraftCommandHandlers operation now resolves the DraftNetwork using the command's captured SLD document_id rather than relying on whichever document is currently active.
+- Preflight the complete copied equipment/connection graph against a detached DraftNetwork candidate, reject duplicate IDs/pairs and invalid endpoints before mutating the live draft, and register one snapshot inverse for atomic rollback/undo.
+- Added canonical Core Junction endpoint support to DraftEndpointReference and DraftConnectivityResolver. Junction endpoints are Core-scoped, cannot masquerade as equipment terminals or Bus attachments, and must resolve against the active Network during connection preflight.
+- Publish DraftChanged for the paste command and preserve the Application-owned command-field disposition metadata on every pasted DraftEquipment.
+- Added a dedicated ToolManager clipboard interaction whose Escape/cancel/reset lifecycle removes only its own preview items and does not cancel an unrelated active creation context. Identity-free SymbolPreviewItem instances are non-selectable and ignore mouse buttons.
+- Root integration is adapted to the document-scoped DraftNetwork command contract introduced on root main after implementation PR #201 was authored. GUI paste, undo/redo, cross-document isolation, and save/reopen behavior remain runtime-unverified; no CI/test acceptance gate was requested or run.
