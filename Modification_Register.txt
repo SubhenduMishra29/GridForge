@@ -747,3 +747,28 @@ Verification boundary:
   orthogonal engineer-route helper are present and called by connection
   realization. No Qt runtime, save/reopen visual comparison, route edit,
   undo/redo, tests, or CI were executed.
+
+
+======================================================================
+GF-UI-SYMBOL-ROTATION-004 — RESOLVE TYPED SLD NODE SELECTION IDENTITIES
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- GraphicsView now reads the typed NODE selection domain, preventing a
+  selected connection identifier from being treated as a symbol selection.
+- Added resolution for the stable "presentation:<node-id>" identity used
+  by the SelectTool hit path, in addition to node IDs and bound equipment
+  IDs.
+- Symbol graphics-item lookup now accepts the corresponding presentation,
+  node, or equipment identity while still requiring exactly one selected
+  symbol-bearing item.
+- Preserved the shared SelectionManager instance, Application presentation
+  model, and SetSLDNodePresentationCommand mutation boundary. No Core
+  equipment, terminal, connection, or topology state is modified.
+
+Verification boundary:
+- Source correction committed and fetched back from main. No Qt runtime,
+  selection gesture, toolbar visibility, rotation, tests, or CI were run.
+  GUI acceptance remains required.
