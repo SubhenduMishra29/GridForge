@@ -494,6 +494,28 @@ class ModelPlacementTool(ToolBase):
         self._ensure_active()
         if self._is_escape_event(event):
             return self.on_cancel()
+
+        # Rotate the live placement draft in 90-degree engineering increments.
+        # This changes transient presentation intent only; the Application
+        # command remains responsible for committing the equipment model.
+        key = getattr(event, "key", None)
+        if callable(key):
+            key = key()
+        if isinstance(event, dict):
+            key = event.get("key", key)
+        raw_key = getattr(key, "value", key)
+        if raw_key in (ord("R"), ord("r"), "R", "r", "Key_R"):
+            creation_context = self._require_creation_context()
+            draft = creation_context.snapshot_draft()
+            if draft is None or draft.placement_position is None:
+                return False
+            orientation = (float(draft.orientation) + 90.0) % 360.0
+            draft.set_placement(draft.placement_position, orientation)
+            self._position = draft.placement_position
+            self._preview_active = True
+            self._show_preview(self._position)
+            self._report_feedback(f"Placement orientation: {orientation:g}°")
+            return True
         return False
 
     def on_cancel(self) -> bool:
