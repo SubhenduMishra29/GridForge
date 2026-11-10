@@ -14,6 +14,7 @@ presentation geometry. It never owns authoritative electrical truth.
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 from typing import Any, Dict, Mapping, Optional
 
 from ui.workspace.document import Document
@@ -57,6 +58,56 @@ class SLDDocument(Document):
         self._annotation_blocks: list[SLDAnnotationBlock] = []
         for block in annotation_blocks or ():
             self.add_annotation_block(block, mark_modified=False)
+
+    @property
+    def canvas_viewport_transform(self) -> tuple[float, float, float, float, float, float] | None:
+        """Return the persisted pan/zoom transform for this SLD document."""
+        value = self.metadata.get("canvas_viewport_transform")
+        if value is None:
+            return None
+        if not isinstance(value, (tuple, list)) or len(value) != 6:
+            raise ValueError("SLD canvas_viewport_transform must contain six numeric matrix values.")
+        normalized = tuple(float(item) for item in value)
+        if any(not math.isfinite(item) for item in normalized):
+            raise ValueError("SLD canvas viewport transform values must be finite.")
+        m11, m12, m21, m22, _dx, _dy = normalized
+        if (
+            m11 <= 0.0
+            or m22 <= 0.0
+            or not math.isclose(m11, m22, rel_tol=1e-7, abs_tol=1e-7)
+            or not math.isclose(m12, 0.0, abs_tol=1e-7)
+            or not math.isclose(m21, 0.0, abs_tol=1e-7)
+        ):
+            raise ValueError("SLD canvas viewport transform violates the positive uniform-scale navigation contract.")
+        return normalized
+
+    def set_canvas_viewport_transform(
+        self,
+        transform: tuple[float, float, float, float, float, float] | list[float],
+    ) -> None:
+        """Persist the UI-only pan/zoom matrix in this SLD document's metadata."""
+        if not isinstance(transform, (tuple, list)) or len(transform) != 6:
+            raise ValueError("Canvas viewport transform must contain six matrix values.")
+        normalized = tuple(float(item) for item in transform)
+        if any(not math.isfinite(item) for item in normalized):
+            raise ValueError("Canvas viewport transform values must be finite.")
+        m11, m12, m21, m22, _dx, _dy = normalized
+        if (
+            m11 <= 0.0
+            or m22 <= 0.0
+            or not math.isclose(m11, m22, rel_tol=1e-7, abs_tol=1e-7)
+            or not math.isclose(m12, 0.0, abs_tol=1e-7)
+            or not math.isclose(m21, 0.0, abs_tol=1e-7)
+        ):
+            raise ValueError("Canvas viewport transform violates the positive uniform-scale navigation contract.")
+        previous = self.canvas_viewport_transform
+        if previous is not None and all(
+            math.isclose(left, right, rel_tol=1e-9, abs_tol=1e-9)
+            for left, right in zip(previous, normalized)
+        ):
+            return
+        self.metadata["canvas_viewport_transform"] = list(normalized)
+        self.mark_modified()
 
     @property
     def model(self) -> SLDModel:
