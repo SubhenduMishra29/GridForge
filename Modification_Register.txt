@@ -975,3 +975,39 @@ Verification boundary:
   verification performed.
 - Continue with rotation + connected-wire GUI acceptance and project
   save/reopen round-trip before closing #823.
+
+
+======================================================================
+GF-UI-SYMBOL-PERSISTENCE-007 — CANONICAL SLD VARIANT METADATA VALIDATION
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related: Issue #823; rotation / connected-wire save-reopen lifecycle
+
+Finding:
+- SymbolBase.to_dict() already serializes symbol_family_id, standard_id,
+  and variant_id; SLDNode and SLDModel serialize that presentation payload.
+- SLDDocument.to_dict()/from_dict() carries the SLD model and connections.
+- Canonical persistence validation had a stale SLD_SYMBOL_FIELDS allowlist
+  that rejected all three newly serialized variant metadata fields. Thus
+  an otherwise valid variant-bearing SLD document could fail canonical
+  validation on project reopen.
+
+Correction:
+- Extended the canonical SLD symbol allowlist to accept family, standard,
+  and variant metadata.
+- The fields remain optional at the persistence boundary so historical
+  schema-3 documents continue to load; SymbolBase supplies legacy defaults.
+- When present, each field must be a non-empty string. Semantic realization
+  subsequently checks the values against the registered SymbolDefinition
+  and equipment terminal contract.
+- Existing node/connection serializers already preserve rotation, mirror
+  properties, endpoint identities, route ownership, and route points;
+  no duplicate persistence representation was introduced.
+
+Verification boundary:
+- migration.py and this register entry fetched back from main.
+- No syntax/import execution, project package save/reopen, tests/CI, or GUI
+  runtime verification performed.
+- Continue with package-level round-trip inspection and end-to-end runtime
+  acceptance before closing #823.
