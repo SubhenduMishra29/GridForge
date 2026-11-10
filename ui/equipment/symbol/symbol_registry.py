@@ -133,6 +133,54 @@ class SymbolRegistry:
 
         return definition
 
+    def variants_for_family(
+        self,
+        symbol_family_id: str,
+        *,
+        standard_id: str | None = None,
+    ) -> tuple[SymbolDefinition, ...]:
+        """Return deterministic variants for one family and optional standard."""
+        self._validate_id(symbol_family_id)
+        if standard_id is not None:
+            self._validate_id(standard_id)
+            standard_id = standard_id.strip().lower()
+        return tuple(
+            sorted(
+                (
+                    item for item in self._definitions.values()
+                    if item.symbol_family_id == symbol_family_id.strip().lower()
+                    and (standard_id is None or item.standard_id == standard_id)
+                ),
+                key=lambda item: (item.standard_id, item.variant_id, item.symbol_id),
+            )
+        )
+
+    def get_variant(
+        self,
+        symbol_family_id: str,
+        standard_id: str,
+        variant_id: str,
+    ) -> SymbolDefinition | None:
+        """Resolve one exact family/standard/variant tuple, if registered."""
+        for value, name in (
+            (symbol_family_id, "symbol_family_id"),
+            (standard_id, "standard_id"),
+            (variant_id, "variant_id"),
+        ):
+            self._validate_id(value)
+        family = symbol_family_id.strip().lower()
+        standard = standard_id.strip().lower()
+        variant = variant_id.strip().lower()
+        return next(
+            (
+                item for item in self._definitions.values()
+                if item.symbol_family_id == family
+                and item.standard_id == standard
+                and item.variant_id == variant
+            ),
+            None,
+        )
+
     # ========================================================
     # MEMBERSHIP
     # ========================================================
