@@ -113,7 +113,6 @@ class DraftNetworkCollection:
         collection = cls(project_id, activation_generation)
         if data is None:
             if document_ids is not None:
-                if document_ids is not None:
                 collection.ensure_documents(document_ids)
             return collection
         if not isinstance(data, Mapping):
@@ -142,7 +141,8 @@ class DraftNetworkCollection:
                         activation_generation=activation_generation,
                     ),
                 )
-            collection.ensure_documents(document_ids)
+            if document_ids is not None:
+                collection.ensure_documents(document_ids)
             return collection
         if data.get("schema") != cls.SCHEMA:
             raise ValueError(f"Unsupported DraftNetworkCollection schema: {data.get('schema')!r}.")
