@@ -84,7 +84,7 @@ class DraftCommandHandlers:
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def add_connection(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         connection = DraftConnection.from_dict(_thaw_payload(command.payload["connection"]))
         # Reject invalid candidates before registering a transaction inverse.
         # A failed preflight must not trigger snapshot restoration that replaces
@@ -96,7 +96,7 @@ class DraftCommandHandlers:
         return ApplicationResult.success_result(value={"connection_id": connection.connection_id})
 
     def update_connection_route(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         payload = command.payload
         if str(payload.get("project_id", "")) != draft.project_id:
             raise ValueError("Draft route update project_id does not match the active project.")
