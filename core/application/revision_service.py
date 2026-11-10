@@ -27,7 +27,7 @@ class RevisionService:
     # Draft authoring is transient workspace state in V2. Draft commands are
     # intentionally excluded from project model/presentation revision and dirty
     # state; only network.commit_draft crosses into persistent project truth.
-    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "network.")
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "network.", "draft.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",
