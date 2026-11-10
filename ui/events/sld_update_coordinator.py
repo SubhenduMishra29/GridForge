@@ -92,6 +92,9 @@ class SLDUpdateCoordinator:
         self._documents_provider = documents_provider
         self._background_fingerprints: dict[str, str] = {}
         self._background_diagnostics: dict[str, tuple[dict[str, object], ...]] = {}
+        self._background_network_revision: object | None = None
+        self._background_project_id: object | None = None
+        self._background_network_fingerprint: str | None = None
         self._background_reconciliation_error: Exception | None = None
         self._document: SLDDocument | None = None
         self._disposed = False
@@ -203,10 +206,23 @@ class SLDUpdateCoordinator:
             return dict(self._background_diagnostics)
         try:
             documents = tuple(self._documents_provider())
-            read_model = self._application.read_network()
-            if not isinstance(read_model, NetworkReadModel):
-                raise TypeError("Application read_network() must return NetworkReadModel")
-            network_fingerprint = read_model.structural_fingerprint
+            lifecycle_context = self._application.project_lifecycle.context
+            project_id = getattr(lifecycle_context, "project_id", None)
+            revision = self._application.revision
+            read_model: NetworkReadModel | None = None
+            network_fingerprint = self._background_network_fingerprint
+            if (
+                network_fingerprint is None
+                or revision != self._background_network_revision
+                or project_id != self._background_project_id
+            ):
+                read_model = self._application.read_network()
+                if not isinstance(read_model, NetworkReadModel):
+                    raise TypeError("Application read_network() must return NetworkReadModel")
+                network_fingerprint = read_model.structural_fingerprint
+                self._background_network_revision = revision
+                self._background_project_id = project_id
+                self._background_network_fingerprint = network_fingerprint
         except Exception as exc:
             self._background_reconciliation_error = exc
             return dict(self._background_diagnostics)
@@ -229,6 +245,22 @@ class SLDUpdateCoordinator:
             if self._background_fingerprints.get(document_id) == fingerprint:
                 continue
             try:
+                if read_model is None:
+                    read_model = self._application.read_network()
+                    if not isinstance(read_model, NetworkReadModel):
+                        raise TypeError("Application read_network() must return NetworkReadModel")
+                    network_fingerprint = read_model.structural_fingerprint
+                    self._background_network_revision = self._application.revision
+                    self._background_project_id = getattr(
+                        self._application.project_lifecycle.context,
+                        "project_id",
+                        None,
+                    )
+                    self._background_network_fingerprint = network_fingerprint
+                    fingerprint = self._document_topology_fingerprint(
+                        document,
+                        network_fingerprint,
+                    )
                 diagnostics = self._synchronizer.reconcile_simple_wires(
                     read_model,
                     presentation=document,
@@ -390,6 +422,9 @@ class SLDUpdateCoordinator:
         self._documents_provider = None
         self._background_fingerprints.clear()
         self._background_diagnostics.clear()
+        self._background_network_revision = None
+        self._background_project_id = None
+        self._background_network_fingerprint = None
         self._background_reconciliation_error = None
         self._last_reconciliation_error = None
         self._disposed = True
