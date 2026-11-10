@@ -56,10 +56,13 @@ class SymbolPreviewItem(QGraphicsItem):
         self.setScale(scale)
         self.setRotation(float(rotation))
         self.setVisible(bool(state.get("visible", True)))
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        # Draft symbols must receive left-clicks so QGraphicsScene can select
-        # them and the SelectionProjectionCoordinator can populate the inspector.
-        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+        selectable = self._draft_id is not None
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, selectable)
+        # Committed draft symbols are selectable. Identity-free clipboard
+        # previews remain non-interactive and cannot enter domain selection.
+        self.setAcceptedMouseButtons(
+            Qt.MouseButton.LeftButton if selectable else Qt.MouseButton.NoButton
+        )
 
     @property
     def object_id(self) -> str | None:
