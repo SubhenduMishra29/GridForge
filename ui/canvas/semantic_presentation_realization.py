@@ -32,6 +32,7 @@ class PresentationSelection:
     symbol_family_id: str = ""
     standard_id: str = "unspecified"
     variant_id: str = "default"
+    standard_reference_id: str = ""
 
     def __post_init__(self) -> None:
         for name in ("semantic_type", "equipment_type", "symbol_id", "representation_id"):
@@ -43,6 +44,7 @@ class PresentationSelection:
             ("symbol_family_id", family_id),
             ("standard_id", self.standard_id),
             ("variant_id", self.variant_id),
+            ("standard_reference_id", self.standard_reference_id),
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
@@ -53,6 +55,7 @@ class PresentationSelection:
                 or self.symbol_instance.symbol_family_id != self.symbol_family_id
                 or self.symbol_instance.standard_id != self.standard_id
                 or self.symbol_instance.variant_id != self.variant_id
+                or self.symbol_instance.standard_reference_id != self.standard_reference_id
             ):
                 raise ValueError("PresentationSelection identity does not match its symbol instance.")
 
@@ -133,6 +136,7 @@ class SemanticPresentationRealization:
                 persisted.symbol_family_id != symbol_definition.symbol_family_id
                 or persisted.standard_id != symbol_definition.standard_id
                 or persisted.variant_id != symbol_definition.variant_id
+                or persisted.standard_reference_id != symbol_definition.standard_reference_id
             ):
                 raise ValueError(
                     f"Persisted symbol variant metadata does not match "
@@ -172,6 +176,7 @@ class SemanticPresentationRealization:
             symbol_family_id=symbol_instance.symbol_family_id,
             standard_id=symbol_instance.standard_id,
             variant_id=symbol_instance.variant_id,
+            standard_reference_id=symbol_instance.standard_reference_id,
             representation_id=symbol_instance.representation_id,
             symbol_instance=SymbolBase.from_dict(symbol_instance.to_dict()),
         )
