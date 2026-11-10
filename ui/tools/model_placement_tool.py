@@ -201,7 +201,17 @@ class ModelPlacementTool(ToolBase):
                     for field_name, disposition in canonical_contract["command_field_dispositions"].items()
                 },
             }
-            command = AddDraftEquipmentCommand(equipment=equipment)
+            document_id = getattr(
+                getattr(self.application, "presentation", None),
+                "document_id",
+                None,
+            )
+            if not document_id:
+                raise RuntimeError("Draft placement requires an active SLD document identity.")
+            command = AddDraftEquipmentCommand(
+                equipment=equipment,
+                document_id=document_id,
+            )
             result = self.execute_command(command)
         except Exception as exc:
             self._report_feedback(

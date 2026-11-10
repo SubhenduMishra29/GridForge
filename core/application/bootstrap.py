@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Callable
 from pathlib import Path
 import math
@@ -77,7 +78,7 @@ from .services.relay_model_service import RelayModelService
 from .services.validation_service import ValidationService
 from .study import StudyRequest, StudyCancellationToken
 from .study_preparation import StudyPreparationService
-from .draft import DraftNetwork, DraftCommandHandlers, CommitNetworkHandler
+from .draft import DraftNetwork, DraftNetworkCollection, DraftCommandHandlers, CommitNetworkHandler
 from .creation_schema import creation_contracts_from_definitions
 from .services.motor_dynamics_service import MotorDynamicsComposition
 from .recovery import ApplicationRecoveryComposition
@@ -396,6 +397,7 @@ def create_application(
         previous_control_signal_mapping = application.control_signal_mapping
         previous_control_generation = application.control_engine.activation_generation
         previous_control_active = application.control_engine.configuration is not None
+        previous_draft_collection = application.draft_network_collection
         previous_draft = application.draft_network
         previous_study_cases = dict(application._study_cases)
 
@@ -420,7 +422,9 @@ def create_application(
                 protection_configuration_service.activate(previous_configuration)
             application.protection_runtime = previous_protection_runtime
             application.protection_presentation = previous_protection_presentation
-            application.set_draft_network(previous_draft)
+            application.set_draft_network_collection(previous_draft_collection)
+            if previous_draft_collection is None:
+                application.set_draft_network(previous_draft)
             application._study_cases = dict(previous_study_cases)
             dynamic_models.replace(previous_dynamic_models)
             restore_control_runtime()
@@ -437,6 +441,7 @@ def create_application(
                 generation=generation,
             )
             if context is None:
+                application.set_draft_network_collection(None)
                 control_service.activate(ControlConfiguration.empty("closed-project"))
                 application.control_engine.deactivate()
                 application.configure_control_signal_mapping(None)
@@ -496,11 +501,40 @@ def create_application(
                             for item in loaded.dynamic_models
                         )
                     )
-                loaded_draft = getattr(loaded, "draft_network", None) if loaded is not None else None
-                if loaded_draft is None:
-                    application.set_draft_network(DraftNetwork.empty(context.project_id, generation))
+                # Draft authoring state is activated as one document-keyed
+                # collection, never as a project-wide mutable graph.
+                application.set_draft_network_collection(None)
+                loaded_collection = getattr(loaded, "draft_network_collection", None) if loaded is not None else None
+                if loaded_collection is not None:
+                    application.set_draft_network_collection(
+                        DraftNetworkCollection.from_dict(
+                            loaded_collection.to_dict(),
+                            project_id=context.project_id,
+                            activation_generation=generation,
+                        )
+                    )
                 else:
-                    application.set_draft_network(DraftNetwork.from_dict(loaded_draft.to_dict(), project_id=context.project_id, activation_generation=generation))
+                    presentation_data = getattr(loaded, "presentation_collection", None) if loaded is not None else None
+                    documents = presentation_data.get("documents", ()) if isinstance(presentation_data, Mapping) else ()
+                    document_ids = tuple(
+                        str(item.get("document_id", "")).strip()
+                        for item in documents
+                        if isinstance(item, Mapping) and item.get("document_id")
+                    )
+                    active_document_id = (
+                        presentation_data.get("active_document_id")
+                        if isinstance(presentation_data, Mapping) else None
+                    )
+                    loaded_draft = getattr(loaded, "draft_network", None) if loaded is not None else None
+                    legacy_data = loaded_draft.to_dict() if loaded_draft is not None else None
+                    collection = DraftNetworkCollection.from_dict(
+                        legacy_data,
+                        project_id=context.project_id,
+                        activation_generation=generation,
+                        document_ids=document_ids,
+                        legacy_document_id=active_document_id or (f"{context.project_id}:sld" if not document_ids else None),
+                    )
+                    application.set_draft_network_collection(collection)
                 candidate_protection_runtime = ProtectionRuntime(
                     network=network,
                     configuration=configuration,
@@ -639,7 +673,7 @@ def create_application(
             measurement_definitions=measurement_channel_service.serialize_definitions(),
             control_configuration=control_service.configuration,
             control_signal_mapping=application.control_signal_mapping,
-            draft_network=application.draft_network,
+            draft_network_collection=application.draft_network_collection,
             presentation_collection=presentation_collection,
             study_cases=application.study_cases,
             protection_presentation=(                application.protection_presentation.to_dict()

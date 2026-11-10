@@ -42,6 +42,8 @@ class DraftCommandHandlers:
 
     def _draft(self, command) -> DraftNetwork:
         document_id = command.payload.get("document_id")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("Draft authoring command requires a captured document_id.")
         draft = self._draft_provider(document_id)
         if draft is None:
             raise RuntimeError("Application DraftNetwork is not active for the requested SLD document.")
@@ -358,7 +360,10 @@ class CommitNetworkHandler:
 
     def __call__(self, command, context, transaction):
         payload = command.payload
-        active_draft = self._draft_provider(payload.get("document_id"))
+        document_id = payload.get("document_id")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("CommitNetworkCommand requires a captured document_id.")
+        active_draft = self._draft_provider(document_id)
         if active_draft is None:
             raise RuntimeError("Application DraftNetwork is not active.")
 

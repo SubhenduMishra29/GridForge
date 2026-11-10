@@ -24,10 +24,10 @@ class _RevisionTransition:
 class RevisionService:
     """Own the authoritative in-memory revision state for the active project."""
 
-    # Draft authoring is transient workspace state in V2. Draft commands are
-    # intentionally excluded from project model/presentation revision and dirty
-    # state; only network.commit_draft crosses into persistent project truth.
-    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "network.")
+    # Draft authoring is serialized in the canonical project package. Draft
+    # commands therefore participate in project dirty-state tracking even
+    # though they do not mutate the committed Core Network until commit.
+    _MUTATING_COMMAND_PREFIXES = ("model.", "control.", "protection.", "application.", "connectivity.", "network.", "draft.")
     _TOPOLOGY_COMMANDS = frozenset({
         "model.connect_terminal", "model.disconnect_terminal", "model.reconnect_terminal",
         "connectivity.create_simple_wire", "connectivity.remove_simple_wire",

@@ -31,6 +31,15 @@ class DraftNetworkCollection:
     def document_ids(self) -> tuple[str, ...]:
         return tuple(self._networks)
 
+    def has_pending(self, document_id: str) -> bool:
+        """Return whether one document owns uncommitted equipment or connections."""
+        network = self.get(document_id)
+        return bool(network is not None and (network.equipment or network.connections))
+
+    @property
+    def has_pending_drafts(self) -> bool:
+        return any(network.equipment or network.connections for network in self._networks.values())
+
     def get(self, document_id: str, *, create: bool = False) -> DraftNetwork | None:
         key = self._document_id(document_id)
         network = self._networks.get(key)
@@ -118,10 +127,10 @@ class DraftNetworkCollection:
         if not isinstance(data, Mapping):
             raise TypeError("DraftNetworkCollection payload must be a mapping.")
         if "documents" not in data:
-            # Legacy project.json stored one project-scoped DraftNetwork. It is
-            # assigned only when there is exactly one SLD document; ambiguous
-            # multi-document migration is rejected instead of leaking draft
-            # objects into an arbitrary canvas.
+            # Legacy project.json stored one project-scoped DraftNetwork.
+            # The persistence loader supplies the saved active document ID as
+            # legacy_document_id, so the payload is assigned deterministically
+            # to exactly one owner and never copied across documents.
             target = legacy_document_id
             if target is None:
                 ids = tuple(document_ids or ())

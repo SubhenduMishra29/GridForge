@@ -59,8 +59,9 @@ class ProjectWorkspaceApplicationAdapter:
         self._save_as_path_provider: Callable[[object], str | None] | None = None
         self._transition_decision_provider: Callable[[object], ProjectTransitionDecision | str] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
+        self._document_collection_dirty = False
         self._application.configure_workspace_dirty_provider(
-            lambda: bool(self._lifecycle.documents.dirty_document_ids)
+            lambda: bool(self._lifecycle.documents.dirty_document_ids) or self._document_collection_dirty
         )
 
     @property
@@ -71,7 +72,11 @@ class ProjectWorkspaceApplicationAdapter:
     def project_lifecycle(self): return self._application.project_lifecycle
     @property
     def is_dirty(self) -> bool:
-        return bool(self._application.is_dirty or self._lifecycle.documents.dirty_document_ids)
+        return bool(
+            self._application.is_dirty
+            or self._lifecycle.documents.dirty_document_ids
+            or self._document_collection_dirty
+        )
 
     @property
     def active_document_id(self) -> str | None:
@@ -225,6 +230,7 @@ class ProjectWorkspaceApplicationAdapter:
                 self._application.save_project_as(path)
             else:
                 self._application.save_project()
+            self._document_collection_dirty = False
         return normalized
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
@@ -359,6 +365,7 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool,
     ):
         snapshot = self._lifecycle.capture_transition_state()
+        previous_collection_dirty = self._document_collection_dirty
         previous_document = next(
             (
                 document
@@ -408,14 +415,18 @@ class ProjectWorkspaceApplicationAdapter:
 
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(active_document)
+            # Project activation installs a complete saved document collection.
+            self._document_collection_dirty = False
 
             def rollback() -> None:
+                self._document_collection_dirty = previous_collection_dirty
                 self._lifecycle.restore_last_state(snapshot)
                 if self._presentation_activation_bridge is not None:
                     self._presentation_activation_bridge(previous_document)
 
             return rollback
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             # Lifecycle and bridge restoration are independent: failure in one
             # must not prevent the other from recovering its own state.
             recovery: list[tuple[str, Callable[[], None]]] = [
@@ -582,6 +593,8 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("Only SLDDocument activation is supported by the SLD document lifecycle.")
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
+        previous_collection_dirty = self._document_collection_dirty
+        previous_draft_collection = self._application.draft_network_collection
         try:
             if _run_transition_guard and self._document_transition_guard is not None:
                 self._document_transition_guard()
@@ -593,7 +606,9 @@ class ProjectWorkspaceApplicationAdapter:
                 self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
+                ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
             ]
             if previous is not None:
@@ -618,6 +633,7 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("Only an existing SLDDocument can be replaced by this adapter.")
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
+        previous_collection_dirty = self._document_collection_dirty
         try:
             if self._document_transition_guard is not None:
                 self._document_transition_guard()
@@ -625,9 +641,11 @@ class ProjectWorkspaceApplicationAdapter:
             self._application.activate_presentation(document)
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(document)
+            self._document_collection_dirty = True
             self._publish("replace_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
             ]
@@ -650,6 +668,8 @@ class ProjectWorkspaceApplicationAdapter:
             raise RuntimeError("Cannot create an SLD document without an active project.")
         previous = self._lifecycle.document
         snapshot = self._lifecycle.capture_transition_state()
+        previous_collection_dirty = self._document_collection_dirty
+        previous_draft_collection = self._application.draft_network_collection
         try:
             if self._document_transition_guard is not None:
                 self._document_transition_guard()
@@ -678,9 +698,13 @@ class ProjectWorkspaceApplicationAdapter:
                 _reconcile_rollback=False,
                 _run_transition_guard=False,
             )
+            self._document_collection_dirty = True
             return document
         except BaseException as primary:
-            recovery: list[tuple[str, Callable[[], None]]] = []
+            self._document_collection_dirty = previous_collection_dirty
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
+            ]
             if document is not None and self._lifecycle.documents.get(document.document_id) is not None:
                 recovery.append(
                     ("new-document removal", lambda: self._lifecycle.remove_document(document.document_id))
@@ -715,6 +739,12 @@ class ProjectWorkspaceApplicationAdapter:
             raise ValueError("decision must be save, discard, or cancel.")
         if decision == "cancel":
             return self._lifecycle.state
+        if self._application.draft_document_has_pending(document_id):
+            if decision == "save":
+                raise RuntimeError(
+                    "This SLD document contains uncommitted draft equipment or connections. "
+                    "Commit the draft before closing, or explicitly choose DISCARD."
+                )
         # Reject an impossible close before invoking Save/Save As. The active
         # project must retain one SLD document, so a request that cannot commit
         # must not produce persistence side effects or clear dirty state.
@@ -789,17 +819,23 @@ class ProjectWorkspaceApplicationAdapter:
 
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
+        previous_draft_collection = self._application.draft_network_collection
+        previous_collection_dirty = self._document_collection_dirty
         try:
             self._lifecycle.remove_document(document_id)
+            self._application.remove_draft_document(document_id)
             active = self._lifecycle.document
             if active is not None:
                 self._application.activate_presentation(active)
                 if self._presentation_activation_bridge is not None:
                     self._presentation_activation_bridge(active)
+            self._document_collection_dirty = True
             self._publish("close_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
+                ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
             ]
             if previous is not None:
@@ -819,13 +855,17 @@ class ProjectWorkspaceApplicationAdapter:
 
     def save_project(self) -> ProjectContext:
         """Persist the complete project package through Application."""
-        return self._application.save_project()
+        context = self._application.save_project()
+        self._document_collection_dirty = False
+        return context
 
     def save_project_as(self, path: str) -> ProjectContext:
         """Persist through the Application facade using a UI-resolved Save As path."""
         if not isinstance(path, str) or not path.strip():
             raise ValueError("A non-empty Save As path is required.")
-        return self._application.save_project_as(path)
+        context = self._application.save_project_as(path)
+        self._document_collection_dirty = False
+        return context
 
     def close_project(
         self,
