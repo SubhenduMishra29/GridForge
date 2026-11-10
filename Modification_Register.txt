@@ -451,3 +451,19 @@ Verification boundary:
 - No Qt runtime, high-DPI scaling, visual regression, or interactive
   splitter-resize verification was performed. User-machine GUI review
   remains required.
+
+GF-UI-WORKSPACE-ERGONOMICS-002 — PRESERVE REGION USABILITY FLOORS
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- EditorDefinition application now raises region minimum dimensions only.
+  It no longer overwrites the SLD editor's hard minimum width/height with
+  a default zero minimum.
+- This preserves the canvas, tool rail, Explorer and Inspector usability
+  floors introduced in GF-UI-WORKSPACE-ERGONOMICS-001 after workspace
+  activation or definition re-application.
+
+Verification:
+- Source anchor and replacement confirmed; change fetched back from main.
+- No Qt runtime, splitter interaction, DPI or GUI acceptance performed.
