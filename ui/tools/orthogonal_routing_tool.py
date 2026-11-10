@@ -93,7 +93,20 @@ class OrthogonalRoutingTool(WireTool):
         self._show_preview()
         return super().on_mouse_press(event)
 
-    def _execute_connection(self, endpoint_from: Any, endpoint_to: Any, *, source_snap: Any, target_snap: Any) -> Any:
+    def _execute_connection(
+        self,
+        endpoint_from: Any,
+        endpoint_to: Any,
+        *,
+        source_snap: Any,
+        target_snap: Any,
+        presentation_route: dict | None = None,
+    ) -> Any:
+        # WireTool supplies its basic two-point route as part of the shared
+        # command contract. OrthogonalRoutingTool owns the authoritative
+        # obstacle-aware route computed above; do not let the base fallback
+        # replace that route or reject the shared keyword argument.
+        del presentation_route
         if not self._route_valid or len(self._route_points) < 2:
             raise ValueError("Orthogonal routing cannot commit without a valid computed route.")
         # ConnectionRouter returns both electrical endpoint positions and
