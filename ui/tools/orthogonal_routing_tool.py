@@ -366,16 +366,18 @@ class OrthogonalRoutingTool(WireTool):
                 self._route_item = None
                 return
             add(self._route_item)
-        color = "#1976D2" if self._route_valid else "#D32F2F"
+        preview_valid = self._route_valid and self._pending_route_request is None
+        color = "#1976D2" if preview_valid else "#D32F2F"
         pen = QPen(QColor(color), 2.0, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self._route_item.setPen(pen)
         self._route_item.setPath(path)
-        tooltip = (
-            "Live orthogonal route preview — not committed connectivity."
-            if self._route_valid
-            else "INVALID ROUTE — no collision-free path; this guide cannot be committed."
-        )
+        if self._pending_route_request is not None:
+            tooltip = "ROUTE PENDING — latest pointer position is queued; this guide cannot be committed."
+        elif preview_valid:
+            tooltip = "Live orthogonal route preview — not committed connectivity."
+        else:
+            tooltip = "INVALID ROUTE — no collision-free path; this guide cannot be committed."
         self._route_item.setToolTip(tooltip)
 
     def _remove_route_item(self) -> None:
@@ -399,7 +401,7 @@ class OrthogonalRoutingTool(WireTool):
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
         state.update({
-            "route_valid": self._route_valid,
+            "route_valid": self._route_valid and self._pending_route_request is None,
             "route_points": self._route_points,
             "clearance_pixels": self.CLEARANCE_PIXELS,
             "route_preview_target_ms": self.ROUTE_PREVIEW_TARGET_MS,
