@@ -98,3 +98,17 @@ Clarification to the earlier insertion audit note:
 - Follow-up source inspection confirmed SLDService.reconcile_insertion() already validates the insertion position against the selected persisted route segment, captures the original SLD connection snapshot, splits the original authored route into two replacement routes, preserves route ownership/provenance, creates the inserted SLD node and both replacement SLD connections, and registers rollback/undo restoration in the same transaction.
 - The earlier note stating that route splitting was not reconciled was incorrect and is superseded by this clarification. No route-splitting implementation change was necessary.
 - ElectricalInsertionService independently validates the canonical Core connection, endpoint identities, inserted terminal connections, replacement connection IDs, and final Network topology before commit.
+
+
+GridForge V2 — Ambiguous electrical endpoint snap rejection
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Correction:
+- SnapSystem._find_object_snap no longer resolves equal-distance candidates with different electrical endpoint identities by discovery order. It now returns no object snap when the nearest candidate set contains an equal-distance identity ambiguity (within 1e-9 scene units).
+- A strictly closer candidate resets the ambiguity state; repeated representations of the same endpoint identity do not create a false ambiguity.
+- This prevents midpoint clicks between nearby Bus attachments or equipment terminals from silently selecting whichever candidate happened to be registered first. Wire endpoint intent remains object-only and therefore fails closed rather than falling through to a grid coordinate.
+
+Verification boundary:
+- Static source inspection confirms SnapResult carries canonical Bus attachment and equipment terminal identity through the adapter path. Runtime GUI verification of dense/short Bus attachment spacing and terminal crossings remains outstanding.
