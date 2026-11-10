@@ -72,6 +72,9 @@ class SymbolDefinition:
     terminal_anchors: Mapping[str, tuple[float, float]]
     primitives: tuple[Mapping[str, Any], ...]
     renderer_id: str = "default"
+    symbol_family_id: str = ""
+    standard_id: str = "unspecified"
+    variant_id: str = "default"
 
     def __post_init__(self) -> None:
         """Validate and defensively freeze nested state."""
@@ -109,6 +112,12 @@ class SymbolDefinition:
             raise ValueError(
                 "renderer_id must be a non-empty string."
             )
+
+        family_id = self.symbol_family_id or self.symbol_id
+        for field_name, value in (("symbol_family_id", family_id), ("standard_id", self.standard_id), ("variant_id", self.variant_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} must be a non-empty string.")
+            object.__setattr__(self, field_name, value.strip().lower())
 
         # ----------------------------------------------------
         # Terminal anchors
@@ -244,6 +253,9 @@ class SymbolDefinition:
                 for primitive in self.primitives
             ],
             "renderer_id": self.renderer_id,
+            "symbol_family_id": self.symbol_family_id,
+            "standard_id": self.standard_id,
+            "variant_id": self.variant_id,
         }
 
     # --------------------------------------------------------
@@ -281,6 +293,9 @@ class SymbolDefinition:
                 "renderer_id",
                 "default",
             ),
+            symbol_family_id=data.get("symbol_family_id", data["symbol_id"]),
+            standard_id=data.get("standard_id", "unspecified"),
+            variant_id=data.get("variant_id", "default"),
         )
 
 
