@@ -675,6 +675,15 @@ class SLDCanvasRenderSystem:
                         existing_routes=existing_routes,
                     )
                     route_points = tuple(route.points[1:-1])
+                elif connection.route.routing_mode == "orthogonal":
+                    # Engineer-owned bends remain authored, but a rotated or
+                    # mirrored endpoint can move away from the first/last
+                    # authored bend. Add presentation-only elbow points so
+                    # endpoint segments remain orthogonal without rewriting
+                    # the engineer's persisted intermediate bends.
+                    route_points = self._orthogonal_engineer_route_points(
+                        source, target, route_points
+                    )
                 item = self._item_factory.create_connection(connection, source, target)
                 item.setZValue(self.CONNECTION_Z_VALUE)
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
@@ -945,6 +954,44 @@ class SLDCanvasRenderSystem:
             node.node_id, node.equipment_id, node.x, node.y,
             presentation, properties, read_model_signature,
         ))
+
+    @staticmethod
+    def _orthogonal_engineer_route_points(
+        source: QPointF,
+        target: QPointF,
+        points: tuple[tuple[float, float], ...],
+    ) -> tuple[tuple[float, float], ...]:
+        """Keep engineer-authored orthogonal routes orthogonal after endpoint motion.
+
+        Only endpoint doglegs are synthesized. Existing intermediate bends
+        remain unchanged and persisted route ownership/geometry is untouched.
+        """
+        source_point = (float(source.x()), float(source.y()))
+        target_point = (float(target.x()), float(target.y()))
+        authored = tuple((float(x), float(y)) for x, y in points)
+        if not authored:
+            if source_point[0] != target_point[0] and source_point[1] != target_point[1]:
+                return ((target_point[0], source_point[1]),)
+            return ()
+
+        effective: list[tuple[float, float]] = []
+        first = authored[0]
+        if source_point[0] != first[0] and source_point[1] != first[1]:
+            effective.append((first[0], source_point[1]))
+        effective.extend(authored)
+        last = authored[-1]
+        if last[0] != target_point[0] and last[1] != target_point[1]:
+            effective.append((target_point[0], last[1]))
+
+        # Avoid zero-length segments when a synthesized elbow coincides with
+        # an authored point or an endpoint.
+        normalized: list[tuple[float, float]] = []
+        for point in effective:
+            if point != source_point and (not normalized or point != normalized[-1]):
+                normalized.append(point)
+        while normalized and normalized[-1] == target_point:
+            normalized.pop()
+        return tuple(normalized)
 
     @staticmethod
     def _connection_signature(
