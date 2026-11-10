@@ -207,8 +207,9 @@ class ElectricalInsertionTool(ToolBase):
                 self._clear_target()
                 return None
             _, item, target = candidates[0]
-            self._target_item = item
-            return dict(target)
+            resolved = dict(target)
+            resolved["_graphics_item"] = item
+            return resolved
 
         # Compatibility path for older controller adapters that expose a
         # single-item hit resolver but not a scene with point queries.
@@ -239,17 +240,23 @@ class ElectricalInsertionTool(ToolBase):
             return None
         if not isinstance(target, dict) or not target.get("connection_id"):
             return None
-        if set_target_item:
-            self._target_item = item
-        return dict(target)
+        resolved = dict(target)
+        resolved["_graphics_item"] = item
+        return resolved
 
     def _set_target(self, target: dict[str, Any]) -> None:
-        if self._target == target:
-            self._show_preview(target)
+        resolved = dict(target)
+        target_item = resolved.pop("_graphics_item", None)
+        if self._target == resolved and self._target_item is target_item:
+            self._show_preview(resolved)
             return
+        # Clear the previous wire's highlight before replacing its graphics
+        # item. Target resolution must remain side-effect free: otherwise the
+        # old item is lost before its visual state can be restored.
         self._clear_target_visual()
-        self._target = target
-        self._show_preview(target)
+        self._target = resolved
+        self._target_item = target_item
+        self._show_preview(resolved)
         if self._target_item is not None:
             setter = getattr(self._target_item, "set_visual_state", None)
             if callable(setter):
