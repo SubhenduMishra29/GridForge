@@ -4522,10 +4522,14 @@ class Application:
                 raise ValueError("DraftNetwork project_id does not match the active project.")
             if draft.activation_generation != lifecycle.activation_generation:
                 raise ValueError("DraftNetwork activation_generation does not match the active project.")
+            document_id = getattr(self.presentation, "document_id", None)
+            if not document_id:
+                raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
             command = CommitNetworkCommand(
                 project_id=context.project_id,
                 activation_generation=lifecycle.activation_generation,
                 draft_network=draft.to_dict(),
+                document_id=document_id,
             )
             return self.execute(command)
 
@@ -4543,11 +4547,19 @@ class Application:
         if draft.activation_generation != lifecycle.activation_generation:
             raise ValueError("DraftNetwork activation_generation does not match the active project.")
 
+        document_id = getattr(self.presentation, "document_id", None)
+        if not document_id:
+            raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
         project_id = context.project_id
         activation_generation = lifecycle.activation_generation
         draft_payload = draft.to_dict()
         source_revision = self.revision
-        command = CommitNetworkCommand(project_id=project_id, activation_generation=activation_generation, draft_network=draft_payload)
+        command = CommitNetworkCommand(
+            project_id=project_id,
+            activation_generation=activation_generation,
+            draft_network=draft_payload,
+            document_id=document_id,
+        )
         # Serialize the transition into the in-flight state with project saves.
         # A save holds this same execution lock for its complete persistence window,
         # so a commit cannot become pending after the save has passed its guard.
