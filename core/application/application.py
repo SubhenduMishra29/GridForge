@@ -318,6 +318,21 @@ class Application:
                 return self._draft_network_collection.get(active_id, create=True)
             return self._draft_network
 
+    def draft_document_has_pending(self, document_id: str) -> bool:
+        """Return whether the specified SLD document has uncommitted draft authoring."""
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("draft_document_has_pending requires a persistent document_id.")
+        with self._execution_lock:
+            collection = self._draft_network_collection
+            if collection is not None:
+                return collection.has_pending(document_id.strip())
+            active = self.presentation
+            return bool(
+                getattr(active, "document_id", None) == document_id
+                and self._draft_network is not None
+                and (self._draft_network.equipment or self._draft_network.connections)
+            )
+
     def remove_draft_document(self, document_id: str) -> None:
         """Discard only the transient draft owned by an explicitly closed SLD document."""
         if not isinstance(document_id, str) or not document_id.strip():
