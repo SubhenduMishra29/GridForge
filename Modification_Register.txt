@@ -772,3 +772,39 @@ Verification boundary:
 - Source correction committed and fetched back from main. No Qt runtime,
   selection gesture, toolbar visibility, rotation, tests, or CI were run.
   GUI acceptance remains required.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-001 — ANSI/IEC SYMBOL VARIANT CONTRACT AUDIT
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Issue: #823
+
+Audit findings:
+- EquipmentDefinition exposes one canonical symbol_id per equipment type.
+- SemanticPresentationRealization rejects persisted symbol_id/definition_id
+  values that differ from that equipment default; a variant would fail
+  during projection synchronization.
+- SymbolDefinition has no family, standard, or variant identity.
+- SymbolRegistry is keyed only by symbol_id and has no variant lookup.
+- SLDGraphicsItemFactory resolves the selected symbol definition through
+  the semantic presentation path.
+- Existing EquipmentRegistry.validate_symbol_anchors() is the available
+  terminal-anchor validation boundary.
+
+Required correction sequence:
+1. Add stable family, standard (ANSI/IEC), and variant metadata to
+   renderer-neutral symbol definitions with backward-compatible defaults.
+2. Add deterministic registry lookup and duplicate variant rejection.
+3. Validate terminal identity/anchor role compatibility against each
+   equipment terminal contract before activation.
+4. Persist selected variant in SymbolBase presentation state compatibly.
+5. Replace single-default symbol equality checks with allowed-family and
+   terminal-contract validation.
+6. Rebind renderer geometry while preserving equipment IDs, Core terminal
+   IDs, and electrical connectivity.
+7. Add only reviewed ANSI/IEC catalogue geometries and anchor mappings.
+
+No production code changed in this audit slice. Issue #823 remains open.
+The findings and implementation sequence were added to the issue thread.
