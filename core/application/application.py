@@ -3806,6 +3806,15 @@ class Application:
                 "relay",
             }
         )
+        # Electrical insertion composes its equipment-creation child commands
+        # inside one outer transaction. Child commands deliberately bypass the
+        # pre-commit hook, so a newly inserted CT must refresh the Protection
+        # runtime here, at the outer aggregate boundary.
+        insertion_protection_equipment_changed = bool(
+            command_type == INSERT_EQUIPMENT_INTO_CONNECTION
+            and str(result.metadata.get("equipment_type", "")).strip().lower()
+            == "current_transformer"
+        )
         in_place_protection_equipment_commands = {
             "model.update_current_transformer",
             "model.put_current_transformer_in_service",
@@ -3869,6 +3878,7 @@ class Application:
         elif (
             command_type in protection_runtime_recomposition_commands
             or (command_type == "network.commit_draft" and draft_protection_equipment_changed)
+            or insertion_protection_equipment_changed
         ):
             configuration_service = getattr(self, "protection_configuration_service", None)
             channel_service = self._measurement_channel_service
