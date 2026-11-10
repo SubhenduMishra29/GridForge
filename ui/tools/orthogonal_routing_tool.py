@@ -4,9 +4,11 @@
 # ============================================================
 """Live A* route preview with Application-owned electrical commit.
 
-The tool owns only transient pointer/preview state. Stable endpoint identity
-and final connectivity remain delegated to WireTool's canonical Application
-command path.
+The tool owns only transient pointer/preview state. Pointer events are
+coalesced into one queued route recomputation using the latest scene position;
+measured preview latency is exposed against a 16 ms interaction target. Stable
+endpoint identity and final connectivity remain delegated to WireTool's
+canonical Application command path.
 """
 
 from __future__ import annotations
@@ -411,6 +413,11 @@ class OrthogonalRoutingTool(WireTool):
             "last_route_latency_ms": self._last_route_latency_ms,
             "max_route_latency_ms": self._max_route_latency_ms,
             "last_route_compute_ms": self._last_route_compute_ms,
+            "route_preview_target_met": (
+                None
+                if self._last_route_latency_ms is None
+                else self._last_route_latency_ms <= self.ROUTE_PREVIEW_TARGET_MS
+            ),
         })
         return state
 
