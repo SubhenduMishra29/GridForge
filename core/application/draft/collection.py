@@ -125,14 +125,14 @@ class DraftNetworkCollection:
             # objects into an arbitrary canvas.
             target = legacy_document_id
             if target is None:
-                ids = tuple(document_ids)
+                ids = tuple(document_ids or ())
                 if len(ids) == 1:
                     target = ids[0]
-                elif data.get("equipment") or data.get("connections"):
-                    raise ValueError(
-                        "Legacy project DraftNetwork cannot be assigned safely: "
-                        "select an explicit legacy_document_id for multi-document migration."
-                    )
+            if target is None and (data.get("equipment") or data.get("connections")):
+                raise ValueError(
+                    "Legacy project DraftNetwork cannot be assigned safely: "
+                    "provide the owning legacy_document_id when document ownership is ambiguous."
+                )
             if target is not None:
                 collection.set(
                     target,
