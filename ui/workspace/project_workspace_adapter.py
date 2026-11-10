@@ -419,7 +419,6 @@ class ProjectWorkspaceApplicationAdapter:
             # Lifecycle and bridge restoration are independent: failure in one
             # must not prevent the other from recovering its own state.
             recovery: list[tuple[str, Callable[[], None]]] = [
-                ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
             ]
             if previous_document is not None and self._application.presentation is not previous_document:
@@ -595,6 +594,7 @@ class ProjectWorkspaceApplicationAdapter:
             return self._lifecycle.state
         except BaseException as primary:
             recovery: list[tuple[str, Callable[[], None]]] = [
+                ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
             ]
             if previous is not None:
