@@ -391,7 +391,9 @@ def validate_creation_contract_metadata(
         "parameter_contract": parameter_contract,
         "conditional_requirements": conditional_requirements,
     }
-    if command_field_dispositions is not None:
+    if command_field_dispositions:
+        # Empty legacy recovery snapshots have no draft-supplied disposition
+        # authority; the trusted canonical registry remains the commit source.
         actual["command_field_dispositions"] = command_field_dispositions
     for field, value in actual.items():
         expected = canonical_contract[field]
