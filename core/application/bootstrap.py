@@ -243,6 +243,9 @@ def create_application(
             }
             if len(children) < 2 or not document_id:
                 raise ValueError("Selection delete batch requires at least two commands and one active SLD document.")
+            active_presentation = getattr(application, "presentation", None)
+            if active_presentation is None or getattr(active_presentation, "document_id", None) != document_id:
+                raise ValueError("Selection delete batch does not target the active SLD document.")
             identities: set[tuple[str, str]] = set()
             draft_commands = {"draft.remove_equipment", "draft.remove_connection"}
             for child in children:
