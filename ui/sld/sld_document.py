@@ -67,6 +67,8 @@ class SLDDocument(Document):
             return None
         if not isinstance(value, (tuple, list)) or len(value) != 6:
             raise ValueError("SLD canvas_viewport_transform must contain six numeric matrix values.")
+        if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in value):
+            raise TypeError("SLD canvas viewport transform values must be numeric.")
         normalized = tuple(float(item) for item in value)
         if any(not math.isfinite(item) for item in normalized):
             raise ValueError("SLD canvas viewport transform values must be finite.")
@@ -88,6 +90,8 @@ class SLDDocument(Document):
         """Persist the UI-only pan/zoom matrix in this SLD document's metadata."""
         if not isinstance(transform, (tuple, list)) or len(transform) != 6:
             raise ValueError("Canvas viewport transform must contain six matrix values.")
+        if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in transform):
+            raise TypeError("Canvas viewport transform values must be numeric.")
         normalized = tuple(float(item) for item in transform)
         if any(not math.isfinite(item) for item in normalized):
             raise ValueError("Canvas viewport transform values must be finite.")
