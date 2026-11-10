@@ -18,8 +18,8 @@ from typing import Any, Callable
 
 _LOGGER = logging.getLogger(__name__)
 
-from ui.core.qt import QPointF
 from ui.creation.creation_context import CreationContext
+from ui.core.qt import QPointF
 
 
 ToolFactory = Callable[..., Any]
@@ -37,16 +37,21 @@ class _ClipboardPasteInteraction:
     cancel_creation_context_on_cancel = False
     cancel_creation_context_on_complete = False
 
-    def __init__(self, preview_layer: Any, items: tuple[Any, ...], origin: tuple[float, float], on_accept: Callable[[tuple[float, float]], bool], snap_system: Any) -> None:
+    def __init__(
+        self,
+        preview_layer: Any,
+        items: tuple[Any, ...],
+        origin: tuple[float, float],
+        on_accept: Callable[[tuple[float, float]], bool],
+        snap_system: Any | None = None,
+    ) -> None:
         if preview_layer is None or not items or not callable(on_accept):
             raise ValueError("Clipboard preview requires a PreviewLayer, graphics items, and an acceptance callback.")
-        if snap_system is None:
-            raise ValueError("Clipboard preview requires the canonical SnapSystem.")
         self._preview_layer = preview_layer
         self._items = tuple(items)
         self._origin = (float(origin[0]), float(origin[1]))
-        self._snap_system = snap_system
         self._on_accept = on_accept
+        self._snap_system = snap_system
         self._base_positions = tuple(
             (float(item.pos().x()), float(item.pos().y())) for item in self._items
         )
@@ -90,23 +95,21 @@ class _ClipboardPasteInteraction:
 
     def _move_to(self, event: Any) -> None:
         x, y = self._event_point(event)
-        delta_x = x - self._origin[0]
-        delta_y = y - self._origin[1]
-        # Resolve the group translation once through the canonical grid
-        # authority. The identical delta drives both preview and the accepted
-        # DraftNetwork command, preventing fractional paste drift.
+        dx, dy = x - self._origin[0], y - self._origin[1]
+        # Paste is an explicit grid-placement operation, not a proximity
+        # snap. Use the canonical GridSystem directly so large pointer moves
+        # are aligned even when they exceed SnapSystem's cursor tolerance.
         grid_system = getattr(self._snap_system, "grid_system", None)
         grid_snap = getattr(grid_system, "snap_point", None)
-        if bool(getattr(self._snap_system, "grid_enabled", False)) and callable(grid_snap):
-            # Translation placement is an explicit grid-alignment operation,
-            # not a proximity snap: do not let SnapSystem's cursor tolerance
-            # leave a far-dragged paste group at a fractional offset.
-            position = grid_snap(QPointF(delta_x, delta_y))
-            delta_x = float(position.x())
-            delta_y = float(position.y())
-        self._delta = (delta_x, delta_y)
+        if (
+            bool(getattr(self._snap_system, "grid_enabled", False))
+            and callable(grid_snap)
+        ):
+            position = grid_snap(QPointF(dx, dy))
+            dx, dy = float(position.x()), float(position.y())
+        self._delta = (dx, dy)
         for item, (base_x, base_y) in zip(self._items, self._base_positions):
-            item.setPos(base_x + delta_x, base_y + delta_y)
+            item.setPos(base_x + dx, base_y + dy)
 
     def mouse_move(self, event: Any) -> bool:
         if not self._active or self._finished:
@@ -553,7 +556,7 @@ class ToolManager:
             tuple(preview_items),
             origin,
             on_accept,
-            self.snap_system,
+            snap_system=self.get_snap_system(),
         )
         try:
             self.preview_layer.add_items(interaction._items)
