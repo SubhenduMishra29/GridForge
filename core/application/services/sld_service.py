@@ -1926,14 +1926,22 @@ class SLDService:
 
         source_node_id = str(source_endpoint.get("node_id", ""))
         target_node_id = str(target_endpoint.get("node_id", ""))
+        expected_source = properties.get("orphaned_source_endpoint")
+        expected_target = properties.get("orphaned_target_endpoint")
+        actual_source = dict(source_endpoint)
+        actual_target = dict(target_endpoint)
         if (
             not source_node_id
             or not target_node_id
             or str(connection.source_node_id) != source_node_id
             or str(connection.target_node_id) != target_node_id
+            or not isinstance(expected_source, Mapping)
+            or not isinstance(expected_target, Mapping)
+            or dict(expected_source) != actual_source
+            or dict(expected_target) != actual_target
         ):
             raise ValueError(
-                "Cannot rebind orphaned Simple Wire presentation: endpoint node identity changed."
+                "Cannot rebind orphaned Simple Wire presentation: full endpoint identity changed or is unavailable."
             )
 
         snapshot = connection.to_dict()
@@ -1957,6 +1965,8 @@ class SLDService:
         connection.source_endpoint = SLDEndpoint.from_dict(dict(source_endpoint))
         connection.target_endpoint = SLDEndpoint.from_dict(dict(target_endpoint))
         properties.pop("orphaned_from_core_connection_id", None)
+        properties.pop("orphaned_source_endpoint", None)
+        properties.pop("orphaned_target_endpoint", None)
         properties["core_connection_id"] = core_id
         properties["connection_kind"] = "SIMPLE_WIRE"
         properties["lifecycle_state"] = "BOUND"
@@ -2042,6 +2052,12 @@ class SLDService:
         # The authored connection remains in the document, so undo must restore
         # it in place rather than attempting to create a duplicate identity.
         transaction.record_undo(restore_orphaned_connection)
+        if connection.source_endpoint is None or connection.target_endpoint is None:
+            raise ValueError(
+                "Cannot orphan an authored Simple Wire presentation without both endpoint identities."
+            )
+        connection.properties["orphaned_source_endpoint"] = connection.source_endpoint.to_dict()
+        connection.properties["orphaned_target_endpoint"] = connection.target_endpoint.to_dict()
         connection.source_endpoint = None
         connection.target_endpoint = None
         connection.properties.pop("projection_source", None)
