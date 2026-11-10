@@ -61,6 +61,7 @@ class LoadedProject:
     measurement_definitions: tuple[Mapping[str, Any], ...] = ()
     control_configuration: ControlConfiguration | None = None
     draft_network: DraftNetwork | None = None
+    draft_network_collection: DraftNetworkCollection | None = None
     protection_presentation: Mapping[str, Any] | None = None
     control_signal_mapping: ControlSignalMapping | None = None
     study_cases: tuple[StudyCaseDefinition, ...] = ()
@@ -130,11 +131,31 @@ class ProjectPersistenceService:
             raise ProjectPersistenceError(f"Invalid dynamic machine model association: {exc}") from exc
 
         measurement_definitions = project["measurement"]["channels"]
-        draft_data = project.get("draft_network")
-        draft_network = (
-            DraftNetwork.from_dict(draft_data, project_id=project_id, activation_generation=1)
-            if draft_data is not None else DraftNetwork.empty(project_id, 1)
+        document_ids = tuple(
+            str(item.get("document_id", "")).strip()
+            for item in presentation_collection.get("documents", ())
+            if isinstance(item, Mapping) and item.get("document_id")
         )
+        default_document_id = f"{project_id}:sld"
+        if not document_ids:
+            document_ids = (default_document_id,)
+        active_document_id = presentation_collection.get("active_document_id") or document_ids[0]
+        draft_collection_data = project.get("draft_networks")
+        legacy_draft_data = project.get("draft_network")
+        try:
+            if draft_collection_data is not None and legacy_draft_data is not None:
+                raise ValueError("Project cannot contain both draft_networks and legacy draft_network.")
+            draft_network_collection = DraftNetworkCollection.from_dict(
+                draft_collection_data if draft_collection_data is not None else legacy_draft_data,
+                project_id=project_id,
+                activation_generation=1,
+                document_ids=document_ids,
+                legacy_document_id=active_document_id,
+            )
+            active_draft = draft_network_collection.get(active_document_id)
+            draft_network = active_draft or DraftNetwork.empty(project_id, 1)
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ProjectPersistenceError(f"Invalid persisted DraftNetworkCollection: {exc}") from exc
 
         control_data = project.get("control")
         try:
@@ -193,6 +214,7 @@ class ProjectPersistenceService:
             control_configuration=control_configuration,
             control_signal_mapping=control_signal_mapping,
             draft_network=draft_network,
+            draft_network_collection=draft_network_collection,
             protection_presentation=protection_presentation,
             study_cases=study_cases,
         )
@@ -218,11 +240,18 @@ class ProjectPersistenceService:
             raise TypeError("context must be a ProjectContext.")
         if not isinstance(network, Network):
             raise TypeError("network must be a Network.")
+        if draft_network is not None and draft_network_collection is not None:
+            raise TypeError("Pass draft_network_collection or legacy draft_network, not both.")
         if draft_network is not None:
             if not isinstance(draft_network, DraftNetwork):
                 raise TypeError("draft_network must be DraftNetwork or None.")
             if draft_network.project_id != context.project_id:
                 raise ProjectPersistenceError("DraftNetwork project_id does not match the project.")
+        if draft_network_collection is not None:
+            if not isinstance(draft_network_collection, DraftNetworkCollection):
+                raise TypeError("draft_network_collection must be DraftNetworkCollection or None.")
+            if draft_network_collection.project_id != context.project_id:
+                raise ProjectPersistenceError("DraftNetworkCollection project_id does not match the project.")
         if presentation is not None and not isinstance(presentation, Mapping):
             raise TypeError("presentation must be a mapping or None.")
         if presentation_collection is not None and not isinstance(presentation_collection, Mapping):
@@ -313,6 +342,28 @@ class ProjectPersistenceService:
             tuple(dynamic_models), protection_configuration, control_configuration,
             measurement_definitions,
         )
+        document_ids = tuple(item["document_id"] for item in documents)
+        if not document_ids:
+            document_ids = (f"{context.project_id}:sld",)
+        active_draft_document_id = active_id or document_ids[0]
+        if draft_network_collection is not None:
+            canonical_draft_collection = DraftNetworkCollection.from_dict(
+                draft_network_collection.to_dict(),
+                project_id=context.project_id,
+                activation_generation=draft_network_collection.activation_generation,
+                document_ids=document_ids,
+            )
+        else:
+            legacy_draft_data = draft_network.to_dict() if draft_network is not None else None
+            canonical_draft_collection = DraftNetworkCollection.from_dict(
+                legacy_draft_data,
+                project_id=context.project_id,
+                activation_generation=(
+                    draft_network.activation_generation if draft_network is not None else 1
+                ),
+                document_ids=document_ids,
+                legacy_document_id=active_draft_document_id,
+            )
 
         project: dict[str, Any] = {
             "schema": PROJECT_SCHEMA_VERSION,
@@ -331,8 +382,7 @@ class ProjectPersistenceService:
             project["control"] = control_configuration.to_dict()
         if control_signal_mapping is not None:
             project["control_signal_mapping"] = control_signal_mapping.to_dict()
-        if draft_network is not None:
-            project["draft_network"] = draft_network.to_dict()
+        project["draft_networks"] = canonical_draft_collection.to_dict()
 
         manifest = {"format": "GridForgeProject", "package_version": PACKAGE_VERSION}
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=parent))
@@ -667,7 +717,7 @@ class ProjectPersistenceService:
         allowed = {
             "schema", "project", "network", "presentations", "dynamic_models",
             "measurement", "control", "control_signal_mapping", "protection", "protection_presentation",
-            "draft_network", "study_cases",
+            "draft_network", "draft_networks", "study_cases",
         }
         unknown = sorted(set(project) - allowed)
         if unknown:
@@ -719,9 +769,11 @@ class ProjectPersistenceService:
         channels = measurement.get("channels")
         if not isinstance(channels, list) or any(not isinstance(item, Mapping) for item in channels):
             raise ProjectPersistenceError("Canonical measurement.channels must be an array of objects.")
-        for key in ("control", "protection", "protection_presentation", "draft_network"):
+        for key in ("control", "protection", "protection_presentation", "draft_network", "draft_networks"):
             if key in project and project[key] is not None and not isinstance(project[key], Mapping):
                 raise ProjectPersistenceError(f"Canonical {key} payload must be an object.")
+        if "draft_network" in project and "draft_networks" in project:
+            raise ProjectPersistenceError("Canonical project cannot contain both draft_network and draft_networks.")
         study_cases = project.get("study_cases", [])
         if not isinstance(study_cases, list) or any(not isinstance(item, Mapping) for item in study_cases):
             raise ProjectPersistenceError("Canonical study_cases must be an array of objects.")
