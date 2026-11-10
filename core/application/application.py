@@ -4497,9 +4497,13 @@ class Application:
             )
         engineering_data = dict(current.engineering_data)
         engineering_data.update(values)
+        document_id = getattr(self.presentation, "document_id", None)
+        if not document_id:
+            raise RuntimeError("Draft engineering update requires an active SLD document identity.")
         return UpdateDraftEquipmentCommand(
             draft_id=draft_id,
             changes={"engineering_data": engineering_data},
+            document_id=document_id,
         )
 
     def commit_draft_network(self) -> ApplicationResult:
