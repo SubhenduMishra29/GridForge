@@ -177,6 +177,7 @@ class OrthogonalRoutingTool(WireTool):
             return
 
         target_position, target_snap = request
+        previous_signature = self._last_route_signature
         started_at = perf_counter()
         try:
             self._calculate_route(target_position, target_snap)
@@ -189,7 +190,8 @@ class OrthogonalRoutingTool(WireTool):
             self._last_route_compute_ms = (finished_at - started_at) * 1000.0
             self._last_route_latency_ms = (finished_at - requested_at) * 1000.0
             self._max_route_latency_ms = max(self._max_route_latency_ms, self._last_route_latency_ms)
-            self._route_preview_recompute_count += 1
+            if self._last_route_signature != previous_signature:
+                self._route_preview_recompute_count += 1
         self._show_preview()
 
     def _calculate_route(self, target_position: tuple[float, float], target_snap: Any = None) -> bool:
