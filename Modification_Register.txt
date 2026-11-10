@@ -319,3 +319,18 @@ Corrections:
 
 Verification boundary:
 - Source-level contract and diff review only. No tests/CI, Qt runtime, project activation, or desktop save/reopen were executed.
+
+
+GridForge V2 — canonical SLD endpoint association enforcement
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Corrections:
+- Extended Application-owned SLD association validation to compare each BOUND Simple-Wire presentation endpoint descriptor and source/target node identity against the authoritative Core SimpleWireConnection endpoint_a/endpoint_b.
+- Endpoint resolution requires exactly one BOUND SLD node for each Core endpoint object. Terminal role, equipment identity, Bus identity and Bus attachment identity are compared; unresolved or mismatched endpoint descriptors fail with explicit diagnostics.
+- Project persistence now rejects ERROR-severity association diagnostics across every document in the persisted presentation collection and the active presentation. WARNING-severity authored ORPHANED presentation objects remain preserved.
+- No automatic repair, orphan conversion, Core connectivity synthesis, or geometry-based endpoint inference was introduced.
+
+Verification boundary:
+- Source and diff review only. No tests/CI, Qt runtime, project activation, or desktop save/reopen were executed.
