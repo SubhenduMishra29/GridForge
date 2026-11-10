@@ -526,16 +526,10 @@ def _build_application_impl(
         _activate_sld_presentation
     )
     def _guard_document_switch_with_pending_draft():
-        # DraftNetwork is currently project-scoped. Until its persisted ownership
-        # is partitioned by SLD document, fail closed rather than displaying or
-        # committing one document's pending authoring graph in another document.
-        draft = gridforge_application.draft_network
-        if draft is not None and (draft.equipment or draft.connections):
-            raise RuntimeError(
-                "Cannot switch SLD documents while DraftNetwork contains pending "
-                "equipment or connections. Commit or discard the draft first; "
-                "document-scoped DraftNetwork persistence is not yet available."
-            )
+        # DraftNetworkCollection now owns an independent, persisted draft per
+        # SLD document. A pending draft therefore remains attached to its
+        # originating document and must not block activation of another sheet.
+        # Only transient pointer/tool interaction is cancelled at this boundary.
         controller.set_tool("select", cancel_active_creation=True)
 
     project_workspace_adapter.configure_document_transition_guard(
