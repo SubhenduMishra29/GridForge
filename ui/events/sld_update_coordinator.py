@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 import hashlib
 import json
+from typing import Any
 
 from core.application.application import Application
 from core.application.read_models import NetworkReadModel
