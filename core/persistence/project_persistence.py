@@ -847,13 +847,10 @@ class ProjectPersistenceService:
                 presentation,
             )
             for issue in sld_validation.issues:
-                # Structural/project-identity errors are persistence-contract
-                # failures. An unresolved equipment reference is deliberately
-                # diagnostic only until the repository establishes an orphan
-                # policy; persistence must not silently delete, rewrite, or
-                # synthesize either side of the association.
-                if issue.code != "SLD_EQUIPMENT_REFERENCE_UNRESOLVED":
-                    raise ProjectPersistenceError(issue.message)
+                # BOUND references must resolve before persistence. Authored
+                # ORPHANED presentation objects remain valid warnings and are
+                # retained without synthesizing or mutating Core state.
+                raise ProjectPersistenceError(issue.message)
         for association in dynamic_models:
             if association.project_id != context.project_id:
                 raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' belongs to another project.")
