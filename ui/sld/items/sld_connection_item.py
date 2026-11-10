@@ -271,8 +271,15 @@ class SLDConnectionItem(QGraphicsPathItem):
         is_draft = self._projection_source == "draft_network"
         if self._core_connection_id is None and not is_draft:
             raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
-        if index < 0 or index >= len(self._route_points):
+        if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= len(self._route_points):
             raise IndexError(index)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in (x, y)
+        ):
+            raise ValueError("Route bend coordinates must be finite numbers.")
 
         points = list(self._route_points)
         points[index] = (float(x), float(y))

@@ -77,6 +77,7 @@ def delete_selected_simple_wire(application: Any, selected_id: str) -> Any:
             connection_id=core_connection_id,
             endpoint_a=endpoint_a,
             endpoint_b=endpoint_b,
+            presentation_route=connection.route.to_dict(),
         )
     )
 

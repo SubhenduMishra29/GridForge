@@ -78,6 +78,9 @@ class SLDCanvasSurface(QWidget):
         self._navigation_controller = navigation_controller
         self._zoom_changed_listener = self._update_zoom_readout
         self._document_id: str | None = None
+        # Session-local viewport transforms are keyed by persistent SLD document
+        # identity. They are presentation state, never part of Core or SLD data.
+        self._viewport_transforms: dict[str, Any] = {}
         self._composition: Any | None = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
         self.setObjectName("SLDCanvasSurface")
@@ -196,6 +199,7 @@ class SLDCanvasSurface(QWidget):
 
     def clear_project_state(self) -> None:
         """Clear project-scoped presentation state while retaining reusable services."""
+        self._viewport_transforms.clear()
         composition = self._composition
         if composition is not None:
             composition.clear_project_state()
@@ -204,6 +208,7 @@ class SLDCanvasSurface(QWidget):
 
     def dispose_canvas(self) -> None:
         """Permanently release the aggregate canvas resources."""
+        self._viewport_transforms.clear()
         composition = self._composition
         if composition is not None:
             composition.dispose()
@@ -230,6 +235,18 @@ class SLDCanvasSurface(QWidget):
             raise TypeError("document must be an SLDDocument.")
         if not isinstance(draft_snapshot, DraftSLDCanvasSnapshot):
             raise TypeError("draft_snapshot must be a DraftSLDCanvasSnapshot.")
+        previous_document_id = self._document_id
+        if previous_document_id != document.document_id:
+            if previous_document_id is not None:
+                self._viewport_transforms[previous_document_id] = (
+                    self._navigation_controller.get_transform()
+                )
+            saved_transform = self._viewport_transforms.get(document.document_id)
+            if saved_transform is None:
+                self._navigation_controller.reset_view()
+            else:
+                self._navigation_controller.set_transform(saved_transform)
+
         committed = self._sld_canvas_projection.project(document.model, document.annotation_blocks)
         composite = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
         self._sld_canvas_render_system.synchronize(composite)
@@ -483,6 +500,7 @@ class CanvasComposer:
             raise ValueError("tool_manager must retain the canonical Application.")
         if sld_controller.application is not application:
             raise ValueError("SLDController and ToolManager must share the canonical Application.")
+        controller.bind_sld_controller(sld_controller)
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system

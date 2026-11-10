@@ -42,3 +42,183 @@ Audit date: 2026-11-09 | Issue: #813
 
 Architecture: Core remains electrical authority; Application owns draft mutation and commit; UI remains projection-only. No Qt/QGraphics dependency or Core topology change.
 Verification: source/diff review and syntax checks only; tests/CI and GUI runtime were not run.
+
+GridForge V2 — SLD wire preview and route persistence
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Changes:
+- Added owner-scoped polyline previews to PreviewLayer so one tool can replace or clear only its own transient graphics.
+- Changed WireTool live preview to deterministic horizontal-first orthogonal routing.
+- Added canonical route metadata (routing_mode, ownership, intermediate bend points) to the existing DraftNetwork and Simple Wire command payloads; end-to-end committed SLD projection persistence still requires runtime/source-path verification.
+- Kept route points presentation-only; canonical electrical endpoint references remain the source and target identities.
+- Preserved existing DraftConnection and SLDRoute validation and consecutive-duplicate normalization.
+
+Verification:
+- Source-level review of command payload contracts and route schemas completed.
+- Runtime GUI behavior and application-level route projection remain to be verified against a running desktop session.
+- No tests/CI were treated as acceptance gates.
+
+
+GridForge V2 — Simple Wire route undo/redo and persistence reconciliation
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Corrections:
+- Verified the direct Simple Wire transaction path: Application._coordinate_pre_commit() creates the SLD companion in the same transaction as the Core connection and passes presentation_route into AddSLDConnectionCommand.
+- Verified SLDRoute is retained by SLDConnection/SLDModel serialization, SLDDocument.to_dict()/from_dict(), and the project presentation persistence boundary.
+- Corrected reversible Simple Wire command snapshots so route metadata survives create → undo → redo and delete → undo/redo.
+- Selected Simple Wire deletion now captures the active SLD route in RemoveSimpleWireConnectionCommand; route metadata remains presentation-only and does not enter the Core SimpleWireConnection.
+- Orphan rebind intentionally preserves the existing authored route while restoring canonical endpoint bindings.
+
+Verification boundary:
+- Source-path audit completed for direct creation, atomic SLD companion creation, route editing, document serialization, and project save/reopen DTO flow.
+- Runtime GUI interaction and actual save/reopen on a desktop session remain unverified.
+- No tests/CI treated as acceptance gates.
+
+
+GridForge V2 — Orthogonal routing commit contract correction
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Correction:
+- OrthogonalRoutingTool._execute_connection now accepts the shared presentation_route keyword supplied by WireTool.on_mouse_press(). The orthogonal tool deliberately retains its own obstacle-aware engineer-owned route rather than replacing it with WireTool's basic fallback route.
+- This removes a runtime TypeError on the orthogonal routing commit path while preserving the canonical endpoint/Application command path.
+
+Verification boundary:
+- Static call-signature and dispatch trace reviewed. Desktop runtime interaction remains unverified.
+
+
+GridForge V2 — Electrical insertion target and preview ownership correction
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Corrections:
+- ElectricalInsertionTool.on_mouse_release now requires a fresh, unambiguous connection target resolved at the release position. It no longer falls back to a previously hovered target; a miss/ambiguous target clears the preview and aborts without issuing an insertion command.
+- PreviewLayer now supports add_items_for_owner(), allowing insertion previews to be cleaned up with clear_owner() without clearing unrelated WireTool/OrthogonalRoutingTool previews.
+- ElectricalInsertionTool assigns a unique owner token to each instance and uses owner-scoped preview registration/cleanup, with compatibility fallback for older preview-layer adapters.
+- Application ElectricalInsertionService validates the referenced Core Simple Wire exists, replacement IDs are unused, canonical endpoint identities are distinct, insertion equipment terminals are connected through the Application endpoint resolver, and final topology validates before transaction commit.
+
+Remaining audit item:
+- InsertionService currently accepts segment_index and insertion_position as presentation metadata but does not reconcile the SLD route geometry when replacing the original SLD companion with two replacement companions. Preserve/split the original authored route at the selected segment and insertion point in the SLD projection transaction; do not put route geometry into Core.
+
+Verification boundary:
+- Static source-path inspection only; desktop interaction and save/reopen runtime verification remain outstanding.
+
+
+GridForge V2 — Electrical insertion route reconciliation audit clarification
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Clarification to the earlier insertion audit note:
+- Follow-up source inspection confirmed SLDService.reconcile_insertion() already validates the insertion position against the selected persisted route segment, captures the original SLD connection snapshot, splits the original authored route into two replacement routes, preserves route ownership/provenance, creates the inserted SLD node and both replacement SLD connections, and registers rollback/undo restoration in the same transaction.
+- The earlier note stating that route splitting was not reconciled was incorrect and is superseded by this clarification. No route-splitting implementation change was necessary.
+- ElectricalInsertionService independently validates the canonical Core connection, endpoint identities, inserted terminal connections, replacement connection IDs, and final Network topology before commit.
+
+
+GridForge V2 — Ambiguous electrical endpoint snap rejection
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Correction:
+- SnapSystem._find_object_snap no longer resolves equal-distance candidates with different electrical endpoint identities by discovery order. It now returns no object snap when the nearest candidate set contains an equal-distance identity ambiguity (within 1e-9 scene units).
+- A strictly closer candidate resets the ambiguity state; repeated representations of the same endpoint identity do not create a false ambiguity.
+- This prevents midpoint clicks between nearby Bus attachments or equipment terminals from silently selecting whichever candidate happened to be registered first. Wire endpoint intent remains object-only and therefore fails closed rather than falling through to a grid coordinate.
+
+Verification boundary:
+- Static source inspection confirms SnapResult carries canonical Bus attachment and equipment terminal identity through the adapter path. Runtime GUI verification of dense/short Bus attachment spacing and terminal crossings remains outstanding.
+
+
+GridForge V2 — Routed wire crossing/overlap hit resolution
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Correction:
+- MouseEventAdapter no longer relies exclusively on QGraphicsScene.itemAt(), which returns only the topmost graphics item and can arbitrarily hide another wire at crossings/overlapping routes.
+- Hit testing now enumerates selectable scene items intersecting the pointer shape, preserves Qt z-order priority for selectable nodes/non-wire connections, and evaluates Simple Wire candidates using their exact route-segment distance.
+- The uniquely nearest routed wire is selected. Equal-distance distinct wire candidates at a crossing/overlap are rejected as ambiguous rather than selected by z-order or registration order.
+- CanvasHitTarget continues to carry persistent presentation_id plus canonical core_connection_id (or draft_connection_id), and SelectTool resolves the exact connection item by those identities for route editing/deletion selection.
+
+Verification boundary:
+- Static source trace confirms QGraphicsScene shape hit enumeration, routed segment distance calculation, deterministic nearest selection, fail-closed tie handling, and identity-preserving SelectTool lookup.
+- Runtime Qt scene behavior at crossings, overlapping wires, and high zoom remains to be verified in desktop application.
+
+
+GridForge V2 — Route bend input validation
+Date: 2026-11-10
+- SLDConnectionItem.set_bend now rejects boolean/non-integer/out-of-range bend indices and rejects boolean, non-numeric, NaN, or infinite coordinates before emitting a route-edit request.
+- This aligns bend movement with insert_bend and the canonical SLDRoute finite-coordinate invariant, keeping invalid interaction payloads out of the controller/Application boundary.
+- Route-edit audit confirmed persistent edits carry both presentation connection ID and Core connection ID; SLDController checks the binding against the active document before issuing the presentation-only route command. Draft edits use the active DraftNetwork command boundary.
+- Desktop drag/undo/save-reopen verification remains outstanding.
+
+
+GridForge V2 — Full endpoint identity guard for orphaned Simple Wire rebind
+Date: 2026-11-10
+- Core deletion that retains an engineer-authored Simple Wire SLD presentation now snapshots both complete SLD endpoint descriptors into orphan metadata before clearing the active endpoint bindings.
+- Undo/recreate rebind now requires exact source and target endpoint descriptor equality, including equipment terminal role or Bus attachment identity, in addition to the existing presentation ID and node identity checks.
+- Missing or changed endpoint snapshots fail closed; successful rebind clears the orphan metadata and restores the canonical Core binding while preserving the authored route and presentation properties.
+- The existing transaction inverse restores the complete pre-orphan connection snapshot, including route, endpoint descriptors, and properties.
+- Static source inspection only; desktop deletion/undo/redo and persistence verification remain outstanding.
+
+
+GridForge V2 — SLD selection deletion boundary and Core connectivity protection
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Corrections:
+- Connected SelectTool's Delete-key dispatch to the canonical SLDController through the composed UI Controller capability; Delete no longer silently consumes the key without a deletion handler.
+- Added DeleteSLDSelectionCommand so multi-node and multi-engineer-connection presentation selections execute inside one Application transaction and share one undo boundary.
+- Preflight validates the complete typed selection before mutation. Core-backed or projection-owned connections are rejected from presentation-only batch deletion.
+- SLD node removal now rejects attached Core-backed, projection-owned, active Simple Wire, or retained orphaned Simple Wire connections, preventing electrical connectivity or engineer-authored orphan route metadata from being silently discarded.
+- A single selected Simple Wire continues through RemoveSimpleWireConnectionCommand and its canonical Core/Application reconciliation path. Multi-selection containing Core-backed connections fails closed rather than performing a partially atomic sequence.
+- Selection is cleared only after the Application command reports success; undo/redo remains owned by the existing transaction journal.
+
+Verification boundary:
+- Static source and command-dispatch inspection only. Desktop Delete-key interaction, multi-selection undo/redo, and save/reopen behavior remain unverified.
+- No tests/CI were treated as acceptance gates.
+
+
+GridForge V2 — Delete-key dispatch fallback and history/selection audit
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Additional correction:
+- SelectTool now returns an unhandled result for Delete when its host has no callable delete_selection capability. A partially composed tool host no longer silently consumes the key; the canonical canvas composition binds SLDController before normal use.
+
+Lifecycle audit:
+- CommandManager executes aggregate child commands inside the parent transaction; the parent pre-commit hook and history record remain the single transaction boundary.
+- Undo replays registered inverse operations in reverse order; redo re-executes the original aggregate command through normal pre-commit processing.
+- SLD selection is transient UI state owned by SelectionManager, not part of the persisted project model. Deletion clears selection only after successful commit; undo/redo restores model objects but intentionally does not persist or resurrect the prior transient selection.
+- Mixed node/connection selection is rejected by the SLD deletion boundary. Multi-selection across different typed domains can still be created through additive SelectionManager operations; deletion fails closed rather than guessing intent.
+
+Verification boundary:
+- Static source inspection only. No desktop interaction or runtime undo/redo was performed.
+
+
+[2026-11-10] SLD equipment-delete selection reconciliation: SelectionProjectionCoordinator now checks the removed Core identity against every selected ID, not only the first additive-selection entry. When any selected object is removed, the transient selection and inspector projection are cleared to prevent stale references after the SLD/Core projection is deleted. Added focused regression coverage for removal of a non-leading selected element. Static source change; GUI runtime remains unverified.
+
+
+[2026-11-10] SLD graphics deletion/undo recreation audit: traced ElementRemoved and SLDPresentationChanged through SLDUpdateCoordinator to the canonical CanvasPlugin.refresh_canvas path. Each refresh projects the complete active SLDDocument into an immutable snapshot; SLDCanvasRenderSystem removes stale realized IDs, unregisters snap candidates, unbinds route-edit callbacks, and removes graphics items. Undo/redo presentation events rebuild from the restored document; unchanged identities are incrementally reused, while a removed-then-restored identity is realized as one fresh item. Added a Qt-scene regression case covering delete, empty-scene reconciliation, same-node-identity recreation, duplicate prevention, and renderer disposal. Static source review only; GUI runtime remains unverified.
+
+
+[2026-11-10] Complete SLD project save/reopen lifecycle audit: traced ProjectWorkspaceApplicationAdapter.snapshot_presentation_collection to the Application ProjectLifecycleService save boundary. The snapshot captures every registered DocumentManager document in registry order plus active_document_id; the collection serializer calls each SLDDocument.to_dict(), and ProjectPersistenceService writes the complete canonical collection to project.json. Load migrates/validates every document, rejects duplicate document IDs and invalid active-document references, deserializes every SLDDocument, then the workspace adapter registers all documents, restores order, ensures each has its canonical SLD view, and activates the persisted active ID. Each document serialization includes its SLDModel nodes/connections, endpoint descriptors, route geometry, properties/orphan metadata, annotations, and stable document/project identities. ProjectPersistenceService cross-validates each document's SLD equipment associations against the restored Core Network (unresolved references remain governed by the existing orphan policy). CommandHistory is a separate in-memory pair of undo/redo stacks containing CommandRecords and callable UndoJournal operations; it is not part of the .gridforge package. Therefore save/reopen restores the committed model state, not pre-close undo/redo history. Undo/redo remains supported within the current application session; no claim is made that history survives process restart. No confirmed persistence defect was found in this static trace. Desktop save/close/reopen and multi-document GUI behavior remain unverified.
+
+
+[2026-11-10] Multi-document activation boundary correction: traced the SLD document-tab callback through ProjectWorkspaceApplicationAdapter.activate_document. The tab path already executes the coordinated transaction (document transition guard, lifecycle active-ID change, Application presentation binding, presentation bridge, and ProjectWorkspaceChanged publication); the post-commit subscriber clears prior document interaction state, updates engineering context, reconciles SLDController, refreshes tabs/canvas/inspector. CanvasComposition.clear_project_state cancels the active tool and route edit, clears selection and previews, and clears old graphics/snap registrations before the new document is presented. Found a bypass in the public SLDController.activate_document API: direct callers changed ProjectWorkspaceLifecycle and Application presentation without the adapter's dirty/interaction guard, bridge, or workspace publication. Added a one-time activation-handler binding and wired it in main.py to ProjectWorkspaceApplicationAdapter.activate_document. Controller activation now delegates through that canonical transaction when composed; isolated legacy controller compositions retain the explicit fallback. The handler is released on controller disposal. Static source inspection only; desktop tab-switch behavior and failure rollback remain runtime-unverified.
+
+[2026-11-10] Multi-document draft isolation and viewport-state containment:
+- Confirmed DraftNetwork is currently one Application/project-scoped mutable graph, while DraftSLDProjection projects that entire graph beside whichever SLD document is active. A superficial renderer filter would leave commit/undo/persistence ownership ambiguous.
+- Added a fail-closed document-transition guard: SLD tab/controller activation is rejected while the project DraftNetwork contains pending equipment or connections. The user must commit or discard that draft before switching documents. This prevents one document's pending electrical authoring graph from being presented or committed under another document's SLD.
+- This is an explicit safety containment, not a claim that independent per-document DraftNetwork registries or serialization have been implemented. Those require a coordinated persistence/command-handler schema migration.
+- Added session-local viewport transform snapshots keyed by persistent SLD document ID. Switching documents captures the outgoing transform and restores the incoming transform; first-time documents start from reset view. Project close/replacement and canvas disposal clear this cache.
+- Viewport state remains presentation-only and does not enter Core or electrical topology.
+- Static source inspection only. GUI switching, viewport restoration, and pending-draft rejection remain runtime-unverified; no tests/CI acceptance gate was run.

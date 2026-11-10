@@ -36,6 +36,7 @@ class WireTool(ToolBase):
         self._failure_reason = ""
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
+        self._preview_owner = f"wire-tool:{id(self)}"
 
     @property
     def tool_id(self) -> str:
@@ -96,12 +97,14 @@ class WireTool(ToolBase):
             )
             self._show_preview()
             return False
+        presentation_route = self._route_payload(self._start_position, position)
         try:
             result = self._execute_connection(
                 endpoint_pair[0],
                 endpoint_pair[1],
                 source_snap=self._start_snap,
                 target_snap=snap_result,
+                presentation_route=presentation_route,
             )
         except Exception as exc:
             # Preserve the original failure for the interaction/error boundary,
@@ -352,6 +355,30 @@ class WireTool(ToolBase):
                 return str(connection_id) if connection_id else "an existing draft connection"
         return None
 
+    @staticmethod
+    def _route_payload(
+        start: Tuple[float, float] | None,
+        end: Tuple[float, float],
+    ) -> dict[str, Any]:
+        """Build canonical orthogonal presentation metadata (bend points only)."""
+        if start is None:
+            raise ValueError("A source position is required to route a wire.")
+        sx, sy = float(start[0]), float(start[1])
+        ex, ey = float(end[0]), float(end[1])
+        bends = [] if sx == ex or sy == ey else [[ex, sy]]
+        return {"routing_mode": "orthogonal", "ownership": "auto", "points": bends}
+
+    def _preview_polyline(self) -> tuple[Tuple[float, float], ...]:
+        if self._start_position is None or self._current_position is None:
+            return ()
+        start = self._start_position
+        end = self._current_position
+        route = self._route_payload(start, end)
+        points = [start, *(tuple(point) for point in route["points"]), end]
+        # Keep both endpoint entries even when they coincide at wire start;
+        # PreviewLayer safely omits zero-length graphics segments.
+        return tuple(points)
+
     def _report_feedback(self, message: str) -> None:
         for name in ("show_status_message", "set_status_message", "notify_user"):
             callback = getattr(self.controller, name, None)
@@ -361,22 +388,26 @@ class WireTool(ToolBase):
 
     def _show_preview(self) -> None:
         layer = self._preview_layer
-        if layer is None or not callable(getattr(layer, "show_segment", None)):
+        if layer is None or self._start_position is None or self._current_position is None:
             return
-        if self._start_position is None or self._current_position is None:
-            return
-        layer.show_segment(self._start_position, self._current_position)
-        # PreviewLayer owns the transient graphics. Attach failure feedback to
-        # its current segment so the engineer can inspect the rejected route
-        # without making the preview item a domain or selection object.
+        points = self._preview_polyline()
+        show_polyline = getattr(layer, "show_polyline", None)
+        if callable(show_polyline):
+            show_polyline(self._preview_owner, points)
+            items_getter = getattr(layer, "items_for_owner", None)
+            items = tuple(items_getter(self._preview_owner)) if callable(items_getter) else ()
+        else:
+            show_segment = getattr(layer, "show_segment", None)
+            if not callable(show_segment):
+                return
+            show_segment(self._start_position, self._current_position)
+            items_getter = getattr(layer, "items", None)
+            items = tuple(items_getter()) if callable(items_getter) else ()
         reason = self._failure_reason or self._preview.validation_reason
-        items_getter = getattr(layer, "items", None)
-        if reason and callable(items_getter):
-            items = tuple(items_getter())
-            if items:
-                set_tooltip = getattr(items[-1], "setToolTip", None)
-                if callable(set_tooltip):
-                    set_tooltip(reason)
+        if reason and items:
+            set_tooltip = getattr(items[-1], "setToolTip", None)
+            if callable(set_tooltip):
+                set_tooltip(reason)
 
     @staticmethod
     def _position_tuple(position: Any) -> Tuple[float, float]:
@@ -399,13 +430,17 @@ class WireTool(ToolBase):
 
     def _clear_state(self) -> None:
         if self._preview_layer is not None:
-            clear_preview = getattr(self._preview_layer, "clear_preview", None)
-            if callable(clear_preview):
-                clear_preview()
+            clear_owner = getattr(self._preview_layer, "clear_owner", None)
+            if callable(clear_owner):
+                clear_owner(self._preview_owner)
             else:
-                clear = getattr(self._preview_layer, "clear", None)
-                if callable(clear):
-                    clear()
+                clear_preview = getattr(self._preview_layer, "clear_preview", None)
+                if callable(clear_preview):
+                    clear_preview()
+                else:
+                    clear = getattr(self._preview_layer, "clear", None)
+                    if callable(clear):
+                        clear()
         self._start_position = None
         self._failure_reason = ""
         self._start_snap = None

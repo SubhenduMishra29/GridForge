@@ -17,6 +17,7 @@ SET_SLD_NODE_POSITIONS = "sld.set_node_positions"
 SET_SLD_NODE_TRANSFORMS = "sld.set_node_transforms"
 ADD_SLD_NODE = "sld.add_node"
 REMOVE_SLD_NODE = "sld.remove_node"
+DELETE_SLD_SELECTION = "sld.delete_selection"
 SET_SLD_NODE_PRESENTATION = "sld.set_node_presentation"
 ADD_SLD_CONNECTION = "sld.add_connection"
 REMOVE_SLD_CONNECTION = "sld.remove_connection"
@@ -186,6 +187,36 @@ class RemoveSLDNodeCommand(Command):
         )
 
 
+class DeleteSLDSelectionCommand(Command):
+    """Delete one typed SLD selection as a single undoable presentation command."""
+
+    def __init__(
+        self,
+        *,
+        node_ids: tuple[str, ...] | list[str] = (),
+        connection_ids: tuple[str, ...] | list[str] = (),
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        nodes = tuple(node_ids)
+        connections = tuple(connection_ids)
+        if bool(nodes) == bool(connections):
+            raise ValueError("Provide a non-empty node_ids or connection_ids selection, but not both.")
+        for label, values in (("node_ids", nodes), ("connection_ids", connections)):
+            if any(not isinstance(value, str) or not value.strip() for value in values):
+                raise ValueError(f"{label} must contain only non-empty strings.")
+            if len(set(values)) != len(values):
+                raise ValueError(f"{label} must not contain duplicate identities.")
+        super().__init__(
+            command_type=DELETE_SLD_SELECTION,
+            payload={"node_ids": nodes, "connection_ids": connections},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 class AddSLDConnectionCommand(Command):
     """Create one persistent SLD connection with explicit ownership contract."""
 
@@ -277,7 +308,7 @@ class RemoveSLDConnectionCommand(Command):
 
 __all__ = [
     "SET_SLD_NODE_POSITION", "SET_SLD_NODE_POSITIONS", "SET_SLD_NODE_TRANSFORMS", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
-    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS",
+    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS", "DELETE_SLD_SELECTION",
     "SetSLDNodePositionCommand", "SetSLDNodePositionsCommand", "SetSLDNodeTransformsCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
-    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand",
+    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand", "DeleteSLDSelectionCommand",
 ]

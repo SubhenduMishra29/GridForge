@@ -43,6 +43,7 @@ class SLDService:
         "sld.set_node_presentation",
         "sld.add_node",
         "sld.remove_node",
+        "sld.delete_selection",
         "sld.add_connection",
         "sld.remove_connection",
         "sld.set_connection_route",
@@ -579,6 +580,7 @@ class SLDService:
                 cmd, tx, authoritative_value=authoritative_value
             ),
             "sld.remove_node": self._remove_node,
+            "sld.delete_selection": self._remove_selection,
             "sld.add_connection": self._add_connection,
             "sld.remove_connection": lambda cmd, tx: self._remove_connection(cmd, tx, context=context),
             "sld.set_connection_route": self._set_connection_route,
@@ -1926,14 +1928,22 @@ class SLDService:
 
         source_node_id = str(source_endpoint.get("node_id", ""))
         target_node_id = str(target_endpoint.get("node_id", ""))
+        expected_source = properties.get("orphaned_source_endpoint")
+        expected_target = properties.get("orphaned_target_endpoint")
+        actual_source = dict(source_endpoint)
+        actual_target = dict(target_endpoint)
         if (
             not source_node_id
             or not target_node_id
             or str(connection.source_node_id) != source_node_id
             or str(connection.target_node_id) != target_node_id
+            or not isinstance(expected_source, Mapping)
+            or not isinstance(expected_target, Mapping)
+            or dict(expected_source) != actual_source
+            or dict(expected_target) != actual_target
         ):
             raise ValueError(
-                "Cannot rebind orphaned Simple Wire presentation: endpoint node identity changed."
+                "Cannot rebind orphaned Simple Wire presentation: full endpoint identity changed or is unavailable."
             )
 
         snapshot = connection.to_dict()
@@ -1957,6 +1967,8 @@ class SLDService:
         connection.source_endpoint = SLDEndpoint.from_dict(dict(source_endpoint))
         connection.target_endpoint = SLDEndpoint.from_dict(dict(target_endpoint))
         properties.pop("orphaned_from_core_connection_id", None)
+        properties.pop("orphaned_source_endpoint", None)
+        properties.pop("orphaned_target_endpoint", None)
         properties["core_connection_id"] = core_id
         properties["connection_kind"] = "SIMPLE_WIRE"
         properties["lifecycle_state"] = "BOUND"
@@ -2042,6 +2054,12 @@ class SLDService:
         # The authored connection remains in the document, so undo must restore
         # it in place rather than attempting to create a duplicate identity.
         transaction.record_undo(restore_orphaned_connection)
+        if connection.source_endpoint is None or connection.target_endpoint is None:
+            raise ValueError(
+                "Cannot orphan an authored Simple Wire presentation without both endpoint identities."
+            )
+        connection.properties["orphaned_source_endpoint"] = connection.source_endpoint.to_dict()
+        connection.properties["orphaned_target_endpoint"] = connection.target_endpoint.to_dict()
         connection.source_endpoint = None
         connection.target_endpoint = None
         connection.properties.pop("projection_source", None)
@@ -2078,10 +2096,86 @@ class SLDService:
         )
         self.document.mark_modified()
 
+    def _remove_selection(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        """Remove a typed SLD selection atomically inside the caller transaction."""
+        node_ids = tuple(command.payload.get("node_ids", ()))
+        connection_ids = tuple(command.payload.get("connection_ids", ()))
+        if bool(node_ids) == bool(connection_ids):
+            raise ValueError("SLD deletion requires exactly one non-empty selection domain.")
+
+        if node_ids:
+            nodes = tuple(self.document.model.get_node(node_id) for node_id in node_ids)
+            for node in nodes:
+                self._require_engineer_owned_node(node)
+                attached = tuple(
+                    connection for connection in self.document.model.connections
+                    if connection.source_node_id == node.node_id
+                    or connection.target_node_id == node.node_id
+                )
+                for connection in attached:
+                    if (
+                        connection.properties.get("core_connection_id")
+                        or connection.properties.get("projection_source") is not None
+                        or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+                        or connection.properties.get("orphaned_from_core_connection_id")
+                    ):
+                        raise ValueError(
+                            f"SLD node {node.node_id!r} has a Core-backed or projection-owned "
+                            f"connection {connection.connection_id!r}; delete that relationship "
+                            "through its owning Application command before deleting the node."
+                        )
+            for node_id in node_ids:
+                self._remove_node(
+                    Command(command_type="sld.remove_node", payload={"node_id": node_id, "projection_source": None}),
+                    transaction,
+                )
+            return ApplicationResult.success_result(
+                message="Selected SLD nodes removed atomically.",
+                metadata={"presentation_operation": "delete_selection", "node_ids": node_ids},
+            )
+
+        connections = tuple(self.document.model.get_connection(connection_id) for connection_id in connection_ids)
+        for connection in connections:
+            if (
+                connection.properties.get("core_connection_id")
+                or connection.properties.get("projection_source") is not None
+                or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+            ):
+                raise ValueError(
+                    f"SLD connection {connection.connection_id!r} is Core-backed or projection-owned; "
+                    "delete it through its owning Application command."
+                )
+            self._require_engineer_owned_connection(connection)
+        for connection_id in connection_ids:
+            self._remove_connection(
+                Command(command_type="sld.remove_connection", payload={"connection_id": connection_id}),
+                transaction,
+            )
+        return ApplicationResult.success_result(
+            message="Selected SLD connections removed atomically.",
+            metadata={"presentation_operation": "delete_selection", "connection_ids": connection_ids},
+        )
+
     def _remove_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         node_id = command.payload["node_id"]
         node = self.document.model.get_node(node_id)
         projection_source = command.payload.get("projection_source")
+        if projection_source is None:
+            attached_connections = tuple(
+                connection for connection in self.document.model.connections
+                if connection.source_node_id == node_id or connection.target_node_id == node_id
+            )
+            for connection in attached_connections:
+                if (
+                    connection.properties.get("core_connection_id")
+                    or connection.properties.get("projection_source") is not None
+                    or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+                    or connection.properties.get("orphaned_from_core_connection_id")
+                ):
+                    raise ValueError(
+                        f"SLD node {node_id!r} cannot be removed while Core-backed or "
+                        f"projection-owned connection {connection.connection_id!r} is attached."
+                    )
         if projection_source is None:
             self._require_engineer_owned_node(node)
         else:

@@ -419,7 +419,25 @@ def _build_application_impl(
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
-    project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
+    def _guard_document_switch_with_pending_draft():
+        # DraftNetwork is currently project-scoped. Until its persisted ownership
+        # is partitioned by SLD document, fail closed rather than displaying or
+        # committing one document's pending authoring graph in another document.
+        draft = gridforge_application.draft_network
+        if draft is not None and (draft.equipment or draft.connections):
+            raise RuntimeError(
+                "Cannot switch SLD documents while DraftNetwork contains pending "
+                "equipment or connections. Commit or discard the draft first; "
+                "document-scoped DraftNetwork persistence is not yet available."
+            )
+        controller.set_tool("select", cancel_active_creation=True)
+
+    project_workspace_adapter.configure_document_transition_guard(
+        _guard_document_switch_with_pending_draft
+    )
+    # All SLDController document activation requests must pass through the same
+    # workspace transaction used by the document tabs and lifecycle guards.
+    sld_controller.bind_document_activation_handler(project_workspace_adapter.activate_document)
 
     def _reset_interaction_for_project_transition():
         # Project replacement discards transient placement state; unlike a

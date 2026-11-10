@@ -58,6 +58,7 @@ class CreateSimpleWireConnectionCommand(ReversibleCommand):
             connection_id=self.connection_id,
             endpoint_a=self.payload["endpoint_a"],
             endpoint_b=self.payload["endpoint_b"],
+            presentation_route=self.payload.get("presentation_route"),
             correlation_id=self.correlation_id,
             causation_id=self.command_id,
         )
@@ -72,6 +73,7 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
         connection_id: str,
         endpoint_a: EndpointReference | TopologyEndpointReference | None = None,
         endpoint_b: EndpointReference | TopologyEndpointReference | None = None,
+        presentation_route: dict | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
@@ -88,6 +90,7 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
                 "connection_id": connection_id.strip(),
                 "endpoint_a": endpoint_a,
                 "endpoint_b": endpoint_b,
+                "presentation_route": None if presentation_route is None else dict(presentation_route),
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
@@ -109,6 +112,7 @@ class RemoveSimpleWireConnectionCommand(ReversibleCommand):
             connection_id=self.connection_id,
             endpoint_a=endpoint_a,
             endpoint_b=endpoint_b,
+            presentation_route=self.payload.get("presentation_route"),
             correlation_id=self.correlation_id,
             causation_id=self.command_id,
         )

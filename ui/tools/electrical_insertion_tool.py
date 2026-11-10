@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from typing import Any, Mapping
+from uuid import uuid4
 
 from core.application.commands.insertion_commands import InsertEquipmentIntoConnectionCommand
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
@@ -44,6 +45,7 @@ class ElectricalInsertionTool(ToolBase):
         self._orientation = 0.0
         self._target: dict[str, Any] | None = None
         self._target_item: Any | None = None
+        self._preview_owner = f"electrical-insertion:{uuid4().hex}"
 
     @property
     def tool_id(self) -> str:
@@ -99,8 +101,12 @@ class ElectricalInsertionTool(ToolBase):
         self._ensure_active()
         if self._equipment_type is None:
             return False
-        target = self._resolve_target(event) or self._target
+        # A previous hover target is visual guidance only. The release
+        # position must independently resolve to one current, unambiguous
+        # connection; stale hover state must never authorize topology mutation.
+        target = self._resolve_target(event)
         if target is None:
+            self._clear_target()
             return False
         anchors = self._terminal_anchors()
         required_roles = INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
@@ -252,9 +258,11 @@ class ElectricalInsertionTool(ToolBase):
     def _show_preview(self, target: dict[str, Any]) -> None:
         if self._preview_layer is None or self._equipment_type is None:
             return
-        clear = getattr(self._preview_layer, "clear", None)
-        if callable(clear):
-            clear()
+        # Replace only this insertion interaction's preview; other tools
+        # may own independent transient graphics in the same layer.
+        clear_owner = getattr(self._preview_layer, "clear_owner", None)
+        if callable(clear_owner):
+            clear_owner(self._preview_owner)
         position = tuple(target["closest_point"])
         anchors = self._terminal_anchors()
         mapping = INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
@@ -282,9 +290,13 @@ class ElectricalInsertionTool(ToolBase):
                 terminal_names=mapping,
                 element_type=self._equipment_type,
             ))
-        add_items = getattr(self._preview_layer, "add_items", None)
-        if callable(add_items):
-            add_items(items)
+        add_owned = getattr(self._preview_layer, "add_items_for_owner", None)
+        if callable(add_owned):
+            add_owned(self._preview_owner, items)
+        else:
+            add_items = getattr(self._preview_layer, "add_items", None)
+            if callable(add_items):
+                add_items(items)
 
     def _terminal_anchors(self) -> dict[str, tuple[float, float]]:
         definition = self._symbol_definition()
@@ -325,9 +337,13 @@ class ElectricalInsertionTool(ToolBase):
             if callable(setter):
                 setter("normal")
         if self._preview_layer is not None:
-            clear = getattr(self._preview_layer, "clear", None)
-            if callable(clear):
-                clear()
+            clear_owner = getattr(self._preview_layer, "clear_owner", None)
+            if callable(clear_owner):
+                clear_owner(self._preview_owner)
+            else:
+                clear = getattr(self._preview_layer, "clear", None)
+                if callable(clear):
+                    clear()
 
     def _clear_target(self) -> None:
         self._clear_target_visual()

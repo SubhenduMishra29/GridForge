@@ -162,7 +162,17 @@ class SelectionProjectionCoordinator:
             return
 
         object_id = selected_ids[0]
-        if isinstance(event, (ElementRemoved, SimpleWireConnectionRemoved)) and self._selected_event_id(event) == object_id:
+        removed_id = self._selected_event_id(event) if isinstance(
+            event, (ElementRemoved, SimpleWireConnectionRemoved)
+        ) else None
+        if removed_id is not None and any(
+            str(selected_id) == str(removed_id) for selected_id in selected_ids
+        ):
+            # Additive selection may contain several objects. Reconcile against
+            # the complete selection, not only its first entry, or a deleted
+            # Core identity can remain selected after its SLD projection is
+            # removed. SelectionManager is intentionally transient; clearing
+            # the selection is safer than retaining a stale mixed selection.
             self.selection_manager.clear()
             self.clear_projection()
             return

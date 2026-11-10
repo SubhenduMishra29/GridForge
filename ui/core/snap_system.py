@@ -773,6 +773,10 @@ class SnapSystem:
             return None
 
         best: Optional[tuple[float, int, SnapResult]] = None
+        # Equal-distance candidates with different electrical endpoint
+        # identities are ambiguous. Never let discovery order silently pick
+        # a terminal/Bus attachment at a geometric midpoint.
+        ambiguous_best = False
         candidate_order = 0
 
         # The renderer-owned registry is the sole electrical snap discovery
@@ -819,23 +823,26 @@ class SnapSystem:
                         candidate_order,
                     )
 
-                    if (
-                        best is None
-                        or candidate_key
-                        < (
-                            best[0],
-                            best[1],
+                    if best is None or distance < best[0] - 1e-9:
+                        best = (distance, candidate_order, result)
+                        ambiguous_best = False
+                    elif abs(distance - best[0]) <= 1e-9:
+                        previous = best[2]
+                        same_endpoint = (
+                            str(previous.object_id) == str(result.object_id)
+                            and str(previous.terminal_id) == str(result.terminal_id)
+                            and str(previous.terminal_name) == str(result.terminal_name)
+                            and str(previous.bus_id) == str(result.bus_id)
+                            and str(previous.attachment_id) == str(result.attachment_id)
+                            and str(previous.draft_id) == str(result.draft_id)
+                            and str(previous.draft_terminal_role) == str(result.draft_terminal_role)
                         )
-                    ):
-                        best = (
-                            distance,
-                            candidate_order,
-                            result,
-                        )
+                        if not same_endpoint:
+                            ambiguous_best = True
 
                 candidate_order += 1
 
-        if best is None:
+        if best is None or ambiguous_best:
             return None
 
         return best[2]
