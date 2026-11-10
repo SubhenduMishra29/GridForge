@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ui.core.qt import QGraphicsItem, QPointF, Qt
-from ui.canvas.canvas_hit import CanvasHitTarget
+from ui.canvas.canvas_hit import CanvasHitKind, CanvasHitTarget
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +151,7 @@ class MouseEventAdapter:
             if current is None:
                 continue
             hit = self._presentation_hit_for_item(current, (x, y))
-            if hit.kind == hit.kind.SIMPLE_WIRE_SEGMENT:
+            if hit.kind == CanvasHitKind.SIMPLE_WIRE_SEGMENT:
                 wire_hits.append(hit)
                 continue
             # A selectable node or non-wire connection remains higher
