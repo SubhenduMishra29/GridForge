@@ -136,3 +136,12 @@ Date: 2026-11-10
 - This aligns bend movement with insert_bend and the canonical SLDRoute finite-coordinate invariant, keeping invalid interaction payloads out of the controller/Application boundary.
 - Route-edit audit confirmed persistent edits carry both presentation connection ID and Core connection ID; SLDController checks the binding against the active document before issuing the presentation-only route command. Draft edits use the active DraftNetwork command boundary.
 - Desktop drag/undo/save-reopen verification remains outstanding.
+
+
+GridForge V2 — Full endpoint identity guard for orphaned Simple Wire rebind
+Date: 2026-11-10
+- Core deletion that retains an engineer-authored Simple Wire SLD presentation now snapshots both complete SLD endpoint descriptors into orphan metadata before clearing the active endpoint bindings.
+- Undo/recreate rebind now requires exact source and target endpoint descriptor equality, including equipment terminal role or Bus attachment identity, in addition to the existing presentation ID and node identity checks.
+- Missing or changed endpoint snapshots fail closed; successful rebind clears the orphan metadata and restores the canonical Core binding while preserving the authored route and presentation properties.
+- The existing transaction inverse restores the complete pre-orphan connection snapshot, including route, endpoint descriptors, and properties.
+- Static source inspection only; desktop deletion/undo/redo and persistence verification remain outstanding.
