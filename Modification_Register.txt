@@ -808,3 +808,45 @@ Required correction sequence:
 
 No production code changed in this audit slice. Issue #823 remains open.
 The findings and implementation sequence were added to the issue thread.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-002 — SYMBOL FAMILY / STANDARD METADATA FOUNDATION
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Issue: #823
+
+Corrections:
+- SymbolDefinition now carries stable symbol_family_id, standard_id and
+  variant_id metadata. Legacy definitions default to their own symbol ID
+  as family, "unspecified" standard, and "default" variant.
+- SymbolDefinition serialization/deserialization preserves the metadata
+  and remains backward-compatible with older definition dictionaries.
+- SymbolRegistry rejects duplicate family/standard/variant tuples and
+  provides deterministic variants_for_family() and exact get_variant()
+  lookup without replacing symbol_id as the definition key.
+- SymbolBase stores and serializes family/standard/variant identity with
+  legacy-compatible defaults.
+- SymbolFactory copies the registered definition metadata into each
+  logical SymbolBase instance.
+- EquipmentRegistry.validate_symbol_family_variants() reconciles every
+  registered family member against each equipment's existing creation
+  and terminal-anchor contract. It does not create or own Core terminals.
+
+Architecture:
+- All additions remain renderer-neutral UI catalogue/presentation metadata.
+- Equipment IDs, Core terminal IDs, topology, and connectivity are unchanged.
+- No ANSI/IEC variants were fabricated or registered in this slice.
+
+Remaining:
+- SemanticPresentationRealization still enforces the equipment's single
+  default symbol identity. Variant activation/rebinding is not yet enabled.
+- The SLD presentation persistence DTO and renderer realization path must
+  carry and validate selected variant identity end-to-end before a GUI
+  selector is exposed.
+- Issue #823 remains open.
+
+Verification boundary:
+- Source changes committed and fetched back from main.
+- No syntax/import execution, tests/CI, or desktop GUI verification run.
