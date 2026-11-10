@@ -393,8 +393,13 @@ class GraphicsView(QGraphicsView):
             self._palette_drag_preview_started = True
         if insertion_requested and not self._palette_drag_insertion_started:
             if not self._begin_palette_insertion(event):
-                # Keep the drag session alive while the engineer moves away
-                # from an ambiguous crossing or onto a valid canonical wire.
+                # Keep the ordinary placement preview tracking the cursor
+                # while Shift+insertion has no uniquely valid Core wire target.
+                # The failed insertion intent must not leave a stale preview
+                # at the previous drag position.
+                self.interaction_manager.mouse_move(
+                    self._palette_event_without_hit(event)
+                )
                 event.acceptProposedAction()
                 return
             self._palette_drag_insertion_started = True
