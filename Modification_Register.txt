@@ -284,3 +284,7 @@ Verification boundary:
 - The in-flight flag is set under the commit-state lock before releasing the execution lock, preserving the established execution-lock → commit-state-lock order used by command execution and project save.
 - The worker retains its existing project/generation/revision/document/draft identity and canonical payload revalidation before Core mutation; stale snapshots still fail closed.
 - This removes the check/snapshot-to-in-flight window in which a concurrent Application command could mutate the live draft while the asynchronous commit payload was being serialized. Concurrency runtime trace and GUI multi-terminal stress remain unverified.
+[2026-11-10] Unconditional grid alignment for selection/group movement (root issue #808 follow-up):
+- Replaced tolerance-based SnapSystem.snap() calls for normal selection drag and group-grab translation with SnapSystem.snap_grid_point().
+- The translation vector is now aligned to the grid independently of cursor proximity/tolerance; the pointer's arbitrary grab offset cannot cause a no-snap fallback and leave fractional deltas.
+- Clipboard paste already uses the same translation-specific snap_grid_point() path in current root main. Both movement and paste now share the same unconditional grid-alignment semantics when grid snapping is enabled.
