@@ -1321,7 +1321,11 @@ def _build_application_impl(
                 # until the complete next snapshot can reconcile it incrementally.
                 # Crossing project boundaries still clears all project-owned
                 # graphics before the new project's presentation is surfaced.
-                if current_context.project_id == getattr(project, "project_id", None):
+                next_project_id = getattr(project, "project_id", None)
+                if (
+                    current_context.project_id is not None
+                    and current_context.project_id == next_project_id
+                ):
                     canvas_composition.clear_document_interaction_state()
                 else:
                     canvas_composition.clear_project_state()
