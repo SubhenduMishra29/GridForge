@@ -46,6 +46,7 @@ from core.solver.power_flow.result import PowerFlowResult
 from core.solver.short_circuit.fault_types import FaultType
 
 from .application import Application
+from .command import Command
 from .protection_execution_audit import ProtectionExecutionAuditStore
 from .control_dispatch import ControlTripBatchCommand
 from .commands.selection_commands import DELETE_SELECTION_BATCH
@@ -245,7 +246,7 @@ def create_application(
             identities: set[tuple[str, str]] = set()
             draft_commands = {"draft.remove_equipment", "draft.remove_connection"}
             for child in children:
-                if not hasattr(child, "command_type") or child.command_type not in identity_fields:
+                if not isinstance(child, Command) or child.command_type not in identity_fields:
                     raise ValueError("Selection delete batch contains an unsupported semantic delete command.")
                 field = identity_fields[child.command_type]
                 identity = str(child.payload.get(field, "")).strip()
