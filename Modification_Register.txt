@@ -230,3 +230,11 @@ Verification boundary:
 - Added CanvasComposition.clear_document_interaction_state(), which cancels active tools/route editing and clears selection/preview state without clearing the SLD renderer or snap registrations.
 - Guarded the retention path so it applies only when a non-null active project identity matches the next project identity; missing/different project identity remains fail-closed and clears project graphics.
 - Root integration PR: #1159. Source origin: implementation repository PR #198. GUI document-switch behavior remains runtime-unverified; no CI/test gate was requested or run.
+
+
+[2026-11-10] Preserve later-configuration dispositions in SLD drafts (reconciled from madhuri196mishra-cpu/GridForge#197):
+- Persist canonical command-field dispositions on DraftEquipment, validate and normalize their kind/reason/workflow contract, and preserve them through serialization, restoration, and equipment updates.
+- Carry Application-owned CreationContractRegistry dispositions into new DraftEquipment instances; the UI does not invent or modify the trusted disposition metadata.
+- Mark draft projections with a distinct configuration_review_required status when a field is deferred to a later configuration workflow; this does not make every deferred field a placement-time requirement.
+- Remove fabricated default fuse ratings from CreateFuseCommand and SwitchingModelService.create_fuse. Unspecified current, voltage, and interrupting ratings remain unknown (None), consistent with the Core Fuse model's optional-positive rating contract.
+- Root integration PR is prepared from implementation PR #197. GUI/property-panel workflow and persisted-draft round trips remain to be confirmed in an interactive session; no CI/test acceptance gate was requested or run.
