@@ -4,5 +4,6 @@
 # Author: Subhendu Mishra
 # ============================================================
 from .network import DraftConnection, DraftEndpointReference, DraftEquipment, DraftNetwork
+from .collection import DraftNetworkCollection
 from .handlers import CommitNetworkHandler, DraftCommandHandlers
-__all__=["DraftEndpointReference","DraftConnection","DraftEquipment","DraftNetwork","CommitNetworkHandler","DraftCommandHandlers"]
+__all__=["DraftEndpointReference","DraftConnection","DraftEquipment","DraftNetwork","DraftNetworkCollection","CommitNetworkHandler","DraftCommandHandlers"]
