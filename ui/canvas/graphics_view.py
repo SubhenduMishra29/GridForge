@@ -192,31 +192,44 @@ class GraphicsView(QGraphicsView):
         if model is None or selection_manager is None:
             return None, None
 
-        selected_ids = tuple(selection_manager.get_selected_ids())
+        # The SelectTool stores node selection in the typed NODE domain.
+        # Do not let a connection selection with a coincident identifier
+        # accidentally resolve as an equipment symbol.
+        node_domain = getattr(selection_manager, "NODE", "node")
+        selected_ids = tuple(selection_manager.get_selected_ids(domain=node_domain))
         if len(selected_ids) != 1:
             return None, None
         selected_id = str(selected_ids[0])
 
-        # SLD selection IDs may identify either the node or its bound equipment.
+        # CanvasHitTarget.NODE may expose the stable presentation item ID
+        # ("presentation:<node-id>"), while the SLD model is keyed by node ID.
+        # Resolve the same identity variants accepted by SelectTool's group
+        # transform path before falling back to the bound equipment identity.
         node = None
-        getter = getattr(model, "get_node_by_equipment_id_optional", None)
-        if callable(getter):
-            node = getter(selected_id)
+        getter = getattr(model, "get_node_optional", None)
+        if selected_id.startswith("presentation:") and callable(getter):
+            node = getter(selected_id[len("presentation:"):])
         if node is None:
-            getter = getattr(model, "get_node_optional", None)
-            if callable(getter):
-                node = getter(selected_id)
+            equipment_getter = getattr(model, "get_node_by_equipment_id_optional", None)
+            if callable(equipment_getter):
+                node = equipment_getter(selected_id)
+        if node is None and callable(getter):
+            node = getter(selected_id)
         if node is None:
             return None, None
 
         item = selection_manager.get_item_for_id(selected_ids[0], scene=self._scene)
         if item is None or getattr(item, "symbol_instance", None) is None:
+            accepted_item_ids = {
+                selected_id,
+                str(getattr(node, "node_id", "")),
+                str(getattr(node, "equipment_id", "")),
+                f"presentation:{getattr(node, 'node_id', '')}",
+            }
             item = next(
                 (
                     candidate for candidate in self._scene.items()
-                    if str(getattr(candidate, "object_id", "")) in {
-                        selected_id, str(getattr(node, "node_id", ""))
-                    }
+                    if str(getattr(candidate, "object_id", "")) in accepted_item_ids
                     and getattr(candidate, "symbol_instance", None) is not None
                 ),
                 None,
