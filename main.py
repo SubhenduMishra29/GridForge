@@ -1241,7 +1241,7 @@ def _build_application_impl(
         "edit.box_select": _activate_select_for_editing,
         "edit.move": _activate_select_for_editing,
         "edit.drag_move": _activate_select_for_editing,
-        "edit.rotate": lambda: _transform_selected_symbols(rotation_delta=90.0),
+        "edit.rotate": lambda: canvas_composition.view._apply_contextual_symbol_action("rotate_cw"),
         "edit.mirror_horizontal": lambda: _transform_selected_symbols(mirror="horizontal"),
         "edit.mirror_vertical": lambda: _transform_selected_symbols(mirror="vertical"),
         "network.commit_draft": _commit_network,
@@ -1458,7 +1458,7 @@ def _build_application_impl(
                 and _selection_supports("copy") and _selection_supports("delete")
             )
         if action_id in {"edit.rotate", "edit.mirror_horizontal", "edit.mirror_vertical"}:
-            return project_active and discipline == "sld" and selected
+            return project_active and discipline == "sld" and bool(_selected_sld_nodes())
         if action_id in {"paste", "edit.paste"}:
             return project_active and bool(sld_clipboard) and discipline == "sld"
         if action_id in {"edit.box_select", "edit.move", "edit.drag_move"}:
