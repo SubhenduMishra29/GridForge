@@ -152,7 +152,18 @@ class ReadOnlySLDViewport(QWidget):
                 details.append(f"{code}: {connection_id}".rstrip())
             else:
                 details.append(str(item))
+        if any(
+            getattr(item, "get", lambda *_: None)("code") == "BACKGROUND_RECONCILIATION_FAILED"
+            for item in items
+        ):
+            self._reconciliation_status.setText("Topology audit failed")
         self._reconciliation_status.setToolTip("\n".join(details))
+
+    def set_reconciliation_error(self, error: Exception | None) -> None:
+        if error is None:
+            return
+        self._reconciliation_status.setText("Topology audit unavailable")
+        self._reconciliation_status.setToolTip(str(error))
 
     def set_reconciliation_diagnostics_provider(
         self,
