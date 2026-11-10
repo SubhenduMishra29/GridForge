@@ -389,7 +389,7 @@ SLD_NODE_FIELDS = frozenset({"node_id", "equipment_id", "x", "y", "presentation"
 SLD_CONNECTION_FIELDS = frozenset({"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"})
 SLD_ENDPOINT_FIELDS = frozenset({"kind", "node_id", "equipment_id", "terminal_role", "bus_id", "attachment_id"})
 SLD_ROUTE_FIELDS = frozenset({"routing_mode", "ownership", "points"})
-SLD_SYMBOL_FIELDS = frozenset({"symbol_id", "definition_id", "representation_id", "scale", "rotation", "visible", "properties"})
+SLD_SYMBOL_FIELDS = frozenset({"symbol_id", "definition_id", "symbol_family_id", "standard_id", "variant_id", "representation_id", "scale", "rotation", "visible", "properties"})
 SLD_ENDPOINT_KINDS = frozenset({"equipment", "bus"})
 SLD_ROUTING_MODES = frozenset({"direct", "orthogonal", "manual"})
 SLD_ROUTE_OWNERSHIP = frozenset({"auto", "engineer"})
@@ -465,6 +465,11 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
                     raise SLDMigrationError("Missing symbol presentation field " + field + " in " + context + ".")
             _sld_string(presentation["symbol_id"], "symbol_id", context)
             _sld_string(presentation["definition_id"], "definition_id", context)
+            # Variant identity fields are additive and optional for legacy
+            # schema-3 payloads. SymbolBase supplies stable legacy defaults.
+            for field in ("symbol_family_id", "standard_id", "variant_id"):
+                if field in presentation:
+                    _sld_string(presentation[field], field, context)
             _sld_string(presentation["representation_id"], "representation_id", context)
             _sld_number(presentation["scale"], "scale", context)
             if float(presentation["scale"]) <= 0:
