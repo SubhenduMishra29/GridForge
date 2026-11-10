@@ -527,3 +527,17 @@ Correction:
 
 Verification boundary:
 - Source inspection and fetch-back only. No Qt startup, drag/drop interaction, palette resizing, narrow-dock rendering, tool activation, tests, or CI were run. This does not address the separate canvas drop-target/snap-corridor behavior tracked by issue #822.
+
+
+GF-UI-PALETTE-DRAG-PREVIEW-002 — KEEP PREVIEW LIVE DURING INVALID INSERTION INTENT
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- When Shift+drop is requested but the current pointer does not resolve to a unique eligible canonical Core Simple Wire segment, dragMoveEvent now continues updating the ordinary position-first equipment preview at the current cursor position.
+- This removes stale preview positioning while the engineer moves across invalid, ambiguous, draft-only, or non-wire targets before reaching a valid insertion target.
+- The invalid insertion request remains non-committal; no topology is inferred and the drag session remains available for recovery.
+- Preserved the explicit Shift+drop insertion boundary, InteractionManager dispatch, ToolManager ownership, and canonical Core connection identity checks.
+
+Verification boundary:
+- Source inspection and fetch-back only. No Qt runtime, GUI drag, modifier transitions, insertion, cancellation, tests, or CI were executed.
