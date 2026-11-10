@@ -268,3 +268,8 @@ Verification boundary:
 - Added document_id to committed SLDPresentationChanged event metadata and allowed SLDReadSynchronizer.reconcile_simple_wires/synchronize_network to receive the exact presentation being reconciled.
 - Group transform command/service/tool work from the source PR was not copied because the corresponding implementation is already present in authoritative root main; only verified missing viewport/event-scope work is included here.
 - GUI comparison, promotion, resize, and persisted viewport restoration remain runtime-unverified; no CI/test acceptance gate was requested or run.
+[2026-11-10] Grid-aligned SLD movement translation vectors (root PR #1164; implementation-fork branch fix/sld-grid-aligned-translation-delta):
+- Changed normal selection-drag and group-grab snapping to snap the translation vector (pointer end minus pointer start), not the absolute pointer endpoint.
+- Apply axis constraints before snapping the vector so X/Y-constrained group movement remains constrained.
+- This preserves each selected node's relative geometry and prevents arbitrary pointer grab offsets from producing fractional, off-grid translations.
+- Merged into root main as c0e1d0ddbe8c1e0f007400008fb3f4cac70fe468. Interactive canvas verification remains outstanding; no CI/test acceptance gate was requested or run.
