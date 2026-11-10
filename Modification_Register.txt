@@ -652,3 +652,32 @@ Verification boundary:
   necessary to confirm selection toolbar visibility, R placement preview
   rotation, Q/E selected-symbol rotation, menu rotation, and terminal-anchor
   alignment after rotation.
+
+======================================================================
+GF-UI-MULTISLD-TOOL-HOOK-001 — TRIAGE OF ISSUE #769
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Disposition:
+- Closed root issue #769 as not planned after source audit. The reported
+  per-document canvas-scene mouse-listener architecture does not exist in
+  the current SLD workspace.
+- SLD tabs activate different SLDDocument projections through one canonical
+  CanvasComposition, GraphicsView, GridScene, and InteractionManager.
+  InteractionManager routes events from that shared view to the canonical
+  ToolManager; it does not bind listeners to each document scene.
+- On a committed in-project document switch, the workspace subscriber calls
+  CanvasComposition.clear_document_interaction_state(), which cancels the
+  active ToolManager interaction/tool, route-edit state, selection, and
+  previews before reconciling the newly active document.
+- The coordinated document activation and cleanup path is integrated by
+  PR #1156, merge commit
+  ef1705a79578726880f06decbe0053d757f5b8f4.
+- A second per-document listener lifecycle would duplicate the existing
+  shared-canvas ownership model.
+
+Verification boundary:
+- Static source audit and GitHub issue closure only. No GUI reproduction
+  session was run; closure addresses the specific mechanism described in
+  #769, not a blanket claim that all multi-document GUI behavior is proven.
