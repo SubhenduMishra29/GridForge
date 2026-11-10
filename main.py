@@ -22,11 +22,12 @@ from plugins.motor_dynamics.plugin import MotorDynamicsPlugin
 from plugins.motor_dynamics.dashboard import MotorTelemetryDashboardWidget
 from core.network.network import Network
 
-from ui.canvas.canvas_composition import CanvasComposer
+from ui.canvas.canvas_composition import CanvasComposer, ReadOnlySLDViewport
 from ui.events.control_update_coordinator import ControlUpdateCoordinator
 from ui.control.control_surface_host import ControlSurfaceHost
 from ui.control.control_workspace import ControlWorkspace
 from ui.protection.protection_workspace import ProtectionWorkspace
+from ui.canvas.grid_scene import GridScene
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
@@ -65,6 +66,8 @@ from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WOR
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.engineering_context import EngineeringContextStore
+from ui.workspace.viewport_preference_store import ViewportPreferenceStore
+from ui.workspace.viewport_state import ViewportState
 from ui.tools.default_tool_registry import create_default_tool_factories
 from ui.tools.tool_definition import contextual_tool_definitions
 from ui.tools.tool_mode import ToolMode
@@ -159,6 +162,16 @@ def _build_application_impl(
     # Establish the application identity before constructing/showing the splash
     # or any application window. BrandingService is the single resource authority.
     branding.apply_application_identity(app)
+    viewport_preference_store = ViewportPreferenceStore()
+    resources["viewport_preference_store"] = viewport_preference_store
+
+    def _save_viewport_preference(view_id: str, state: ViewportState) -> None:
+        viewport_preference_store.save(view_id, state)
+        lifecycle = resources.get("project_workspace_lifecycle")
+        view_manager = getattr(lifecycle, "views", None)
+        view = view_manager.get(view_id) if callable(getattr(view_manager, "get", None)) else None
+        if view is not None:
+            view.viewport = state
 
     startup_splash = StartupSplash(app, branding)
     resources["startup_splash"] = startup_splash
@@ -250,6 +263,33 @@ def _build_application_impl(
         semantic_realization=presentation_bootstrap.semantic_realization,
         snap_system=canvas_preparation.snap_system,
     )
+    # The comparison editor owns an independent scene and renderer. It has no
+    # ToolManager, selection manager, snap system, or route-edit authority.
+    comparison_scene = GridScene()
+    comparison_projection = SLDCanvasProjection(
+        read_model_provider=sld_projection_manager.read_model,
+    )
+    comparison_render_system = SLDCanvasRenderSystem(
+        scene=comparison_scene,
+        item_factory=presentation_bootstrap.sld_graphics_item_factory,
+        semantic_realization=presentation_bootstrap.semantic_realization,
+    )
+
+    def _resolve_comparison_document(document_id: str):
+        try:
+            document = project_workspace_lifecycle.documents.require(document_id)
+        except KeyError:
+            return None
+        return document if isinstance(document, SLDDocument) else None
+
+    comparison_viewport = ReadOnlySLDViewport(
+        scene=comparison_scene,
+        projection=comparison_projection,
+        render_system=comparison_render_system,
+        document_resolver=_resolve_comparison_document,
+        viewport_state_loader=viewport_preference_store.load,
+        viewport_state_saver=_save_viewport_preference,
+    )
     canvas_composition = canvas_composer.compose(
         controller=controller,
         tool_manager=tool_manager,
@@ -258,6 +298,7 @@ def _build_application_impl(
         parent=None,
         sld_canvas_projection=sld_canvas_projection,
         sld_canvas_render_system=sld_canvas_render_system,
+        comparison_viewport=comparison_viewport,
     )
     resources["canvas_composition"] = canvas_composition
     control_workspace = ControlWorkspace(application=gridforge_application, controller=controller, selection_manager=canvas_preparation.selection_manager, parent=None)
@@ -417,20 +458,78 @@ def _build_application_impl(
         application=gridforge_application,
         lifecycle=project_workspace_lifecycle,
         default_symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
+        viewport_preference_store=viewport_preference_store,
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
-    project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
+
+    def _open_comparison_document_for_editing(document_id: str) -> None:
+        """Promote the comparison document through canonical workspace activation."""
+        try:
+            project_workspace_adapter.activate_document(document_id)
+        except Exception as exc:
+            QMessageBox.critical(window, "Open SLD for Editing", str(exc))
+
+    comparison_viewport.set_document_activator(_open_comparison_document_for_editing)
+
+    def _capture_active_viewport() -> None:
+        document_id = canvas_composition.surface.document_id
+        if not isinstance(document_id, str) or not document_id:
+            return
+        center = canvas_composition.view.mapToScene(
+            canvas_composition.view.viewport().rect().center()
+        )
+        state = ViewportState(
+            center_x=float(center.x()),
+            center_y=float(center.y()),
+            zoom=canvas_composition.navigation_controller.get_zoom_level(),
+        )
+        _save_viewport_preference(f"{document_id}:sld", state)
+
+    def _restore_document_viewport(document: object | None) -> None:
+        document_id = getattr(document, "document_id", None)
+        if not isinstance(document_id, str) or not document_id:
+            return
+        state = viewport_preference_store.load(f"{document_id}:sld")
+        if state is None:
+            return
+        canvas_composition.navigation_controller.set_zoom_level(state.zoom)
+        canvas_composition.view.centerOn(state.center_x, state.center_y)
+
+    pending_viewport_restore: dict[str, str | None] = {"document_id": None}
+
+    def _activate_sld_presentation(document: object | None) -> None:
+        # Capture the outgoing view before the editor host replaces its document.
+        # Restore is deferred until after the next complete canvas snapshot has
+        # reconciled; otherwise the surface's session-local fallback can overwrite
+        # the persistent preference during that reconciliation.
+        _capture_active_viewport()
+        viewport_preference_store.sync()
+        workspace_surface_host.set_sld_document(document)
+        document_id = getattr(document, "document_id", None)
+        pending_viewport_restore["document_id"] = (
+            document_id if isinstance(document_id, str) and document_id else None
+        )
+
+    def _persist_viewport_change(*_args: object) -> None:
+        _capture_active_viewport()
+
+    canvas_composition.navigation_controller.add_zoom_changed_listener(
+        _persist_viewport_change
+    )
+    canvas_composition.view.horizontalScrollBar().valueChanged.connect(
+        _persist_viewport_change
+    )
+    canvas_composition.view.verticalScrollBar().valueChanged.connect(
+        _persist_viewport_change
+    )
+    project_workspace_adapter.configure_presentation_activation_bridge(
+        _activate_sld_presentation
+    )
     def _guard_document_switch_with_pending_draft():
-        # DraftNetwork is currently project-scoped. Until its persisted ownership
-        # is partitioned by SLD document, fail closed rather than displaying or
-        # committing one document's pending authoring graph in another document.
-        draft = gridforge_application.draft_network
-        if draft is not None and (draft.equipment or draft.connections):
-            raise RuntimeError(
-                "Cannot switch SLD documents while DraftNetwork contains pending "
-                "equipment or connections. Commit or discard the draft first; "
-                "document-scoped DraftNetwork persistence is not yet available."
-            )
+        # DraftNetworkCollection now owns an independent, persisted draft per
+        # SLD document. A pending draft therefore remains attached to its
+        # originating document and must not block activation of another sheet.
+        # Only transient pointer/tool interaction is cancelled at this boundary.
         controller.set_tool("select", cancel_active_creation=True)
 
     project_workspace_adapter.configure_document_transition_guard(
@@ -1428,9 +1527,24 @@ def _build_application_impl(
     # Resolve the canonical canvas synchronization callable before registering
     # lifecycle callbacks that may invoke it. This removes the composition-order
     # dependency on a later local binding.
-    synchronize_canvas = getattr(canvas_plugin, "refresh_canvas", None)
-    if not callable(synchronize_canvas):
+    _refresh_active_canvas = getattr(canvas_plugin, "refresh_canvas", None)
+    if not callable(_refresh_active_canvas):
         raise RuntimeError("CanvasPlugin does not expose refresh_canvas().")
+
+    def synchronize_canvas():
+        """Refresh the active editor and every document currently shown for comparison."""
+        snapshot = _refresh_active_canvas()
+        active_document_id = project_workspace_lifecycle.documents.active_document_id
+        if pending_viewport_restore["document_id"] == active_document_id:
+            _restore_document_viewport(
+                project_workspace_lifecycle.documents.active_document
+            )
+            pending_viewport_restore["document_id"] = None
+        canvas_composition.surface.set_comparison_documents(
+            project_workspace_lifecycle.documents.documents(),
+            active_document_id=active_document_id,
+        )
+        return snapshot
 
     def _attempt_workspace_sync_step(step: str, operation: Callable[[], None], change: ProjectWorkspaceChanged) -> None:
         try:
