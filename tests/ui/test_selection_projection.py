@@ -12,7 +12,7 @@ from ui.canvas.mouse_event_adapter import MouseEventAdapter
 from ui.core.qt import QPointF, QGraphicsItem, QTransform
 from ui.core.selection_manager import SelectionManager
 from ui.projection.selection_projection_coordinator import SelectionProjectionCoordinator
-from core.application.events import ElementUpdated
+from core.application.events import ElementRemoved, ElementUpdated
 from core.application.read_models import ElementReadModel, NetworkReadModel
 
 
@@ -186,6 +186,34 @@ def test_selection_projection_reads_through_application():
             break
     assert panel.target.object_id == "bus-1"
 
+    coordinator.dispose()
+
+
+def test_selection_projection_clears_entire_additive_selection_when_any_element_is_removed():
+    manager = SelectionManager()
+    bus = _element("bus-1")
+    network = NetworkReadModel(elements=(bus,))
+    app = SimpleNamespace(
+        read_network=lambda: network,
+        read_element=lambda element_type, object_id: bus if object_id == "bus-1" else None,
+        read_simple_wire=lambda connection_id: (_ for _ in ()).throw(KeyError(connection_id)),
+        read_draft_network=lambda: {"equipment": (), "connections": ()},
+    )
+    panel = _FakePanel()
+    coordinator = SelectionProjectionCoordinator(
+        selection_manager=manager,
+        application=app,
+        properties_panel=panel,
+    )
+
+    manager.select_single("bus-1")
+    manager.add_to_selection("bus-2")
+    assert manager.get_selected_ids() == ("bus-1", "bus-2")
+
+    coordinator.refresh(ElementRemoved(element_id="bus-2", element_type="BUS"))
+
+    assert manager.get_selected_ids() == ()
+    assert panel.target is None
     coordinator.dispose()
 
 
