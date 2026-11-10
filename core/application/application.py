@@ -812,6 +812,8 @@ class Application:
         if presentation is None:
             raise TypeError("presentation must not be None.")
         lifecycle = self.project_lifecycle
+        previous_collection = self._draft_network_collection
+        previous_legacy_draft = self._draft_network
         previous = lifecycle.activate_presentation(presentation)
         try:
             document_id = getattr(presentation, "document_id", None)
@@ -844,6 +846,8 @@ class Application:
             if self._sld_service is not None:
                 self._sld_service.bind_document(presentation)
         except BaseException:
+            self._draft_network_collection = previous_collection
+            self._draft_network = previous_legacy_draft
             lifecycle.activate_presentation(previous)
             if previous is not None and self._sld_service is not None:
                 try:
