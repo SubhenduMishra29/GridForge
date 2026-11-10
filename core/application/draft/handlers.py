@@ -61,7 +61,7 @@ class DraftCommandHandlers:
 
     def add_equipment(self, command, context, transaction):
         draft = self._draft(command)
-        equipment = __import__("core.application.draft.network", fromlist=["DraftEquipment"]).DraftEquipment.from_dict(
+        equipment = DraftEquipment.from_dict(
             _thaw_payload(command.payload["equipment"])
         )
         _record_draft_undo(draft, transaction)
@@ -78,7 +78,7 @@ class DraftCommandHandlers:
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
 
     def remove_equipment(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         _record_draft_undo(draft, transaction)
         equipment = draft.remove_equipment(str(command.payload["draft_id"]))
         return ApplicationResult.success_result(value={"draft_id": equipment.draft_id})
