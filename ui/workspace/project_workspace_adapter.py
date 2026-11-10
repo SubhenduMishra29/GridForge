@@ -365,6 +365,7 @@ class ProjectWorkspaceApplicationAdapter:
         activate_workspace: bool,
     ):
         snapshot = self._lifecycle.capture_transition_state()
+        previous_collection_dirty = self._document_collection_dirty
         previous_document = next(
             (
                 document
@@ -418,12 +419,14 @@ class ProjectWorkspaceApplicationAdapter:
             self._document_collection_dirty = False
 
             def rollback() -> None:
+                self._document_collection_dirty = previous_collection_dirty
                 self._lifecycle.restore_last_state(snapshot)
                 if self._presentation_activation_bridge is not None:
                     self._presentation_activation_bridge(previous_document)
 
             return rollback
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             # Lifecycle and bridge restoration are independent: failure in one
             # must not prevent the other from recovering its own state.
             recovery: list[tuple[str, Callable[[], None]]] = [
@@ -602,6 +605,7 @@ class ProjectWorkspaceApplicationAdapter:
                 self._publish("activate_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
                 ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
@@ -661,6 +665,7 @@ class ProjectWorkspaceApplicationAdapter:
             raise RuntimeError("Cannot create an SLD document without an active project.")
         previous = self._lifecycle.document
         snapshot = self._lifecycle.capture_transition_state()
+        previous_collection_dirty = self._document_collection_dirty
         previous_draft_collection = self._application.draft_network_collection
         try:
             if self._document_transition_guard is not None:
@@ -693,6 +698,7 @@ class ProjectWorkspaceApplicationAdapter:
             self._document_collection_dirty = True
             return document
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
                 ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
             ]
@@ -811,6 +817,7 @@ class ProjectWorkspaceApplicationAdapter:
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         previous_draft_collection = self._application.draft_network_collection
+        previous_collection_dirty = self._document_collection_dirty
         try:
             self._lifecycle.remove_document(document_id)
             self._application.remove_draft_document(document_id)
