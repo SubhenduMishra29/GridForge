@@ -66,6 +66,24 @@ class SymbolRegistry:
                 f"{definition_id}"
             )
 
+        variant_key = (
+            definition.symbol_family_id,
+            definition.standard_id,
+            definition.variant_id,
+        )
+        if any(
+            (
+                item.symbol_family_id,
+                item.standard_id,
+                item.variant_id,
+            ) == variant_key
+            for item in self._definitions.values()
+        ):
+            raise ValueError(
+                "Symbol family/standard/variant already registered: "
+                f"{variant_key!r}"
+            )
+
         self._definitions[
             definition_id
         ] = definition
