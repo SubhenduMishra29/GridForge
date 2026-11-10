@@ -1185,5 +1185,7 @@ Verification boundary:
   insertion service, pre-commit handoff, and SLD route reconciliation paths.
 - Regression coverage added for rendered-route endpoint/segment consistency.
 - No tests/CI, Qt runtime, overlapping-wire insertion, undo/redo, or project
-  save/reopen interaction executed. Issue #811 remains open pending GUI
-  acceptance and a reproducible trace of the original reported scenario.
+  save/reopen interaction executed.
+- Status: Issue #811 was closed as completed after this source correction and
+  regression coverage at the repository owner's direction. Closure does not
+  claim GUI/runtime acceptance; that evidence was not executed in this run.
