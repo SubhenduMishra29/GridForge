@@ -563,10 +563,6 @@ class SLDCanvasRenderSystem:
 
         node_by_id = {node.node_id: node for node in committed.nodes}
         for connection in committed.connections:
-            signature = self._connection_signature(connection, node_by_id)
-            if self._render_signatures.get(connection.connection_id) == signature and connection.connection_id in self._items:
-                self._restore_connection_selection(connection, self._items[connection.connection_id][0])
-                continue
             previous_items = self._items.get(connection.connection_id, ())
             previous_item = previous_items[0] if previous_items else None
             if connection.source_node_id not in realized:
@@ -590,6 +586,9 @@ class SLDCanvasRenderSystem:
                 self._record_connection_failure(connection, "TARGET_ENDPOINT_NOT_FOUND", "Persisted SLD connection has no target endpoint identity.")
                 continue
             try:
+                # Resolve terminal geometry before checking the connection
+                # signature. A symbol rotation/mirror can move a terminal
+                # anchor without changing the equipment centre or endpoint ID.
                 source = self._endpoint_resolver.resolve(connection.source_endpoint, realized)
                 target = self._endpoint_resolver.resolve(connection.target_endpoint, realized)
             except (KeyError, TypeError, ValueError) as exc:
@@ -597,6 +596,22 @@ class SLDCanvasRenderSystem:
                     self._remove_realized(connection.connection_id)
                 self._record_connection_failure(connection, "TERMINAL_ANCHOR_NOT_FOUND", f"{type(exc).__name__}: {exc}")
                 continue
+
+            signature = self._connection_signature(
+                connection,
+                node_by_id,
+                source_position=(float(source.x()), float(source.y())),
+                target_position=(float(target.x()), float(target.y())),
+            )
+            if (
+                self._render_signatures.get(connection.connection_id) == signature
+                and connection.connection_id in self._items
+            ):
+                self._restore_connection_selection(
+                    connection, self._items[connection.connection_id][0]
+                )
+                continue
+
             item = None
             try:
                 route_points = connection.route.points
@@ -932,16 +947,32 @@ class SLDCanvasRenderSystem:
         ))
 
     @staticmethod
-    def _connection_signature(connection: Any, node_by_id: dict[str, Any] | None = None) -> str:
+    def _connection_signature(
+        connection: Any,
+        node_by_id: dict[str, Any] | None = None,
+        *,
+        source_position: tuple[float, float] | None = None,
+        target_position: tuple[float, float] | None = None,
+    ) -> str:
         route = getattr(connection.route, "to_dict", lambda: None)()
         properties = tuple(sorted((str(key), repr(value)) for key, value in connection.properties.items()))
         source_node = None if node_by_id is None else node_by_id.get(connection.source_node_id)
         target_node = None if node_by_id is None else node_by_id.get(connection.target_node_id)
-        geometry = (getattr(source_node, "x", None), getattr(source_node, "y", None), getattr(target_node, "x", None), getattr(target_node, "y", None))
-        return repr((connection.connection_id, connection.source_node_id, connection.target_node_id, geometry,
-                     connection.source_endpoint, connection.target_endpoint,
-                     connection.connection_kind, connection.presentation_owner,
-                     connection.projection_source, route, properties))
+        node_geometry = (
+            getattr(source_node, "x", None), getattr(source_node, "y", None),
+            getattr(target_node, "x", None), getattr(target_node, "y", None),
+        )
+        # Terminal positions are presentation geometry resolved from the
+        # current realized items. Include them independently of node centres
+        # so rotation/reflection triggers connection reprojection.
+        endpoint_geometry = (source_position, target_position)
+        return repr((
+            connection.connection_id, connection.source_node_id,
+            connection.target_node_id, node_geometry, endpoint_geometry,
+            connection.source_endpoint, connection.target_endpoint,
+            connection.connection_kind, connection.presentation_owner,
+            connection.projection_source, route, properties,
+        ))
 
     def _attach_realized_item(self, item: Any, *, register_snap: bool = False) -> None:
         """Attach a transient item atomically with its optional snap registration.
