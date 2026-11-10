@@ -483,6 +483,7 @@ class CanvasComposer:
             raise ValueError("tool_manager must retain the canonical Application.")
         if sld_controller.application is not application:
             raise ValueError("SLDController and ToolManager must share the canonical Application.")
+        controller.bind_sld_controller(sld_controller)
 
         selection_manager = preparation.selection_manager
         grid_system = preparation.grid_system
