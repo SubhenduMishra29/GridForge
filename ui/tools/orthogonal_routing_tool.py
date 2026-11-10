@@ -4,17 +4,20 @@
 # ============================================================
 """Live A* route preview with Application-owned electrical commit.
 
-The tool owns only transient pointer/preview state. Stable endpoint identity
-and final connectivity remain delegated to WireTool's canonical Application
-command path.
+The tool owns only transient pointer/preview state. Pointer events are
+coalesced into one queued route recomputation using the latest scene position;
+measured preview latency is exposed against a 32 ms interaction target. Stable
+endpoint identity and final connectivity remain delegated to WireTool's
+canonical Application command path.
 """
 
 from __future__ import annotations
 
+from time import perf_counter
 from typing import Any
 
 from ui.connections.connection_router import ConnectionRouter
-from ui.core.qt import QColor, QGraphicsPathItem, QPainterPath, QPen, QPointF, Qt
+from ui.core.qt import QColor, QGraphicsPathItem, QPainterPath, QPen, QPointF, QTimer, Qt
 
 from .wire_tool import WireTool
 
@@ -25,6 +28,8 @@ class OrthogonalRoutingTool(WireTool):
     TOOL_ID = "orthogonal-routing"
     CLEARANCE_PIXELS = 5.0
     ROUTE_CLEARANCE_PIXELS = 8.0
+    ROUTE_PREVIEW_INTERVAL_MS = 16
+    ROUTE_PREVIEW_TARGET_MS = 32.0
     PREVIEW_DATA_ROLE = 0
     PREVIEW_DATA_KEY = "gridforge.orthogonal-routing.preview"
 
@@ -49,6 +54,14 @@ class OrthogonalRoutingTool(WireTool):
         self._route_valid = False
         self._pending_press_snap: Any = None
         self._last_route_signature: tuple[Any, ...] | None = None
+        self._pending_route_request: tuple[tuple[float, float], Any | None] | None = None
+        self._pending_route_requested_at: float | None = None
+        self._route_update_scheduled = False
+        self._route_preview_recompute_count = 0
+        self._route_preview_coalesced_event_count = 0
+        self._last_route_latency_ms: float | None = None
+        self._max_route_latency_ms = 0.0
+        self._last_route_compute_ms: float | None = None
 
     @property
     def name(self) -> str:
@@ -68,10 +81,12 @@ class OrthogonalRoutingTool(WireTool):
     def on_mouse_press(self, event: Any) -> bool:
         self._ensure_active()
         if self._preview.source_endpoint is None:
+            self._discard_pending_route_update()
             self._route_points = ()
             self._route_valid = False
             return super().on_mouse_press(event)
 
+        self._discard_pending_route_update()
         # Resolve and route against the exact target snap that will be passed
         # to WireTool's existing endpoint-identity and Application command path.
         target_snap = super()._snap(event)
@@ -128,17 +143,56 @@ class OrthogonalRoutingTool(WireTool):
     def on_mouse_move(self, event: Any) -> bool:
         handled = super().on_mouse_move(event)
         if self._preview.source_endpoint is None or self._current_position is None:
+            self._discard_pending_route_update()
             return handled
         snap = self._last_snap_result
         is_endpoint = snap is not None and getattr(getattr(snap, "snap_type", None), "name", None) == "OBJECT"
         target_position = self._position_tuple(snap.position) if is_endpoint else self._position_tuple(self._current_position)
-        self._calculate_route(target_position, snap if is_endpoint else None)
-        if not is_endpoint:
-            # Geometrically routable is not electrically connectable: a free
-            # cursor position has no stable endpoint identity and stays red.
-            self._route_valid = False
+        self._pending_route_request = (target_position, snap if is_endpoint else None)
+        self._pending_route_requested_at = perf_counter()
+        if self._route_update_scheduled:
+            self._route_preview_coalesced_event_count += 1
+        else:
+            self._route_update_scheduled = True
+            # Keep one queued callback and always consume the latest pointer
+            # request. A burst of mouse events cannot build an unbounded A* queue.
+            QTimer.singleShot(self.ROUTE_PREVIEW_INTERVAL_MS, self._flush_pending_route_preview)
         self._show_preview()
         return True
+
+    def _discard_pending_route_update(self) -> None:
+        """Discard stale pointer intent without cancelling the queued callback."""
+        self._pending_route_request = None
+        self._pending_route_requested_at = None
+
+    def _flush_pending_route_preview(self) -> None:
+        """Compute at most one route for the latest request in this event-loop turn."""
+        self._route_update_scheduled = False
+        request = self._pending_route_request
+        requested_at = self._pending_route_requested_at
+        self._discard_pending_route_update()
+        if request is None or requested_at is None or not self.is_active:
+            return
+        if self._preview.source_endpoint is None or self._current_position is None:
+            return
+
+        target_position, target_snap = request
+        previous_signature = self._last_route_signature
+        started_at = perf_counter()
+        try:
+            self._calculate_route(target_position, target_snap)
+            if target_snap is None:
+                # A route to a free cursor is useful as a geometric guide only;
+                # it is never an electrically committable endpoint.
+                self._route_valid = False
+        finally:
+            finished_at = perf_counter()
+            self._last_route_compute_ms = (finished_at - started_at) * 1000.0
+            self._last_route_latency_ms = (finished_at - requested_at) * 1000.0
+            self._max_route_latency_ms = max(self._max_route_latency_ms, self._last_route_latency_ms)
+            if self._last_route_signature != previous_signature:
+                self._route_preview_recompute_count += 1
+        self._show_preview()
 
     def _calculate_route(self, target_position: tuple[float, float], target_snap: Any = None) -> bool:
         if self._start_position is None or self._start_snap is None:
@@ -292,7 +346,11 @@ class OrthogonalRoutingTool(WireTool):
         layer = self._preview_layer
         if layer is None:
             return
-        points = self._route_points if self._route_valid and len(self._route_points) >= 2 else ()
+        points = (
+            self._route_points
+            if self._route_valid and self._pending_route_request is None and len(self._route_points) >= 2
+            else ()
+        )
         if not points and self._start_position is not None and self._current_position is not None:
             # Keep a conspicuous invalid guide visible instead of silently
             # removing the preview when no collision-free route exists.
@@ -313,16 +371,18 @@ class OrthogonalRoutingTool(WireTool):
                 self._route_item = None
                 return
             add(self._route_item)
-        color = "#1976D2" if self._route_valid else "#D32F2F"
+        preview_valid = self._route_valid and self._pending_route_request is None
+        color = "#1976D2" if preview_valid else "#D32F2F"
         pen = QPen(QColor(color), 2.0, Qt.PenStyle.DashLine)
         pen.setCosmetic(True)
         self._route_item.setPen(pen)
         self._route_item.setPath(path)
-        tooltip = (
-            "Live orthogonal route preview — not committed connectivity."
-            if self._route_valid
-            else "INVALID ROUTE — no collision-free path; this guide cannot be committed."
-        )
+        if self._pending_route_request is not None:
+            tooltip = "ROUTE PENDING — latest pointer position is queued; this guide cannot be committed."
+        elif preview_valid:
+            tooltip = "Live orthogonal route preview — not committed connectivity."
+        else:
+            tooltip = "INVALID ROUTE — no collision-free path; this guide cannot be committed."
         self._route_item.setToolTip(tooltip)
 
     def _remove_route_item(self) -> None:
@@ -335,6 +395,7 @@ class OrthogonalRoutingTool(WireTool):
             remove(item)
 
     def _clear_state(self) -> None:
+        self._discard_pending_route_update()
         self._remove_route_item()
         self._route_points = ()
         self._route_valid = False
@@ -344,7 +405,24 @@ class OrthogonalRoutingTool(WireTool):
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
-        state.update({"route_valid": self._route_valid, "route_points": self._route_points, "clearance_pixels": self.CLEARANCE_PIXELS})
+        state.update({
+            "route_valid": self._route_valid and self._pending_route_request is None,
+            "route_points": self._route_points,
+            "clearance_pixels": self.CLEARANCE_PIXELS,
+            "route_preview_interval_ms": self.ROUTE_PREVIEW_INTERVAL_MS,
+            "route_preview_target_ms": self.ROUTE_PREVIEW_TARGET_MS,
+            "route_preview_pending": self._pending_route_request is not None,
+            "route_preview_recompute_count": self._route_preview_recompute_count,
+            "route_preview_coalesced_event_count": self._route_preview_coalesced_event_count,
+            "last_route_latency_ms": self._last_route_latency_ms,
+            "max_route_latency_ms": self._max_route_latency_ms,
+            "last_route_compute_ms": self._last_route_compute_ms,
+            "route_preview_target_met": (
+                None
+                if self._last_route_latency_ms is None
+                else self._last_route_latency_ms <= self.ROUTE_PREVIEW_TARGET_MS
+            ),
+        })
         return state
 
 
