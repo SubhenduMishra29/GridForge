@@ -1531,8 +1531,13 @@ def _build_application_impl(
     if not callable(_refresh_active_canvas):
         raise RuntimeError("CanvasPlugin does not expose refresh_canvas().")
 
+    sld_update_coordinator_ref: dict[str, object | None] = {"value": None}
+
     def synchronize_canvas():
-        """Refresh the active editor and every document currently shown for comparison."""
+        """Audit background SLD topology before refreshing active/comparison projections."""
+        coordinator = sld_update_coordinator_ref["value"]
+        if isinstance(coordinator, SLDUpdateCoordinator):
+            coordinator.reconcile_background_documents()
         snapshot = _refresh_active_canvas()
         active_document_id = project_workspace_lifecycle.documents.active_document_id
         if pending_viewport_restore["document_id"] == active_document_id:
@@ -1544,6 +1549,22 @@ def _build_application_impl(
             project_workspace_lifecycle.documents.documents(),
             active_document_id=active_document_id,
         )
+        if isinstance(coordinator, SLDUpdateCoordinator):
+            comparison_document_id = comparison_viewport.document_id
+            diagnostics = (
+                coordinator.background_reconciliation_diagnostics.get(
+                    comparison_document_id,
+                    (),
+                )
+                if comparison_document_id
+                else ()
+            )
+            if coordinator.background_reconciliation_error is not None:
+                comparison_viewport.set_reconciliation_error(
+                    coordinator.background_reconciliation_error
+                )
+            else:
+                comparison_viewport.set_reconciliation_diagnostics(diagnostics)
         return snapshot
 
     def _attempt_workspace_sync_step(step: str, operation: Callable[[], None], change: ProjectWorkspaceChanged) -> None:
@@ -1785,7 +1806,30 @@ def _build_application_impl(
         properties_panel.handle_sld_document_changed()
     else:
         properties_panel.clear_sld_annotation_controls()
-    sld_update_coordinator = SLDUpdateCoordinator(application=gridforge_application, synchronizer=sld_read_synchronizer, canvas_refresh=synchronize_canvas, draft_projection=canvas_composition.draft_sld_projection, project_state_clear=canvas_composition.clear_project_state)
+    sld_update_coordinator = SLDUpdateCoordinator(
+        application=gridforge_application,
+        synchronizer=sld_read_synchronizer,
+        canvas_refresh=synchronize_canvas,
+        draft_projection=canvas_composition.draft_sld_projection,
+        project_state_clear=canvas_composition.clear_project_state,
+        documents_provider=lambda: project_workspace_lifecycle.documents.documents(),
+    )
+    sld_update_coordinator_ref["value"] = sld_update_coordinator
+
+    def _comparison_diagnostics_for_document(document_id: str):
+        if sld_update_coordinator.background_reconciliation_error is not None:
+            return ({
+                "code": "BACKGROUND_RECONCILIATION_FAILED",
+                "message": str(sld_update_coordinator.background_reconciliation_error),
+            },)
+        return sld_update_coordinator.background_reconciliation_diagnostics.get(
+            document_id,
+            (),
+        )
+
+    comparison_viewport.set_reconciliation_diagnostics_provider(
+        _comparison_diagnostics_for_document
+    )
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
     element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)

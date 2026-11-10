@@ -296,3 +296,11 @@ Verification boundary:
 - Do not fabricate MeasurementChannel definitions or relay bindings. CT secondary wiring and relay-input engineering configuration remain explicit follow-on configuration work.
 - Scope is limited to CurrentTransformer insertion; other equipment insertion behavior is unchanged.
 Verification boundary: reviewed the single-file diff and outer/child command lifecycle statically. No tests, CI, startup, GUI, or runtime experiments were run.
+
+[2026-11-10] Background multi-SLD topology fingerprinting and endpoint drift diagnostics (root issue #749):
+- Added deterministic SHA-256 `NetworkReadModel.structural_fingerprint` over canonical equipment identity/family/connectivity references and undirected Simple Wire endpoint pairs; labels, ratings, telemetry, and route geometry do not invalidate topology audits.
+- Added a per-document SLD structural fingerprint over node/equipment identity and canonical connection companion/endpoints. `SLDUpdateCoordinator` audits each document only when its own structural fingerprint or the Core network revision/fingerprint changes, and prunes cache entries when documents leave the active project.
+- Extended read-only `SLDReadSynchronizer.reconcile_simple_wires()` to detect missing/duplicate Core companions, orphan SLD companions, missing endpoint identities, unsupported endpoint kinds, and Core-vs-SLD endpoint mismatches. Background audits receive the exact presentation and cannot overwrite active-document diagnostics.
+- Integrated background audits before comparison rendering and exposed the selected comparison document's audit state and diagnostic details in the read-only viewport. Audits do not switch Application presentation or mutate background documents.
+- Audit cache is keyed by persistent document identity and Application revision/project identity to avoid repeated full read-model scans. Route geometry, node positions, labels, and other non-topological presentation changes are excluded.
+- Background drift detection is implemented; automatic repair/reprojection of stale background documents remains a separate lifecycle task. GUI multi-document drift scenarios remain runtime-unverified; no CI/test acceptance gate was requested or run.

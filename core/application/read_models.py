@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 import math
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -136,12 +138,65 @@ class SimpleWireReadModel:
         object.__setattr__(self, "endpoint_b", _freeze(self.endpoint_b))
 
 
+def _canonical_fingerprint_value(value: Any) -> Any:
+    """Convert immutable read-model values to deterministic JSON primitives."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): _canonical_fingerprint_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
+    if isinstance(value, (tuple, list)):
+        return [_canonical_fingerprint_value(item) for item in value]
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("Structural fingerprint values must be finite.")
+        return value
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    enum_value = getattr(value, "value", None)
+    if isinstance(enum_value, (str, int, float, bool)):
+        return enum_value
+    raise TypeError(f"Unsupported structural fingerprint value: {type(value).__name__}.")
+
+
 @dataclass(frozen=True, slots=True)
 class NetworkReadModel:
-    """Immutable collection snapshot used by presentation projections."""
+    """Immutable collection snapshot used by presentation projections.
+
+    Structural fingerprinting includes equipment identity/family/connectivity
+    references and canonical wire endpoints. Labels, ratings, telemetry, and
+    other non-topological attributes do not invalidate background SLD audits.
+    """
 
     elements: tuple[ElementReadModel, ...]
     simple_wires: tuple[SimpleWireReadModel, ...] = ()
+
+    @property
+    def structural_fingerprint(self) -> str:
+        """Return a stable SHA-256 fingerprint of the electrical network structure."""
+        elements = [
+            {
+                "object_id": item.object_id,
+                "element_type": item.element_type,
+                "connectivity_refs": list(item.connectivity_refs),
+            }
+            for item in sorted(self.elements, key=lambda value: value.object_id)
+        ]
+        wires = []
+        for wire in sorted(self.simple_wires, key=lambda value: value.connection_id):
+            endpoints = [
+                _canonical_fingerprint_value(wire.endpoint_a),
+                _canonical_fingerprint_value(wire.endpoint_b),
+            ]
+            endpoints.sort(key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":")))
+            wires.append({
+                "connection_id": wire.connection_id,
+                "kind": wire.kind,
+                "endpoints": endpoints,
+            })
+        payload = {"elements": elements, "simple_wires": wires}
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)

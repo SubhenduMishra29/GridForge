@@ -84,6 +84,7 @@ class ReadOnlySLDViewport(QWidget):
         self._render_system = render_system
         self._document_resolver = document_resolver
         self._document_activator: Callable[[str], object] | None = None
+        self._reconciliation_diagnostics_provider: Callable[[str], Iterable[Any]] | None = None
         self._viewport_state_loader = viewport_state_loader
         self._viewport_state_saver = viewport_state_saver
         self._document_id: str | None = None
@@ -98,6 +99,9 @@ class ReadOnlySLDViewport(QWidget):
         self._document_selector.setObjectName("SLDComparisonDocumentSelector")
         self._document_selector.currentIndexChanged.connect(self._select_document)
         header.addWidget(self._document_selector, 1)
+        self._reconciliation_status = QLabel("Topology audit pending", self)
+        self._reconciliation_status.setObjectName("SLDComparisonTopologyStatus")
+        header.addWidget(self._reconciliation_status)
         fit_button = QPushButton("Fit", self)
         fit_button.setToolTip("Fit the comparison sheet in its viewport.")
         fit_button.clicked.connect(lambda _checked=False: self.fit_content())
@@ -124,6 +128,53 @@ class ReadOnlySLDViewport(QWidget):
     @property
     def document_id(self) -> str | None:
         return self._document_id
+
+    def set_reconciliation_diagnostics(self, diagnostics: Iterable[Any]) -> None:
+        """Expose background Core/SLD topology audit results beside the comparison selector."""
+        items = tuple(diagnostics or ())
+        if self._document_id is None:
+            self._reconciliation_status.setText("No comparison document")
+            self._reconciliation_status.setToolTip("")
+            return
+        if not items:
+            self._reconciliation_status.setText("Topology aligned")
+            self._reconciliation_status.setToolTip(
+                "The SLD connection companions and canonical Core wire endpoints agree."
+            )
+            return
+        details = []
+        for item in items:
+            getter = getattr(item, "get", None)
+            if callable(getter):
+                code = getter("code", "RECONCILIATION_DIAGNOSTIC")
+                connection_id = getter("connection_id") or getter("presentation_id") or ""
+                details.append(f"{code}: {connection_id}".rstrip())
+            else:
+                details.append(str(item))
+        if any(
+            getattr(item, "get", lambda *_: None)("code") == "BACKGROUND_RECONCILIATION_FAILED"
+            for item in items
+        ):
+            self._reconciliation_status.setText("Topology audit failed")
+        else:
+            self._reconciliation_status.setText(f"Topology drift: {len(items)}")
+        self._reconciliation_status.setToolTip("\n".join(details))
+
+    def set_reconciliation_error(self, error: Exception | None) -> None:
+        if error is None:
+            return
+        self._reconciliation_status.setText("Topology audit unavailable")
+        self._reconciliation_status.setToolTip(str(error))
+
+    def set_reconciliation_diagnostics_provider(
+        self,
+        provider: Callable[[str], Iterable[Any]] | None,
+    ) -> None:
+        if provider is not None and not callable(provider):
+            raise TypeError("provider must be callable or None.")
+        self._reconciliation_diagnostics_provider = provider
+        if self._document_id and callable(provider):
+            self.set_reconciliation_diagnostics(provider(self._document_id))
 
     def set_document_activator(
         self,
@@ -216,6 +267,10 @@ class ReadOnlySLDViewport(QWidget):
         if document_changed:
             self._save_viewport_state()
         self.present_document(document)
+        if callable(self._reconciliation_diagnostics_provider):
+            self.set_reconciliation_diagnostics(
+                self._reconciliation_diagnostics_provider(document.document_id)
+            )
         if document_changed:
             self._last_viewport_restored = self._restore_viewport_state(
                 document.document_id
@@ -271,6 +326,8 @@ class ReadOnlySLDViewport(QWidget):
         finally:
             horizontal.blockSignals(horizontal_blocked)
             vertical.blockSignals(vertical_blocked)
+        self._reconciliation_status.setText("Topology audit pending")
+        self._reconciliation_status.setToolTip("")
         self._open_for_editing_button.setEnabled(
             callable(self._document_activator)
         )
@@ -288,6 +345,8 @@ class ReadOnlySLDViewport(QWidget):
         finally:
             horizontal.blockSignals(horizontal_blocked)
             vertical.blockSignals(vertical_blocked)
+        self._reconciliation_status.setText("No comparison document")
+        self._reconciliation_status.setToolTip("")
         self._open_for_editing_button.setEnabled(False)
 
     def dispose(self) -> None:
