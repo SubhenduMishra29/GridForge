@@ -349,27 +349,3 @@ Correction:
 
 Verification boundary:
 - Source-level review only. No tests/CI, Qt runtime, interactive commit/undo/redo, or desktop rendering verification was run.
-
-
-GF-CREATION-DISPOSITION-CHECK-001 — VALIDATE DRAFT FIELD DISPOSITIONS AT COMMIT
-Date: 2026-11-10
-Repository: madhuri196mishra-cpu/GridForge
-Branch: fix/issue-32-validate-dispositions-at-commit
-Implementation issue: #32
-Authoritative root issue: SubhenduMishra29/GridForge#994
-Base: authoritative root main d16cd11eed0b7dce7bda5f073fff84f471bc7a4b
-
-Finding:
-- DraftEquipment already carries the canonical command_field_dispositions map, but CommitNetworkHandler's final trusted-contract comparison omitted that field. The commit boundary therefore did not reject stale or altered disposition metadata even though the canonical CreationDefinition registry supplied the authoritative map.
-
-Correction:
-- validate_creation_contract_metadata now optionally compares command_field_dispositions using the same normalized contract comparison as the other trusted schema fields.
-- CommitNetworkHandler passes the serialized DraftEquipment disposition map into that validation before preparing any Core create command or mutating Core. Non-empty maps must match exactly; empty legacy recovery snapshots remain compatible and continue to use the trusted canonical registry rather than draft-supplied metadata.
-- Existing callers that validate CreationCommitIntent continue to use the same function without a draft metadata argument; command construction and Core mutation ownership are unchanged.
-
-Scope and limitation:
-- This closes the draft-to-canonical disposition consistency gap only. It does not claim the full pending/incomplete/complete configuration-assessment lifecycle, persistence of assessment state, or the remaining staged measurement/relay/Transformer/Cable workflows required by root #994. Keep both issues open until those acceptance criteria are complete.
-
-Verification boundary:
-- Static source inspection only. The canonical CreationDefinition contract exposes command_field_dispositions; DraftEquipment serializes/deserializes the mapping; the commit handler now supplies it to the trusted-contract comparison before command preparation. No tests, CI, startup, GUI or runtime experiments were run.
-- PR to authoritative root main pending review.
