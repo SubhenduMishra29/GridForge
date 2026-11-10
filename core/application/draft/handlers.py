@@ -303,7 +303,7 @@ class CommitNetworkHandler:
 
     def __call__(self, command, context, transaction):
         payload = command.payload
-        active_draft = self._draft_provider()
+        active_draft = self._draft_provider(payload.get("document_id"))
         if active_draft is None:
             raise RuntimeError("Application DraftNetwork is not active.")
 
