@@ -114,6 +114,10 @@ class SymbolDefinition:
                 "renderer_id must be a non-empty string."
             )
 
+        if not isinstance(self.standard_reference_id, str):
+            raise TypeError("standard_reference_id must be a string.")
+        object.__setattr__(self, "standard_reference_id", self.standard_reference_id.strip())
+
         family_id = self.symbol_family_id or self.symbol_id
         for field_name, value in (("symbol_family_id", family_id), ("standard_id", self.standard_id), ("variant_id", self.variant_id)):
             if not isinstance(value, str) or not value.strip():
