@@ -39,10 +39,11 @@ class DraftCommandHandlers:
     def __init__(self, draft_provider):
         self._draft_provider = draft_provider
 
-    def _draft(self) -> DraftNetwork:
-        draft = self._draft_provider()
+    def _draft(self, command) -> DraftNetwork:
+        document_id = command.payload.get("document_id")
+        draft = self._draft_provider(document_id)
         if draft is None:
-            raise RuntimeError("Application DraftNetwork is not active.")
+            raise RuntimeError("Application DraftNetwork is not active for the requested SLD document.")
         return draft
 
     def handlers(self):
@@ -57,7 +58,7 @@ class DraftCommandHandlers:
         }
 
     def add_equipment(self, command, context, transaction):
-        draft = self._draft()
+        draft = self._draft(command)
         equipment = __import__("core.application.draft.network", fromlist=["DraftEquipment"]).DraftEquipment.from_dict(
             _thaw_payload(command.payload["equipment"])
         )
