@@ -1108,3 +1108,36 @@ Verification boundary:
 - No IEC artwork copied; no selector or new standard variant added.
 - #823 remains open pending permitted geometry source, reviewed anchors,
   selector integration, and runtime save/reopen acceptance.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-010 — EXTERNAL STANDARD REFERENCE IDENTITY
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related: Issue #823
+
+Changes:
+- Added optional standard_reference_id to immutable SymbolDefinition.
+- Propagated the reference identity through SymbolFactory and SymbolBase.
+- Included the value in renderer-neutral SymbolDefinition and SymbolBase
+  serialization/deserialization.
+- Added the identity to PresentationSelection and fail-closed consistency
+  checks against both the realized SymbolBase and registered definition.
+- Added the optional field to canonical SLD symbol persistence allowlist;
+  legacy schema-3 documents remain valid when it is absent.
+- Empty reference identity remains valid for provisional/unverified
+  renderer geometry. A non-empty value is an external catalogue identity,
+  not by itself proof of licensing, geometry conformance, or certification.
+
+Engineering boundary:
+- No IEC artwork or geometry has been copied.
+- No IEC/ANSI variant has been declared compliant.
+- No standard selector is exposed until an independently reviewed,
+  permitted geometry definition and terminal-anchor contract are registered.
+
+Verification:
+- Changed source files fetched back from main.
+- Round-trip, propagation, semantic fail-closed, and persistence checks
+  recorded in the implementation session; no Qt GUI/runtime acceptance
+  or actual .gridforge archive reopen is claimed.
