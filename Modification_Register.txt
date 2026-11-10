@@ -569,3 +569,16 @@ Correction:
 
 Verification boundary:
 - Source inspection and fetch-back only. No Qt key-event delivery, repeated key handling, symbol orientation visual check, placement commit, tests, or CI were executed.
+
+
+GF-UI-PLACEMENT-ORIENTATION-002 — PRESERVE DRAFT ORIENTATION FOR WIRE INSERTION
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- GraphicsView palette-to-wire insertion now reads orientation from the canonical CreationDraft.orientation field.
+- Removed reliance on preview_state["rotation"], a key not emitted by CreationDraft._refresh_preview_state() (which publishes "orientation").
+- This ensures the current draft orientation, including keyboard rotation, is passed into ElectricalInsertionTool.begin() and the insertion command. No geometry or topology behavior was otherwise changed.
+
+Verification boundary:
+- Source inspection and fetch-back only. No insertion gesture, rotated terminal alignment, Qt runtime, tests, or CI were executed.
