@@ -84,6 +84,7 @@ class ReadOnlySLDViewport(QWidget):
         self._render_system = render_system
         self._document_resolver = document_resolver
         self._document_activator: Callable[[str], object] | None = None
+        self._reconciliation_diagnostics_provider: Callable[[str], Iterable[Any]] | None = None
         self._viewport_state_loader = viewport_state_loader
         self._viewport_state_saver = viewport_state_saver
         self._document_id: str | None = None
@@ -152,6 +153,16 @@ class ReadOnlySLDViewport(QWidget):
             else:
                 details.append(str(item))
         self._reconciliation_status.setToolTip("\n".join(details))
+
+    def set_reconciliation_diagnostics_provider(
+        self,
+        provider: Callable[[str], Iterable[Any]] | None,
+    ) -> None:
+        if provider is not None and not callable(provider):
+            raise TypeError("provider must be callable or None.")
+        self._reconciliation_diagnostics_provider = provider
+        if self._document_id and callable(provider):
+            self.set_reconciliation_diagnostics(provider(self._document_id))
 
     def set_document_activator(
         self,
@@ -244,6 +255,10 @@ class ReadOnlySLDViewport(QWidget):
         if document_changed:
             self._save_viewport_state()
         self.present_document(document)
+        if callable(self._reconciliation_diagnostics_provider):
+            self.set_reconciliation_diagnostics(
+                self._reconciliation_diagnostics_provider(document.document_id)
+            )
         if document_changed:
             self._last_viewport_restored = self._restore_viewport_state(
                 document.document_id
