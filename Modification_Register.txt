@@ -421,3 +421,33 @@ Correction:
 
 Verification boundary:
 - Source-level review of the surface, navigation controller and lifecycle teardown. No tests/CI, application startup, Qt runtime or GUI interaction performed.
+
+======================================================================
+GF-UI-WORKSPACE-ERGONOMICS-001 — SLD CANVAS AND INPUT DENSITY
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Changes:
+- Added a minimum usable SLD canvas region of 520 x 360 logical pixels so
+  opening secondary workspace panels cannot collapse the drawing surface
+  below a practical working size.
+- Set minimum presentation widths for the compact tool rail (52 px),
+  Explorer (210 px), and Inspector (260 px).
+- Standardized engineering text-entry controls at 11 pt with a 30 px
+  minimum control height and improved internal padding.
+- Increased equipment/project search fields to 32 px minimum height.
+- Increased multi-line engineering text-entry areas to 84 px minimum height.
+
+Architecture:
+- Workspace constraints and typography remain presentation-only.
+- CanvasPlugin retains canvas ownership; ToolManager retains tool lifecycle.
+- No Core, Application, electrical topology, or project persistence schema
+  was changed.
+
+Verification boundary:
+- Source changes committed to root main.
+- No Qt runtime, high-DPI scaling, visual regression, or interactive
+  splitter-resize verification was performed. User-machine GUI review
+  remains required.
