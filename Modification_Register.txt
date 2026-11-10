@@ -87,3 +87,14 @@ Remaining audit item:
 
 Verification boundary:
 - Static source-path inspection only; desktop interaction and save/reopen runtime verification remain outstanding.
+
+
+GridForge V2 — Electrical insertion route reconciliation audit clarification
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Clarification to the earlier insertion audit note:
+- Follow-up source inspection confirmed SLDService.reconcile_insertion() already validates the insertion position against the selected persisted route segment, captures the original SLD connection snapshot, splits the original authored route into two replacement routes, preserves route ownership/provenance, creates the inserted SLD node and both replacement SLD connections, and registers rollback/undo restoration in the same transaction.
+- The earlier note stating that route splitting was not reconciled was incorrect and is superseded by this clarification. No route-splitting implementation change was necessary.
+- ElectricalInsertionService independently validates the canonical Core connection, endpoint identities, inserted terminal connections, replacement connection IDs, and final Network topology before commit.
