@@ -184,24 +184,44 @@ class GraphicsView(QGraphicsView):
         return self._last_cursor_scene_position
 
     def _selected_presentation_node(self):
-        """Return the sole selected SLD node and its symbol graphics item."""
-        document = getattr(self.controller, "active_document", None)
-        if document is None:
+        """Resolve exactly one selected SLD node through canonical UI selection."""
+        application = getattr(self.controller, "application", None)
+        presentation = getattr(application, "presentation", None)
+        model = getattr(presentation, "model", None)
+        selection_manager = getattr(self.tool_manager, "selection_manager", None)
+        if model is None or selection_manager is None:
             return None, None
-        selected = tuple(
-            item for item in self._scene.selectedItems()
-            if getattr(item, "object_id", None) is not None
-            and getattr(item, "symbol_instance", None) is not None
-        )
-        if len(selected) != 1:
+
+        selected_ids = tuple(selection_manager.get_selected_ids())
+        if len(selected_ids) != 1:
             return None, None
-        item = selected[0]
-        node_id = str(item.object_id)
-        model = getattr(document, "model", None)
-        if model is None or not model.has_node(node_id):
+        selected_id = str(selected_ids[0])
+
+        # SLD selection IDs may identify either the node or its bound equipment.
+        node = None
+        getter = getattr(model, "get_node_by_equipment_id_optional", None)
+        if callable(getter):
+            node = getter(selected_id)
+        if node is None:
+            getter = getattr(model, "get_node_optional", None)
+            if callable(getter):
+                node = getter(selected_id)
+        if node is None:
             return None, None
-        node = model.get_node(node_id)
-        if node.presentation is None and getattr(item, "symbol_instance", None) is None:
+
+        item = selection_manager.get_item_for_id(selected_ids[0], scene=self._scene)
+        if item is None:
+            item = next(
+                (
+                    candidate for candidate in self._scene.items()
+                    if str(getattr(candidate, "object_id", "")) in {
+                        selected_id, str(getattr(node, "node_id", ""))
+                    }
+                    and getattr(candidate, "symbol_instance", None) is not None
+                ),
+                None,
+            )
+        if item is None or getattr(item, "symbol_instance", None) is None:
             return None, None
         return node, item
 
@@ -272,7 +292,18 @@ class GraphicsView(QGraphicsView):
             presentation.set_property("mirror_y", not bool(presentation.get_property("mirror_y", False)))
         else:
             raise ValueError(f"Unsupported contextual symbol action: {operation}")
-        self.controller.set_node_presentation(node.node_id, presentation)
+        from core.application.commands.sld_commands import SetSLDNodePresentationCommand
+
+        result = self.controller.execute_command(
+            SetSLDNodePresentationCommand(
+                node_id=str(node.node_id),
+                presentation=presentation.to_dict(),
+            )
+        )
+        if not getattr(result, "success", False):
+            message = getattr(result, "message", None) or "The SLD symbol presentation update failed."
+            self.controller.show_status_message(str(message))
+            return
         self._refresh_contextual_tool_strip()
 
     def _palette_type_from_event(self, event: Any) -> str | None:
