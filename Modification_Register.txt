@@ -1161,6 +1161,9 @@ Finding:
   one path could therefore select another segment in the second path.
 
 Correction:
+- Persistent insertion hit resolution now fails closed when either canonical
+  SLD endpoint descriptor is absent, before constructing an Application
+  command.
 - Carry an immutable, value-only route geometry snapshot in
   InsertEquipmentIntoConnectionCommand: presentation/Core connection
   identities, canonical source/target endpoint descriptors, visual
