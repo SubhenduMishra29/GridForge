@@ -3772,7 +3772,35 @@ class Application:
             for item in result.metadata.get("created_elements", ())
             if isinstance(item, dict)
         } if command.command_type == "network.commit_draft" else set()
-        if command.command_type.startswith("sld."):
+        selection_batch_children = (
+            tuple(command.payload.get("commands", ()))
+            if command.command_type == "sld.delete_selection_batch"
+            else ()
+        )
+        if command.command_type == "sld.delete_selection_batch":
+            core_delete_types = {
+                "model.delete_bus",
+                "model.delete_transformer",
+                "model.delete_breaker",
+                "connectivity.remove_simple_wire",
+            }
+            has_core_mutation = any(
+                getattr(child, "command_type", None) in core_delete_types
+                for child in selection_batch_children
+            )
+            topology_revision = None
+            if has_core_mutation:
+                if network is None:
+                    raise RuntimeError(
+                        "A semantic SLD selection containing Core deletes requires the active Network."
+                    )
+                topology_revision = int(network.state.topology_revision)
+            self._revision_service.record_selection_batch(
+                command,
+                has_core_mutation=has_core_mutation,
+                topology_revision=topology_revision,
+            )
+        elif command.command_type.startswith("sld."):
             self._revision_service.record_presentation_change(command)
         else:
             topology_revision = None
@@ -4004,10 +4032,38 @@ class Application:
                     )
             return
 
+        command_type = command.command_type
+        if command_type == "sld.delete_selection_batch":
+            if self._sld_service is not None:
+                # Child commands share the outer transaction and intentionally
+                # bypass their own pre-commit hooks. Reconcile their Core-owned
+                # SLD companions here, once, at the aggregate boundary.
+                for child in selection_batch_children:
+                    if child.command_type == "connectivity.remove_simple_wire":
+                        self._sld_service.reconcile_connection_delete(
+                            connection_id=str(child.payload.get("connection_id", "")),
+                            transaction=transaction,
+                        )
+                for child in selection_batch_children:
+                    if child.command_type in {
+                        "model.delete_bus",
+                        "model.delete_transformer",
+                        "model.delete_breaker",
+                    }:
+                        identity_field = {
+                            "model.delete_bus": "bus_id",
+                            "model.delete_transformer": "transformer_id",
+                            "model.delete_breaker": "breaker_id",
+                        }[child.command_type]
+                        self._sld_service.reconcile_element_delete(
+                            equipment_id=str(child.payload.get(identity_field, "")),
+                            transaction=transaction,
+                        )
+            return
+
         if self._sld_service is None:
             return
 
-        command_type = command.command_type
 
         if command_type in {
             "connectivity.create_simple_wire",

@@ -1207,3 +1207,33 @@ Verification boundary:
 - Exact inverse restoration and interactive acceptance evidence remain open;
   this dependency-closure correction does not close root issue #1180.
 
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-003 — ROOT ISSUE #1180 AGGREGATE PRE-COMMIT
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Route the outer sld.delete_selection_batch command through one aggregate
+  pre-commit reconciliation path because child commands executed with
+  CommandManager.execute_in_transaction() do not invoke child pre-commit hooks.
+- Reconcile Core Simple Wire deletion against its persistent SLD companion,
+  then reconcile selected Core Bus/Transformer/Breaker deletions against their
+  persistent SLD equipment nodes, all inside the existing outer transaction.
+- Add one RevisionService transition for mixed batch deletion: advance the Core
+  model/topology revision once when the batch contains Core deletes and advance
+  the persistent presentation revision once for the aggregate command.
+- Preserve the one outer command/history record; child SLD/Core inverses are
+  registered in the same transaction journal. No nested transaction or
+  independent child history is introduced.
+
+Verification boundary:
+- Static inspection traced CommandManager.execute_in_transaction() (no hook),
+  Application._coordinate_pre_commit(), SLDService.reconcile_connection_delete(),
+  SLDService.reconcile_element_delete(), and RevisionService transition methods.
+- Source changes and this register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse restoration across every mixed graph and interactive acceptance
+  remain open; root issue #1180 must not be closed on this correction alone.
+
