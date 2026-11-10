@@ -100,7 +100,7 @@ class ReadOnlySLDViewport(QWidget):
         header.addWidget(self._document_selector, 1)
         fit_button = QPushButton("Fit", self)
         fit_button.setToolTip("Fit the comparison sheet in its viewport.")
-        fit_button.clicked.connect(self.fit_content)
+        fit_button.clicked.connect(lambda _checked=False: self.fit_content())
         header.addWidget(fit_button)
         self._open_for_editing_button = QPushButton("Open for editing", self)
         self._open_for_editing_button.setToolTip(
@@ -261,8 +261,16 @@ class ReadOnlySLDViewport(QWidget):
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
         snapshot = self._projection.project(document.model, document.annotation_blocks)
-        self._render_system.synchronize(snapshot)
-        self._document_id = document.document_id
+        horizontal = self._view.horizontalScrollBar()
+        vertical = self._view.verticalScrollBar()
+        horizontal_blocked = horizontal.blockSignals(True)
+        vertical_blocked = vertical.blockSignals(True)
+        try:
+            self._render_system.synchronize(snapshot)
+            self._document_id = document.document_id
+        finally:
+            horizontal.blockSignals(horizontal_blocked)
+            vertical.blockSignals(vertical_blocked)
         self._open_for_editing_button.setEnabled(
             callable(self._document_activator)
         )
@@ -270,8 +278,16 @@ class ReadOnlySLDViewport(QWidget):
 
     def clear_document(self) -> None:
         self._save_viewport_state()
-        self._render_system.clear()
-        self._document_id = None
+        horizontal = self._view.horizontalScrollBar()
+        vertical = self._view.verticalScrollBar()
+        horizontal_blocked = horizontal.blockSignals(True)
+        vertical_blocked = vertical.blockSignals(True)
+        try:
+            self._render_system.clear()
+            self._document_id = None
+        finally:
+            horizontal.blockSignals(horizontal_blocked)
+            vertical.blockSignals(vertical_blocked)
         self._open_for_editing_button.setEnabled(False)
 
     def dispose(self) -> None:
