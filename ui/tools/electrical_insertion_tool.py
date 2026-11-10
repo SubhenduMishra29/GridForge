@@ -127,6 +127,7 @@ class ElectricalInsertionTool(ToolBase):
             creation_parameters=self._creation_parameters,
             segment_index=int(target["segment_index"]),
             terminal_anchors=anchors,
+            route_geometry=target["route_geometry"],
         )
         result = self.execute_command(command)
         if not getattr(result, "success", False):
