@@ -454,12 +454,16 @@ class ValidationService:
                                         endpoint_error = f"unsupported Core endpoint kind {endpoint_kind!r}"
                                         break
                                     object_id = str(endpoint_data.get("object_id") or "")
-                                    matching_nodes = [
-                                        (candidate_id, candidate)
-                                        for candidate_id, candidate in node_by_id.items()
-                                        if str(candidate.get("equipment_id") or "") == object_id
-                                        and str(candidate.get("properties", {}).get("lifecycle_state", "BOUND")).strip().upper() == "BOUND"
-                                    ]
+                                    matching_nodes = []
+                                    for candidate_id, candidate in node_by_id.items():
+                                        candidate_properties = candidate.get("properties", {})
+                                        if not isinstance(candidate_properties, Mapping):
+                                            continue
+                                        if (
+                                            str(candidate.get("equipment_id") or "") == object_id
+                                            and str(candidate_properties.get("lifecycle_state", "BOUND")).strip().upper() == "BOUND"
+                                        ):
+                                            matching_nodes.append((candidate_id, candidate))
                                     if len(matching_nodes) != 1:
                                         endpoint_error = (
                                             f"Core endpoint {endpoint_kind}:{object_id} resolves to "
