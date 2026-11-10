@@ -304,3 +304,18 @@ Verification boundary: reviewed the single-file diff and outer/child command lif
 - Integrated background audits before comparison rendering and exposed the selected comparison document's audit state and diagnostic details in the read-only viewport. Audits do not switch Application presentation or mutate background documents.
 - Audit cache is keyed by persistent document identity and Application revision/project identity to avoid repeated full read-model scans. Route geometry, node positions, labels, and other non-topological presentation changes are excluded.
 - Background drift detection is implemented; automatic repair/reprojection of stale background documents remains a separate lifecycle task. GUI multi-document drift scenarios remain runtime-unverified; no CI/test acceptance gate was requested or run.
+
+GridForge V2 — SLD/Core association persistence integrity
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Corrections:
+- Application-owned SLD association validation now checks every BOUND SIMPLE_WIRE presentation companion for a non-empty canonical Core connection ID and verifies that the referenced Core Simple-Wire connection exists in Network.connectivity.
+- A BOUND Simple-Wire companion with a missing Core identity, a mismatched connection kind, or an unresolved Core connection now produces an explicit validation error.
+- Project persistence no longer exempts unresolved BOUND SLD equipment references. Saving rejects stale Core equipment bindings rather than silently preserving a broken active association.
+- Explicit ORPHANED SLD nodes/connections remain retained as presentation-only state and continue to produce warnings; orphan conversion remains an explicit lifecycle operation.
+- No geometry-to-connectivity inference, Core object synthesis, automatic orphan conversion, or presentation mutation was introduced.
+
+Verification boundary:
+- Source-level contract and diff review only. No tests/CI, Qt runtime, project activation, or desktop save/reopen were executed.
