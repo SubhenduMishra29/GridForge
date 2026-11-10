@@ -1,3 +1,23 @@
+GridForge V2 — Canvas symbol rotation interaction correction
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Problem reported:
+- The selected-symbol contextual rotation strip was not visible in the user's GUI.
+- Q/E keyboard rotation did not respond in the user's GUI.
+
+Correction:
+- Added view-owned QAction shortcuts for Q (90 degrees counter-clockwise) and E (90 degrees clockwise), using WidgetWithChildrenShortcut so shortcuts remain active while focus is on canvas descendants.
+- Explicitly returns mouse focus to GraphicsView at the start of canvas mouse presses, including paths where InteractionManager consumes the event before QGraphicsView's default handler.
+- Retained the existing presentation-only controller command path; no Core equipment, terminal identity, or electrical topology mutation was added.
+
+Verification:
+- Source update committed to main; fetch-back confirmation is pending.
+- GUI visibility and shortcut behavior require user-machine runtime acceptance.
+- The contextual strip visibility issue is not claimed resolved until selected-item lookup is confirmed against the live selection/projection path.
+
+======================================================================
 GridForge V2 — Canvas navigation usability
 Date: 2026-11-09
 Repository: SubhenduMishra29/GridForge
