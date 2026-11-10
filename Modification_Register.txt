@@ -156,7 +156,7 @@ Corrections:
 - Connected SelectTool's Delete-key dispatch to the canonical SLDController through the composed UI Controller capability; Delete no longer silently consumes the key without a deletion handler.
 - Added DeleteSLDSelectionCommand so multi-node and multi-engineer-connection presentation selections execute inside one Application transaction and share one undo boundary.
 - Preflight validates the complete typed selection before mutation. Core-backed or projection-owned connections are rejected from presentation-only batch deletion.
-- SLD node removal now rejects attached Core-backed or projection-owned connections, preventing the SLD service from deleting a wire's presentation while leaving Core connectivity active.
+- SLD node removal now rejects attached Core-backed, projection-owned, active Simple Wire, or retained orphaned Simple Wire connections, preventing electrical connectivity or engineer-authored orphan route metadata from being silently discarded.
 - A single selected Simple Wire continues through RemoveSimpleWireConnectionCommand and its canonical Core/Application reconciliation path. Multi-selection containing Core-backed connections fails closed rather than performing a partially atomic sequence.
 - Selection is cleared only after the Application command reports success; undo/redo remains owned by the existing transaction journal.
 
