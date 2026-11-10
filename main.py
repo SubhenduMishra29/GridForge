@@ -420,6 +420,9 @@ def _build_application_impl(
     resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
     project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
+    # All SLDController document activation requests must pass through the same
+    # workspace transaction used by the document tabs and lifecycle guards.
+    sld_controller.bind_document_activation_handler(project_workspace_adapter.activate_document)
 
     def _reset_interaction_for_project_transition():
         # Project replacement discards transient placement state; unlike a
