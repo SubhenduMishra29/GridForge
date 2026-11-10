@@ -1173,6 +1173,20 @@ class SLDService:
         node.equipment_id = equipment_id
         self.document.mark_modified()
 
+    @staticmethod
+    def _insertion_geometry_point(value: Any, *, field: str) -> tuple[float, float]:
+        if not isinstance(value, (tuple, list)) or len(value) != 2:
+            raise ValueError(f"{field} must contain exactly two coordinates.")
+        coordinates = []
+        for coordinate in value:
+            if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+                raise ValueError(f"{field} coordinates must be numeric.")
+            numeric = float(coordinate)
+            if not math.isfinite(numeric):
+                raise ValueError(f"{field} coordinates must be finite.")
+            coordinates.append(numeric)
+        return (coordinates[0], coordinates[1])
+
     @classmethod
     def _validate_insertion_geometry(
         cls,
@@ -1183,6 +1197,7 @@ class SLDService:
         target_node: Any,
         insertion_position: tuple[float, float] | list[float],
         segment_index: int,
+        route_geometry: Mapping[str, Any] | None = None,
     ) -> tuple[float, float]:
         """Validate insertion geometry against exactly the selected SLD segment.
 
@@ -1242,12 +1257,27 @@ class SLDService:
             )
 
         try:
-            source = (float(source_node.x), float(source_node.y))
-            target = (float(target_node.x), float(target_node.y))
-            route_points = tuple(
-                (float(point[0]), float(point[1]))
-                for point in old_connection.route.points
-            )
+            if route_geometry is None:
+                source = (float(source_node.x), float(source_node.y))
+                target = (float(target_node.x), float(target_node.y))
+                route_points = tuple(
+                    (float(point[0]), float(point[1]))
+                    for point in old_connection.route.points
+                )
+            else:
+                source = cls._insertion_geometry_point(
+                    route_geometry.get("source"), field="route_geometry.source"
+                )
+                target = cls._insertion_geometry_point(
+                    route_geometry.get("target"), field="route_geometry.target"
+                )
+                raw_points = route_geometry.get("points")
+                if not isinstance(raw_points, (tuple, list)):
+                    raise ValueError("route_geometry.points must be a sequence.")
+                route_points = tuple(
+                    cls._insertion_geometry_point(point, field=f"route_geometry.points[{index}]")
+                    for index, point in enumerate(raw_points)
+                )
         except (AttributeError, TypeError, ValueError, IndexError, OverflowError) as exc:
             raise ValidationError(
                 code="INVALID_INSERTION_POSITION",
@@ -1341,6 +1371,7 @@ class SLDService:
         replacement_connection_ids: tuple[str, str],
         transaction: Transaction,
         terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
+        route_geometry: Mapping[str, Any] | None = None,
     ) -> None:
         """Atomically replace one persistent SLD wire with an inserted node and two wires.
 
@@ -1400,6 +1431,46 @@ class SLDService:
         if str(old_connection.properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
             raise ValueError("Electrical insertion requires a Simple Wire SLD companion.")
         snapshot = old_connection.to_dict()
+        route = old_connection.route.to_dict()
+        if not isinstance(route_geometry, Mapping):
+            raise ValidationError(
+                code="INSERTION_ROUTE_GEOMETRY_MISSING",
+                message="Insertion requires the exact realized SLD route geometry snapshot.",
+                details={"connection_id": str(connection_id), "presentation_id": str(old_id)},
+            )
+        if (
+            str(route_geometry.get("presentation_id", "")) != str(old_id)
+            or str(route_geometry.get("core_connection_id", "")) != str(connection_id)
+            or str(old_connection.properties.get("core_connection_id", "")) != str(connection_id)
+        ):
+            raise ValidationError(
+                code="INSERTION_ROUTE_GEOMETRY_IDENTITY_MISMATCH",
+                message="Insertion route geometry is stale or belongs to another connection.",
+                details={"connection_id": str(connection_id), "presentation_id": str(old_id)},
+            )
+        expected_source_endpoint = (
+            old_connection.source_endpoint.to_dict()
+            if old_connection.source_endpoint is not None
+            else None
+        )
+        expected_target_endpoint = (
+            old_connection.target_endpoint.to_dict()
+            if old_connection.target_endpoint is not None
+            else None
+        )
+        if (
+            expected_source_endpoint is None
+            or expected_target_endpoint is None
+            or route_geometry.get("source_endpoint") != expected_source_endpoint
+            or route_geometry.get("target_endpoint") != expected_target_endpoint
+            or route_geometry.get("route_ownership") != route.get("ownership")
+        ):
+            raise ValidationError(
+                code="INSERTION_ROUTE_GEOMETRY_STALE",
+                message="Insertion route geometry no longer matches the active SLD endpoint or ownership contract.",
+                details={"connection_id": str(connection_id), "presentation_id": str(old_id)},
+            )
+
         node_snapshot = existing_node.to_dict() if existing_node is not None else None
         previous_document_modified = bool(getattr(self.document, "modified", False))
         source_node = self.document.model.get_node(old_connection.source_node_id)
@@ -1411,12 +1482,12 @@ class SLDService:
             target_node=target_node,
             insertion_position=insertion_position,
             segment_index=segment_index,
+            route_geometry=route_geometry,
         )
 
         # Capture ownership/provenance before replacing the persistent
         # connection. These values belong to the authored SLD presentation and
         # must not be inferred from the insertion command itself.
-        route = old_connection.route.to_dict()
         original_route_ownership = str(route.get("ownership", "auto")).lower()
         original_route_owner = old_connection.properties.get("route_owner")
         original_presentation_owner = old_connection.properties.get("presentation_owner")
@@ -1424,9 +1495,12 @@ class SLDService:
         if original_presentation_owner not in (None, "engineer", "projection"):
             raise ValueError("SLD connection presentation ownership is unknown; insertion is rejected.")
         polyline = [
-            (float(source_node.x), float(source_node.y)),
-            *tuple(tuple(point) for point in old_connection.route.points),
-            (float(target_node.x), float(target_node.y)),
+            self._insertion_geometry_point(route_geometry["source"], field="route_geometry.source"),
+            *tuple(
+                self._insertion_geometry_point(point, field=f"route_geometry.points[{index}]")
+                for index, point in enumerate(route_geometry["points"])
+            ),
+            self._insertion_geometry_point(route_geometry["target"], field="route_geometry.target"),
         ]
         if segment_index < 0 or segment_index >= len(polyline) - 1:
             raise ValueError(
