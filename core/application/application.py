@@ -5273,13 +5273,27 @@ class Application:
             return
         if command.command_type == "network.commit_draft":
             if operation == "execute":
-                self._event_bus.publish(NetworkCommitted(metadata=metadata, correlation_id=command.correlation_id, causation_id=command.causation_id))
+                commit_metadata = {
+                    **metadata,
+                    "presentation_operation": "network_commit_draft",
+                }
+                self._event_bus.publish(NetworkCommitted(
+                    metadata=commit_metadata,
+                    correlation_id=command.correlation_id,
+                    causation_id=command.causation_id,
+                ))
             else:
                 # Undo/redo of a Draft→Core commit changes the authoritative
                 # network and its persistent SLD companion state together.
+                # Mark the network event as one half of the same projection
+                # boundary so the UI coordinator can defer its canvas refresh
+                # until the matching SLDPresentationChanged event.
                 self._event_bus.publish(NetworkChanged(
                     operation=operation,
-                    metadata=metadata,
+                    metadata={
+                        **metadata,
+                        "presentation_operation": "network_commit_draft",
+                    },
                     correlation_id=command.correlation_id,
                     causation_id=command.causation_id,
                 ))
