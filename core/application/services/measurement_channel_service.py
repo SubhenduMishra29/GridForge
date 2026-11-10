@@ -328,6 +328,7 @@ class MeasurementChannelService:
             scale=float(definition.get("scale", 1.0)),
             polarity=float(definition.get("polarity", 1.0)),
             timestamp_domain=definition.get("timestamp_domain"),
+            stale_after=definition.get("stale_after"),
         )
 
     @staticmethod
@@ -383,6 +384,7 @@ class MeasurementChannelService:
             "scale": channel.scale,
             "polarity": channel.polarity,
             "timestamp_domain": channel.timestamp_domain,
+            "stale_after": channel.stale_after,
             "producer_id": getattr(channel, "producer_id", None),
         }
 
