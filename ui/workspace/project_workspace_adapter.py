@@ -651,6 +651,7 @@ class ProjectWorkspaceApplicationAdapter:
             raise RuntimeError("Cannot create an SLD document without an active project.")
         previous = self._lifecycle.document
         snapshot = self._lifecycle.capture_transition_state()
+        previous_draft_collection = self._application.draft_network_collection
         try:
             if self._document_transition_guard is not None:
                 self._document_transition_guard()
@@ -681,7 +682,9 @@ class ProjectWorkspaceApplicationAdapter:
             )
             return document
         except BaseException as primary:
-            recovery: list[tuple[str, Callable[[], None]]] = []
+            recovery: list[tuple[str, Callable[[], None]]] = [
+                ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
+            ]
             if document is not None and self._lifecycle.documents.get(document.document_id) is not None:
                 recovery.append(
                     ("new-document removal", lambda: self._lifecycle.remove_document(document.document_id))
