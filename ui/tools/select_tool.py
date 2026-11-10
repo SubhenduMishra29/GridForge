@@ -197,18 +197,12 @@ class SelectTool(ToolBase):
                         delta_y = 0.0
                     elif self._grab_axis == "y":
                         delta_x = 0.0
-                    snap = getattr(self.get_snap_system(), "snap", None)
-                    if callable(snap):
-                        snapped = snap(
-                            QPointF(delta_x, delta_y),
-                            allow_grid=True,
-                            allow_object=False,
-                            intent="MOVE",
-                        )
-                        position = getattr(snapped, "position", None)
-                        if position is not None:
-                            delta_x = float(position.x())
-                            delta_y = float(position.y())
+                    snap_grid_point = getattr(self.get_snap_system(), "snap_grid_point", None)
+                    if callable(snap_grid_point):
+                        snapped_position = snap_grid_point(QPointF(delta_x, delta_y))
+                        if snapped_position is not None:
+                            delta_x = float(snapped_position.x())
+                            delta_y = float(snapped_position.y())
                     self._commit_group_transform(delta_x=delta_x, delta_y=delta_y)
             finally:
                 self._grab_mode = False
@@ -472,19 +466,15 @@ class SelectTool(ToolBase):
         # grid-aligned movement and relative geometry is preserved.
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
-        snap = getattr(self.get_snap_system(), "snap", None)
-        if callable(snap):
-            # SnapSystem consumes QPointF-compatible scene-space vectors.
-            snapped = snap(
-                QPointF(delta_x, delta_y),
-                allow_grid=True,
-                allow_object=False,
-                intent="MOVE",
-            )
-            position = getattr(snapped, "position", None)
-            if position is not None:
-                delta_x = float(position.x())
-                delta_y = float(position.y())
+        snap_grid_point = getattr(self.get_snap_system(), "snap_grid_point", None)
+        if callable(snap_grid_point):
+            # This translation-specific API bypasses cursor snap tolerance:
+            # the shared delta is grid-aligned even when the pointer grab
+            # offset is far from the nearest grid intersection.
+            snapped_position = snap_grid_point(QPointF(delta_x, delta_y))
+            if snapped_position is not None:
+                delta_x = float(snapped_position.x())
+                delta_y = float(snapped_position.y())
 
         manager = self.get_selection_manager()
         selected_ids = tuple(manager.get_selected_ids(domain=manager.NODE))
