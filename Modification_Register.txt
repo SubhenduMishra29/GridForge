@@ -288,3 +288,11 @@ Verification boundary:
 - Replaced tolerance-based SnapSystem.snap() calls for normal selection drag and group-grab translation with SnapSystem.snap_grid_point().
 - The translation vector is now aligned to the grid independently of cursor proximity/tolerance; the pointer's arbitrary grab offset cannot cause a no-snap fallback and leave fractional deltas.
 - Clipboard paste already uses the same translation-specific snap_grid_point() path in current root main. Both movement and paste now share the same unconditional grid-alignment semantics when grid snapping is enabled.
+
+[2026-11-10] Protection runtime recomposition after inline CurrentTransformer insertion (root PR #1175; source: madhuri196mishra-cpu/GridForge#<escape>?</escape>):
+- At the outer INSERT_EQUIPMENT_INTO_CONNECTION Application pre-commit boundary, detect insertion metadata identifying current_transformer equipment.
+- Include this aggregate insertion in the existing transactional ProtectionRuntime recomposition branch. The nested equipment-creation child command intentionally bypasses the pre-commit hook, so handling only model.create_current_transformer left the active runtime equipment fingerprint stale.
+- Recompose from the canonical active Network, active ProtectionConfigurationService configuration, and current MeasurementChannelService channels; retain the existing transaction undo registration and fail-closed service/network checks.
+- Do not fabricate MeasurementChannel definitions or relay bindings. CT secondary wiring and relay-input engineering configuration remain explicit follow-on configuration work.
+- Scope is limited to CurrentTransformer insertion; other equipment insertion behavior is unchanged.
+Verification boundary: reviewed the single-file diff and outer/child command lifecycle statically. No tests, CI, startup, GUI, or runtime experiments were run.
