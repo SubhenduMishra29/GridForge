@@ -324,6 +324,81 @@ def create_application(
                             f"Selection delete preflight could not resolve an engineer-owned SLD-only node {identity!r}."
                         )
 
+            # Dependency closure is checked against the complete immutable snapshots
+            # before the first child mutation. Core Simple Wires are explicit batch
+            # children; DraftNetwork removal otherwise cascades attached draft wires.
+            selected_core_equipment_ids = {
+                str(child.payload.get(identity_fields[child.command_type], "")).strip()
+                for child in children
+                if child.command_type in expected_element_types
+            }
+            selected_simple_wire_ids = {
+                str(child.payload.get("connection_id", "")).strip()
+                for child in children
+                if child.command_type == "connectivity.remove_simple_wire"
+            }
+
+            def endpoint_equipment_id(endpoint: Any) -> str | None:
+                if not isinstance(endpoint, Mapping):
+                    return None
+                endpoint_kind = str(endpoint.get("kind", "")).strip().lower()
+                if endpoint_kind not in {"terminal", "bus"}:
+                    return None
+                reference = endpoint.get("endpoint", endpoint)
+                if not isinstance(reference, Mapping):
+                    return None
+                identity = str(reference.get("object_id", "")).strip()
+                return identity or None
+
+            for equipment_id in selected_core_equipment_ids:
+                incident_wire_ids = {
+                    str(wire.connection_id)
+                    for wire in network_snapshot.simple_wires
+                    if equipment_id in {
+                        endpoint_equipment_id(wire.endpoint_a),
+                        endpoint_equipment_id(wire.endpoint_b),
+                    }
+                }
+                omitted_wire_ids = incident_wire_ids - selected_simple_wire_ids
+                if omitted_wire_ids:
+                    raise ValueError(
+                        "Selection delete preflight is not dependency-closed: Core equipment "
+                        f"{equipment_id!r} still has unselected Simple Wires "
+                        f"{sorted(omitted_wire_ids)!r}. Include every incident Simple Wire "
+                        "in the same batch or leave the equipment selected for a later operation."
+                    )
+
+            selected_draft_equipment_ids = {
+                str(child.payload.get("draft_id", "")).strip()
+                for child in children
+                if child.command_type == "draft.remove_equipment"
+            }
+            selected_draft_connection_ids = {
+                str(child.payload.get("connection_id", "")).strip()
+                for child in children
+                if child.command_type == "draft.remove_connection"
+            }
+            for draft_id in selected_draft_equipment_ids:
+                dependent_connection_ids = {
+                    str(connection.get("connection_id", "")).strip()
+                    for connection in draft_snapshot.get("connections", ())
+                    if isinstance(connection, Mapping)
+                    and any(
+                        isinstance(connection.get(endpoint_name), Mapping)
+                        and connection[endpoint_name].get("scope") == "draft"
+                        and str(connection[endpoint_name].get("object_id", "")).strip() == draft_id
+                        for endpoint_name in ("source", "target")
+                    )
+                }
+                omitted_connection_ids = dependent_connection_ids - selected_draft_connection_ids
+                if omitted_connection_ids:
+                    raise ValueError(
+                        "Selection delete preflight is not dependency-closed: DraftNetwork "
+                        f"equipment {draft_id!r} still has unselected connections "
+                        f"{sorted(omitted_connection_ids)!r}. Include every attached draft "
+                        "connection in the same batch."
+                    )
+
             # Remove connections before their endpoint equipment. The shared
             # transaction journal restores all earlier children if any later
             # child fails, while the outer command creates one history record.

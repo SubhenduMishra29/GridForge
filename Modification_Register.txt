@@ -1175,3 +1175,35 @@ Verification boundary:
   remain open under root issue #1180. Do not close the issue on this change.
 
 ======================================================================
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-002 — ROOT ISSUE #1180 DEPENDENCY CLOSURE
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Extend the existing Application batch preflight to require dependency closure
+  before any child command executes.
+- For selected Core Bus, Transformer, and Breaker identities, inspect every
+  incident Simple Wire in the immutable NetworkReadModel and reject the batch
+  unless every such wire is explicitly included as a canonical removal child.
+- For selected DraftNetwork equipment, inspect document-scoped draft connections
+  and reject the batch unless every connection whose endpoint scope is "draft"
+  and whose object identity matches the selected equipment is explicitly included.
+- Keep Core Junctions outside the deletion child vocabulary. Junction endpoints
+  remain Core-owned topology references; removing a selected wire does not imply
+  removal of its junction.
+- Retain connection-before-equipment ordering and the existing single outer
+  Application transaction/history boundary. No new service or registry added.
+
+Verification boundary:
+- Static source inspection confirms endpoint mapping shape in
+  TopologyEndpointReference.to_mapping(), SimpleWireReadModel, and
+  DraftEndpointReference/DraftConnection serialization.
+- Updated batch handler and register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse restoration and interactive acceptance evidence remain open;
+  this dependency-closure correction does not close root issue #1180.
+
