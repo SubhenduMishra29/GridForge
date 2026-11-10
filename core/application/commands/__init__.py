@@ -95,6 +95,8 @@ from .control_commands import *
 
 from .draft_commands import (
     UPDATE_DRAFT_CONNECTION_ROUTE,
+    PASTE_DRAFT_SELECTION,
+    PasteDraftSelectionCommand,
     UpdateDraftConnectionRouteCommand,
 )
 
