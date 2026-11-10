@@ -3905,6 +3905,7 @@ class Application:
                     insertion_position=tuple(metadata["insertion_position"]),
                     orientation=float(metadata["orientation"]),
                     segment_index=int(metadata["segment_index"]),
+                    route_geometry=metadata["route_geometry"],
                     input_endpoint=dict(metadata["input_endpoint"]),
                     output_endpoint=dict(metadata["output_endpoint"]),
                     replacement_connection_ids=tuple(metadata["replacement_connection_ids"]),

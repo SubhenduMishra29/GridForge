@@ -100,6 +100,24 @@ class ElectricalInsertionService:
                 message="Insertion requires a non-empty connection ID.",
                 details={},
             )
+        route_geometry = payload.get("route_geometry")
+        if not isinstance(route_geometry, Mapping):
+            raise ValidationError(
+                code="INSERTION_ROUTE_GEOMETRY_MISSING",
+                message="Insertion requires the exact realized SLD route geometry snapshot.",
+                details={"connection_id": connection_id},
+            )
+        if (
+            route_geometry.get("core_connection_id") != connection_id
+            or not isinstance(route_geometry.get("presentation_id"), str)
+            or not route_geometry.get("presentation_id", "").strip()
+        ):
+            raise ValidationError(
+                code="INSERTION_ROUTE_GEOMETRY_IDENTITY_MISMATCH",
+                message="Insertion route geometry does not identify the selected Core and SLD connection.",
+                details={"connection_id": connection_id},
+            )
+
         connection = network.get_simple_wire_connection(connection_id)
         endpoint_a = connection.endpoint_a
         endpoint_b = connection.endpoint_b
@@ -565,6 +583,7 @@ class ElectricalInsertionService:
                 "terminal_anchors": (
                     None if terminal_anchors is None else dict(terminal_anchors)
                 ),
+                "route_geometry": route_geometry,
                 "terminal_mapping": tuple(terminal_mapping),
                 "endpoint_a": dict(endpoint_a.to_mapping()),
                 "endpoint_b": dict(endpoint_b.to_mapping()),

@@ -34,6 +34,7 @@ class InsertEquipmentIntoConnectionCommand(Command):
         creation_parameters: Mapping[str, Any] | None = None,
         segment_index: int = 0,
         terminal_anchors: Mapping[str, tuple[float, float]] | None = None,
+        route_geometry: Mapping[str, Any] | None = None,
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
@@ -90,6 +91,53 @@ class InsertEquipmentIntoConnectionCommand(Command):
                     raise ValueError("terminal anchor coordinates must be finite.")
                 normalized_terminal_anchors[normalized_role] = (float(anchor[0]), float(anchor[1]))
 
+        normalized_route_geometry: dict[str, Any] | None = None
+        if route_geometry is not None:
+            if not isinstance(route_geometry, Mapping):
+                raise TypeError("route_geometry must be a mapping or None.")
+            presentation_id = route_geometry.get("presentation_id")
+            core_connection_id = route_geometry.get("core_connection_id")
+            if not isinstance(presentation_id, str) or not presentation_id.strip():
+                raise ValueError("route_geometry.presentation_id must be non-empty.")
+            if core_connection_id != connection_id.strip():
+                raise ValueError("route_geometry.core_connection_id must match connection_id.")
+            if route_geometry.get("route_ownership") not in {"auto", "engineer"}:
+                raise ValueError("route_geometry.route_ownership must be 'auto' or 'engineer'.")
+
+            def normalized_point(value: Any, field: str) -> tuple[float, float]:
+                if not isinstance(value, (tuple, list)) or len(value) != 2:
+                    raise TypeError(f"route_geometry.{field} must contain exactly two coordinates.")
+                coordinates = []
+                for coordinate in value:
+                    if isinstance(coordinate, bool) or not isinstance(coordinate, (int, float)):
+                        raise TypeError(f"route_geometry.{field} coordinates must be numeric.")
+                    numeric = float(coordinate)
+                    if not math.isfinite(numeric):
+                        raise ValueError(f"route_geometry.{field} coordinates must be finite.")
+                    coordinates.append(numeric)
+                return (coordinates[0], coordinates[1])
+
+            source_endpoint = route_geometry.get("source_endpoint")
+            target_endpoint = route_geometry.get("target_endpoint")
+            if not isinstance(source_endpoint, Mapping) or not isinstance(target_endpoint, Mapping):
+                raise ValueError("route_geometry must carry both canonical SLD endpoint descriptors.")
+            raw_points = route_geometry.get("points")
+            if not isinstance(raw_points, (tuple, list)):
+                raise TypeError("route_geometry.points must be a sequence.")
+            normalized_route_geometry = {
+                "presentation_id": presentation_id.strip(),
+                "core_connection_id": connection_id.strip(),
+                "source_endpoint": dict(source_endpoint),
+                "target_endpoint": dict(target_endpoint),
+                "source": normalized_point(route_geometry.get("source"), "source"),
+                "target": normalized_point(route_geometry.get("target"), "target"),
+                "points": tuple(
+                    normalized_point(point, f"points[{index}]")
+                    for index, point in enumerate(raw_points)
+                ),
+                "route_ownership": route_geometry["route_ownership"],
+            }
+
         super().__init__(
             command_type=INSERT_EQUIPMENT_INTO_CONNECTION,
             payload={
@@ -104,6 +152,7 @@ class InsertEquipmentIntoConnectionCommand(Command):
                 "creation_parameters": {} if creation_parameters is None else dict(creation_parameters),
                 "segment_index": segment_index,
                 "terminal_anchors": normalized_terminal_anchors,
+                "route_geometry": normalized_route_geometry,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,

@@ -1141,3 +1141,49 @@ Verification:
 - Round-trip, propagation, semantic fail-closed, and persistence checks
   recorded in the implementation session; no Qt GUI/runtime acceptance
   or actual .gridforge archive reopen is claimed.
+
+
+======================================================================
+GF-SLD-INSERTION-ROUTE-SNAPSHOT-001 — DISPLAYED ROUTE / INSERTION INDEX CONSISTENCY
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main baseline)
+Issue: #811
+
+Finding:
+- SLDConnectionItem.insertion_target() calculates segment_index from the
+  realized canvas polyline: visual source/target anchors plus route points
+  produced by the renderer.
+- SLDService._validate_insertion_geometry() and reconcile_insertion()
+  previously interpreted that index against SLD node centres plus persisted
+  route points. Terminal-anchor offsets, automatic routing, and generated
+  orthogonal endpoint elbows can make those polylines differ. An index from
+  one path could therefore select another segment in the second path.
+
+Correction:
+- Persistent insertion hit resolution now fails closed when either canonical
+  SLD endpoint descriptor is absent, before constructing an Application
+  command.
+- Carry an immutable, value-only route geometry snapshot in
+  InsertEquipmentIntoConnectionCommand: presentation/Core connection
+  identities, canonical source/target endpoint descriptors, visual
+  source/target coordinates, realized route points, and route ownership.
+- The Application insertion service validates the Core/presentation
+  identity pair and forwards the snapshot through transaction metadata.
+- SLDService verifies presentation identity, Core identity, endpoint
+  descriptors, and route ownership against the current SLD connection.
+  It validates finite geometry and the insertion position against the exact
+  selected displayed segment, then partitions that same polyline for the two
+  replacement SLD presentation routes.
+- Core topology continues to use canonical EndpointReference,
+  ConnectTerminalCommand, and Network connectivity. Route geometry remains
+  presentation-only; no Qt/QGraphics object or geometry-derived electrical
+  connection crosses the Application/Core boundary.
+
+Verification boundary:
+- Source-level review of the interaction, immutable command, Application
+  insertion service, pre-commit handoff, and SLD route reconciliation paths.
+- Regression coverage added for rendered-route endpoint/segment consistency.
+- No tests/CI, Qt runtime, overlapping-wire insertion, undo/redo, or project
+  save/reopen interaction executed. Issue #811 remains open pending GUI
+  acceptance and a reproducible trace of the original reported scenario.
