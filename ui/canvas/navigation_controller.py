@@ -995,7 +995,8 @@ class NavigationController:
             self._apply_zoom_level(
                 target
             )
-
+            self._zoom_level = self._estimate_zoom_level()
+            self._notify_zoom_changed()
             return
 
         self.view.setTransform(
@@ -1003,6 +1004,7 @@ class NavigationController:
         )
 
         self._zoom_level = scale
+        self._notify_zoom_changed()
 
     # ========================================================
     # ZOOM LIMITS
@@ -1058,6 +1060,9 @@ class NavigationController:
         self._apply_zoom_level(
             target
         )
+        self._zoom_level = self._estimate_zoom_level()
+        self._zoom_level = self._clamp_zoom(self._zoom_level)
+        self._notify_zoom_changed()
 
     # --------------------------------------------------------
 
