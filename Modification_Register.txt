@@ -1141,3 +1141,37 @@ Verification:
 - Round-trip, propagation, semantic fail-closed, and persistence checks
   recorded in the implementation session; no Qt GUI/runtime acceptance
   or actual .gridforge archive reopen is claimed.
+
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-001 — ROOT ISSUE #1180 PREFLIGHT
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+
+Correction:
+- Extended the existing Application-owned sld.delete_selection_batch handler
+  with a complete identity-existence preflight before the first child command
+  is executed.
+- Resolve Core Bus, Transformer, and Breaker identities against the active
+  Application NetworkReadModel and verify the expected semantic element type.
+- Resolve Simple Wire identities against the same immutable network snapshot.
+- Resolve draft equipment and draft connection identities against the active
+  document-scoped DraftNetwork snapshot.
+- Resolve SLD-only node identities against the active SLDService document and
+  reject missing nodes or nodes owned by Core equipment.
+- Preserve the existing single shared transaction, dependency-ordered child
+  execution, and one outer history record. Child handlers retain their own
+  domain/dependency validation and transactional rollback behavior.
+
+Verification boundary:
+- Static source inspection confirmed the read-model fields and active-document
+  DraftNetwork shape used by the preflight, and the complete updated handler
+  was fetched from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- This correction covers identity/type existence preflight; full dependency
+  graph preflight, exact inverse restoration of all Core/DraftNetwork/SLD
+  associations, and interactive Cut/undo/redo/cancel/save-reopen acceptance
+  remain open under root issue #1180. Do not close the issue on this change.
+
+======================================================================
