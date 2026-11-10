@@ -222,6 +222,7 @@ class SLDCanvasSurface(QWidget):
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
         if self._document_id != document.document_id:
+            self.capture_active_viewport_state()
             self._restore_document_viewport(document)
         snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks)
         self._sld_canvas_render_system.synchronize(snapshot)
