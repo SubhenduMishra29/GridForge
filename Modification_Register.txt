@@ -30,7 +30,7 @@ Branch: phase1/sld-wire-preview-endpoint-routing
 Changes:
 - Added owner-scoped polyline previews to PreviewLayer so one tool can replace or clear only its own transient graphics.
 - Changed WireTool live preview to deterministic horizontal-first orthogonal routing.
-- Persisted canonical route metadata (routing_mode, ownership, intermediate bend points) through the existing DraftNetwork and Simple Wire command payloads.
+- Added canonical route metadata (routing_mode, ownership, intermediate bend points) to the existing DraftNetwork and Simple Wire command payloads; end-to-end committed SLD projection persistence still requires runtime/source-path verification.
 - Kept route points presentation-only; canonical electrical endpoint references remain the source and target identities.
 - Preserved existing DraftConnection and SLDRoute validation and consecutive-duplicate normalization.
 
