@@ -387,6 +387,14 @@ class SLDUpdateCoordinator:
                     document,
                     self._application.read_network(),
                 )
+                if event.payload.get("presentation_operation") == "network_commit_draft":
+                    # Draft→Core commit publishes a paired network event and
+                    # SLD presentation event. Reconcile the Core projection
+                    # now, but defer the canvas refresh until the latter has
+                    # also removed the committed draft snapshot. This prevents
+                    # a transient frame containing both draft and Core items.
+                    self._last_reconciliation_error = None
+                    return
             elif isinstance(event, ProjectLoaded):
                 # Project activation crosses both Application read domains.
                 # Reconcile each authoritative read model directly; do not
