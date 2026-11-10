@@ -13,6 +13,7 @@ from ui.equipment.equipment_registry import EquipmentRegistry
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.equipment.symbol.symbol_factory import SymbolFactory
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
+from ui.equipment.terminal_contract import reconcile_terminal_contract
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import SLD_SEMANTIC_TYPES, semantic_type
 
@@ -26,6 +27,9 @@ class PresentationSelection:
     semantic_type: str
     equipment_type: str
     symbol_id: str
+    symbol_family_id: str = ""
+    standard_id: str = "unspecified"
+    variant_id: str = "default"
     representation_id: str = "symbol"
     symbol_instance: SymbolBase | None = None
 
@@ -88,36 +92,69 @@ class SemanticPresentationRealization:
         equipment_type = equipment_type_for_semantic(canonical_semantic)
         definition = self._equipment_registry.require(equipment_type)
 
+        default_definition = self._symbol_registry.require(definition.symbol_id)
         if node.presentation is None:
             symbol_instance = self._symbol_factory.create(definition.symbol_id)
         else:
-            symbol_instance = node.presentation
+            persisted = node.presentation
+            # Presentation identity may select another definition only within
+            # the equipment's registered symbol family. Equipment identity
+            # and terminal identity remain owned by their existing contracts.
+            symbol_definition = self._symbol_registry.require(persisted.symbol_id)
+            if persisted.definition_id != persisted.symbol_id:
+                raise ValueError(
+                    f"SLD symbol definition identity mismatch: "
+                    f"{persisted.definition_id!r} != {persisted.symbol_id!r}"
+                )
+            if symbol_definition.symbol_family_id != default_definition.symbol_family_id:
+                raise ValueError(
+                    f"SLD symbol family mismatch for {equipment_type!r}: "
+                    f"{symbol_definition.symbol_family_id!r} != "
+                    f"{default_definition.symbol_family_id!r}"
+                )
+            if (
+                persisted.symbol_family_id != symbol_definition.symbol_family_id
+                or persisted.standard_id != symbol_definition.standard_id
+                or persisted.variant_id != symbol_definition.variant_id
+            ):
+                raise ValueError(
+                    f"Persisted symbol variant metadata does not match "
+                    f"registered definition {symbol_definition.symbol_id!r}"
+                )
 
-        # EquipmentDefinition is the semantic-to-symbol authority. A
-        # persisted presentation may retain transforms/visibility, but it may
-        # not redirect a valid equipment node to another symbol definition.
-        if symbol_instance.symbol_id != definition.symbol_id:
-            raise ValueError(
-                f"SLD canonical symbol mismatch for {equipment_type!r}: "
-                f"equipment definition requires {definition.symbol_id!r}, "
-                f"presentation supplied {symbol_instance.symbol_id!r}"
+            terminal_report = reconcile_terminal_contract(
+                definition,
+                creation_definition=definition.creation_definition,
+                symbol_definition=symbol_definition,
             )
-        if symbol_instance.definition_id != definition.symbol_id:
-            raise ValueError(
-                f"SLD symbol definition identity mismatch for {equipment_type!r}: "
-                f"{symbol_instance.definition_id!r} != {definition.symbol_id!r}"
+            if terminal_report.errors:
+                raise ValueError(
+                    f"SLD symbol variant {symbol_definition.symbol_id!r} "
+                    f"violates the terminal contract for {equipment_type!r}: "
+                    + " ".join(terminal_report.errors)
+                )
+            symbol_instance = self._symbol_factory.create(
+                symbol_definition.symbol_id,
+                scale=persisted.scale,
+                rotation=persisted.rotation,
+                visible=persisted.visible,
+                representation_id=persisted.representation_id,
+                properties=persisted.properties,
             )
+
         if symbol_instance.representation_id != "symbol":
             raise ValueError(
                 f"Unsupported SLD symbol representation: "
                 f"{symbol_instance.representation_id!r}"
             )
 
-        self._symbol_registry.require(symbol_instance.symbol_id)
         return PresentationSelection(
             semantic_type=canonical_semantic,
             equipment_type=equipment_type,
             symbol_id=symbol_instance.symbol_id,
+            symbol_family_id=symbol_instance.symbol_family_id,
+            standard_id=symbol_instance.standard_id,
+            variant_id=symbol_instance.variant_id,
             representation_id=symbol_instance.representation_id,
             symbol_instance=SymbolBase.from_dict(symbol_instance.to_dict()),
         )
