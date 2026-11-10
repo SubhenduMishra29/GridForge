@@ -377,6 +377,7 @@ def validate_creation_contract_metadata(
     parameter_contract: tuple[Mapping[str, Any], ...],
     conditional_requirements: tuple[Mapping[str, Any], ...],
     canonical_contract: Mapping[str, Any],
+    command_field_dispositions: Mapping[str, Mapping[str, str]] | None = None,
 ) -> None:
     """Reject draft/intent metadata that differs from the trusted composition snapshot."""
     actual = {
@@ -390,6 +391,10 @@ def validate_creation_contract_metadata(
         "parameter_contract": parameter_contract,
         "conditional_requirements": conditional_requirements,
     }
+    if command_field_dispositions:
+        # Empty legacy recovery snapshots have no draft-supplied disposition
+        # authority; the trusted canonical registry remains the commit source.
+        actual["command_field_dispositions"] = command_field_dispositions
     for field, value in actual.items():
         expected = canonical_contract[field]
         if _plain_contract_value(value) != _plain_contract_value(expected):
