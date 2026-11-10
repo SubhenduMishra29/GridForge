@@ -199,6 +199,8 @@ class SLDConnectionItem(QGraphicsPathItem):
                 raise ValueError("Draft route interaction requires a stable draft connection identity.")
         elif not isinstance(self._core_connection_id, str) or not self._core_connection_id:
             raise ValueError("Persistent Simple Wire interaction requires an explicit Core connection identity.")
+        if self._source_endpoint is None or self._target_endpoint is None:
+            raise ValueError("Persistent Simple Wire insertion requires both canonical SLD endpoint descriptors.")
         if not isinstance(position, (tuple, list)) or len(position) != 2:
             raise TypeError("position must contain exactly two coordinates.")
         px, py = float(position[0]), float(position[1])
