@@ -1294,3 +1294,30 @@ Verification boundary:
 - No tests, CI, GUI, startup, or runtime experiments were run.
 - Exact inverse and interactive acceptance remain open; #1180 stays OPEN.
 
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-006 — ROOT ISSUE #1180 PROJECTION EVENT COALESCING
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Mark aggregate NetworkChanged/TopologyChanged and SLDPresentationChanged
+  notifications with the same presentation_operation identity for batch delete.
+- Extend the existing SLDUpdateCoordinator paired-event boundary to defer
+  canvas refresh on the aggregate network event and refresh once after the
+  matching SLD presentation event.
+- Reproject the document-scoped DraftNetwork snapshot at that same SLD boundary
+  so a mixed Core/DraftNetwork selection cannot leave stale draft graphics.
+- Reuse the existing coordinator and projection authority; no parallel event
+  bus or projection manager introduced.
+
+Verification boundary:
+- Static source inspection traced SLDUpdateCoordinator handling of paired
+  NetworkChanged/TopologyChanged and SLDPresentationChanged events, including
+  the existing network.commit_draft deferral pattern.
+- Updated Application event metadata, coordinator, and register entry fetched
+  back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse and interactive acceptance remain open; #1180 stays OPEN.
+

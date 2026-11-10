@@ -5481,6 +5481,7 @@ class Application:
                 "child_command_ids": tuple(str(child.command_id) for child in children),
                 "deleted_equipment": deleted_equipment,
                 "removed_simple_wire_ids": removed_wire_ids,
+                "presentation_operation": "selection_delete_batch",
                 "atomic": True,
             }
             if self._selection_batch_contains_core_mutation(command):
