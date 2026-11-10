@@ -25,8 +25,8 @@ class DraftEndpointReference:
     scope: str = "draft"
 
     def __post_init__(self) -> None:
-        if self.kind not in {"terminal", "bus"}:
-            raise ValueError("Draft endpoint kind must be 'terminal' or 'bus'.")
+        if self.kind not in {"terminal", "bus", "junction"}:
+            raise ValueError("Draft endpoint kind must be terminal, bus, or junction.")
         if not isinstance(self.object_id, str) or not self.object_id.strip():
             raise ValueError("Draft endpoint object_id must be non-empty.")
         object.__setattr__(self, "object_id", self.object_id.strip())
@@ -41,7 +41,7 @@ class DraftEndpointReference:
                 raise ValueError("Draft terminal endpoint cannot carry attachment_id.")
             object.__setattr__(self, "terminal_role", self.terminal_role.strip())
             object.__setattr__(self, "equipment_type", self.equipment_type.strip().lower())
-        else:
+        elif self.kind == "bus":
             if not isinstance(self.attachment_id, str) or not self.attachment_id.strip():
                 raise ValueError("Draft Bus endpoint requires attachment_id.")
             if self.terminal_role is not None or self.equipment_type is not None:
@@ -53,6 +53,11 @@ class DraftEndpointReference:
                     "with an index in the supported range 0..8."
                 )
             object.__setattr__(self, "attachment_id", attachment_id)
+        else:
+            if self.scope != "core":
+                raise ValueError("Junction endpoints must reference an existing Core Junction.")
+            if self.terminal_role is not None or self.attachment_id is not None or self.equipment_type is not None:
+                raise ValueError("Junction endpoints cannot carry terminal or Bus attachment identity.")
 
     @classmethod
     def terminal(cls, *, draft_id: str, equipment_type: str, terminal_role: str, scope: str = "draft") -> "DraftEndpointReference":
@@ -78,6 +83,8 @@ class DraftEndpointReference:
     def is_terminal(self) -> bool: return self.kind == "terminal"
     @property
     def is_bus(self) -> bool: return self.kind == "bus"
+    @property
+    def is_junction(self) -> bool: return self.kind == "junction"
 
     def to_dict(self) -> dict[str, Any]:
         return {"kind": self.kind, "object_id": self.object_id, "terminal_role": self.terminal_role,
@@ -86,6 +93,9 @@ class DraftEndpointReference:
     def to_core_reference(self):
         """Translate this canonical authoring identity without substituting endpoints."""
         from core.model import EndpointReference, EquipmentType
+        if self.is_junction:
+            from core.network import TopologyEndpointReference
+            return TopologyEndpointReference.from_junction(self.object_id)
         if self.is_bus:
             return EndpointReference.bus(self.object_id, self.attachment_id or "")
         return EndpointReference.terminal(
@@ -121,6 +131,7 @@ class DraftEquipment:
     required_connection_terminals: tuple[str, ...] = ()
     parameter_contract: tuple[Mapping[str, Any], ...] = ()
     conditional_requirements: tuple[Mapping[str, Any], ...] = ()
+    command_field_dispositions: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.draft_id.strip() or not self.equipment_type.strip(): raise ValueError("Draft equipment identity is required.")
@@ -156,6 +167,35 @@ class DraftEquipment:
         object.__setattr__(self, "required_connection_terminals", required_terminals)
         object.__setattr__(self, "parameter_contract", tuple(MappingProxyType(dict(x)) for x in self.parameter_contract))
         object.__setattr__(self, "conditional_requirements", tuple(MappingProxyType(dict(x)) for x in self.conditional_requirements))
+        if not isinstance(self.command_field_dispositions, Mapping):
+            raise TypeError("Draft command-field dispositions must be a mapping.")
+        allowed_dispositions = {
+            "metadata", "operating_point", "later_configuration",
+            "lifecycle_state", "operational_state", "measurement_association",
+            "provisional_default", "not_applicable",
+        }
+        requires_workflow = {
+            "operating_point", "later_configuration", "lifecycle_state",
+            "operational_state", "measurement_association",
+        }
+        dispositions: dict[str, Mapping[str, str]] = {}
+        for field_name, raw in self.command_field_dispositions.items():
+            if not isinstance(field_name, str) or not field_name.strip() or not isinstance(raw, Mapping):
+                raise TypeError("Draft command-field dispositions require named mapping values.")
+            kind, reason, workflow = raw.get("kind"), raw.get("reason"), raw.get("workflow")
+            if not isinstance(kind, str) or kind not in allowed_dispositions:
+                raise ValueError(f"Unsupported draft command-field disposition for {field_name!r}.")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ValueError(f"Draft command-field disposition {field_name!r} requires a reason.")
+            if kind in requires_workflow and (not isinstance(workflow, str) or not workflow.strip()):
+                raise ValueError(f"Draft command-field disposition {field_name!r} requires a workflow.")
+            if set(raw) - {"kind", "reason", "workflow"}:
+                raise ValueError(f"Draft command-field disposition {field_name!r} contains unsupported fields.")
+            normalized = {"kind": kind, "reason": reason.strip()}
+            if isinstance(workflow, str) and workflow.strip():
+                normalized["workflow"] = workflow.strip()
+            dispositions[field_name.strip()] = MappingProxyType(normalized)
+        object.__setattr__(self, "command_field_dispositions", MappingProxyType(dispositions))
 
     def to_dict(self) -> dict[str, Any]:
         return {"draft_id": self.draft_id, "equipment_type": self.equipment_type, "display_name": self.display_name,
@@ -167,7 +207,8 @@ class DraftEquipment:
                 "parameter_mapping": dict(self.parameter_mapping), "endpoint_mapping": dict(self.endpoint_mapping),
                 "required_connection_terminals": list(self.required_connection_terminals),
                 "parameter_contract": [dict(x) for x in self.parameter_contract],
-                "conditional_requirements": [dict(x) for x in self.conditional_requirements]}
+                "conditional_requirements": [dict(x) for x in self.conditional_requirements],
+                "command_field_dispositions": {k: dict(v) for k, v in self.command_field_dispositions.items()}}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftEquipment":
@@ -180,7 +221,8 @@ class DraftEquipment:
                     dict(data.get("parameter_mapping", {})), dict(data.get("endpoint_mapping", {})),
                     tuple(str(x) for x in data.get("required_connection_terminals", ())),
                     tuple(dict(x) for x in data.get("parameter_contract", ())),
-                    tuple(dict(x) for x in data.get("conditional_requirements", ())))
+                    tuple(dict(x) for x in data.get("conditional_requirements", ())),
+                    {str(k): dict(v) for k, v in dict(data.get("command_field_dispositions", {})).items()})
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,7 +335,7 @@ class DraftNetwork:
         current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state"}
         unknown = set(changes) - allowed
         if unknown: raise ValueError(f"Unsupported DraftEquipment fields: {sorted(unknown)!r}")
-        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals","parameter_contract","conditional_requirements")}
+        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals","parameter_contract","conditional_requirements","command_field_dispositions")}
         values.update(changes); updated = DraftEquipment(**values); self._equipment[draft_id] = updated; self.validation_state = {}; return updated
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
@@ -317,6 +359,21 @@ class DraftNetwork:
 
     def _validate_endpoint(self, endpoint: DraftEndpointReference, *, connection_id: str | None = None, network: Any | None = None) -> None:
         prefix = f"{connection_id}: " if connection_id else ""
+        if endpoint.is_junction:
+            if endpoint.scope != "core":
+                raise ValueError(f"{prefix}Junction endpoints must reference Core topology.")
+            if network is not None:
+                try:
+                    junction = network.get_junction(endpoint.object_id)
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"{prefix}unknown Core Junction {endpoint.object_id!r}."
+                    ) from exc
+                if junction is None:
+                    raise ValueError(
+                        f"{prefix}unknown Core Junction {endpoint.object_id!r}."
+                    )
+            return
         if endpoint.is_bus:
             if endpoint.terminal_role is not None or endpoint.equipment_type is not None:
                 raise ValueError(f"{prefix}Draft Bus endpoint cannot carry terminal identity.")
@@ -374,6 +431,7 @@ class DraftNetwork:
         connection: DraftConnection,
         *,
         replacing_connection_id: str | None = None,
+        network: Any | None = None,
     ) -> None:
         """Validate a candidate without changing draft state or transaction history.
 
@@ -397,8 +455,8 @@ class DraftNetwork:
                 )
         if connection.connection_kind != "simple_wire":
             raise ValueError("Only simple_wire DraftConnection is supported by the canonical authoring contract.")
-        self._validate_endpoint(connection.source, connection_id=connection.connection_id)
-        self._validate_endpoint(connection.target, connection_id=connection.connection_id)
+        self._validate_endpoint(connection.source, connection_id=connection.connection_id, network=network)
+        self._validate_endpoint(connection.target, connection_id=connection.connection_id, network=network)
         if connection.source == connection.target:
             raise ValueError(f"{connection.connection_id}: self-connection is invalid.")
 
@@ -409,13 +467,14 @@ class DraftNetwork:
             EndpointCompatibility,
             EndpointCompatibilityError,
         )
-        try:
-            EndpointCompatibility.validate_pair(
-                connection.source.to_core_reference(),
-                connection.target.to_core_reference(),
-            )
-        except EndpointCompatibilityError as exc:
-            raise ValueError(f"{connection.connection_id}: {exc}") from exc
+        if not (connection.source.is_junction or connection.target.is_junction):
+            try:
+                EndpointCompatibility.validate_pair(
+                    connection.source.to_core_reference(),
+                    connection.target.to_core_reference(),
+                )
+            except EndpointCompatibilityError as exc:
+                raise ValueError(f"{connection.connection_id}: {exc}") from exc
 
         candidate_pair = self._endpoint_pair_key(connection.source, connection.target)
         for existing in self._connections.values():
@@ -427,8 +486,8 @@ class DraftNetwork:
                     f"already used by {existing.connection_id}."
                 )
 
-    def add_connection(self, connection: DraftConnection) -> None:
-        self.validate_connection_candidate(connection)
+    def add_connection(self, connection: DraftConnection, *, network: Any | None = None) -> None:
+        self.validate_connection_candidate(connection, network=network)
         # Mutate only after every preflight check succeeds, so a rejected wire
         # cannot leave partially updated draft state.
         self._connections[connection.connection_id] = connection

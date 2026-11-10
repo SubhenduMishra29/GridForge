@@ -196,6 +196,10 @@ class ModelPlacementTool(ToolBase):
                 "conditional_requirements": tuple(
                     dict(item) for item in canonical_contract["conditional_requirements"]
                 ),
+                "command_field_dispositions": {
+                    str(field_name): dict(disposition)
+                    for field_name, disposition in canonical_contract["command_field_dispositions"].items()
+                },
             }
             document_id = getattr(
                 getattr(self.application, "presentation", None),
