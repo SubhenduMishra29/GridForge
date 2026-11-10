@@ -195,6 +195,15 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("provider must be callable.")
         self._transition_decision_provider = provider
 
+    def _mark_workspace_saved(self) -> None:
+        """Clear document and collection dirty markers only after successful package persistence."""
+        for document in tuple(self._lifecycle.documents.documents()):
+            mark_clean = getattr(document, "mark_clean", None)
+            if callable(mark_clean):
+                mark_clean()
+            self._lifecycle.documents.mark_clean(document.document_id)
+        self._document_collection_dirty = False
+
     def _resolve_transition_decision(
         self,
         decision: ProjectTransitionDecision | str | None,
@@ -231,7 +240,7 @@ class ProjectWorkspaceApplicationAdapter:
                 self._application.save_project_as(path)
             else:
                 self._application.save_project()
-            self._document_collection_dirty = False
+            self._mark_workspace_saved()
         return normalized
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
@@ -742,8 +751,6 @@ class ProjectWorkspaceApplicationAdapter:
         decision: str = "cancel",
     ) -> ProjectWorkspaceState:
         """Close exactly one SLD document with save/discard/cancel semantics."""
-        if self._presentation_state_capture_provider is not None:
-            self._presentation_state_capture_provider()
         document = self._lifecycle.documents.require(document_id)
         if not isinstance(document, SLDDocument):
             raise TypeError("Only SLDDocument documents can be closed here.")
@@ -752,6 +759,8 @@ class ProjectWorkspaceApplicationAdapter:
             raise ValueError("decision must be save, discard, or cancel.")
         if decision == "cancel":
             return self._lifecycle.state
+        if self._presentation_state_capture_provider is not None:
+            self._presentation_state_capture_provider()
         if self._application.draft_document_has_pending(document_id):
             if decision == "save":
                 raise RuntimeError(
@@ -797,6 +806,7 @@ class ProjectWorkspaceApplicationAdapter:
                         self._application.save_project()
                     else:
                         self._application.save_project_as(str(save_path))
+                    self._mark_workspace_saved()
                     # Saving a non-active document is an internal step of this
                     # close transaction, not a separately committed workspace
                     # transition. Restore the original active document silently;
@@ -869,7 +879,7 @@ class ProjectWorkspaceApplicationAdapter:
     def save_project(self) -> ProjectContext:
         """Persist the complete project package through Application."""
         context = self._application.save_project()
-        self._document_collection_dirty = False
+        self._mark_workspace_saved()
         return context
 
     def save_project_as(self, path: str) -> ProjectContext:
@@ -877,7 +887,7 @@ class ProjectWorkspaceApplicationAdapter:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("A non-empty Save As path is required.")
         context = self._application.save_project_as(path)
-        self._document_collection_dirty = False
+        self._mark_workspace_saved()
         return context
 
     def close_project(
