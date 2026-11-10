@@ -113,7 +113,7 @@ _BUILTIN_SYMBOLS = (
         {"kind": "line", "x1": -28, "y1": 10, "x2": -12, "y2": 10},
         {"kind": "line", "x1": 12, "y1": -10, "x2": 28, "y2": -10},
         {"kind": "line", "x1": 12, "y1": 10, "x2": 28, "y2": 10},
-    ), {"P1": (-28.0, -10.0), "P2": (-28.0, 10.0), "S1": (28.0, -10.0), "S2": (28.0, 10.0)}),
+    ), {"P1": (-28.0, -10.0), "P2": (28.0, -10.0), "S1": (-28.0, 10.0), "S2": (28.0, 10.0)}),
     ("potential_transformer", "Potential Transformer", ("primary_a", "primary_b", "secondary_a", "secondary_b"), (
         {"kind": "circle", "cx": 0, "cy": 0, "r": 12},
         {"kind": "text", "x": -10, "y": -8, "width": 20, "height": 16, "text": "PT"},
