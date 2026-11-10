@@ -21,3 +21,20 @@ Verification:
 - Final GraphicsView source commit: 2547822dc276f806e172d4d468b77d6cc5a578a1.
 - Register entry commit: d705c7c5b4dc944a9dd53dd74ec5cb5e67b359a4.
 - User-machine runtime behavior remains unverified; restart/retest required.
+
+GridForge V2 — SLD wire preview and route persistence
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Changes:
+- Added owner-scoped polyline previews to PreviewLayer so one tool can replace or clear only its own transient graphics.
+- Changed WireTool live preview to deterministic horizontal-first orthogonal routing.
+- Persisted canonical route metadata (routing_mode, ownership, intermediate bend points) through the existing DraftNetwork and Simple Wire command payloads.
+- Kept route points presentation-only; canonical electrical endpoint references remain the source and target identities.
+- Preserved existing DraftConnection and SLDRoute validation and consecutive-duplicate normalization.
+
+Verification:
+- Source-level review of command payload contracts and route schemas completed.
+- Runtime GUI behavior and application-level route projection remain to be verified against a running desktop session.
+- No tests/CI were treated as acceptance gates.
