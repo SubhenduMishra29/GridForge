@@ -24,6 +24,7 @@ from core.application.commands.sld_commands import (
     AddSLDNodeCommand,
     RemoveSLDConnectionCommand,
     RemoveSLDNodeCommand,
+    DeleteSLDSelectionCommand,
     SetSLDNodePositionCommand,
     SetSLDNodePresentationCommand,
     SetSLDNodePropertiesCommand,
@@ -279,6 +280,44 @@ class SLDController:
         self._state.deselect_node(node_id)
         self._state.mark_dirty()
         return node
+
+    def delete_selection(self) -> bool:
+        """Delete the active typed SLD selection through one Application transaction."""
+        document = self._require_active_document()
+        node_ids = tuple(sorted(self._state.selected_node_ids))
+        connection_ids = tuple(sorted(self._state.selected_connection_ids))
+        if not node_ids and not connection_ids:
+            return False
+        if node_ids and connection_ids:
+            raise RuntimeError("SLD selection spans incompatible domains; deletion is rejected.")
+
+        if connection_ids:
+            selected_connections = tuple(
+                document.model.get_connection(connection_id) for connection_id in connection_ids
+            )
+            core_backed = tuple(
+                connection for connection in selected_connections
+                if connection.properties.get("core_connection_id")
+                or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+            )
+            if core_backed:
+                if len(selected_connections) != 1:
+                    raise RuntimeError(
+                        "Multi-selection containing Core-backed connections cannot be deleted "
+                        "as a presentation-only batch. Delete each electrical connection "
+                        "through its canonical Application command."
+                    )
+                self.remove_connection(connection_ids[0])
+                return True
+
+        result = self.application.execute(
+            DeleteSLDSelectionCommand(node_ids=node_ids, connection_ids=connection_ids)
+        )
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.clear_selection()
+        self._state.mark_dirty()
+        return True
 
     def add_connection(self, connection: SLDConnection) -> None:
         self._require_active_document()
