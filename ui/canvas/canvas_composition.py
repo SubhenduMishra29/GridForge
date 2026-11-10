@@ -624,7 +624,6 @@ class CanvasComposition:
         self._run_cleanup("preview graphics", self.preview_layer.clear, failures)
         if clear_sld_graphics:
             self._run_cleanup("SLD graphics and snap registrations", self.surface.clear_document, failures)
-            self._run_cleanup("read-only comparison graphics", self.surface.clear_comparison_document, failures)
         if failures:
             _LOGGER.warning("Canvas project-state clear completed with %d cleanup failure(s): %s", len(failures), ", ".join(label for label, _ in failures))
 
