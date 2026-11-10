@@ -295,6 +295,21 @@ class PreviewLayer:
         """Return the currently owned preview items for one interaction."""
         return tuple(self._owner_items.get(owner, ()))
 
+    def add_items_for_owner(
+        self,
+        owner: str,
+        items: Iterable[QGraphicsItem],
+    ) -> tuple[QGraphicsItem, ...]:
+        """Add transient graphics under one interaction's cleanup ownership."""
+        if not isinstance(owner, str) or not owner.strip():
+            raise ValueError("preview owner must be a non-empty string.")
+        added = self.add_items(items)
+        owned = self._owner_items.setdefault(owner, [])
+        for item in added:
+            if item not in owned:
+                owned.append(item)
+        return added
+
     def show_segment(self, start: Any, end: Any) -> None:
         """Show one transient cursor-to-endpoint placement segment."""
         self.clear()
