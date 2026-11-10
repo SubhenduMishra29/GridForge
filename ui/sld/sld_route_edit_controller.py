@@ -67,6 +67,11 @@ class SLDRouteEditController:
                 activation_generation=snapshot.get("activation_generation"),
                 connection_id=draft_connection_id,
                 route={"routing_mode": "manual", "ownership": "engineer", "points": [list(point) for point in points]},
+                document_id=getattr(
+                    getattr(self._controller, "active_document", None),
+                    "document_id",
+                    None,
+                ),
             ))
             if not getattr(result, "success", False):
                 raise RuntimeError(getattr(result, "message", "Draft route update was rejected."))
