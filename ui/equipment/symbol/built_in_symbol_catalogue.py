@@ -12,8 +12,10 @@ from .symbol_registry import SymbolRegistry
 
 _BUILTIN_SYMBOLS = (
     ("bus", "Bus", ("bus",), (
-        # IEEE/ANSI 315 busbar convention: distinguish the busbar from
-        # an ordinary conductor by a heavier stroke.
+        # Provisional renderer convention only. Do not label this glyph
+        # IEEE/ANSI- or IEC-compliant until its exact catalogue entry,
+        # identity, and geometry have been reviewed against the applicable
+        # licensed/authoritative standard source.
         {"kind": "line", "x1": -28, "y1": 0, "x2": 28, "y2": 0, "stroke_width": 3.6},
     ), {"bus": (-28.0, 0.0)}),
     ("line", "Line", ("FROM", "TO"), (
