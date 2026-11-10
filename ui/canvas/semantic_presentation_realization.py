@@ -44,11 +44,13 @@ class PresentationSelection:
             ("symbol_family_id", family_id),
             ("standard_id", self.standard_id),
             ("variant_id", self.variant_id),
-            ("standard_reference_id", self.standard_reference_id),
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
             object.__setattr__(self, name, value.strip().lower())
+        if not isinstance(self.standard_reference_id, str):
+            raise TypeError("standard_reference_id must be a string.")
+        object.__setattr__(self, "standard_reference_id", self.standard_reference_id.strip())
         if self.symbol_instance is not None:
             if (
                 self.symbol_instance.symbol_id != self.symbol_id
