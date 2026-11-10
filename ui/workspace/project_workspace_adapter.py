@@ -59,6 +59,7 @@ class ProjectWorkspaceApplicationAdapter:
         self._save_as_path_provider: Callable[[object], str | None] | None = None
         self._transition_decision_provider: Callable[[object], ProjectTransitionDecision | str] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
+        self._presentation_state_capture_provider: Callable[[], None] | None = None
         self._document_collection_dirty = False
         self._application.configure_workspace_dirty_provider(
             lambda: bool(self._lifecycle.documents.dirty_document_ids) or self._document_collection_dirty
@@ -324,8 +325,16 @@ class ProjectWorkspaceApplicationAdapter:
         )
         self._application.configure_presentation_activator(activate)
 
+    def configure_presentation_state_capture_provider(self, provider: Callable[[], None]) -> None:
+        """Capture transient UI view state into its owning SLD document before serialization."""
+        if not callable(provider):
+            raise TypeError("provider must be callable.")
+        self._presentation_state_capture_provider = provider
+
     def snapshot_presentation_collection(self) -> ProjectPresentationCollection:
         """Return an immutable snapshot of the complete live DocumentManager collection."""
+        if self._presentation_state_capture_provider is not None:
+            self._presentation_state_capture_provider()
         documents = tuple(self._lifecycle.documents.documents())
         return ProjectPresentationCollection.ordered(
             documents,
