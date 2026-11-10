@@ -407,3 +407,17 @@ Correction:
 
 Verification boundary:
 - Source-level transplant against current root main; no tests/CI, startup, GUI or runtime experiments performed.
+
+
+GF-UI-ZOOM-STATE-001 — KEEP CANVAS ZOOM READOUT SYNCHRONIZED
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Issue: #989 (root audit; implementation tracking migrated to implementation repo)
+
+Correction:
+- SLDCanvasSurface no longer presents the unsupported Normal/Placement/Connection mode selector; the UI does not advertise interaction modes without a canonical mode contract.
+- The zoom readout initializes from NavigationController.get_zoom_level(), subscribes to its canonical zoom-change notification, and detaches the listener during canvas disposal.
+- NavigationController.set_transform() and set_zoom_limits() now publish zoom changes after synchronizing the actual viewport transform, including document viewport restoration and limit clamping.
+
+Verification boundary:
+- Source-level review of the surface, navigation controller and lifecycle teardown. No tests/CI, application startup, Qt runtime or GUI interaction performed.
