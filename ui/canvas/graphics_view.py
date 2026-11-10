@@ -210,7 +210,7 @@ class GraphicsView(QGraphicsView):
             return None, None
 
         item = selection_manager.get_item_for_id(selected_ids[0], scene=self._scene)
-        if item is None:
+        if item is None or getattr(item, "symbol_instance", None) is None:
             item = next(
                 (
                     candidate for candidate in self._scene.items()
