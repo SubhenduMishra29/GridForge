@@ -375,7 +375,10 @@ class WireTool(ToolBase):
         end = self._current_position
         route = self._route_payload(start, end)
         points = [start, *(tuple(point) for point in route["points"]), end]
-        return tuple(point for index, point in enumerate(points) if index == 0 or point != points[index - 1])
+        # Keep both endpoint entries even when they coincide at wire start;
+        # PreviewLayer safely omits zero-length graphics segments.
+        return tuple(points)
+
     def _report_feedback(self, message: str) -> None:
         for name in ("show_status_message", "set_status_message", "notify_user"):
             callback = getattr(self.controller, name, None)
