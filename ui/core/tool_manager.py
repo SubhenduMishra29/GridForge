@@ -19,6 +19,7 @@ from typing import Any, Callable
 _LOGGER = logging.getLogger(__name__)
 
 from ui.creation.creation_context import CreationContext
+from ui.core.qt import QPointF
 
 
 ToolFactory = Callable[..., Any]
@@ -36,13 +37,21 @@ class _ClipboardPasteInteraction:
     cancel_creation_context_on_cancel = False
     cancel_creation_context_on_complete = False
 
-    def __init__(self, preview_layer: Any, items: tuple[Any, ...], origin: tuple[float, float], on_accept: Callable[[tuple[float, float]], bool]) -> None:
+    def __init__(
+        self,
+        preview_layer: Any,
+        items: tuple[Any, ...],
+        origin: tuple[float, float],
+        on_accept: Callable[[tuple[float, float]], bool],
+        snap_system: Any | None = None,
+    ) -> None:
         if preview_layer is None or not items or not callable(on_accept):
             raise ValueError("Clipboard preview requires a PreviewLayer, graphics items, and an acceptance callback.")
         self._preview_layer = preview_layer
         self._items = tuple(items)
         self._origin = (float(origin[0]), float(origin[1]))
         self._on_accept = on_accept
+        self._snap_system = snap_system
         self._base_positions = tuple(
             (float(item.pos().x()), float(item.pos().y())) for item in self._items
         )
@@ -86,8 +95,23 @@ class _ClipboardPasteInteraction:
 
     def _move_to(self, event: Any) -> None:
         x, y = self._event_point(event)
-        self._delta = (x - self._origin[0], y - self._origin[1])
-        dx, dy = self._delta
+        dx, dy = x - self._origin[0], y - self._origin[1]
+        # Snap the shared translation vector, not the absolute cursor endpoint.
+        # This keeps the pasted block's internal geometry intact and prevents
+        # a fractional pointer grab offset from accumulating across repeated
+        # copy/paste operations.
+        snap = getattr(self._snap_system, "snap", None)
+        if callable(snap):
+            snapped = snap(
+                QPointF(dx, dy),
+                allow_grid=True,
+                allow_object=False,
+                intent="MOVE",
+            )
+            position = getattr(snapped, "position", None)
+            if position is not None:
+                dx, dy = float(position.x()), float(position.y())
+        self._delta = (dx, dy)
         for item, (base_x, base_y) in zip(self._items, self._base_positions):
             item.setPos(base_x + dx, base_y + dy)
 
@@ -532,7 +556,11 @@ class ToolManager:
         if self.preview_layer is None:
             raise RuntimeError("Clipboard placement requires the canonical PreviewLayer.")
         interaction = _ClipboardPasteInteraction(
-            self.preview_layer, tuple(preview_items), origin, on_accept
+            self.preview_layer,
+            tuple(preview_items),
+            origin,
+            on_accept,
+            snap_system=self.get_snap_system(),
         )
         try:
             self.preview_layer.add_items(interaction._items)

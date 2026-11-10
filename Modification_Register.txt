@@ -273,3 +273,7 @@ Verification boundary:
 - Apply axis constraints before snapping the vector so X/Y-constrained group movement remains constrained.
 - This preserves each selected node's relative geometry and prevents arbitrary pointer grab offsets from producing fractional, off-grid translations.
 - Merged into root main as c0e1d0ddbe8c1e0f007400008fb3f4cac70fe468. Interactive canvas verification remains outstanding; no CI/test acceptance gate was requested or run.
+[2026-11-10] Grid-aligned clipboard translation (root issue #808; follow-up to root PR #1164):
+- Clipboard preview now snaps the shared translation vector (cursor position minus the source block origin) using the canonical SnapSystem with grid snapping enabled and object snapping disabled.
+- The snapped vector is used for both preview rendering and the accepted atomic DraftNetwork paste command, so the engineer sees the same grid-aligned placement that is committed.
+- This preserves the copied block's internal offsets and prevents fractional pointer-grab offsets from accumulating across repeated copy/paste cycles. Interactive repeated-paste verification remains outstanding.
