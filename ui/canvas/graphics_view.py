@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
+from ui.core.qt import QAction, QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -138,6 +138,22 @@ class GraphicsView(QGraphicsView):
         self._annotation_quadrant_button.clicked.connect(self._cycle_contextual_annotation_quadrant)
         strip_layout.addWidget(self._annotation_quadrant_button)
         self._contextual_strip.hide()
+
+        # Keep rotation shortcuts active when focus moves to a canvas child.
+        self._symbol_rotation_actions = []
+        for shortcut, operation, description in (
+            ("E", "rotate_cw", "Rotate selected symbol 90 degrees clockwise"),
+            ("Q", "rotate_ccw", "Rotate selected symbol 90 degrees counter-clockwise"),
+        ):
+            action = QAction(description, self)
+            action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            action.triggered.connect(
+                lambda _checked=False, op=operation: self._apply_contextual_symbol_action(op)
+            )
+            self.addAction(action)
+            self._symbol_rotation_actions.append(action)
+
         self._scene.selectionChanged.connect(self._refresh_contextual_tool_strip)
         self.horizontalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
         self.verticalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
@@ -489,6 +505,8 @@ class GraphicsView(QGraphicsView):
         return QPointF(float(point.x()), float(point.y()))
 
     def mousePressEvent(self, event: Any) -> None:
+        # Restore canvas focus even when InteractionManager consumes the press.
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         navigation = self.navigation_controller
         button = self._event_flag_value(event, "button")
         middle_button = int(Qt.MouseButton.MiddleButton.value)
