@@ -69,3 +69,21 @@ Correction:
 
 Verification boundary:
 - Static call-signature and dispatch trace reviewed. Desktop runtime interaction remains unverified.
+
+
+GridForge V2 — Electrical insertion target and preview ownership correction
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Corrections:
+- ElectricalInsertionTool.on_mouse_release now requires a fresh, unambiguous connection target resolved at the release position. It no longer falls back to a previously hovered target; a miss/ambiguous target clears the preview and aborts without issuing an insertion command.
+- PreviewLayer now supports add_items_for_owner(), allowing insertion previews to be cleaned up with clear_owner() without clearing unrelated WireTool/OrthogonalRoutingTool previews.
+- ElectricalInsertionTool assigns a unique owner token to each instance and uses owner-scoped preview registration/cleanup, with compatibility fallback for older preview-layer adapters.
+- Application ElectricalInsertionService validates the referenced Core Simple Wire exists, replacement IDs are unused, canonical endpoint identities are distinct, insertion equipment terminals are connected through the Application endpoint resolver, and final topology validates before transaction commit.
+
+Remaining audit item:
+- InsertionService currently accepts segment_index and insertion_position as presentation metadata but does not reconcile the SLD route geometry when replacing the original SLD companion with two replacement companions. Preserve/split the original authored route at the selected segment and insertion point in the SLD projection transaction; do not put route geometry into Core.
+
+Verification boundary:
+- Static source-path inspection only; desktop interaction and save/reopen runtime verification remain outstanding.
