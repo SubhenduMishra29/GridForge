@@ -21,7 +21,7 @@ from ui.canvas.navigation_controller import NavigationController
 from ui.canvas.engineering_canvas_contract import CanvasInteractionContract
 from ui.canvas.preview_layer import PreviewLayer
 from ui.core.controller import Controller
-from ui.core.qt import QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget
+from ui.core.qt import QHBoxLayout, QLabel, QPushButton, QTabWidget, QTransform, QVBoxLayout, QWidget
 from ui.core.selection_manager import SelectionManager
 from ui.core.snap_system import SnapSystem
 from ui.core.tool_manager import ToolManager
@@ -80,7 +80,8 @@ class SLDCanvasSurface(QWidget):
         self._document_id: str | None = None
         # Session-local viewport transforms are keyed by persistent SLD document
         # identity. They are presentation state, never part of Core or SLD data.
-        self._viewport_transforms: dict[str, Any] = {}
+        self._viewport_transforms: dict[str, tuple[float, float, float, float, float, float]] = {}
+        self._active_document: SLDDocument | None = None
         self._composition: Any | None = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
         self.setObjectName("SLDCanvasSurface")
@@ -200,6 +201,7 @@ class SLDCanvasSurface(QWidget):
     def clear_project_state(self) -> None:
         """Clear project-scoped presentation state while retaining reusable services."""
         self._viewport_transforms.clear()
+        self._active_document = None
         composition = self._composition
         if composition is not None:
             composition.clear_project_state()
@@ -219,8 +221,11 @@ class SLDCanvasSurface(QWidget):
         """Present the Application-authoritative SLD document on this surface."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
+        if self._document_id != document.document_id:
+            self._restore_document_viewport(document)
         snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks)
         self._sld_canvas_render_system.synchronize(snapshot)
+        self._active_document = document
         self._document_id = document.document_id
         self._sld_canvas_snapshot = snapshot
         return snapshot
@@ -237,22 +242,42 @@ class SLDCanvasSurface(QWidget):
             raise TypeError("draft_snapshot must be a DraftSLDCanvasSnapshot.")
         previous_document_id = self._document_id
         if previous_document_id != document.document_id:
-            if previous_document_id is not None:
-                self._viewport_transforms[previous_document_id] = (
-                    self._navigation_controller.get_transform()
-                )
-            saved_transform = self._viewport_transforms.get(document.document_id)
-            if saved_transform is None:
-                self._navigation_controller.reset_view()
-            else:
-                self._navigation_controller.set_transform(saved_transform)
+            self.capture_active_viewport_state()
+            self._restore_document_viewport(document)
 
         committed = self._sld_canvas_projection.project(document.model, document.annotation_blocks)
         composite = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
         self._sld_canvas_render_system.synchronize(composite)
+        self._active_document = document
         self._document_id = document.document_id
         self._sld_canvas_snapshot = committed
         return composite
+
+    @staticmethod
+    def _serialize_viewport_transform(transform: Any) -> tuple[float, float, float, float, float, float]:
+        return tuple(
+            float(getattr(transform, name)())
+            for name in ("m11", "m12", "m21", "m22", "dx", "dy")
+        )
+
+    def _restore_document_viewport(self, document: SLDDocument) -> None:
+        saved = document.canvas_viewport_transform
+        if saved is None:
+            saved = self._viewport_transforms.get(document.document_id)
+        if saved is None:
+            self._navigation_controller.reset_view()
+            return
+        self._navigation_controller.set_transform(QTransform(*saved))
+        self._viewport_transforms[document.document_id] = tuple(saved)
+
+    def capture_active_viewport_state(self) -> None:
+        """Persist the live viewport transform into the active SLD document."""
+        document = self._active_document
+        if document is None or document.document_id != self._document_id:
+            return
+        state = self._serialize_viewport_transform(self._navigation_controller.get_transform())
+        document.set_canvas_viewport_transform(state)
+        self._viewport_transforms[document.document_id] = state
 
     def clear_document(self) -> None:
         """Clear canonical SLD graphics without mutating Core/Application state."""
@@ -262,6 +287,7 @@ class SLDCanvasSurface(QWidget):
     def reset_document_state(self) -> None:
         """Reset surface metadata after the renderer has independently cleared its scene."""
         self._document_id = None
+        self._active_document = None
         self._sld_canvas_snapshot = SLDCanvasSnapshot(nodes=(), connections=())
 
     @property
