@@ -1810,6 +1810,12 @@ def _build_application_impl(
         documents_provider=lambda: project_workspace_lifecycle.documents.documents(),
     )
     sld_update_coordinator_ref["value"] = sld_update_coordinator
+    comparison_viewport.set_reconciliation_diagnostics_provider(
+        lambda document_id: sld_update_coordinator.background_reconciliation_diagnostics.get(
+            document_id,
+            (),
+        )
+    )
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
     element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
     bind_project_selection = getattr(project_panel, "bind_selection_manager", None)
