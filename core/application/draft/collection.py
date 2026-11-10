@@ -142,6 +142,7 @@ class DraftNetworkCollection:
                     ),
                 )
             if document_ids is not None:
+                if document_ids is not None:
                 collection.ensure_documents(document_ids)
             return collection
         if data.get("schema") != cls.SCHEMA:
