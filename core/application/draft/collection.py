@@ -118,10 +118,10 @@ class DraftNetworkCollection:
         if not isinstance(data, Mapping):
             raise TypeError("DraftNetworkCollection payload must be a mapping.")
         if "documents" not in data:
-            # Legacy project.json stored one project-scoped DraftNetwork. It is
-            # assigned only when there is exactly one SLD document; ambiguous
-            # multi-document migration is rejected instead of leaking draft
-            # objects into an arbitrary canvas.
+            # Legacy project.json stored one project-scoped DraftNetwork.
+            # The persistence loader supplies the saved active document ID as
+            # legacy_document_id, so the payload is assigned deterministically
+            # to exactly one owner and never copied across documents.
             target = legacy_document_id
             if target is None:
                 ids = tuple(document_ids or ())
