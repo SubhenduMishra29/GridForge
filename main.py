@@ -830,7 +830,7 @@ def _build_application_impl(
             )
             if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
                 result = gridforge_application.execute(
-                    RemoveDraftEquipmentCommand(draft_id=str(selected_id))
+                    RemoveDraftEquipmentCommand(draft_id=str(selected_id), document_id=getattr(gridforge_application.presentation, "document_id", None))
                 )
                 if not result.success:
                     raise RuntimeError(result.message)
@@ -846,7 +846,7 @@ def _build_application_impl(
                 if isinstance(item, dict)
             ):
                 result = gridforge_application.execute(
-                    RemoveDraftConnectionCommand(connection_id=str(selected_id))
+                    RemoveDraftConnectionCommand(connection_id=str(selected_id), document_id=getattr(gridforge_application.presentation, "document_id", None))
                 )
                 if not result.success:
                     raise RuntimeError(result.message)
@@ -1320,7 +1320,7 @@ def _build_application_impl(
                 # in-project document change, retain the current realization
                 # until the complete next snapshot can reconcile it incrementally.
                 # Crossing project boundaries still clears all project-owned
-                # graphics before the new project's presentation is surfaced.
+                # graphics before the new document is surfaced.
                 next_project_id = getattr(project, "project_id", None)
                 if (
                     current_context.project_id is not None

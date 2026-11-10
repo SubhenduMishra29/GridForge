@@ -255,6 +255,7 @@ class WireTool(ToolBase):
                 return None
             from uuid import uuid4
             command = CreateDraftConnectionCommand(
+                document_id=getattr(self.application.presentation, "document_id", None),
                 connection={
                     "connection_id": f"draft-wire-{uuid4().hex}",
                     "source": source.to_dict(),

@@ -262,6 +262,23 @@ class Application:
                 activation_generation=draft.activation_generation,
             )
 
+    def _draft_network_for_command(self, document_id: str | None = None) -> DraftNetwork | None:
+        """Resolve the mutable draft only for the Application-active SLD document.
+
+        The document-scoped collection is wired in the following lifecycle slice;
+        until then this compatibility bridge rejects commands captured for a
+        different document instead of applying them to the currently visible one.
+        """
+        with self._execution_lock:
+            active = self.presentation
+            active_id = getattr(active, "document_id", None) if active is not None else None
+            if document_id is not None and document_id != active_id:
+                raise RuntimeError(
+                    f"Draft command targets SLD document {document_id!r}, "
+                    f"but active document is {active_id!r}."
+                )
+            return self._draft_network
+
     def set_draft_network(self, draft_network: DraftNetwork | None) -> None:
         """Install a detached draft snapshot through the serialized Application boundary."""
         if draft_network is not None and not isinstance(draft_network, DraftNetwork):
@@ -4480,9 +4497,13 @@ class Application:
             )
         engineering_data = dict(current.engineering_data)
         engineering_data.update(values)
+        document_id = getattr(self.presentation, "document_id", None)
+        if not document_id:
+            raise RuntimeError("Draft engineering update requires an active SLD document identity.")
         return UpdateDraftEquipmentCommand(
             draft_id=draft_id,
             changes={"engineering_data": engineering_data},
+            document_id=document_id,
         )
 
     def commit_draft_network(self) -> ApplicationResult:
@@ -4505,10 +4526,14 @@ class Application:
                 raise ValueError("DraftNetwork project_id does not match the active project.")
             if draft.activation_generation != lifecycle.activation_generation:
                 raise ValueError("DraftNetwork activation_generation does not match the active project.")
+            document_id = getattr(self.presentation, "document_id", None)
+            if not document_id:
+                raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
             command = CommitNetworkCommand(
                 project_id=context.project_id,
                 activation_generation=lifecycle.activation_generation,
                 draft_network=draft.to_dict(),
+                document_id=document_id,
             )
             return self.execute(command)
 
@@ -4526,11 +4551,19 @@ class Application:
         if draft.activation_generation != lifecycle.activation_generation:
             raise ValueError("DraftNetwork activation_generation does not match the active project.")
 
+        document_id = getattr(self.presentation, "document_id", None)
+        if not document_id:
+            raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
         project_id = context.project_id
         activation_generation = lifecycle.activation_generation
         draft_payload = draft.to_dict()
         source_revision = self.revision
-        command = CommitNetworkCommand(project_id=project_id, activation_generation=activation_generation, draft_network=draft_payload)
+        command = CommitNetworkCommand(
+            project_id=project_id,
+            activation_generation=activation_generation,
+            draft_network=draft_payload,
+            document_id=document_id,
+        )
         # Serialize the transition into the in-flight state with project saves.
         # A save holds this same execution lock for its complete persistence window,
         # so a commit cannot become pending after the save has passed its guard.

@@ -261,7 +261,10 @@ def create_application(
             "connectivity.insert_equipment_into_connection",
             ElectricalInsertionCommandHandlers(insertion_service).execute,
         )
-        draft_provider = lambda: application.draft_network if application is not None else None
+        def draft_provider(document_id=None):
+            if application is None:
+                return None
+            return application._draft_network_for_command(document_id)
         for command_type, handler in DraftCommandHandlers(draft_provider).handlers().items():
             command_manager.register_handler(command_type, handler)
         command_manager.register_handler(
