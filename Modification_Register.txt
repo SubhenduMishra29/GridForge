@@ -944,3 +944,34 @@ Remaining evidence:
   undo/redo, or project save/reopen interaction was executed.
 - Confirm Application history behavior for SetSLDNodePresentationCommand
   and perform GUI acceptance before closing the rotation work.
+
+
+======================================================================
+GF-UI-SYMBOL-ROTATION-UNDO-006 — PRESENTATION UNDO STALE-STATE GUARD
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related: #823; symbol rotation / connected-wire lifecycle
+
+Correction:
+- SLDService._set_node_presentation() now captures the exact expected
+  presentation payload and complete node properties after applying the
+  command.
+- Its inverse now requires the same live SLDNode object, equipment identity,
+  logical identity fields, exact expected presentation, and exact expected
+  properties before restoring the previous state.
+- If the node object was replaced, its logical identity changed, or an
+  out-of-band presentation/property change occurred, undo fails closed
+  instead of overwriting that state.
+- The inverse is registered before mutation. If mutation fails before
+  completion, the unchanged pre-command state remains the only acceptable
+  rollback state.
+- Core equipment, terminals, topology, and electrical connectivity remain
+  outside this presentation-only command.
+
+Verification boundary:
+- Source correction committed and fetched back from main.
+- No Python syntax/import execution, tests/CI, undo/redo runtime, or Qt GUI
+  verification performed.
+- Continue with rotation + connected-wire GUI acceptance and project
+  save/reopen round-trip before closing #823.
