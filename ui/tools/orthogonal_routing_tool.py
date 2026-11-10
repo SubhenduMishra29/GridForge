@@ -6,7 +6,7 @@
 
 The tool owns only transient pointer/preview state. Pointer events are
 coalesced into one queued route recomputation using the latest scene position;
-measured preview latency is exposed against a 16 ms interaction target. Stable
+measured preview latency is exposed against a 32 ms interaction target. Stable
 endpoint identity and final connectivity remain delegated to WireTool's
 canonical Application command path.
 """
@@ -28,7 +28,8 @@ class OrthogonalRoutingTool(WireTool):
     TOOL_ID = "orthogonal-routing"
     CLEARANCE_PIXELS = 5.0
     ROUTE_CLEARANCE_PIXELS = 8.0
-    ROUTE_PREVIEW_TARGET_MS = 16.0
+    ROUTE_PREVIEW_INTERVAL_MS = 16
+    ROUTE_PREVIEW_TARGET_MS = 32.0
     PREVIEW_DATA_ROLE = 0
     PREVIEW_DATA_KEY = "gridforge.orthogonal-routing.preview"
 
@@ -155,7 +156,7 @@ class OrthogonalRoutingTool(WireTool):
             self._route_update_scheduled = True
             # Keep one queued callback and always consume the latest pointer
             # request. A burst of mouse events cannot build an unbounded A* queue.
-            QTimer.singleShot(0, self._flush_pending_route_preview)
+            QTimer.singleShot(self.ROUTE_PREVIEW_INTERVAL_MS, self._flush_pending_route_preview)
         self._show_preview()
         return True
 
@@ -406,6 +407,7 @@ class OrthogonalRoutingTool(WireTool):
             "route_valid": self._route_valid and self._pending_route_request is None,
             "route_points": self._route_points,
             "clearance_pixels": self.CLEARANCE_PIXELS,
+            "route_preview_interval_ms": self.ROUTE_PREVIEW_INTERVAL_MS,
             "route_preview_target_ms": self.ROUTE_PREVIEW_TARGET_MS,
             "route_preview_pending": self._pending_route_request is not None,
             "route_preview_recompute_count": self._route_preview_recompute_count,
