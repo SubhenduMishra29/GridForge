@@ -495,12 +495,20 @@ def _build_application_impl(
         canvas_composition.navigation_controller.set_zoom_level(state.zoom)
         canvas_composition.view.centerOn(state.center_x, state.center_y)
 
+    pending_viewport_restore: dict[str, str | None] = {"document_id": None}
+
     def _activate_sld_presentation(document: object | None) -> None:
         # Capture the outgoing view before the editor host replaces its document.
+        # Restore is deferred until after the next complete canvas snapshot has
+        # reconciled; otherwise the surface's session-local fallback can overwrite
+        # the persistent preference during that reconciliation.
         _capture_active_viewport()
         viewport_preference_store.sync()
         workspace_surface_host.set_sld_document(document)
-        _restore_document_viewport(document)
+        document_id = getattr(document, "document_id", None)
+        pending_viewport_restore["document_id"] = (
+            document_id if isinstance(document_id, str) and document_id else None
+        )
 
     def _persist_viewport_change(*_args: object) -> None:
         _capture_active_viewport()
@@ -1532,9 +1540,15 @@ def _build_application_impl(
     def synchronize_canvas():
         """Refresh the active editor and every document currently shown for comparison."""
         snapshot = _refresh_active_canvas()
+        active_document_id = project_workspace_lifecycle.documents.active_document_id
+        if pending_viewport_restore["document_id"] == active_document_id:
+            _restore_document_viewport(
+                project_workspace_lifecycle.documents.active_document
+            )
+            pending_viewport_restore["document_id"] = None
         canvas_composition.surface.set_comparison_documents(
             project_workspace_lifecycle.documents.documents(),
-            active_document_id=project_workspace_lifecycle.documents.active_document_id,
+            active_document_id=active_document_id,
         )
         return snapshot
 
