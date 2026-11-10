@@ -20,7 +20,7 @@ from typing import Any
 
 from ui.core.qt import (
     QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QPlainTextEdit, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 from ui.projection.projection_state import ProjectionState
 from .engineering_parameter_editor import (
@@ -49,8 +49,19 @@ def _json_text(value: Any) -> str:
     return json.dumps(_json_value(value), separators=(",", ":"), sort_keys=True)
 
 
-def _parse_json(control: QLineEdit, field: str, *, blank: Any = None) -> Any:
-    raw = control.text().strip()
+def _control_text(control: Any) -> str:
+    return control.toPlainText() if isinstance(control, QPlainTextEdit) else control.text()
+
+
+def _set_control_text(control: Any, value: str) -> None:
+    if isinstance(control, QPlainTextEdit):
+        control.setPlainText(value)
+    else:
+        control.setText(value)
+
+
+def _parse_json(control: Any, field: str, *, blank: Any = None) -> Any:
+    raw = _control_text(control).strip()
     if not raw:
         return blank
     try:
@@ -97,7 +108,7 @@ def _validate_terminal_admittance_matrix(matrix: Any, labels: tuple[str, ...]) -
     return normalized
 
 
-def _parse_optional_complex(control: QLineEdit, field: str) -> Any:
+def _parse_optional_complex(control: Any, field: str) -> Any:
     value = _parse_json(control, field)
     if value is None:
         return None
@@ -132,7 +143,7 @@ class TransformerConfigurationEditor(QWidget):
         self.setObjectName("TransformerConfigurationEditor")
         self._target: ProjectionState | None = None
         self._editor: EngineeringParameterEditor | None = None
-        self._controls: dict[str, QLineEdit] = {}
+        self._controls: dict[str, Any] = {}
         self._status = QLabel("Select a committed Transformer to configure winding and multiport data.", self)
         self._status.setWordWrap(True)
         root = QVBoxLayout(self)
@@ -162,8 +173,12 @@ class TransformerConfigurationEditor(QWidget):
             ("zero_sequence_test_configuration", "Zero-sequence test contract", "JSON object with energized_winding and test conditions"),
             ("zero_sequence_two_winding_test_data", "Two-winding test data", "JSON object matching the typed test-data contract"),
         ):
-            control = QLineEdit(winding_group)
+            control = QPlainTextEdit(winding_group) if field in {"hv_phase_roles", "lv_phase_roles", "vector_group_configuration", "zero_sequence_test_configuration", "zero_sequence_two_winding_test_data"} else QLineEdit(winding_group)
             control.setPlaceholderText(hint)
+            if isinstance(control, QPlainTextEdit):
+                control.setMinimumHeight(88)
+                control.setMaximumHeight(150)
+                control.setToolTip(hint + " Enter structured JSON; the field scrolls independently.")
             self._controls[field] = control
             winding_form.addRow(label, control)
         root.addWidget(winding_group)
@@ -183,9 +198,13 @@ class TransformerConfigurationEditor(QWidget):
             ("phase_domain_multiport_tap_ratio", "Matrix tap-ratio snapshot", "Numeric ratio used when the matrix was supplied"),
             ("phase_domain_multiport_phase_shift_rad", "Matrix phase-shift snapshot (rad)", "Numeric phase shift used when the matrix was supplied"),
         ):
-            control = QLineEdit(multiport_group)
+            control = QPlainTextEdit(multiport_group) if field in {"phase_domain_terminal_admittance_siemens", "zero_sequence_multiport_evidence", "phase_domain_delta_loop_states"} else QLineEdit(multiport_group)
             control.setPlaceholderText(hint)
             control.setToolTip(hint)
+            if isinstance(control, QPlainTextEdit):
+                control.setMinimumHeight(104 if field == "phase_domain_terminal_admittance_siemens" else 88)
+                control.setMaximumHeight(180 if field == "phase_domain_terminal_admittance_siemens" else 150)
+                control.setToolTip(hint + " Enter structured JSON; the field scrolls independently.")
             self._controls[field] = control
             multiport_form.addRow(label, control)
         root.addWidget(multiport_group)
@@ -272,7 +291,7 @@ class TransformerConfigurationEditor(QWidget):
                 rendered = _json_text(value)
             else:
                 rendered = "" if value is None else str(_json_value(value))
-            self._controls[field].setText(rendered)
+            _set_control_text(self._controls[field], rendered)
         self._load_matrix_table(summary.get("phase_domain_terminal_admittance_siemens"))
         self._status.setText(
             f"Transformer {self._target.object_id}: staged values are read-only until an Apply action. "
@@ -289,7 +308,7 @@ class TransformerConfigurationEditor(QWidget):
             if not isinstance(roles, list) or any(not isinstance(role, str) or not role.strip() for role in roles):
                 raise ValueError(f"{field} must be a JSON array of ordered phase roles.")
             labels.extend(f"{winding}:{role.strip()}" for role in roles)
-            if self._controls[neutral_field].text().strip():
+            if _control_text(self._controls[neutral_field]).strip():
                 labels.append(f"{winding}:N")
         if len(labels) < 2 or len(set(labels)) != len(labels):
             raise ValueError("The winding inventory must produce a unique ordered terminal list.")
@@ -376,14 +395,14 @@ class TransformerConfigurationEditor(QWidget):
                 cells.append([real, imag])
             matrix.append(cells)
         matrix = _validate_terminal_admittance_matrix(matrix, labels)
-        self._controls["phase_domain_terminal_admittance_siemens"].setText(_json_text({
+        _set_control_text(self._controls["phase_domain_terminal_admittance_siemens"], _json_text({
             "units": "S", "terminal_order": list(labels), "values": matrix,
         }))
         return matrix
 
     def _base_inventory(self) -> dict[str, Any]:
         def text(field: str) -> str:
-            return self._controls[field].text().strip()
+            return _control_text(self._controls[field]).strip()
         def optional_text(field: str) -> str | None:
             return text(field) or None
         def string_array(field: str) -> tuple[str, ...]:
@@ -418,7 +437,7 @@ class TransformerConfigurationEditor(QWidget):
     def _winding_values(self) -> dict[str, Any]:
         values = self._base_inventory()
         for field in ("impedance_reference_winding", "zero_sequence_test_basis"):
-            value = self._controls[field].text().strip()
+            value = _control_text(self._controls[field]).strip()
             if value:
                 values[field] = value
         for field in ("zero_sequence_resistance_ohm", "zero_sequence_reactance_ohm"):
