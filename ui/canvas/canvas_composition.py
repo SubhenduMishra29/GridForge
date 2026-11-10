@@ -211,6 +211,7 @@ class SLDCanvasSurface(QWidget):
     def dispose_canvas(self) -> None:
         """Permanently release the aggregate canvas resources."""
         self._viewport_transforms.clear()
+        self._active_document = None
         composition = self._composition
         if composition is not None:
             composition.dispose()
