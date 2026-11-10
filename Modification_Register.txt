@@ -555,3 +555,17 @@ Correction:
 
 Verification boundary:
 - Source inspection and fetch-back only. No Qt scene interaction, visual-state transition, insertion, cancellation, tests, or CI were executed.
+
+
+GF-UI-PLACEMENT-ROTATION-001 — KEYBOARD ROTATION DURING EQUIPMENT PLACEMENT
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Added an R-key interaction to ModelPlacementTool while a placement draft has an established canvas position.
+- Each press advances the transient draft orientation by 90 degrees, normalizes it to 0–359 degrees, refreshes the SymbolPreviewItem, and reports the current orientation through existing controller feedback.
+- Uses CreationDraft.set_placement(position, orientation), preserving the canonical draft lifecycle and existing Application command boundary. No direct Core mutation or topology inference was added.
+- Escape cancellation and all other keyboard handling remain unchanged.
+
+Verification boundary:
+- Source inspection and fetch-back only. No Qt key-event delivery, repeated key handling, symbol orientation visual check, placement commit, tests, or CI were executed.
