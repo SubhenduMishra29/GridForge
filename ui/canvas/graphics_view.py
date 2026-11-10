@@ -330,7 +330,7 @@ class GraphicsView(QGraphicsView):
         draft = creation_context.require_draft()
         insertion_tool = self.tool_manager.get_tool("electrical-insertion")
         parameters = dict(draft.snapshot_values())
-        orientation = float(draft.preview_state.get("rotation", 0.0))
+        orientation = float(draft.orientation)
         try:
             insertion_tool.begin(
                 self._palette_drag_equipment_type,
