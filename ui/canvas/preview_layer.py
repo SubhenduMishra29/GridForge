@@ -123,6 +123,7 @@ class PreviewLayer:
         self.scene = scene
 
         self._items: list[QGraphicsItem] = []
+        self._owner_items: dict[str, list[QGraphicsItem]] = {}
 
     # ========================================================
     # SCENE ACCESS
@@ -261,6 +262,38 @@ class PreviewLayer:
     # SEMANTIC PLACEMENT PREVIEW
     # ========================================================
 
+    def show_polyline(self, owner: str, points: Iterable[Any]) -> tuple[QGraphicsItem, ...]:
+        """Replace one owner's preview with a transient polyline.
+
+        The owner token isolates an interaction from previews owned by other
+        tools. Coordinates are presentation-only and are never persisted here.
+        """
+        if not isinstance(owner, str) or not owner.strip():
+            raise ValueError("preview owner must be a non-empty string.")
+        normalized = tuple(self._point(point) for point in points)
+        if len(normalized) < 2:
+            raise ValueError("A preview polyline requires at least two points.")
+        self.clear_owner(owner)
+        created = []
+        for start, end in zip(normalized, normalized[1:]):
+            if start == end:
+                continue
+            item = QGraphicsLineItem(QLineF(start, end))
+            self.add(item)
+            created.append(item)
+        self._owner_items[owner] = created
+        return tuple(created)
+
+    def clear_owner(self, owner: str) -> int:
+        """Remove only the transient graphics registered to one owner."""
+        if not isinstance(owner, str) or not owner.strip():
+            raise ValueError("preview owner must be a non-empty string.")
+        items = tuple(self._owner_items.pop(owner, ()))
+        return self.remove_items(items)
+
+    def items_for_owner(self, owner: str) -> tuple[QGraphicsItem, ...]:
+        """Return the currently owned preview items for one interaction."""
+        return tuple(self._owner_items.get(owner, ()))
     def show_segment(self, start: Any, end: Any) -> None:
         """Show one transient cursor-to-endpoint placement segment."""
         self.clear()
@@ -323,6 +356,11 @@ class PreviewLayer:
         self._items.remove(
             item
         )
+        for owner, owned_items in tuple(self._owner_items.items()):
+            if item in owned_items:
+                owned_items.remove(item)
+                if not owned_items:
+                    self._owner_items.pop(owner, None)
 
         if item.scene() is self.scene:
             self.scene.removeItem(
@@ -384,6 +422,7 @@ class PreviewLayer:
             if item.scene() is self.scene:
                 self.scene.removeItem(item)
             self._items.remove(item)
+        self._owner_items.clear()
 
     def clear(
         self,
