@@ -318,6 +318,15 @@ class Application:
                 return self._draft_network_collection.get(active_id, create=True)
             return self._draft_network
 
+    def remove_draft_document(self, document_id: str) -> None:
+        """Discard only the transient draft owned by an explicitly closed SLD document."""
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("remove_draft_document requires a persistent document_id.")
+        with self._execution_lock:
+            self._reject_during_async_commit()
+            if self._draft_network_collection is not None:
+                self._draft_network_collection.remove_document(document_id.strip())
+
     def set_draft_network(self, draft_network: DraftNetwork | None) -> None:
         """Install a detached draft snapshot for the active document or pre-document activation."""
         if draft_network is not None and not isinstance(draft_network, DraftNetwork):
