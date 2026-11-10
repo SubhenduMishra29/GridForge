@@ -258,9 +258,11 @@ class ElectricalInsertionTool(ToolBase):
     def _show_preview(self, target: dict[str, Any]) -> None:
         if self._preview_layer is None or self._equipment_type is None:
             return
-        clear = getattr(self._preview_layer, "clear", None)
-        if callable(clear):
-            clear()
+        # Replace only this insertion interaction's preview; other tools
+        # may own independent transient graphics in the same layer.
+        clear_owner = getattr(self._preview_layer, "clear_owner", None)
+        if callable(clear_owner):
+            clear_owner(self._preview_owner)
         position = tuple(target["closest_point"])
         anchors = self._terminal_anchors()
         mapping = INSERTION_CONTRACTS[self._equipment_type].terminal_mapping
