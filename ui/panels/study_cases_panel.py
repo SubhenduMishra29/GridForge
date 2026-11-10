@@ -13,7 +13,7 @@ from ui.panels.transient_result_view import TransientResultViewWidget
 from core.application.read_models import TransientResultPresentationReadModel
 
 from ui.core.qt import (
-    QComboBox, QFormLayout, QLabel, QLineEdit, QListWidget,
+    QComboBox, QDoubleValidator, QFormLayout, QLabel, QLineEdit, QListWidget,
     QPushButton, QTimer, QVBoxLayout, QWidget,
 )
 
@@ -61,6 +61,25 @@ class StudyCasesPanelWidget(QWidget):
         self._end_time.setText("10.0")
         self._dt = QLineEdit(self)
         self._dt.setText("0.01")
+
+        # Keep numeric study inputs editable as text while rejecting non-numeric
+        # keystrokes early. Application/StudyService validation remains authoritative.
+        for control, minimum, maximum, decimals, hint in (
+            (self._base_mva, 1e-9, 1e9, 8, "Positive system base in MVA."),
+            (self._fault_r, 0.0, 1e9, 8, "Non-negative fault resistance in ohms."),
+            (self._fault_x, 0.0, 1e9, 8, "Non-negative fault reactance in ohms."),
+            (self._end_time, 1e-9, 1e9, 8, "Positive transient simulation end time in seconds."),
+            (self._dt, 1e-9, 1e9, 10, "Positive transient integration time step in seconds."),
+        ):
+            control.setValidator(QDoubleValidator(minimum, maximum, decimals, control))
+            control.setMinimumWidth(150)
+            control.setToolTip(hint)
+        self._case_name.setMinimumWidth(150)
+        self._pv_buses.setMinimumWidth(150)
+        self._case_name.setToolTip("Optional descriptive name for this study case.")
+        self._pv_buses.setToolTip(
+            "Optional comma-separated Bus IDs for PV bus definitions; use IDs from the current network."
+        )
 
         form = QFormLayout()
         form.addRow("Case name", self._case_name)
