@@ -898,3 +898,49 @@ Remaining:
 Verification boundary:
 - Changed source and register were fetched back from main.
 - No syntax/import execution, tests/CI, or desktop GUI verification run.
+
+
+======================================================================
+GF-UI-SYMBOL-ROTATION-WIRE-005 — ROTATION / WIRE ENDPOINT SOURCE AUDIT
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related: Issue #823; symbol rotation acceptance contract
+
+Source findings:
+- EquipmentItem applies the SymbolBase reflection, scale and rotation as
+  one graphics transform. snap_points() maps the symbol definition's local
+  terminal anchors through mapToScene(), so the visible anchors and snap
+  anchors share the same transform.
+- SLDCanvasRenderSystem resolves persisted source/target endpoint identities
+  against the newly realized equipment items before comparing connection
+  signatures. A changed terminal position therefore invalidates the
+  previous render signature even when endpoint IDs remain unchanged.
+- Automatic routes are recalculated from the newly transformed endpoints.
+- Engineer-owned orthogonal routes retain their authored intermediate
+  bends and add presentation-only endpoint elbows; persisted manual bend
+  geometry is not rewritten by this projection path.
+- SLDController.set_node_presentation() submits
+  SetSLDNodePresentationCommand through Application, rather than mutating
+  graphics items directly.
+- SLDNode serialization stores SymbolBase.to_dict(), preserving the
+  presentation transform and the symbol family/standard/variant metadata.
+
+Acceptance constraints retained:
+- Rotation/flip is presentation-only.
+- Equipment ID, terminal IDs/roles, endpoint identities, Core topology,
+  electrical connectivity and engineering parameters remain unchanged.
+- Symbol geometry, terminal anchors and displayed wire endpoints move
+  together around the symbol origin.
+- Manual route bends/ownership are preserved where possible; only
+  endpoint-adjacent presentation geometry may be adjusted.
+- Undo/redo and project save/reopen must restore the same presentation and
+  wire attachment state.
+- Never infer or swap terminal identity from visual position. Actual
+  electrical reconnection remains a separate explicit operation.
+
+Remaining evidence:
+- This is a source audit only. No Qt runtime rotation, mirror, connected-wire,
+  undo/redo, or project save/reopen interaction was executed.
+- Confirm Application history behavior for SetSLDNodePresentationCommand
+  and perform GUI acceptance before closing the rotation work.
