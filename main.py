@@ -830,7 +830,7 @@ def _build_application_impl(
             )
             if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
                 result = gridforge_application.execute(
-                    RemoveDraftEquipmentCommand(draft_id=str(selected_id))
+                    RemoveDraftEquipmentCommand(draft_id=str(selected_id), document_id=getattr(gridforge_application.presentation, "document_id", None))
                 )
                 if not result.success:
                     raise RuntimeError(result.message)
@@ -846,7 +846,7 @@ def _build_application_impl(
                 if isinstance(item, dict)
             ):
                 result = gridforge_application.execute(
-                    RemoveDraftConnectionCommand(connection_id=str(selected_id))
+                    RemoveDraftConnectionCommand(connection_id=str(selected_id), document_id=getattr(gridforge_application.presentation, "document_id", None))
                 )
                 if not result.success:
                     raise RuntimeError(result.message)
