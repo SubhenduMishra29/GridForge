@@ -57,33 +57,74 @@ class SLDReadSynchronizer:
         """Return deterministic Core/SLD Simple Wire reconciliation diagnostics."""
         return self._reconciliation_diagnostics
 
+    @staticmethod
+    def _core_endpoint_identity(endpoint: Mapping[str, Any]) -> tuple[str, str, str | None] | None:
+        kind = str(endpoint.get("kind", "")).strip().lower()
+        if kind == "terminal":
+            object_id = endpoint.get("object_id")
+            role = endpoint.get("terminal_role")
+            if isinstance(object_id, str) and object_id and isinstance(role, str) and role:
+                return ("terminal", object_id, role)
+            return None
+        if kind == "bus":
+            object_id = endpoint.get("object_id")
+            attachment_id = endpoint.get("attachment_id")
+            if isinstance(object_id, str) and object_id and isinstance(attachment_id, str) and attachment_id:
+                return ("bus", object_id, attachment_id)
+            return None
+        if kind == "junction":
+            junction_id = endpoint.get("junction_id", endpoint.get("object_id"))
+            if isinstance(junction_id, str) and junction_id:
+                return ("junction", junction_id, None)
+        return None
+
+    @staticmethod
+    def _sld_endpoint_identity(endpoint: Any) -> tuple[str, str, str | None] | None:
+        if endpoint is None:
+            return None
+        kind_value = getattr(getattr(endpoint, "kind", None), "value", getattr(endpoint, "kind", None))
+        kind = str(kind_value or "").strip().lower()
+        if kind == "equipment":
+            equipment_id = getattr(endpoint, "equipment_id", None)
+            role = getattr(endpoint, "terminal_role", None)
+            if isinstance(equipment_id, str) and equipment_id and isinstance(role, str) and role:
+                return ("terminal", equipment_id, role)
+            return None
+        if kind == "bus":
+            bus_id = getattr(endpoint, "bus_id", None)
+            attachment_id = getattr(endpoint, "attachment_id", None)
+            if isinstance(bus_id, str) and bus_id and isinstance(attachment_id, str) and attachment_id:
+                return ("bus", bus_id, attachment_id)
+        return None
+
     def reconcile_simple_wires(
         self,
         read_model: NetworkReadModel | None = None,
         *,
         presentation: Any | None = None,
     ) -> tuple[dict[str, Any], ...]:
-        """Audit Core Simple Wires against the supplied SLD presentation.
+        """Audit Core wire identity and endpoint topology against one SLD document.
 
-        When no presentation is supplied, preserve the canonical active-document
-        behavior. Callers reconciling a non-active document must pass that
-        document explicitly; this method never changes Application presentation.
+        This is read-only. Background-document callers pass the exact document;
+        route geometry is deliberately excluded because it is presentation data.
         """
+        application = self._require_application()
         if read_model is None:
-            read_model = self._require_application().read_network()
+            read_model = application.read_network()
         if not isinstance(read_model, NetworkReadModel):
             raise TypeError("read_model must be a NetworkReadModel")
         if presentation is None:
-            presentation = getattr(self._require_application(), "presentation", None)
+            presentation = getattr(application, "presentation", None)
         model = getattr(presentation, "model", None)
         connections = tuple(getattr(model, "connections", ())) if model is not None else ()
-        core_ids = {wire.connection_id for wire in read_model.simple_wires}
+        core_wires = {wire.connection_id: wire for wire in read_model.simple_wires}
         sld_projection = {}
         diagnostics = []
         for connection in connections:
-            if str(getattr(connection, "properties", {}).get("connection_kind", "")).upper() != "SIMPLE_WIRE":
+            properties = getattr(connection, "properties", {})
+            if str(properties.get("connection_kind", "")).upper() != "SIMPLE_WIRE":
                 continue
-            core_id = getattr(connection, "properties", {}).get("core_connection_id")
+            core_id = properties.get("core_connection_id")
             if not core_id:
                 diagnostics.append({"code": "MISSING_CORE_CONNECTION_ID", "presentation_id": connection.connection_id})
                 continue
@@ -91,12 +132,58 @@ class SLDReadSynchronizer:
             if core_id in sld_projection:
                 diagnostics.append({"code": "DUPLICATE_PRESENTATION_COMPANION", "connection_id": core_id})
             sld_projection[core_id] = connection
+
+        core_ids = set(core_wires)
         for core_id in sorted(core_ids - set(sld_projection)):
             diagnostics.append({"code": "CORE_WIRE_WITHOUT_SLD_COMPANION", "connection_id": core_id})
         for core_id in sorted(set(sld_projection) - core_ids):
-            diagnostics.append({"code": "SLD_WIRE_WITHOUT_CORE", "connection_id": core_id, "presentation_id": sld_projection[core_id].connection_id})
-        self._reconciliation_diagnostics = tuple(diagnostics)
-        return self._reconciliation_diagnostics
+            diagnostics.append({
+                "code": "SLD_WIRE_WITHOUT_CORE",
+                "connection_id": core_id,
+                "presentation_id": sld_projection[core_id].connection_id,
+            })
+
+        for core_id in sorted(core_ids & set(sld_projection)):
+            wire = core_wires[core_id]
+            connection = sld_projection[core_id]
+            core_pair = (
+                self._core_endpoint_identity(wire.endpoint_a),
+                self._core_endpoint_identity(wire.endpoint_b),
+            )
+            sld_pair = (
+                self._sld_endpoint_identity(getattr(connection, "source_endpoint", None)),
+                self._sld_endpoint_identity(getattr(connection, "target_endpoint", None)),
+            )
+            if any(endpoint is None for endpoint in sld_pair):
+                diagnostics.append({
+                    "code": "SLD_ENDPOINT_IDENTITY_MISSING",
+                    "connection_id": core_id,
+                    "presentation_id": connection.connection_id,
+                })
+                continue
+            if any(endpoint is None for endpoint in core_pair):
+                diagnostics.append({
+                    "code": "UNSUPPORTED_CORE_ENDPOINT_IDENTITY",
+                    "connection_id": core_id,
+                    "presentation_id": connection.connection_id,
+                })
+                continue
+            normalized_core = tuple(sorted(core_pair, key=repr))
+            normalized_sld = tuple(sorted(sld_pair, key=repr))
+            if normalized_core != normalized_sld:
+                diagnostics.append({
+                    "code": "CORE_SLD_ENDPOINT_MISMATCH",
+                    "connection_id": core_id,
+                    "presentation_id": connection.connection_id,
+                    "core_endpoints": normalized_core,
+                    "sld_endpoints": normalized_sld,
+                })
+
+        result = tuple(diagnostics)
+        # Background audits must not overwrite the active document's diagnostics.
+        if presentation is getattr(application, "presentation", None):
+            self._reconciliation_diagnostics = result
+        return result
 
     def synchronize_network_from_application(self) -> tuple[SLDProjection, ...]:
         return self.synchronize_network(None, self._require_application().read_network())
