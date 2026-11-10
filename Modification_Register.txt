@@ -349,3 +349,30 @@ Correction:
 
 Verification boundary:
 - Source-level review only. No tests/CI, Qt runtime, interactive commit/undo/redo, or desktop rendering verification was run.
+
+
+GridForge V2 — atomic semantic SLD selection deletion
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+Issue: #1180
+
+Corrections:
+- Added DeleteSelectionBatchCommand as one immutable Application command envelope for a multi-object semantic SLD deletion.
+- Registered one aggregate handler in the Application composition root. It validates supported child command types, non-empty/unique object identities, and active-document scope for DraftNetwork delete commands before executing mutations.
+- The aggregate executes canonical delete child commands through CommandManager.execute_in_transaction, sharing one Transaction and one history record; it does not create nested command transactions.
+- Connection removals are ordered before endpoint equipment removals. A child failure propagates to the outer CommandManager transaction, whose inverse journal rolls back earlier child mutations.
+- Updated the SLD composition root to build the complete supported delete command set before dispatch. Multi-object Delete and semantic equipment Cut now route through the aggregate command; unsupported selection types remain fail-closed.
+- Single-object deletion retains the existing canonical direct-command path.
+- Exported the batch command from core.application.commands and retained UI-only ownership of selection and clipboard interaction.
+
+Supported batch child contracts in this increment:
+- Core Bus, Transformer and Breaker deletion.
+- Core Simple Wire removal.
+- Draft equipment and Draft connection removal in the active SLD document.
+- SLD-only node removal.
+
+Verification boundary:
+- Source-level inspection only. No tests/CI, Python startup, Qt runtime, interactive multi-selection, undo/redo, failure-injection rollback, or save/reopen were run.
+- The aggregate uses one shared Application transaction; handler-level domain validation still occurs during child execution. Any later child failure must be observed to restore all prior mutations through the transaction inverse journal.
+- GUI acceptance remains outstanding for multi-select Delete/Cut, mixed connection/equipment selections, undo/redo, failure rollback, and document isolation.
