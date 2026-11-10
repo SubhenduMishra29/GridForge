@@ -65,6 +65,8 @@ from ui.workspace.workspace_defaults import CONTROL_WORKSPACE_ID, PROTECTION_WOR
 from ui.workspace.workspace_manager import WorkspaceManager
 from ui.workspace.workspace_realizer import WorkspaceRealizer
 from ui.workspace.engineering_context import EngineeringContextStore
+from ui.workspace.viewport_preference_store import ViewportPreferenceStore
+from ui.workspace.viewport_state import ViewportState
 from ui.tools.default_tool_registry import create_default_tool_factories
 from ui.tools.tool_definition import contextual_tool_definitions
 from ui.tools.tool_mode import ToolMode
@@ -159,6 +161,16 @@ def _build_application_impl(
     # Establish the application identity before constructing/showing the splash
     # or any application window. BrandingService is the single resource authority.
     branding.apply_application_identity(app)
+    viewport_preference_store = ViewportPreferenceStore()
+    resources["viewport_preference_store"] = viewport_preference_store
+
+    def _save_viewport_preference(view_id: str, state: ViewportState) -> None:
+        viewport_preference_store.save(view_id, state)
+        lifecycle = resources.get("project_workspace_lifecycle")
+        view_manager = getattr(lifecycle, "views", None)
+        view = view_manager.get(view_id) if callable(getattr(view_manager, "get", None)) else None
+        if view is not None:
+            view.viewport = state
 
     startup_splash = StartupSplash(app, branding)
     resources["startup_splash"] = startup_splash
@@ -275,6 +287,8 @@ def _build_application_impl(
         projection=comparison_projection,
         render_system=comparison_render_system,
         document_resolver=_resolve_comparison_document,
+        viewport_state_loader=viewport_preference_store.load,
+        viewport_state_saver=_save_viewport_preference,
     )
     canvas_composition = canvas_composer.compose(
         controller=controller,
@@ -444,9 +458,55 @@ def _build_application_impl(
         application=gridforge_application,
         lifecycle=project_workspace_lifecycle,
         default_symbol_presentation_factory=presentation_bootstrap.default_symbol_presentation,
+        viewport_preference_store=viewport_preference_store,
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
-    project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
+    def _capture_active_viewport() -> None:
+        document_id = canvas_composition.surface.document_id
+        if not isinstance(document_id, str) or not document_id:
+            return
+        center = canvas_composition.view.mapToScene(
+            canvas_composition.view.viewport().rect().center()
+        )
+        state = ViewportState(
+            center_x=float(center.x()),
+            center_y=float(center.y()),
+            zoom=canvas_composition.navigation_controller.get_zoom_level(),
+        )
+        _save_viewport_preference(f"{document_id}:sld", state)
+
+    def _restore_document_viewport(document: object | None) -> None:
+        document_id = getattr(document, "document_id", None)
+        if not isinstance(document_id, str) or not document_id:
+            return
+        state = viewport_preference_store.load(f"{document_id}:sld")
+        if state is None:
+            return
+        canvas_composition.navigation_controller.set_zoom_level(state.zoom)
+        canvas_composition.view.centerOn(state.center_x, state.center_y)
+
+    def _activate_sld_presentation(document: object | None) -> None:
+        # Capture the outgoing view before the editor host replaces its document.
+        _capture_active_viewport()
+        viewport_preference_store.sync()
+        workspace_surface_host.set_sld_document(document)
+        _restore_document_viewport(document)
+
+    def _persist_viewport_change(*_args: object) -> None:
+        _capture_active_viewport()
+
+    canvas_composition.navigation_controller.add_zoom_changed_listener(
+        _persist_viewport_change
+    )
+    canvas_composition.view.horizontalScrollBar().valueChanged.connect(
+        _persist_viewport_change
+    )
+    canvas_composition.view.verticalScrollBar().valueChanged.connect(
+        _persist_viewport_change
+    )
+    project_workspace_adapter.configure_presentation_activation_bridge(
+        _activate_sld_presentation
+    )
     project_workspace_adapter.configure_document_transition_guard(lambda: controller.set_tool("select", cancel_active_creation=True))
 
     def _reset_interaction_for_project_transition():
