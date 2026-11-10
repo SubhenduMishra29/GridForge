@@ -582,3 +582,17 @@ Correction:
 
 Verification boundary:
 - Source inspection and fetch-back only. No insertion gesture, rotated terminal alignment, Qt runtime, tests, or CI were executed.
+
+
+GF-SLD-CT-ANCHORS-001 — CURRENT TRANSFORMER PRIMARY/SECONDARY ANCHOR ALIGNMENT
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Corrected the built-in Current Transformer symbol's terminal anchors to match the four horizontal lead endpoints in its renderer-neutral primitives.
+- P1/P2 now occupy the left/right endpoints of the upper primary path; S1/S2 occupy the left/right endpoints of the lower secondary path.
+- This aligns the Application insertion contract (P1/P2 are the series primary terminals; S1/S2 remain disconnected) with the symbol preview geometry and preserves the CT secondary isolation rule.
+- No Core model, endpoint identity, or topology behavior was changed.
+
+Verification boundary:
+- Source inspection and fetch-back only. No Qt visual rendering, CT insertion, terminal snap, or electrical study was executed.
