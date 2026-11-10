@@ -633,6 +633,7 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("Only an existing SLDDocument can be replaced by this adapter.")
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
+        previous_collection_dirty = self._document_collection_dirty
         try:
             if self._document_transition_guard is not None:
                 self._document_transition_guard()
@@ -644,6 +645,7 @@ class ProjectWorkspaceApplicationAdapter:
             self._publish("replace_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
             ]
@@ -831,6 +833,7 @@ class ProjectWorkspaceApplicationAdapter:
             self._publish("close_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
+            self._document_collection_dirty = previous_collection_dirty
             recovery: list[tuple[str, Callable[[], None]]] = [
                 ("draft collection restoration", lambda: self._application.set_draft_network_collection(previous_draft_collection)),
                 ("workspace lifecycle restoration", lambda: self._lifecycle.restore_last_state(snapshot)),
