@@ -308,9 +308,11 @@ class SLDEditor(QWidget):
                     )
                 minimum = int(getattr(region, "minimum_size", 0) or 0)
                 if region_id in {"tool_shelf", "explorer", "sidebar"}:
-                    frame.setMinimumWidth(minimum)
+                    # Workspace definitions may raise a region's minimum,
+                    # but must not erase the editor's hard usability floor.
+                    frame.setMinimumWidth(max(frame.minimumWidth(), minimum))
                 elif region_id in {"header", "canvas", "tool_settings", "overlay", "diagnostics", "status"}:
-                    frame.setMinimumHeight(minimum)
+                    frame.setMinimumHeight(max(frame.minimumHeight(), minimum))
                 if previous_definition_visibility is not None and previous_definition_visibility != visible:
                     affected.add(region_id)
             value = getattr(region, "preferred_size", None)
