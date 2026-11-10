@@ -110,6 +110,9 @@ class SLDEditor(QWidget):
         )
         shelf_region = EditorRegionFrame("Tools", parent=self)
         shelf_region.set_widget(shelf)
+        # Preserve a usable compact tool rail while allowing the canvas to
+        # remain the dominant workspace surface.
+        shelf_region.setMinimumWidth(52)
 
         settings = tool_settings or ToolSettingsPanel(parent=self)
         settings_region = EditorRegionFrame("Tool Settings", parent=self)
@@ -117,12 +120,18 @@ class SLDEditor(QWidget):
 
         canvas_region = EditorRegionFrame("Canvas", parent=self)
         canvas_region.set_widget(canvas)
+        # Keep enough usable drawing area when secondary panels are opened.
+        # These are presentation constraints only; the canvas remains owned
+        # by CanvasPlugin and the electrical model is unaffected.
+        canvas_region.setMinimumSize(520, 360)
 
         explorer_region = EditorRegionFrame("Explorer", parent=self)
         explorer_region.set_widget(explorer or QWidget(self))
+        explorer_region.setMinimumWidth(210)
 
         inspector_region = EditorRegionFrame("Inspector", parent=self)
         inspector_region.set_widget(inspector or QWidget(self))
+        inspector_region.setMinimumWidth(260)
 
         left = QSplitter(Qt.Orientation.Vertical, self)
         left.setChildrenCollapsible(True)
