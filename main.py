@@ -81,6 +81,7 @@ from core.application.commands.model_commands import CREATE_BUS, CreateBusComman
 from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
 from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
 from core.application.commands.draft_commands import RemoveDraftConnectionCommand, RemoveDraftEquipmentCommand, PasteDraftSelectionCommand
+from core.application.commands.selection_commands import DeleteSelectionBatchCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
@@ -1017,106 +1018,96 @@ def _build_application_impl(
         )
 
     def _delete_selection() -> None:
-        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
+        selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
-            return
-        if len(selected_ids) != 1:
-            messages_panel.append_message(
-                "Delete canceled: multi-object deletion is disabled until an atomic "
-                "Application batch command is available. Nothing was deleted."
-            )
             return
         if not _selection_supports("delete"):
             messages_panel.append_message(
-                "Delete canceled: the selected object has no supported semantic "
-                "delete command. Nothing was deleted."
+                "Delete canceled: the complete selection contains an object without a supported semantic delete command. Nothing was deleted."
             )
             return
 
+        try:
+            draft_snapshot = gridforge_application.read_draft_network()
+        except (RuntimeError, ValueError, TypeError) as exc:
+            messages_panel.append_message(f"Delete canceled: DraftNetwork could not be read: {exc}")
+            return
+        draft_snapshot = draft_snapshot if isinstance(draft_snapshot, dict) else {}
+        draft_equipment = {
+            str(item.get("draft_id", "")) for item in draft_snapshot.get("equipment", ())
+            if isinstance(item, dict)
+        }
+        draft_connections = {
+            str(item.get("connection_id", "")) for item in draft_snapshot.get("connections", ())
+            if isinstance(item, dict)
+        }
+        document_id = getattr(gridforge_application.presentation, "document_id", None)
+        if not isinstance(document_id, str) or not document_id.strip():
+            messages_panel.append_message("Delete canceled: the active SLD document identity is unavailable.")
+            return
+
+        commands = []
         for selected_id in selected_ids:
             element = _find_network_element(selected_id)
             if element is not None:
                 element_type = str(element.element_type).strip().lower()
                 if element_type == "bus":
-                    result = gridforge_application.execute(DeleteBusCommand(bus_id=str(element.object_id)))
+                    commands.append(DeleteBusCommand(bus_id=str(element.object_id)))
                 elif element_type == "transformer":
-                    result = gridforge_application.execute(DeleteTransformerCommand(transformer_id=str(element.object_id)))
+                    commands.append(DeleteTransformerCommand(transformer_id=str(element.object_id)))
                 elif element_type == "breaker":
-                    result = gridforge_application.execute(DeleteBreakerCommand(breaker_id=str(element.object_id)))
+                    commands.append(DeleteBreakerCommand(breaker_id=str(element.object_id)))
                 else:
-                    raise RuntimeError(
-                        f"Delete is not semantically mapped for {element_type!r}; refusing to hide the object."
+                    messages_panel.append_message(
+                        f"Delete canceled: no semantic delete mapping exists for {element_type!r}. Nothing was deleted."
                     )
-                if not result.success:
-                    raise RuntimeError(result.message)
+                    return
                 continue
 
             try:
-                wire = gridforge_application.read_simple_wire(str(selected_id))
+                wire = gridforge_application.read_simple_wire(selected_id)
             except (KeyError, RuntimeError):
                 wire = None
             if wire is not None:
-                result = gridforge_application.execute(
-                    RemoveSimpleWireConnectionCommand(connection_id=str(selected_id))
-                )
-                if not result.success:
-                    raise RuntimeError(result.message)
+                commands.append(RemoveSimpleWireConnectionCommand(connection_id=selected_id))
                 continue
-
-            # Draft equipment has not crossed the Application commit boundary;
-            # remove it through the registered DraftNetwork command, never by
-            # deleting only its transient graphics item.
-            draft_snapshot = gridforge_application.read_draft_network()
-            draft_equipment = (
-                (draft_snapshot or {}).get("equipment", ())
-                if isinstance(draft_snapshot, dict) else ()
-            )
-            if any(str(item.get("draft_id", "")) == str(selected_id) for item in draft_equipment):
-                result = gridforge_application.execute(
-                    RemoveDraftEquipmentCommand(draft_id=str(selected_id), document_id=getattr(gridforge_application.presentation, "document_id", None))
-                )
-                if not result.success:
-                    raise RuntimeError(result.message)
+            if selected_id in draft_connections:
+                commands.append(RemoveDraftConnectionCommand(connection_id=selected_id, document_id=document_id))
                 continue
-
-            draft_connections = (
-                (draft_snapshot or {}).get("connections", ())
-                if isinstance(draft_snapshot, dict) else ()
-            )
-            if any(
-                str(item.get("connection_id", "")) == str(selected_id)
-                for item in draft_connections
-                if isinstance(item, dict)
-            ):
-                result = gridforge_application.execute(
-                    RemoveDraftConnectionCommand(connection_id=str(selected_id), document_id=getattr(gridforge_application.presentation, "document_id", None))
-                )
-                if not result.success:
-                    raise RuntimeError(result.message)
+            if selected_id in draft_equipment:
+                commands.append(RemoveDraftEquipmentCommand(draft_id=selected_id, document_id=document_id))
                 continue
 
             node = _find_sld_node(selected_id)
             if node is not None and getattr(node, "equipment_id", None) is None:
-                result = gridforge_application.execute(RemoveSLDNodeCommand(node_id=str(node.node_id)))
-                if not result.success:
-                    raise RuntimeError(result.message)
+                commands.append(RemoveSLDNodeCommand(node_id=str(node.node_id)))
                 continue
 
-            raise RuntimeError(
-                f"Selection {selected_id!r} is not mapped to an authoritative delete command."
+            messages_panel.append_message(
+                f"Delete canceled: selection {selected_id!r} has no authoritative delete mapping. Nothing was deleted."
             )
+            return
+
+        try:
+            if len(commands) == 1:
+                result = gridforge_application.execute(commands[0])
+            else:
+                result = gridforge_application.execute(
+                    DeleteSelectionBatchCommand(commands=tuple(commands), document_id=document_id)
+                )
+            if not result.success:
+                raise RuntimeError(result.message or "Application rejected the deletion.")
+        except Exception as exc:
+            messages_panel.append_message(
+                f"Delete failed; the Application transaction was rolled back: {exc}"
+            )
+            return
 
         canvas_composition.selection_manager.clear()
 
     def _cut_selection() -> None:
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
-            return
-        if len(selected_ids) != 1:
-            messages_panel.append_message(
-                "Cut canceled: multi-object Cut is disabled until an atomic "
-                "Application batch command is available. Nothing was changed."
-            )
             return
         if not _selection_supports("copy") or not _selection_supports("delete"):
             messages_panel.append_message(
@@ -1130,17 +1121,6 @@ def _build_application_impl(
             messages_panel.append_message(
                 "Cut canceled: one or more selected items cannot be copied "
                 "as semantic equipment. Nothing was deleted."
-            )
-            return
-
-        # Deletion currently dispatches one command per object and does not
-        # provide an atomic batch/rollback boundary. A multi-object Cut could
-        # therefore delete earlier objects before a later command fails.
-        # Keep Cut non-destructive until Application exposes an atomic batch.
-        if len(selected_ids) > 1:
-            messages_panel.append_message(
-                "Cut canceled: multi-object Cut is unavailable until deletion "
-                "supports an atomic Application batch. Nothing was deleted."
             )
             return
 
@@ -1468,14 +1448,13 @@ def _build_application_impl(
         if action_id in {"delete", "edit.delete_selection"}:
             return (
                 project_active and discipline == "sld" and selected
-                and len(context.selected_ids) == 1 and _selection_supports("delete")
+                and _selection_supports("delete")
             )
         if action_id in {"copy", "edit.copy"}:
             return project_active and discipline == "sld" and selected and _selection_supports("copy")
         if action_id == "edit.cut":
             return (
                 project_active and discipline == "sld" and selected
-                and len(context.selected_ids) == 1
                 and _selection_supports("copy") and _selection_supports("delete")
             )
         if action_id in {"edit.rotate", "edit.mirror_horizontal", "edit.mirror_vertical"}:
