@@ -420,6 +420,9 @@ def _build_application_impl(
     )
     resources["project_workspace_adapter"] = project_workspace_adapter
     project_workspace_adapter.configure_presentation_activation_bridge(workspace_surface_host.set_sld_document)
+    project_workspace_adapter.configure_presentation_state_capture_provider(
+        canvas_composition.surface.capture_active_viewport_state
+    )
     def _guard_document_switch_with_pending_draft():
         # DraftNetwork is currently project-scoped. Until its persisted ownership
         # is partitioned by SLD document, fail closed rather than displaying or
