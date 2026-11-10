@@ -421,3 +421,32 @@ Correction:
 
 Verification boundary:
 - Source-level review of the surface, navigation controller and lifecycle teardown. No tests/CI, application startup, Qt runtime or GUI interaction performed.
+
+
+GF-MEASUREMENT-STALE-AFTER-001 — PRESERVE MEASUREMENT CHANNEL STALENESS POLICY
+Date: 2026-11-10
+Implementation repository: madhuri196mishra-cpu/GridForge
+Authoritative integration repository: SubhenduMishra29/GridForge
+Implementation issue: #156
+Authoritative root issue: #774
+Implementation branch: fix/issue-156-persist-measurement-staleness-root-sync
+Root base: 829eefbd8f45141de08f29cdde29b25adc558b01
+
+Finding:
+- MeasurementChannel validates and stores optional stale_after, but MeasurementChannelService._serialize_channel omitted it and _provision_definition did not forward it to MeasurementProvisioning.
+- A project save/reopen cycle therefore silently reset an explicitly configured signal-staleness threshold to None, changing channel validity behavior after activation.
+
+Correction:
+- Serialize channel.stale_after with the persisted measurement definition.
+- Forward definition.stale_after to MeasurementProvisioning.provision_channel; the canonical MeasurementChannel constructor validates it as finite and non-negative.
+- Legacy definitions without stale_after remain compatible and retain the existing None default.
+
+Scope:
+- One focused Application service correction; no new command/service/registry/event bus, no inferred measurement configuration, no Core or Qt mutation.
+- This does not complete active-project CT/PT/CVT source-definition authoring, PT/CVT primary voltage sensing, relay binding UX, or the complete measurement-channel lifecycle.
+
+Verification:
+- Current root main base 829eefbd8f45141de08f29cdde29b25adc558b01 was fetched and used as the implementation branch base.
+- Root-relative branch comparison: one commit ahead, zero behind; changed paths are this service and this append-only register entry.
+- Static source inspection confirmed serialization and project-activation provisioning use the same MeasurementChannelService path. No tests, CI, startup, GUI, save/reopen runtime experiment or protection simulation was executed.
+- Root PR #1183 pending review; root merge commit and final issue closure pending root integration.
