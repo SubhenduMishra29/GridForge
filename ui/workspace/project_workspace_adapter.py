@@ -582,6 +582,7 @@ class ProjectWorkspaceApplicationAdapter:
             raise TypeError("Only SLDDocument activation is supported by the SLD document lifecycle.")
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
+        previous_draft_collection = self._application.draft_network_collection
         try:
             if _run_transition_guard and self._document_transition_guard is not None:
                 self._document_transition_guard()
