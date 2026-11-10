@@ -334,3 +334,18 @@ Corrections:
 
 Verification boundary:
 - Source and diff review only. No tests/CI, Qt runtime, project activation, or desktop save/reopen were executed.
+
+
+GridForge V2 — DraftNetwork commit projection event ordering
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Correction:
+- Draft→Core commit NetworkCommitted and undo/redo NetworkChanged events now carry the shared presentation_operation=network_commit_draft marker.
+- SLDUpdateCoordinator reconciles the authoritative Core network for the marked network event but defers the canvas refresh until the paired SLDPresentationChanged event.
+- The paired presentation event refreshes DraftSLDProjection from the transactionally updated Application draft state and then refreshes the canvas. This prevents an intermediate render containing both the committed Core projection and the pre-commit draft preview.
+- Existing CommitNetworkHandler transaction ownership remains unchanged: successful commit clears the active draft; rollback and undo restore the exact snapshot; redo clears it again.
+
+Verification boundary:
+- Source-level review only. No tests/CI, Qt runtime, interactive commit/undo/redo, or desktop rendering verification was run.
