@@ -1559,7 +1559,12 @@ def _build_application_impl(
                 if comparison_document_id
                 else ()
             )
-            comparison_viewport.set_reconciliation_diagnostics(diagnostics)
+            if coordinator.background_reconciliation_error is not None:
+                comparison_viewport.set_reconciliation_error(
+                    coordinator.background_reconciliation_error
+                )
+            else:
+                comparison_viewport.set_reconciliation_diagnostics(diagnostics)
         return snapshot
 
     def _attempt_workspace_sync_step(step: str, operation: Callable[[], None], change: ProjectWorkspaceChanged) -> None:
@@ -1810,11 +1815,19 @@ def _build_application_impl(
         documents_provider=lambda: project_workspace_lifecycle.documents.documents(),
     )
     sld_update_coordinator_ref["value"] = sld_update_coordinator
-    comparison_viewport.set_reconciliation_diagnostics_provider(
-        lambda document_id: sld_update_coordinator.background_reconciliation_diagnostics.get(
+    def _comparison_diagnostics_for_document(document_id: str):
+        if sld_update_coordinator.background_reconciliation_error is not None:
+            return ({
+                "code": "BACKGROUND_RECONCILIATION_FAILED",
+                "message": str(sld_update_coordinator.background_reconciliation_error),
+            },)
+        return sld_update_coordinator.background_reconciliation_diagnostics.get(
             document_id,
             (),
         )
+
+    comparison_viewport.set_reconciliation_diagnostics_provider(
+        _comparison_diagnostics_for_document
     )
     control_update_coordinator = ControlUpdateCoordinator(application=gridforge_application, canvas=control_workspace.canvas, canvas_refresh=control_workspace.refresh)
     element_list_panel.bind_selection_manager(canvas_composition.selection_manager)
