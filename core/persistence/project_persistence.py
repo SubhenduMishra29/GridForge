@@ -27,7 +27,7 @@ from core.analysis.short_circuit_configuration import ShortCircuitStudyConfigura
 from core.analysis.transient_stability import TransientStabilityStudyConfiguration
 from core.solver.short_circuit.fault_types import FaultType
 from core.application.control_signal_mapping import ControlSignalMapping
-from core.application.draft import DraftNetwork
+from core.application.draft import DraftNetwork, DraftNetworkCollection
 from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration, ProtectionProjectConfigurationSnapshot
