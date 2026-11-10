@@ -93,6 +93,8 @@ from .protection_configuration_commands import (
 from .model_commands import *
 from .control_commands import *
 
+from .selection_commands import DELETE_SELECTION_BATCH, DeleteSelectionBatchCommand
+
 from .draft_commands import (
     UPDATE_DRAFT_CONNECTION_ROUTE,
     PASTE_DRAFT_SELECTION,
