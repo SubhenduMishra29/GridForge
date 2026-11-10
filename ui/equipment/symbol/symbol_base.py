@@ -50,6 +50,9 @@ class SymbolBase:
         visible: bool = True,
         representation_id: str = "symbol",
         properties: Mapping[str, Any] | None = None,
+        symbol_family_id: str | None = None,
+        standard_id: str = "unspecified",
+        variant_id: str = "default",
     ) -> None:
         # ----------------------------------------------------
         # Identity validation
@@ -70,6 +73,11 @@ class SymbolBase:
             raise ValueError(
                 "definition_id must be a non-empty string."
             )
+
+        normalized_family_id = symbol_family_id or symbol_id
+        for field_name, value in (("symbol_family_id", normalized_family_id), ("standard_id", standard_id), ("variant_id", variant_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} must be a non-empty string.")
 
         # ----------------------------------------------------
         # Transformation validation
@@ -142,6 +150,9 @@ class SymbolBase:
 
         self._symbol_id = symbol_id
         self._definition_id = definition_id
+        self._symbol_family_id = normalized_family_id.strip().lower()
+        self._standard_id = standard_id.strip().lower()
+        self._variant_id = variant_id.strip().lower()
         self._scale = normalized_scale
         self._rotation = normalized_rotation
         self._visible = bool(visible)
@@ -163,6 +174,18 @@ class SymbolBase:
     def definition_id(self) -> str:
         """Return the referenced SymbolDefinition identity."""
         return self._definition_id
+
+    @property
+    def symbol_family_id(self) -> str:
+        return self._symbol_family_id
+
+    @property
+    def standard_id(self) -> str:
+        return self._standard_id
+
+    @property
+    def variant_id(self) -> str:
+        return self._variant_id
 
     # ========================================================
     # TRANSFORMATION
@@ -336,6 +359,9 @@ class SymbolBase:
         return {
             "symbol_id": self.symbol_id,
             "definition_id": self.definition_id,
+            "symbol_family_id": self.symbol_family_id,
+            "standard_id": self.standard_id,
+            "variant_id": self.variant_id,
             "representation_id": self.representation_id,
             "scale": self.scale,
             "rotation": self.rotation,
@@ -370,6 +396,9 @@ class SymbolBase:
         return cls(
             symbol_id=symbol_id,
             definition_id=definition_id,
+            symbol_family_id=data.get("symbol_family_id", symbol_id),
+            standard_id=data.get("standard_id", "unspecified"),
+            variant_id=data.get("variant_id", "default"),
             scale=data.get(
                 "scale",
                 1.0,
@@ -401,6 +430,9 @@ class SymbolBase:
             "SymbolBase("
             f"symbol_id={self.symbol_id!r}, "
             f"definition_id={self.definition_id!r}, "
+            f"symbol_family_id={self.symbol_family_id!r}, "
+            f"standard_id={self.standard_id!r}, "
+            f"variant_id={self.variant_id!r}, "
             f"representation_id={self.representation_id!r}, "
             f"scale={self.scale!r}, "
             f"rotation={self.rotation!r}, "
