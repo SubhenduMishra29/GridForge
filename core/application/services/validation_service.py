@@ -434,7 +434,7 @@ class ValidationService:
                             ))
                         else:
                             try:
-                                network.connectivity.get(core_connection_id.strip())
+                                core_connection = network.connectivity.get(core_connection_id.strip())
                             except (AttributeError, KeyError, TypeError, ValueError) as exc:
                                 issues.append(ValidationIssue(
                                     code="SLD_CORE_CONNECTION_REFERENCE_UNRESOLVED",
@@ -443,6 +443,67 @@ class ValidationService:
                                     element_id=connection_id,
                                     element_type="SLD_CONNECTION",
                                 ))
+                            else:
+                                expected_endpoints = []
+                                endpoint_error = None
+                                for core_endpoint in (core_connection.endpoint_a, core_connection.endpoint_b):
+                                    endpoint_mapping = core_endpoint.to_mapping()
+                                    endpoint_kind = str(endpoint_mapping.get("kind") or "")
+                                    endpoint_data = endpoint_mapping.get("endpoint")
+                                    if endpoint_kind not in {"bus", "terminal"} or not isinstance(endpoint_data, Mapping):
+                                        endpoint_error = f"unsupported Core endpoint kind {endpoint_kind!r}"
+                                        break
+                                    object_id = str(endpoint_data.get("object_id") or "")
+                                    matching_nodes = [
+                                        (candidate_id, candidate)
+                                        for candidate_id, candidate in node_by_id.items()
+                                        if str(candidate.get("equipment_id") or "") == object_id
+                                        and str(candidate.get("properties", {}).get("lifecycle_state", "BOUND")).strip().upper() == "BOUND"
+                                    ]
+                                    if len(matching_nodes) != 1:
+                                        endpoint_error = (
+                                            f"Core endpoint {endpoint_kind}:{object_id} resolves to "
+                                            f"{len(matching_nodes)} BOUND SLD nodes; expected exactly one"
+                                        )
+                                        break
+                                    node_id, _node = matching_nodes[0]
+                                    expected_endpoints.append({
+                                        "kind": "bus" if endpoint_kind == "bus" else "equipment",
+                                        "node_id": node_id,
+                                        "equipment_id": object_id if endpoint_kind == "terminal" else None,
+                                        "terminal_role": endpoint_data.get("terminal_role") if endpoint_kind == "terminal" else None,
+                                        "bus_id": object_id if endpoint_kind == "bus" else None,
+                                        "attachment_id": endpoint_data.get("attachment_id") if endpoint_kind == "bus" else None,
+                                    })
+                                if endpoint_error is not None:
+                                    issues.append(ValidationIssue(
+                                        code="SLD_CORE_ENDPOINT_NODE_UNRESOLVED",
+                                        message=f"BOUND SLD connection {connection_id!r} cannot resolve its canonical Core endpoint to one BOUND SLD node: {endpoint_error}.",
+                                        severity=ValidationSeverity.ERROR,
+                                        element_id=connection_id,
+                                        element_type="SLD_CONNECTION",
+                                    ))
+                                else:
+                                    actual_endpoints = (
+                                        connection.get("source_endpoint"),
+                                        connection.get("target_endpoint"),
+                                    )
+                                    actual_node_ids = (
+                                        connection.get("source_node_id"),
+                                        connection.get("target_node_id"),
+                                    )
+                                    expected_node_ids = tuple(item["node_id"] for item in expected_endpoints)
+                                    if (
+                                        tuple(actual_endpoints) != tuple(expected_endpoints)
+                                        or tuple(actual_node_ids) != expected_node_ids
+                                    ):
+                                        issues.append(ValidationIssue(
+                                            code="SLD_CORE_ENDPOINT_MISMATCH",
+                                            message=f"BOUND SLD connection {connection_id!r} endpoint descriptors or node identities do not match Core Simple-Wire {core_connection_id!r}.",
+                                            severity=ValidationSeverity.ERROR,
+                                            element_id=connection_id,
+                                            element_type="SLD_CONNECTION",
+                                        ))
 
         return SLDAssociationValidationResult(
             project_id=context.project_id,
