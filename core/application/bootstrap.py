@@ -48,6 +48,7 @@ from core.solver.short_circuit.fault_types import FaultType
 from .application import Application
 from .protection_execution_audit import ProtectionExecutionAuditStore
 from .control_dispatch import ControlTripBatchCommand
+from .commands.selection_commands import DELETE_SELECTION_BATCH
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
@@ -225,6 +226,63 @@ def create_application(
             signal_mapping_setter=lambda mapping: application.configure_control_signal_mapping(mapping),
         ).handlers(), "control")
         command_manager = CommandManager(context=context, handlers=handlers)
+
+        def execute_selection_delete_batch(command: Any, _context: Any, transaction: Any) -> Any:
+            """Execute supported semantic deletes under one shared transaction/history record."""
+            children = tuple(command.payload.get("commands", ()))
+            document_id = str(command.payload.get("document_id", "")).strip()
+            identity_fields = {
+                "model.delete_bus": "bus_id",
+                "model.delete_transformer": "transformer_id",
+                "model.delete_breaker": "breaker_id",
+                "connectivity.remove_simple_wire": "connection_id",
+                "draft.remove_equipment": "draft_id",
+                "draft.remove_connection": "connection_id",
+                "sld.remove_node": "node_id",
+            }
+            if len(children) < 2 or not document_id:
+                raise ValueError("Selection delete batch requires at least two commands and one active SLD document.")
+            identities: set[tuple[str, str]] = set()
+            draft_commands = {"draft.remove_equipment", "draft.remove_connection"}
+            for child in children:
+                if not hasattr(child, "command_type") or child.command_type not in identity_fields:
+                    raise ValueError("Selection delete batch contains an unsupported semantic delete command.")
+                field = identity_fields[child.command_type]
+                identity = str(child.payload.get(field, "")).strip()
+                if not identity or (child.command_type, identity) in identities:
+                    raise ValueError("Selection delete batch contains an empty or duplicate object identity.")
+                identities.add((child.command_type, identity))
+                if child.command_type in draft_commands and str(child.payload.get("document_id", "")).strip() != document_id:
+                    raise ValueError("Draft delete command does not belong to the active SLD document.")
+
+            # Remove connections before their endpoint equipment. The shared
+            # transaction journal restores all earlier children if any later
+            # child fails, while the outer command creates one history record.
+            rank = {
+                "connectivity.remove_simple_wire": 0,
+                "draft.remove_connection": 0,
+                "model.delete_bus": 1,
+                "model.delete_transformer": 1,
+                "model.delete_breaker": 1,
+                "draft.remove_equipment": 1,
+                "sld.remove_node": 2,
+            }
+            ordered = tuple(sorted(children, key=lambda child: rank[child.command_type]))
+            for child in ordered:
+                command_manager.execute_in_transaction(child, transaction)
+            return ApplicationResult.success_result(
+                message=f"Atomically deleted {len(ordered)} selected SLD objects.",
+                metadata={
+                    "document_id": document_id,
+                    "child_command_ids": tuple(str(child.command_id) for child in ordered),
+                    "atomic": True,
+                },
+            )
+
+        command_manager.register_handler(
+            DELETE_SELECTION_BATCH,
+            execute_selection_delete_batch,
+        )
 
         def execute_control_trip_batch(command: Any, _context: Any, transaction: Any) -> Any:
             """Execute all breaker trips in one shared transaction and history record."""
