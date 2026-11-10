@@ -720,3 +720,30 @@ Verification boundary:
   in symbol-local coordinates and Qt maps it through the same transform.
 - No Qt runtime rotation, live wire visual, snapping, undo/redo, tests, or CI
   were executed. GUI acceptance remains required.
+
+======================================================================
+GF-SLD-ROTATION-ROUTE-002 — PRESERVE ORTHOGONAL ENGINEER ROUTES
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related issue: #771
+
+Correction:
+- Extended the rotation endpoint reprojection correction for persisted
+  engineer-owned routes whose routing_mode is orthogonal.
+- Existing authored intermediate bends remain unchanged. If a rotated or
+  mirrored terminal anchor no longer aligns with the first/last authored
+  bend, the renderer inserts transient endpoint elbow points so the
+  displayed route remains orthogonal.
+- The synthesized elbows are presentation-only. They do not overwrite
+  persisted route points, alter route ownership, or modify Core topology.
+- Direct/manual route modes are not rewritten by this orthogonal-only rule.
+- Combined with GF-SLD-ROTATION-ROUTE-001, persistent connections now
+  re-resolve canonical endpoints, include transformed endpoint coordinates
+  in render signatures, and rebuild the wire path when terminal anchors move.
+
+Verification boundary:
+- Source fetch-back confirms the endpoint-coordinate signature and
+  orthogonal engineer-route helper are present and called by connection
+  realization. No Qt runtime, save/reopen visual comparison, route edit,
+  undo/redo, tests, or CI were executed.
