@@ -838,7 +838,7 @@ class Application:
         if presentation is None:
             raise TypeError("presentation must not be None.")
         lifecycle = self.project_lifecycle
-        previous_collection = self._draft_network_collection
+        previous_collection = self.draft_network_collection
         previous_legacy_draft = self._draft_network
         previous = lifecycle.activate_presentation(presentation)
         try:
