@@ -512,3 +512,18 @@ Correction:
 
 Verification boundary:
 - Source-level review only. No Python import/startup, Qt runtime, locale/validator interaction, Study Case creation, tests, or CI were run.
+
+
+GF-UI-EQUIPMENT-PALETTE-001 — EQUIPMENT CATALOGUE DISCOVERY
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Added a dedicated category selector to the canonical EquipmentPanelWidget, populated from the bound EquipmentRegistry catalogue.
+- Replaced category header pseudo-items inside the icon grid with a real category filter. This prevents non-equipment header tiles from consuming palette grid cells and keeps every visible tile mapped to a stable equipment_type.
+- Search now matches display name, category, equipment_type, and tool_id; category selection and text search compose as an AND filter.
+- Preserved the canonical SymbolRegistry/PaletteSymbolAdapter icon source, EquipmentRegistry catalogue, stable drag MIME payload, and ToolManager activation/cancellation path.
+- Removed a duplicate QLineEdit import while editing the palette import list.
+
+Verification boundary:
+- Source inspection and fetch-back only. No Qt startup, drag/drop interaction, palette resizing, narrow-dock rendering, tool activation, tests, or CI were run. This does not address the separate canvas drop-target/snap-corridor behavior tracked by issue #822.
