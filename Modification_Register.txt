@@ -483,3 +483,18 @@ Verification:
 - Source definition updated and fetched back from main.
 - No Qt runtime, persisted-layout migration, splitter drag, or GUI acceptance
   performed. Existing saved/user visibility overrides must be checked at runtime.
+
+
+GF-UI-ENGINEERING-FORMS-001 — STRUCTURED TRANSFORMER INPUT ERGONOMICS
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Exposed QPlainTextEdit through the canonical ui.core.qt compatibility boundary.
+- Replaced single-line controls with bounded, independently scrollable multi-line editors for ordered HV/LV phase-role arrays, vector-group and zero-sequence test contracts, two-winding test data, terminal-admittance matrix envelopes, manufacturer/test evidence, and delta-loop state records.
+- Retained compact QLineEdit controls for scalar engineering values, identifiers, roles, and impedance pairs.
+- Added a shared control-text adapter so projection restore, JSON parsing, validation, matrix-grid import/export, and staged submission work with either editor type.
+- Preserved the existing EngineeringConfigurationIntent and EngineeringParameterEditor Application command path; no direct Core mutation or validation bypass was introduced.
+
+Verification boundary:
+- Source-level review only. No Python import/startup, Qt runtime, GUI resize/scroll, matrix-grid interaction, validation, command execution, tests, or CI were run.
