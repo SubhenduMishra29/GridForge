@@ -75,6 +75,7 @@ class SymbolDefinition:
     symbol_family_id: str = ""
     standard_id: str = "unspecified"
     variant_id: str = "default"
+    standard_reference_id: str = ""
 
     def __post_init__(self) -> None:
         """Validate and defensively freeze nested state."""
@@ -256,6 +257,7 @@ class SymbolDefinition:
             "symbol_family_id": self.symbol_family_id,
             "standard_id": self.standard_id,
             "variant_id": self.variant_id,
+            "standard_reference_id": self.standard_reference_id,
         }
 
     # --------------------------------------------------------
@@ -296,6 +298,7 @@ class SymbolDefinition:
             symbol_family_id=data.get("symbol_family_id", data["symbol_id"]),
             standard_id=data.get("standard_id", "unspecified"),
             variant_id=data.get("variant_id", "default"),
+            standard_reference_id=data.get("standard_reference_id", ""),
         )
 
 
