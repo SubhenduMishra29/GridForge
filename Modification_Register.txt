@@ -112,3 +112,19 @@ Correction:
 
 Verification boundary:
 - Static source inspection confirms SnapResult carries canonical Bus attachment and equipment terminal identity through the adapter path. Runtime GUI verification of dense/short Bus attachment spacing and terminal crossings remains outstanding.
+
+
+GridForge V2 — Routed wire crossing/overlap hit resolution
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Correction:
+- MouseEventAdapter no longer relies exclusively on QGraphicsScene.itemAt(), which returns only the topmost graphics item and can arbitrarily hide another wire at crossings/overlapping routes.
+- Hit testing now enumerates selectable scene items intersecting the pointer shape, preserves Qt z-order priority for selectable nodes/non-wire connections, and evaluates Simple Wire candidates using their exact route-segment distance.
+- The uniquely nearest routed wire is selected. Equal-distance distinct wire candidates at a crossing/overlap are rejected as ambiguous rather than selected by z-order or registration order.
+- CanvasHitTarget continues to carry persistent presentation_id plus canonical core_connection_id (or draft_connection_id), and SelectTool resolves the exact connection item by those identities for route editing/deletion selection.
+
+Verification boundary:
+- Static source trace confirms QGraphicsScene shape hit enumeration, routed segment distance calculation, deterministic nearest selection, fail-closed tie handling, and identity-preserving SelectTool lookup.
+- Runtime Qt scene behavior at crossings, overlapping wires, and high zoom remains to be verified in desktop application.
