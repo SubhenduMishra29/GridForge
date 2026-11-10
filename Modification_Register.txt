@@ -1011,3 +1011,83 @@ Verification boundary:
   runtime verification performed.
 - Continue with package-level round-trip inspection and end-to-end runtime
   acceptance before closing #823.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-008 — STANDARD PROVENANCE / CATALOGUE CLAIM AUDIT
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related: Issue #823; symbol family and ANSI/IEC selection
+
+Research findings:
+- IEC identifies IEC 60617 as its graphical-symbol database for
+  electrotechnical diagrams; the current IEC Webstore listing is
+  IEC 60617:2026 DB, published 2026-03-04, maintained by TC 3.
+- IEEE lists IEEE/ANSI 315-1975 as Inactive-Reserved and records an
+  inactivation date of 2019-11-07. Its public description says substantial
+  effort was made to make the symbols compatible with approved IEC
+  recommendations. This is not evidence that every glyph differs between
+  the two standards.
+- BIS search metadata identifies IS 19127:2025 as identical under dual
+  numbering to IEC 60617-1:1985; this is not enough to establish that a
+  particular SLD glyph is compliant with the complete current IEC 60617 DB.
+- The authoritative IEC database provides symbol identity numbers and
+  metadata; exact symbol entries/geometry need to be reviewed before
+  production catalogue variants can be labelled compliant.
+
+Correction:
+- Removed the unsupported IEEE/ANSI 315 compliance claim from the built-in
+  bus glyph comment. The stroke treatment is now explicitly described as a
+  provisional renderer convention pending exact standard-source review.
+- No invented ANSI/IEC duplicate glyphs were added. Registry metadata and
+  family-safe semantic realization remain available for reviewed variants.
+
+Sources:
+- IEC Webstore, IEC 60617:2026 DB:
+  https://webstore.iec.ch/en/publication/2723
+- IEEE SA, IEEE/ANSI 315-1975 status and compatibility description:
+  https://standards.ieee.org/ieee/315/515/
+- BIS standards portal search result for IS 19127:2025:
+  https://standards.bis.gov.in/website/standard-details
+
+Verification boundary:
+- Built-in catalogue and this register entry fetched back from main.
+- No symbol geometry compliance is asserted; no catalogue pair or selector
+  has been added.
+- Exact IEC symbol IDs and licensed source geometry, plus terminal-anchor
+  mapping review, remain required before marking #823 complete.
+
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-001 — ROOT ISSUE #1180 PREFLIGHT
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+
+Correction:
+- Extended the existing Application-owned sld.delete_selection_batch handler
+  with a complete identity-existence preflight before the first child command
+  is executed.
+- Resolve Core Bus, Transformer, and Breaker identities against the active
+  Application NetworkReadModel and verify the expected semantic element type.
+- Resolve Simple Wire identities against the same immutable network snapshot.
+- Resolve draft equipment and draft connection identities against the active
+  document-scoped DraftNetwork snapshot.
+- Resolve SLD-only node identities against the active SLDService document and
+  reject missing nodes or nodes owned by Core equipment.
+- Preserve the existing single shared transaction, dependency-ordered child
+  execution, and one outer history record. Child handlers retain their own
+  domain/dependency validation and transactional rollback behavior.
+
+Verification boundary:
+- Static source inspection confirmed the read-model fields and active-document
+  DraftNetwork shape used by the preflight, and the complete updated handler
+  was fetched from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- This correction covers identity/type existence preflight; full dependency
+  graph preflight, exact inverse restoration of all Core/DraftNetwork/SLD
+  associations, and interactive Cut/undo/redo/cancel/save-reopen acceptance
+  remain open under root issue #1180. Do not close the issue on this change.
+
+======================================================================

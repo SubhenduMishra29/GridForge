@@ -259,6 +259,71 @@ def create_application(
                 if child.command_type in draft_commands and str(child.payload.get("document_id", "")).strip() != document_id:
                     raise ValueError("Draft delete command does not belong to the active SLD document.")
 
+            # Preflight every selected identity against the authoritative
+            # Application read boundaries before the first child can mutate.
+            # The child handlers retain their domain/dependency checks inside
+            # the shared transaction; this pass rejects stale and forged IDs
+            # for the complete selection before execution begins.
+            network_snapshot = application.read_network()
+            elements_by_id = {
+                str(item.object_id): item for item in network_snapshot.elements
+            }
+            wires_by_id = {
+                str(item.connection_id): item for item in network_snapshot.simple_wires
+            }
+            draft_snapshot = application.read_draft_network(document_id)
+            draft_snapshot = draft_snapshot if isinstance(draft_snapshot, Mapping) else {}
+            draft_equipment_by_id = {
+                str(item.get("draft_id", "")): item
+                for item in draft_snapshot.get("equipment", ())
+                if isinstance(item, Mapping)
+            }
+            draft_connections_by_id = {
+                str(item.get("connection_id", "")): item
+                for item in draft_snapshot.get("connections", ())
+                if isinstance(item, Mapping)
+            }
+            sld_document = application.sld_service.document
+            expected_element_types = {
+                "model.delete_bus": "BUS",
+                "model.delete_transformer": "TRANSFORMER",
+                "model.delete_breaker": "BREAKER",
+            }
+            for child in children:
+                field = identity_fields[child.command_type]
+                identity = str(child.payload.get(field, "")).strip()
+                if child.command_type in expected_element_types:
+                    element = elements_by_id.get(identity)
+                    actual_type = (
+                        str(element.element_type).strip().upper()
+                        if element is not None else None
+                    )
+                    if actual_type != expected_element_types[child.command_type]:
+                        raise ValueError(
+                            f"Selection delete preflight could not resolve {child.command_type} identity {identity!r}."
+                        )
+                elif child.command_type == "connectivity.remove_simple_wire":
+                    if identity not in wires_by_id:
+                        raise ValueError(
+                            f"Selection delete preflight could not resolve Simple Wire {identity!r}."
+                        )
+                elif child.command_type == "draft.remove_equipment":
+                    if identity not in draft_equipment_by_id:
+                        raise ValueError(
+                            f"Selection delete preflight could not resolve DraftNetwork equipment {identity!r}."
+                        )
+                elif child.command_type == "draft.remove_connection":
+                    if identity not in draft_connections_by_id:
+                        raise ValueError(
+                            f"Selection delete preflight could not resolve DraftNetwork connection {identity!r}."
+                        )
+                elif child.command_type == "sld.remove_node":
+                    node = sld_document.model.get_node_optional(identity)
+                    if node is None or getattr(node, "equipment_id", None) is not None:
+                        raise ValueError(
+                            f"Selection delete preflight could not resolve an engineer-owned SLD-only node {identity!r}."
+                        )
+
             # Remove connections before their endpoint equipment. The shared
             # transaction journal restores all earlier children if any later
             # child fails, while the outer command creates one history record.
