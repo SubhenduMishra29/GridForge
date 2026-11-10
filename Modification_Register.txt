@@ -163,3 +163,21 @@ Corrections:
 Verification boundary:
 - Static source and command-dispatch inspection only. Desktop Delete-key interaction, multi-selection undo/redo, and save/reopen behavior remain unverified.
 - No tests/CI were treated as acceptance gates.
+
+
+GridForge V2 — Delete-key dispatch fallback and history/selection audit
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge
+Branch: phase1/sld-wire-preview-endpoint-routing
+
+Additional correction:
+- SelectTool now returns an unhandled result for Delete when its host has no callable delete_selection capability. A partially composed tool host no longer silently consumes the key; the canonical canvas composition binds SLDController before normal use.
+
+Lifecycle audit:
+- CommandManager executes aggregate child commands inside the parent transaction; the parent pre-commit hook and history record remain the single transaction boundary.
+- Undo replays registered inverse operations in reverse order; redo re-executes the original aggregate command through normal pre-commit processing.
+- SLD selection is transient UI state owned by SelectionManager, not part of the persisted project model. Deletion clears selection only after successful commit; undo/redo restores model objects but intentionally does not persist or resurrect the prior transient selection.
+- Mixed node/connection selection is rejected by the SLD deletion boundary. Multi-selection across different typed domains can still be created through additive SelectionManager operations; deletion fails closed rather than guessing intent.
+
+Verification boundary:
+- Static source inspection only. No desktop interaction or runtime undo/redo was performed.
