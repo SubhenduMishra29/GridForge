@@ -4636,36 +4636,43 @@ class Application:
             return self.execute(command)
 
     def commit_draft_network_async(self) -> Future[ApplicationResult]:
-        """Execute the canonical DraftNetwork command off-thread and finalize events on the caller thread."""
-        lifecycle = self.project_lifecycle
-        context = lifecycle.context
-        document_id = getattr(self.presentation, "document_id", None)
-        draft = self._draft_network_for_command(document_id)
-        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
-            raise RuntimeError("Cannot commit DraftNetwork without an active project.")
-        if draft is None:
-            raise RuntimeError("Application DraftNetwork is not configured.")
-        if draft.project_id != context.project_id:
-            raise ValueError("DraftNetwork project_id does not match the active project.")
-        if draft.activation_generation != lifecycle.activation_generation:
-            raise ValueError("DraftNetwork activation_generation does not match the active project.")
+        """Execute one lock-consistent DraftNetwork snapshot off-thread.
 
-        if not document_id:
-            raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
-        project_id = context.project_id
-        activation_generation = lifecycle.activation_generation
-        draft_payload = draft.to_dict()
-        source_revision = self.revision
-        command = CommitNetworkCommand(
-            project_id=project_id,
-            activation_generation=activation_generation,
-            draft_network=draft_payload,
-            document_id=document_id,
-        )
-        # Serialize the transition into the in-flight state with project saves.
-        # A save holds this same execution lock for its complete persistence window,
-        # so a commit cannot become pending after the save has passed its guard.
+        Capture the active document, project generation, revision, and complete
+        draft payload while holding the same execution lock used by authoring,
+        undo/redo, and project persistence. Mark the commit in flight before
+        releasing that lock so no command can slip between snapshot capture and
+        the asynchronous commit guard.
+        """
         with self._execution_lock:
+            self._reject_during_async_commit()
+            lifecycle = self.project_lifecycle
+            context = lifecycle.context
+            document_id = getattr(self.presentation, "document_id", None)
+            if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+                raise RuntimeError("Cannot commit DraftNetwork without an active project.")
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
+            draft = self._draft_network_for_command(document_id)
+            if draft is None:
+                raise RuntimeError("Application DraftNetwork is not configured.")
+            if draft.project_id != context.project_id:
+                raise ValueError("DraftNetwork project_id does not match the active project.")
+            if draft.activation_generation != lifecycle.activation_generation:
+                raise ValueError("DraftNetwork activation_generation does not match the active project.")
+
+            project_id = context.project_id
+            activation_generation = lifecycle.activation_generation
+            draft_payload = draft.to_dict()
+            source_revision = self.revision
+            command = CommitNetworkCommand(
+                project_id=project_id,
+                activation_generation=activation_generation,
+                draft_network=draft_payload,
+                document_id=document_id,
+            )
+            # Keep lock ordering consistent with execute/undo/redo and project
+            # save: execution lock first, then commit-state lock.
             with self._commit_state_lock:
                 if self._commit_in_flight:
                     raise RuntimeError("A DraftNetwork commit is already in progress.")
