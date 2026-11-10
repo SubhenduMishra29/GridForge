@@ -314,6 +314,34 @@ class EquipmentRegistry:
             reports.append(report)
         return tuple(reports)
 
+    def validate_symbol_family_variants(
+        self,
+        symbol_registry: "SymbolRegistry",
+    ) -> tuple[object, ...]:
+        """Validate every registered variant against its owning equipment terminal contract."""
+        from .symbol.symbol_registry import SymbolRegistry
+        if not isinstance(symbol_registry, SymbolRegistry):
+            raise TypeError("symbol_registry must be a SymbolRegistry")
+
+        reports = []
+        for equipment in self._definitions.values():
+            base = symbol_registry.require(equipment.symbol_id)
+            variants = symbol_registry.variants_for_family(base.symbol_family_id)
+            for symbol in variants:
+                report = reconcile_terminal_contract(
+                    equipment,
+                    creation_definition=equipment.creation_definition,
+                    symbol_definition=symbol,
+                )
+                if report.errors:
+                    raise ValueError(
+                        f"Symbol variant {symbol.symbol_id!r} violates "
+                        f"the terminal contract for {equipment.equipment_type!r}: "
+                        + " ".join(report.errors)
+                    )
+                reports.append(report)
+        return tuple(reports)
+
     # ========================================================
     # COLLECTION MANAGEMENT
     # ========================================================
