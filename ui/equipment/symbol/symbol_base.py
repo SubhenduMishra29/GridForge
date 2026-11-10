@@ -53,6 +53,7 @@ class SymbolBase:
         symbol_family_id: str | None = None,
         standard_id: str = "unspecified",
         variant_id: str = "default",
+        standard_reference_id: str = "",
     ) -> None:
         # ----------------------------------------------------
         # Identity validation
@@ -153,6 +154,9 @@ class SymbolBase:
         self._symbol_family_id = normalized_family_id.strip().lower()
         self._standard_id = standard_id.strip().lower()
         self._variant_id = variant_id.strip().lower()
+        if not isinstance(standard_reference_id, str):
+            raise TypeError("standard_reference_id must be a string.")
+        self._standard_reference_id = standard_reference_id.strip()
         self._scale = normalized_scale
         self._rotation = normalized_rotation
         self._visible = bool(visible)
@@ -186,6 +190,11 @@ class SymbolBase:
     @property
     def variant_id(self) -> str:
         return self._variant_id
+
+    @property
+    def standard_reference_id(self) -> str:
+        """Return the external standard catalogue identity, if verified."""
+        return self._standard_reference_id
 
     # ========================================================
     # TRANSFORMATION
@@ -362,6 +371,7 @@ class SymbolBase:
             "symbol_family_id": self.symbol_family_id,
             "standard_id": self.standard_id,
             "variant_id": self.variant_id,
+            "standard_reference_id": self.standard_reference_id,
             "representation_id": self.representation_id,
             "scale": self.scale,
             "rotation": self.rotation,
@@ -399,6 +409,7 @@ class SymbolBase:
             symbol_family_id=data.get("symbol_family_id", symbol_id),
             standard_id=data.get("standard_id", "unspecified"),
             variant_id=data.get("variant_id", "default"),
+            standard_reference_id=data.get("standard_reference_id", ""),
             scale=data.get(
                 "scale",
                 1.0,
@@ -433,6 +444,7 @@ class SymbolBase:
             f"symbol_family_id={self.symbol_family_id!r}, "
             f"standard_id={self.standard_id!r}, "
             f"variant_id={self.variant_id!r}, "
+            f"standard_reference_id={self.standard_reference_id!r}, "
             f"representation_id={self.representation_id!r}, "
             f"scale={self.scale!r}, "
             f"rotation={self.rotation!r}, "
