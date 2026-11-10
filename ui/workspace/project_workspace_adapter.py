@@ -720,6 +720,12 @@ class ProjectWorkspaceApplicationAdapter:
             raise ValueError("decision must be save, discard, or cancel.")
         if decision == "cancel":
             return self._lifecycle.state
+        if self._application.draft_document_has_pending(document_id):
+            if decision == "save":
+                raise RuntimeError(
+                    "This SLD document contains uncommitted draft equipment or connections. "
+                    "Commit the draft before closing, or explicitly choose DISCARD."
+                )
         # Reject an impossible close before invoking Save/Save As. The active
         # project must retain one SLD document, so a request that cannot commit
         # must not produce persistence side effects or clear dirty state.
