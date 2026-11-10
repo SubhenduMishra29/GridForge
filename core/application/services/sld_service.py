@@ -2157,19 +2157,20 @@ class SLDService:
     def _remove_node(self, command: Command, transaction: Transaction) -> ApplicationResult:
         node_id = command.payload["node_id"]
         node = self.document.model.get_node(node_id)
-        attached_connections = tuple(
-            connection for connection in self.document.model.connections
-            if connection.source_node_id == node_id or connection.target_node_id == node_id
-        )
-        for connection in attached_connections:
-            if (
-                connection.properties.get("core_connection_id")
-                or connection.properties.get("projection_source") is not None
-            ):
-                raise ValueError(
-                    f"SLD node {node_id!r} cannot be removed while Core-backed or "
-                    f"projection-owned connection {connection.connection_id!r} is attached."
-                )
+        if projection_source is None:
+            attached_connections = tuple(
+                connection for connection in self.document.model.connections
+                if connection.source_node_id == node_id or connection.target_node_id == node_id
+            )
+            for connection in attached_connections:
+                if (
+                    connection.properties.get("core_connection_id")
+                    or connection.properties.get("projection_source") is not None
+                ):
+                    raise ValueError(
+                        f"SLD node {node_id!r} cannot be removed while Core-backed or "
+                        f"projection-owned connection {connection.connection_id!r} is attached."
+                    )
         projection_source = command.payload.get("projection_source")
         if projection_source is None:
             self._require_engineer_owned_node(node)
