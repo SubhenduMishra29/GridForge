@@ -95,14 +95,13 @@ class _ClipboardPasteInteraction:
         # Resolve the group translation once through the canonical grid
         # authority. The identical delta drives both preview and the accepted
         # DraftNetwork command, preventing fractional paste drift.
-        snapped = self._snap_system.snap(
-            QPointF(delta_x, delta_y),
-            allow_grid=True,
-            allow_object=False,
-            intent="MOVE",
-        )
-        position = getattr(snapped, "position", None)
-        if position is not None:
+        grid_system = getattr(self._snap_system, "grid_system", None)
+        grid_snap = getattr(grid_system, "snap_point", None)
+        if bool(getattr(self._snap_system, "grid_enabled", False)) and callable(grid_snap):
+            # Translation placement is an explicit grid-alignment operation,
+            # not a proximity snap: do not let SnapSystem's cursor tolerance
+            # leave a far-dragged paste group at a fractional offset.
+            position = grid_snap(QPointF(delta_x, delta_y))
             delta_x = float(position.x())
             delta_y = float(position.y())
         self._delta = (delta_x, delta_y)
