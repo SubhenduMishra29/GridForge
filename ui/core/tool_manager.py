@@ -100,17 +100,25 @@ class _ClipboardPasteInteraction:
         # This keeps the pasted block's internal geometry intact and prevents
         # a fractional pointer grab offset from accumulating across repeated
         # copy/paste operations.
-        snap = getattr(self._snap_system, "snap", None)
-        if callable(snap):
-            snapped = snap(
-                QPointF(dx, dy),
-                allow_grid=True,
-                allow_object=False,
-                intent="MOVE",
-            )
-            position = getattr(snapped, "position", None)
+        align_grid = getattr(self._snap_system, "snap_grid_point", None)
+        if callable(align_grid):
+            position = align_grid(QPointF(dx, dy))
             if position is not None:
                 dx, dy = float(position.x()), float(position.y())
+        else:
+            # Compatibility for alternate SnapSystem adapters. The canonical
+            # SnapSystem always exposes snap_grid_point() for forced alignment.
+            snap = getattr(self._snap_system, "snap", None)
+            if callable(snap):
+                snapped = snap(
+                    QPointF(dx, dy),
+                    allow_grid=True,
+                    allow_object=False,
+                    intent="MOVE",
+                )
+                position = getattr(snapped, "position", None)
+                if position is not None:
+                    dx, dy = float(position.x()), float(position.y())
         self._delta = (dx, dy)
         for item, (base_x, base_y) in zip(self._items, self._base_positions):
             item.setPos(base_x + dx, base_y + dy)

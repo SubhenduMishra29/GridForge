@@ -697,6 +697,27 @@ class SnapSystem:
             **kwargs,
         ).position
 
+    def snap_grid_point(self, scene_pos: Any) -> Optional[QPointF]:
+        """Align a scene-space translation to the grid without cursor tolerance.
+
+        This explicit operation is for group translation and other placement
+        intents that require deterministic grid alignment regardless of how
+        far the pointer is from the nearest grid intersection. It remains
+        governed by SnapSystem's grid-enabled setting and GridSystem reference.
+        """
+        self._ensure_active()
+        self._validate_point(scene_pos, "scene_pos")
+        if not self.grid_enabled or self.grid_system is None:
+            return None
+        snap_point = getattr(self.grid_system, "snap_point", None)
+        if not callable(snap_point):
+            raise TypeError("grid_system must provide snap_point().")
+        result = snap_point(scene_pos)
+        if result is None:
+            return None
+        self._validate_point(result, "grid snap result")
+        return QPointF(float(result.x()), float(result.y()))
+
     # ========================================================
     # GRID SNAP
     # ========================================================
