@@ -616,3 +616,39 @@ Correction:
 
 Verification boundary:
 - Source inspection and fetch-back only. No Qt visual rendering, CT insertion, terminal snap, or electrical study was executed.
+
+======================================================================
+GF-UI-SYMBOL-ROTATION-003 — COMPLETE SLD ROTATION COMMAND AND MENU
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Retained R as the 90-degree clockwise rotation command for an active
+  equipment placement draft. The ModelPlacementTool updates the transient
+  CreationDraft orientation and refreshes the placement preview.
+- Q and E remain the selected-symbol commands: Q rotates 90 degrees
+  counter-clockwise and E rotates 90 degrees clockwise.
+- Reworked GraphicsView symbol selection resolution to use the canonical
+  SelectionManager IDs and the active Application presentation model. It
+  resolves either a bound equipment identity or an SLD node identity and
+  requires exactly one selected symbol graphics item.
+- Replaced the unsupported Controller.set_node_presentation call with the
+  canonical SetSLDNodePresentationCommand dispatched through
+  Controller.execute_command. Failed command results are reported through
+  the existing status feedback path.
+- Added Edit > Rotate 90° Clockwise to the canonical MenuPlugin menu.
+  The routed edit.rotate action delegates to the same GraphicsView
+  presentation command used by E; its enabled state requires a resolvable
+  selected SLD node. No menu shortcut was assigned so R remains available
+  to the active placement tool.
+- Rotation changes SLD presentation state only. No Core equipment,
+  terminal, connection, or topology mutation was introduced.
+
+Verification boundary:
+- All changed files were fetched back from main and checked for the new
+  selection resolver, Application command dispatch, menu item, and action
+  routing. No tests/CI or Qt desktop runtime was run. GUI acceptance remains
+  necessary to confirm selection toolbar visibility, R placement preview
+  rotation, Q/E selected-symbol rotation, menu rotation, and terminal-anchor
+  alignment after rotation.
