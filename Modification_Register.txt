@@ -498,3 +498,17 @@ Correction:
 
 Verification boundary:
 - Source-level review only. No Python import/startup, Qt runtime, GUI resize/scroll, matrix-grid interaction, validation, command execution, tests, or CI were run.
+
+
+GF-UI-STUDY-FORMS-001 — STUDY CASE NUMERIC INPUT GUIDANCE
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- Added QDoubleValidator input constraints to system base MVA, fault resistance, fault reactance, transient end time, and transient integration step fields.
+- Positive lower bounds are applied to base MVA and transient time parameters; fault resistance/reactance accept zero and reject negative text input.
+- Added minimum practical widths and contextual tooltips to numeric fields, study-case name, and the comma-separated PV Bus ID field.
+- Kept the existing text-value callback contract to the Application/StudyService boundary. Validators are an input aid only; authoritative engineering validation remains outside the widget.
+
+Verification boundary:
+- Source-level review only. No Python import/startup, Qt runtime, locale/validator interaction, Study Case creation, tests, or CI were run.
