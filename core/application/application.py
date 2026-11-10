@@ -5240,6 +5240,12 @@ class Application:
         elif command.command_type.startswith("sld."):
             payload = dict(result.metadata)
             payload.update(metadata)
+            # SLD commands mutate the Application-active presentation. Publish
+            # its canonical document identity so projection subscribers never
+            # infer event ownership from whichever editor currently has focus.
+            document_id = getattr(self.presentation, "document_id", None)
+            if isinstance(document_id, str) and document_id.strip():
+                payload["document_id"] = document_id
             self._event_bus.publish(SLDPresentationChanged(operation=operation, metadata=payload,
                                                           correlation_id=command.correlation_id,
                                                           causation_id=command.causation_id))
