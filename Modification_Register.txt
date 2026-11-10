@@ -467,3 +467,19 @@ Correction:
 Verification:
 - Source anchor and replacement confirmed; change fetched back from main.
 - No Qt runtime, splitter interaction, DPI or GUI acceptance performed.
+
+GF-UI-WORKSPACE-ERGONOMICS-003 — CANVAS-FIRST SLD DEFAULT
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+
+Correction:
+- SLD EditorDefinition now defaults Explorer, Inspector and Diagnostics to
+  hidden. The SLD canvas and compact tool rail remain the primary working
+  surface; the existing editor header toggles expose secondary panels on demand.
+- This aligns canonical workspace policy with SLDEditor's contextual panel
+  model and avoids opening three space-consuming secondary regions at once.
+
+Verification:
+- Source definition updated and fetched back from main.
+- No Qt runtime, persisted-layout migration, splitter drag, or GUI acceptance
+  performed. Existing saved/user visibility overrides must be checked at runtime.
