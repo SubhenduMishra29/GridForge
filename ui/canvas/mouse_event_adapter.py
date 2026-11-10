@@ -110,26 +110,63 @@ class MouseEventAdapter:
         return mapper(position)
 
     def _hit_test(self, scene_position: Any) -> CanvasHitTarget:
-        item_at = getattr(self._scene, "itemAt", None)
-        if not callable(item_at):
-            raise TypeError("scene must provide itemAt().")
-
         x = float(scene_position.x())
         y = float(scene_position.y())
+        point = QPointF(x, y)
         transform = self._view.viewportTransform()
-        try:
-            # QGraphicsScene.itemAt accepts a scene point and device transform.
-            # Passing separate x/y coordinates is not a supported overload.
-            item = item_at(QPointF(x, y), transform)
-        except (TypeError, ValueError, AttributeError):
-            return CanvasHitTarget.none()
 
-        while item is not None:
-            if self._is_selectable(item):
-                return self._presentation_hit_for_item(item, (x, y))
-            parent = getattr(item, "parentItem", None)
-            item = parent() if callable(parent) else None
-        return CanvasHitTarget.none()
+        # itemAt() returns only the topmost graphics item. At a wire crossing
+        # or overlapping route this can silently select an arbitrary wire.
+        # Enumerate every item whose shape contains the pointer, preserving
+        # Qt's z-order for node/non-wire priority, then resolve wire identity
+        # from the actual routed-segment distance.
+        items_at = getattr(self._scene, "items", None)
+        candidates = None
+        if callable(items_at):
+            try:
+                candidates = items_at(
+                    point,
+                    Qt.ItemSelectionMode.IntersectsItemShape,
+                    Qt.SortOrder.DescendingOrder,
+                    transform,
+                )
+            except (TypeError, ValueError, AttributeError):
+                candidates = None
+
+        if candidates is None:
+            item_at = getattr(self._scene, "itemAt", None)
+            if not callable(item_at):
+                raise TypeError("scene must provide items() or itemAt().")
+            try:
+                candidates = (item_at(point, transform),)
+            except (TypeError, ValueError, AttributeError):
+                return CanvasHitTarget.none()
+
+        wire_hits = []
+        for item in tuple(candidates):
+            current = item
+            while current is not None and not self._is_selectable(current):
+                parent = getattr(current, "parentItem", None)
+                current = parent() if callable(parent) else None
+            if current is None:
+                continue
+            hit = self._presentation_hit_for_item(current, (x, y))
+            if hit.kind == hit.kind.SIMPLE_WIRE_SEGMENT:
+                wire_hits.append(hit)
+                continue
+            # A selectable node or non-wire connection remains higher
+            # priority than wires beneath its visual footprint.
+            return hit
+
+        if not wire_hits:
+            return CanvasHitTarget.none()
+        wire_hits.sort(key=lambda hit: (float(hit.distance), str(hit.core_connection_id or hit.draft_connection_id)))
+        nearest = wire_hits[0]
+        if len(wire_hits) > 1 and abs(float(wire_hits[1].distance) - float(nearest.distance)) <= 1e-6:
+            # A true crossing/overlap has no uniquely implied electrical
+            # target. Fail closed instead of choosing by Qt stacking order.
+            return CanvasHitTarget.none()
+        return nearest
 
     @classmethod
     def _presentation_hit_for_item(cls, item: Any, position: tuple[float, float]) -> CanvasHitTarget:
