@@ -30,6 +30,7 @@ _EXPORTS = {
     "ViewManager": ("ui.workspace.view_manager", "ViewManager"),
     "ViewRecord": ("ui.workspace.view_manager", "ViewRecord"),
     "ViewportState": ("ui.workspace.viewport_state", "ViewportState"),
+    "ViewportPreferenceStore": ("ui.workspace.viewport_preference_store", "ViewportPreferenceStore"),
     "WorkspaceDefinition": ("ui.workspace.workspace_definition", "WorkspaceDefinition"),
     "WorkspacePlacement": ("ui.workspace.workspace_legacy", "WorkspacePlacement"),
     "WorkspaceLayout": ("ui.workspace.workspace_layout", "WorkspaceLayout"),
