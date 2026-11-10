@@ -18,6 +18,7 @@ CREATE_DRAFT_CONNECTION = "draft.create_connection"
 REMOVE_DRAFT_CONNECTION = "draft.remove_connection"
 UPDATE_DRAFT_CONNECTION_ROUTE = "draft.update_connection_route"
 COMMIT_NETWORK = "network.commit_draft"
+PASTE_DRAFT_SELECTION = "draft.paste_selection"
 
 
 def _document_payload(document_id: str | None) -> dict[str, str]:
@@ -118,6 +119,40 @@ class UpdateDraftConnectionRouteCommand(_DraftCommand):
         )
 
 
+class PasteDraftSelectionCommand(_DraftCommand):
+    """Atomically add a semantic clipboard selection to one document's DraftNetwork."""
+
+    def __init__(
+        self,
+        *,
+        equipment: tuple[Mapping[str, Any], ...],
+        connections: tuple[Mapping[str, Any], ...],
+        document_id: str,
+        command_id=None,
+        correlation_id=None,
+        causation_id=None,
+    ):
+        if not isinstance(equipment, (tuple, list)) or not equipment:
+            raise ValueError("A draft clipboard paste requires at least one equipment item.")
+        if not isinstance(connections, (tuple, list)):
+            raise TypeError("Draft clipboard connections must be a sequence.")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("Draft clipboard paste requires the active SLD document identity.")
+        if any(not isinstance(item, Mapping) for item in (*equipment, *connections)):
+            raise TypeError("Draft clipboard equipment and connections must be mappings.")
+        super().__init__(
+            PASTE_DRAFT_SELECTION,
+            {
+                "equipment": tuple(dict(item) for item in equipment),
+                "connections": tuple(dict(item) for item in connections),
+            },
+            document_id=document_id,
+            command_id=command_id,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 class CommitNetworkCommand(_DraftCommand):
     """One immutable boundary crossing from one document's DraftNetwork to Core."""
     def __init__(self, *, project_id: str, activation_generation: int, draft_network: Mapping[str, Any], document_id: str | None = None, command_id=None, correlation_id=None, causation_id=None):
@@ -134,7 +169,7 @@ class CommitNetworkCommand(_DraftCommand):
 __all__ = [
     "ADD_DRAFT_EQUIPMENT", "UPDATE_DRAFT_EQUIPMENT", "REMOVE_DRAFT_EQUIPMENT",
     "ADD_DRAFT_CONNECTION", "CREATE_DRAFT_CONNECTION", "REMOVE_DRAFT_CONNECTION",
-    "UPDATE_DRAFT_CONNECTION_ROUTE", "COMMIT_NETWORK", "AddDraftEquipmentCommand",
+    "UPDATE_DRAFT_CONNECTION_ROUTE", "COMMIT_NETWORK", "PASTE_DRAFT_SELECTION", "PasteDraftSelectionCommand", "AddDraftEquipmentCommand",
     "UpdateDraftEquipmentCommand", "RemoveDraftEquipmentCommand",
     "CreateDraftConnectionCommand", "AddDraftConnectionCommand",
     "RemoveDraftConnectionCommand", "UpdateDraftConnectionRouteCommand",
