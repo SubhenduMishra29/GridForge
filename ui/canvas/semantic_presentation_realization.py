@@ -27,17 +27,34 @@ class PresentationSelection:
     semantic_type: str
     equipment_type: str
     symbol_id: str
+    representation_id: str = "symbol"
+    symbol_instance: SymbolBase | None = None
     symbol_family_id: str = ""
     standard_id: str = "unspecified"
     variant_id: str = "default"
-    representation_id: str = "symbol"
-    symbol_instance: SymbolBase | None = None
 
     def __post_init__(self) -> None:
         for name in ("semantic_type", "equipment_type", "symbol_id", "representation_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
+        family_id = self.symbol_family_id or self.symbol_id
+        for name, value in (
+            ("symbol_family_id", family_id),
+            ("standard_id", self.standard_id),
+            ("variant_id", self.variant_id),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+            object.__setattr__(self, name, value.strip().lower())
+        if self.symbol_instance is not None:
+            if (
+                self.symbol_instance.symbol_id != self.symbol_id
+                or self.symbol_instance.symbol_family_id != self.symbol_family_id
+                or self.symbol_instance.standard_id != self.standard_id
+                or self.symbol_instance.variant_id != self.variant_id
+            ):
+                raise ValueError("PresentationSelection identity does not match its symbol instance.")
 
 
 class SemanticPresentationRealization:
