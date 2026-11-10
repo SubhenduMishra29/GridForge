@@ -412,6 +412,37 @@ class ValidationService:
                         element_id=connection_id,
                         element_type="SLD_CONNECTION",
                     ))
+                else:
+                    connection_kind = str(properties.get("connection_kind", "")).strip().upper()
+                    core_connection_id = properties.get("core_connection_id")
+                    if connection_kind == "SIMPLE_WIRE" or core_connection_id is not None:
+                        if not isinstance(core_connection_id, str) or not core_connection_id.strip():
+                            issues.append(ValidationIssue(
+                                code="SLD_WIRE_WITHOUT_CORE",
+                                message=f"BOUND SLD Simple-Wire connection {connection_id!r} has no canonical Core connection identity.",
+                                severity=ValidationSeverity.ERROR,
+                                element_id=connection_id,
+                                element_type="SLD_CONNECTION",
+                            ))
+                        elif connection_kind != "SIMPLE_WIRE":
+                            issues.append(ValidationIssue(
+                                code="SLD_CONNECTION_CORE_KIND_MISMATCH",
+                                message=f"SLD connection {connection_id!r} carries a Core Simple-Wire identity but is not typed SIMPLE_WIRE.",
+                                severity=ValidationSeverity.ERROR,
+                                element_id=connection_id,
+                                element_type="SLD_CONNECTION",
+                            ))
+                        else:
+                            try:
+                                network.connectivity.get(core_connection_id.strip())
+                            except (AttributeError, KeyError, TypeError, ValueError) as exc:
+                                issues.append(ValidationIssue(
+                                    code="SLD_CORE_CONNECTION_REFERENCE_UNRESOLVED",
+                                    message=f"BOUND SLD connection {connection_id!r} references missing Core Simple-Wire connection {core_connection_id!r}: {exc}",
+                                    severity=ValidationSeverity.ERROR,
+                                    element_id=connection_id,
+                                    element_type="SLD_CONNECTION",
+                                ))
 
         return SLDAssociationValidationResult(
             project_id=context.project_id,
