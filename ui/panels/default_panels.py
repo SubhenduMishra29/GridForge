@@ -17,7 +17,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, QLineEdit, Qt, QDrag, QMimeData,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt, QDrag, QMimeData,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -175,6 +175,10 @@ class EquipmentPanelWidget(QWidget):
         self._search = QLineEdit(self)
         self._search.setPlaceholderText("Search components…")
         self._search.setObjectName("EquipmentSearch")
+        self._category_filter = QComboBox(self)
+        self._category_filter.setObjectName("EquipmentCategoryFilter")
+        self._category_filter.addItem("All categories", "")
+        self._category_filter.setToolTip("Limit the equipment library to one catalogue category.")
         self._list = EquipmentPaletteListWidget(self)
         self._list.setDragEnabled(True)
         self._list.setViewMode(QListWidget.ViewMode.IconMode)
@@ -188,8 +192,10 @@ class EquipmentPanelWidget(QWidget):
         layout.setContentsMargins(6, 6, 6, 6)
         layout.addWidget(QLabel("Equipment Library", self))
         layout.addWidget(self._search)
+        layout.addWidget(self._category_filter)
         layout.addWidget(self._list, 1)
         self._search.textChanged.connect(self._filter_equipment)
+        self._category_filter.currentIndexChanged.connect(self._filter_equipment)
         self._list.itemClicked.connect(self._on_item_clicked)
 
     @property
@@ -222,41 +228,49 @@ class EquipmentPanelWidget(QWidget):
         self._tool_manager = tool_manager
         self._properties_panel = properties_panel
         self._definitions = tuple(equipment_registry.catalogue())
+        previous_category = self._category_filter.currentData()
+        categories = tuple(sorted({str(item.category) for item in self._definitions if str(item.category).strip()}, key=str.casefold))
+        self._category_filter.blockSignals(True)
+        self._category_filter.clear()
+        self._category_filter.addItem("All categories", "")
+        for category in categories:
+            self._category_filter.addItem(category, category)
+        restored_index = self._category_filter.findData(previous_category)
+        self._category_filter.setCurrentIndex(restored_index if restored_index >= 0 else 0)
+        self._category_filter.blockSignals(False)
         self._rebuild_equipment_list()
 
     def _rebuild_equipment_list(self) -> None:
-        query = self._search.text().strip().lower()
+        query = self._search.text().strip().casefold()
+        category_filter = str(self._category_filter.currentData() or "")
         self._visible_definitions = tuple(
             definition for definition in self._definitions
-            if not query
-            or query in str(definition.display_name).lower()
-            or query in str(definition.category).lower()
-            or query in str(definition.equipment_type).lower()
+            if (not category_filter or str(definition.category) == category_filter)
+            and (
+                not query
+                or query in str(definition.display_name).casefold()
+                or query in str(definition.category).casefold()
+                or query in str(definition.equipment_type).casefold()
+                or query in str(definition.tool_id).casefold()
+            )
         )
         self._list.clear()
-        last_category: str | None = None
         for definition in self._visible_definitions:
-            category = str(definition.category)
-            if category != last_category:
-                self._list.addItem(f"— {category} —")
-                header_item = self._list.item(self._list.count() - 1)
-                header_item.setFlags(Qt.ItemFlag.ItemIsEnabled)
-                header_item.setData(32, None)
-                last_category = category
             self._list.addItem(definition.display_name)
             item = self._list.item(self._list.count() - 1)
             if self._palette_symbol_adapter is None:
                 raise RuntimeError("Equipment palette symbol adapter is not configured.")
             item.setIcon(self._palette_symbol_adapter.icon_for(definition.symbol_id))
             item.setToolTip(
-                f"{definition.display_name}\n"
-                f"Category: {category}\n"
-                f"Tool: {definition.tool_id}\n"
+                f"{definition.display_name}\\n"
+                f"Category: {definition.category}\\n"
+                f"Equipment type: {definition.equipment_type}\\n"
+                f"Tool: {definition.tool_id}\\n"
                 f"Symbol: {definition.symbol_id}"
             )
             item.setData(32, definition.equipment_type)
 
-    def _filter_equipment(self, _text: str) -> None:
+    def _filter_equipment(self, _value: Any = None) -> None:
         if self._equipment_registry is not None:
             self._rebuild_equipment_list()
 
