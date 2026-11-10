@@ -2116,6 +2116,8 @@ class SLDService:
                     if (
                         connection.properties.get("core_connection_id")
                         or connection.properties.get("projection_source") is not None
+                        or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+                        or connection.properties.get("orphaned_from_core_connection_id")
                     ):
                         raise ValueError(
                             f"SLD node {node.node_id!r} has a Core-backed or projection-owned "
@@ -2167,6 +2169,8 @@ class SLDService:
                 if (
                     connection.properties.get("core_connection_id")
                     or connection.properties.get("projection_source") is not None
+                    or connection.properties.get("connection_kind") == "SIMPLE_WIRE"
+                    or connection.properties.get("orphaned_from_core_connection_id")
                 ):
                     raise ValueError(
                         f"SLD node {node_id!r} cannot be removed while Core-backed or "
