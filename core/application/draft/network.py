@@ -364,11 +364,15 @@ class DraftNetwork:
                 raise ValueError(f"{prefix}Junction endpoints must reference Core topology.")
             if network is not None:
                 try:
-                    network.get_junction(endpoint.object_id)
+                    junction = network.get_junction(endpoint.object_id)
                 except (KeyError, TypeError, ValueError) as exc:
                     raise ValueError(
                         f"{prefix}unknown Core Junction {endpoint.object_id!r}."
                     ) from exc
+                if junction is None:
+                    raise ValueError(
+                        f"{prefix}unknown Core Junction {endpoint.object_id!r}."
+                    )
             return
         if endpoint.is_bus:
             if endpoint.terminal_role is not None or endpoint.equipment_type is not None:
