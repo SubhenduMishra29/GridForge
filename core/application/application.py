@@ -4973,7 +4973,10 @@ class Application:
                                 "protection_runtime_diagnostic": reconciliation_diagnostic,
                             },
                         )
-                if self._validation_service is not None and command is not None and not command.command_type.startswith("sld."):
+                if self._validation_service is not None and command is not None and (
+                    not command.command_type.startswith("sld.")
+                    or self._selection_batch_contains_core_mutation(command)
+                ):
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
                 self._publish_history_events(command, result, operation="undo")
@@ -5008,7 +5011,10 @@ class Application:
                             "protection_runtime_diagnostic": reconciliation_diagnostic,
                         },
                     )
-                if self._validation_service is not None and not command.command_type.startswith("sld."):
+                if self._validation_service is not None and (
+                    not command.command_type.startswith("sld.")
+                    or self._selection_batch_contains_core_mutation(command)
+                ):
                     self._validation_service.invalidate()
                     self._event_bus.publish(ValidationChanged(metadata={"valid": False, "invalidated": True, **self._project_scope_metadata()}))
                 self._publish_semantic_events(command, result, operation="redo")
@@ -5256,6 +5262,21 @@ class Application:
         return {"project_id": context.project_id if context is not None else None,
                 "activation_generation": self.project_lifecycle.activation_generation}
 
+    @staticmethod
+    def _selection_batch_contains_core_mutation(command: Command | None) -> bool:
+        if command is None or command.command_type != "sld.delete_selection_batch":
+            return False
+        core_delete_types = {
+            "model.delete_bus",
+            "model.delete_transformer",
+            "model.delete_breaker",
+            "connectivity.remove_simple_wire",
+        }
+        return any(
+            getattr(child, "command_type", None) in core_delete_types
+            for child in tuple(command.payload.get("commands", ()))
+        )
+
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation, **self._project_scope_metadata()}
         if command.command_type in {
@@ -5432,6 +5453,56 @@ class Application:
         elif command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation); self._publish_network_changed(command, metadata)
         elif command.command_type.startswith("control."): self._publish_control_event(command, result, metadata, operation=operation)
+        elif command.command_type == "sld.delete_selection_batch":
+            children = tuple(command.payload.get("commands", ()))
+            deleted_equipment = tuple(
+                {
+                    "element_id": str(child.payload.get({
+                        "model.delete_bus": "bus_id",
+                        "model.delete_transformer": "transformer_id",
+                        "model.delete_breaker": "breaker_id",
+                    }[child.command_type], "")),
+                    "element_type": child.command_type.removeprefix("model.delete_"),
+                }
+                for child in children
+                if child.command_type in {
+                    "model.delete_bus", "model.delete_transformer", "model.delete_breaker"
+                }
+            )
+            removed_wire_ids = tuple(
+                str(child.payload.get("connection_id", ""))
+                for child in children
+                if child.command_type == "connectivity.remove_simple_wire"
+            )
+            payload = {
+                **metadata,
+                "command_type": command.command_type,
+                "document_id": str(command.payload.get("document_id", "")),
+                "child_command_ids": tuple(str(child.command_id) for child in children),
+                "deleted_equipment": deleted_equipment,
+                "removed_simple_wire_ids": removed_wire_ids,
+                "atomic": True,
+            }
+            if self._selection_batch_contains_core_mutation(command):
+                self._event_bus.publish(TopologyChanged(
+                    operation=operation,
+                    metadata=payload,
+                    correlation_id=command.correlation_id,
+                    causation_id=command.causation_id,
+                ))
+                self._event_bus.publish(NetworkChanged(
+                    operation=operation,
+                    metadata=payload,
+                    correlation_id=command.correlation_id,
+                    causation_id=command.causation_id,
+                ))
+            self._event_bus.publish(SLDPresentationChanged(
+                operation=operation,
+                metadata={**payload, "presentation_operation": "selection_delete_batch"},
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
+            return
         elif command.command_type.startswith("sld."):
             payload = dict(result.metadata)
             payload.update(metadata)

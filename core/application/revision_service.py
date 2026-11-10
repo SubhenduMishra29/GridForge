@@ -224,6 +224,17 @@ class RevisionService:
         if not isinstance(command, Command):
             raise TypeError("command must be a Command")
         command_type = command.command_type
+        if command_type == "sld.delete_selection_batch":
+            core_delete_types = {
+                "model.delete_bus",
+                "model.delete_transformer",
+                "model.delete_breaker",
+                "connectivity.remove_simple_wire",
+            }
+            return any(
+                getattr(child, "command_type", None) in core_delete_types
+                for child in tuple(command.payload.get("commands", ()))
+            )
         # Measurement/protection equipment is not conductive topology. Its
         # creation or engineering/protection updates must never acquire a
         # topology revision merely because an endpoint association field is

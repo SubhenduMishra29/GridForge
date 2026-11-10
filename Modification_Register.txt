@@ -1237,3 +1237,30 @@ Verification boundary:
 - Exact inverse restoration across every mixed graph and interactive acceptance
   remain open; root issue #1180 must not be closed on this correction alone.
 
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-004 — ROOT ISSUE #1180 HISTORY EVENTS / REDO
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Publish one aggregate semantic event payload for selection deletion instead
+  of treating the outer sld.delete_selection_batch as presentation-only.
+- When Core children are present, emit one aggregate TopologyChanged and one
+  NetworkChanged event carrying the deleted equipment identities, removed
+  Simple Wire identities, document identity, and child command IDs; emit one
+  SLDPresentationChanged event for the same aggregate command.
+- Make RevisionService classify a batch containing Core delete children as a
+  topology mutation so redo records the actual Core topology revision.
+- Invalidate validation projections on undo/redo of a mixed Core/SLD batch,
+  while retaining the existing single history record and aggregate command ID.
+
+Verification boundary:
+- Static inspection traced Application.execute/undo/redo, semantic event
+  publishing, and RevisionService redo topology classification.
+- Source changes and this register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Interactive event-consumer and undo/redo acceptance remain open; #1180 stays
+  OPEN pending the complete acceptance contract.
+
