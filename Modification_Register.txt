@@ -681,3 +681,42 @@ Verification boundary:
 - Static source audit and GitHub issue closure only. No GUI reproduction
   session was run; closure addresses the specific mechanism described in
   #769, not a blanket claim that all multi-document GUI behavior is proven.
+
+======================================================================
+GF-SLD-ROTATION-ROUTE-001 — REFRESH CONNECTED WIRES AFTER SYMBOL ROTATION
+======================================================================
+Date: 2026-11-10
+Repository: SubhenduMishra29/GridForge (main)
+Related issue: #771
+
+Correction:
+- Audited the selected-symbol rotation path, renderer-neutral SymbolBase
+  presentation, EquipmentItem transform, terminal snap anchors, hit shape,
+  bounding rectangle, endpoint resolution, and connection reconciliation.
+- Confirmed EquipmentItem applies the same Qt item transform to symbol
+  geometry, local hit geometry, and mapToScene()-resolved terminal anchors.
+  Core terminal IDs and endpoint references remain unchanged; electrical
+  topology is not inferred from the rotated drawing.
+- Found a concrete route-reprojection defect: persistent connection render
+  signatures included equipment centre coordinates and endpoint identities,
+  but omitted the resolved terminal anchor coordinates. Rotating or mirroring
+  a symbol around an unchanged centre could therefore leave the old wire
+  graphics item in place with stale visual endpoints.
+- Connection synchronization now resolves both canonical SLD endpoint
+  references against the newly realized node items before signature
+  comparison. The signature includes the resolved source and target scene
+  coordinates, so a changed terminal anchor forces connection reprojection.
+- Automatic routes are recomputed from the updated terminal coordinates;
+  engineer-authored routes retain their authored intermediate bends while
+  their visual source/target endpoints are rebound to the transformed
+  canonical anchors.
+- No Core equipment, terminal identity, connection identity, or topology
+  mutation was introduced by symbol rotation.
+
+Verification boundary:
+- Source-level audit and fetch-back confirm endpoint resolution precedes
+  signature comparison and both transformed endpoint coordinates participate
+  in the persistent connection signature. EquipmentItem hit geometry remains
+  in symbol-local coordinates and Qt maps it through the same transform.
+- No Qt runtime rotation, live wire visual, snapping, undo/redo, tests, or CI
+  were executed. GUI acceptance remains required.
