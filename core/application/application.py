@@ -814,6 +814,33 @@ class Application:
         lifecycle = self.project_lifecycle
         previous = lifecycle.activate_presentation(presentation)
         try:
+            document_id = getattr(presentation, "document_id", None)
+            context = lifecycle.context
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise ValueError("Active SLD presentation requires a persistent document_id.")
+            if context is not None:
+                if self._draft_network_collection is None:
+                    collection = DraftNetworkCollection(
+                        context.project_id,
+                        lifecycle.activation_generation,
+                    )
+                    legacy = self._draft_network
+                    if legacy is not None:
+                        if legacy.project_id != context.project_id:
+                            raise ValueError("Legacy DraftNetwork belongs to a different project.")
+                        collection.set(document_id, DraftNetwork.from_dict(
+                            legacy.to_dict(),
+                            project_id=context.project_id,
+                            activation_generation=lifecycle.activation_generation,
+                        ))
+                    self._draft_network_collection = collection
+                    self._draft_network = None
+                elif (
+                    self._draft_network_collection.project_id != context.project_id
+                    or self._draft_network_collection.activation_generation != lifecycle.activation_generation
+                ):
+                    raise ValueError("DraftNetworkCollection scope does not match the active project lifecycle.")
+                self._draft_network_collection.get(document_id, create=True)
             if self._sld_service is not None:
                 self._sld_service.bind_document(presentation)
         except BaseException:
@@ -4526,7 +4553,10 @@ class Application:
         values = dict(getattr(intent, "values", {}) or {})
         if not values:
             raise ValueError("Draft engineering update requires at least one engineering value.")
-        draft = self._draft_network
+        document_id = getattr(self.presentation, "document_id", None)
+        if not document_id:
+            raise RuntimeError("Draft engineering update requires an active SLD document identity.")
+        draft = self._draft_network_for_command(document_id)
         if draft is None:
             raise RuntimeError("Application DraftNetwork is not configured.")
         current = draft.require_equipment(draft_id)
@@ -4538,9 +4568,6 @@ class Application:
             )
         engineering_data = dict(current.engineering_data)
         engineering_data.update(values)
-        document_id = getattr(self.presentation, "document_id", None)
-        if not document_id:
-            raise RuntimeError("Draft engineering update requires an active SLD document identity.")
         return UpdateDraftEquipmentCommand(
             draft_id=draft_id,
             changes={"engineering_data": engineering_data},
@@ -4558,7 +4585,8 @@ class Application:
             self._reject_during_async_commit()
             lifecycle = self.project_lifecycle
             context = lifecycle.context
-            draft = self._draft_network
+            document_id = getattr(self.presentation, "document_id", None)
+            draft = self._draft_network_for_command(document_id)
             if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
                 raise RuntimeError("Cannot commit DraftNetwork without an active project.")
             if draft is None:
@@ -4567,7 +4595,6 @@ class Application:
                 raise ValueError("DraftNetwork project_id does not match the active project.")
             if draft.activation_generation != lifecycle.activation_generation:
                 raise ValueError("DraftNetwork activation_generation does not match the active project.")
-            document_id = getattr(self.presentation, "document_id", None)
             if not document_id:
                 raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
             command = CommitNetworkCommand(
@@ -4582,7 +4609,8 @@ class Application:
         """Execute the canonical DraftNetwork command off-thread and finalize events on the caller thread."""
         lifecycle = self.project_lifecycle
         context = lifecycle.context
-        draft = self._draft_network
+        document_id = getattr(self.presentation, "document_id", None)
+        draft = self._draft_network_for_command(document_id)
         if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
             raise RuntimeError("Cannot commit DraftNetwork without an active project.")
         if draft is None:
@@ -4592,7 +4620,6 @@ class Application:
         if draft.activation_generation != lifecycle.activation_generation:
             raise ValueError("DraftNetwork activation_generation does not match the active project.")
 
-        document_id = getattr(self.presentation, "document_id", None)
         if not document_id:
             raise RuntimeError("Cannot commit DraftNetwork without an active SLD document identity.")
         project_id = context.project_id
@@ -4622,7 +4649,7 @@ class Application:
                 with self._execution_lock:
                     current_lifecycle = self.project_lifecycle
                     current_context = current_lifecycle.context
-                    current_draft = self._draft_network
+                    current_draft = self._draft_network_for_command(document_id)
                     if (
                         current_lifecycle.state != "ACTIVE"
                         or not current_lifecycle.has_project
@@ -4680,11 +4707,21 @@ class Application:
             if self._save_in_progress:
                 raise RuntimeError("Project persistence is in progress; retry the mutation after save completes.")
 
-    def read_draft_network(self) -> Mapping[str, Any] | None:
-        """Return one lock-consistent serialized snapshot for read/projection consumers."""
+    def read_draft_network(self, document_id: str | None = None) -> Mapping[str, Any] | None:
+        """Return one lock-consistent snapshot for the active or explicitly identified SLD document."""
         from copy import deepcopy
         with self._execution_lock:
-            draft = self._draft_network
+            active = self.presentation
+            active_id = getattr(active, "document_id", None) if active is not None else None
+            if document_id is not None and document_id != active_id:
+                raise RuntimeError(
+                    f"Draft read targets SLD document {document_id!r}, but active document is {active_id!r}."
+                )
+            draft = (
+                self._draft_network_collection.get(active_id)
+                if self._draft_network_collection is not None and active_id
+                else self._draft_network
+            )
             if draft is None:
                 return None
             return deepcopy(draft.to_dict())
