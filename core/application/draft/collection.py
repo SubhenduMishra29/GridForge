@@ -66,11 +66,18 @@ class DraftNetworkCollection:
         expected = tuple(self._document_id(value) for value in document_ids)
         if len(set(expected)) != len(expected):
             raise ValueError("SLD document identities must be unique.")
+        unknown = set(self._networks) - set(expected)
+        if unknown:
+            raise ValueError(
+                "DraftNetworkCollection contains drafts for unknown SLD documents: "
+                + ", ".join(sorted(unknown))
+            )
         for document_id in expected:
             self.get(document_id, create=True)
-        for document_id in tuple(self._networks):
-            if document_id not in expected:
-                self._networks.pop(document_id)
+
+    def remove_document(self, document_id: str) -> None:
+        """Remove a document draft only as part of an explicit document lifecycle operation."""
+        self._networks.pop(self._document_id(document_id), None)
 
     def snapshot(self) -> dict[str, DraftNetwork]:
         return {
