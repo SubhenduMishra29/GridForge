@@ -59,8 +59,9 @@ class ProjectWorkspaceApplicationAdapter:
         self._save_as_path_provider: Callable[[object], str | None] | None = None
         self._transition_decision_provider: Callable[[object], ProjectTransitionDecision | str] | None = None
         self._pending_presentation_collection: ProjectPresentationCollection | None = None
+        self._document_collection_dirty = False
         self._application.configure_workspace_dirty_provider(
-            lambda: bool(self._lifecycle.documents.dirty_document_ids)
+            lambda: bool(self._lifecycle.documents.dirty_document_ids) or self._document_collection_dirty
         )
 
     @property
@@ -71,7 +72,11 @@ class ProjectWorkspaceApplicationAdapter:
     def project_lifecycle(self): return self._application.project_lifecycle
     @property
     def is_dirty(self) -> bool:
-        return bool(self._application.is_dirty or self._lifecycle.documents.dirty_document_ids)
+        return bool(
+            self._application.is_dirty
+            or self._lifecycle.documents.dirty_document_ids
+            or self._document_collection_dirty
+        )
 
     @property
     def active_document_id(self) -> str | None:
@@ -225,6 +230,7 @@ class ProjectWorkspaceApplicationAdapter:
                 self._application.save_project_as(path)
             else:
                 self._application.save_project()
+            self._document_collection_dirty = False
         return normalized
 
     def subscribe(self, handler: WorkspaceUpdateHandler) -> None:
@@ -408,6 +414,8 @@ class ProjectWorkspaceApplicationAdapter:
 
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(active_document)
+            # Project activation installs a complete saved document collection.
+            self._document_collection_dirty = False
 
             def rollback() -> None:
                 self._lifecycle.restore_last_state(snapshot)
@@ -627,6 +635,7 @@ class ProjectWorkspaceApplicationAdapter:
             self._application.activate_presentation(document)
             if self._presentation_activation_bridge is not None:
                 self._presentation_activation_bridge(document)
+            self._document_collection_dirty = True
             self._publish("replace_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
@@ -681,6 +690,7 @@ class ProjectWorkspaceApplicationAdapter:
                 _reconcile_rollback=False,
                 _run_transition_guard=False,
             )
+            self._document_collection_dirty = True
             return document
         except BaseException as primary:
             recovery: list[tuple[str, Callable[[], None]]] = [
@@ -809,6 +819,7 @@ class ProjectWorkspaceApplicationAdapter:
                 self._application.activate_presentation(active)
                 if self._presentation_activation_bridge is not None:
                     self._presentation_activation_bridge(active)
+            self._document_collection_dirty = True
             self._publish("close_document", self._lifecycle.state, self._lifecycle.project.project_id)
             return self._lifecycle.state
         except BaseException as primary:
@@ -833,13 +844,17 @@ class ProjectWorkspaceApplicationAdapter:
 
     def save_project(self) -> ProjectContext:
         """Persist the complete project package through Application."""
-        return self._application.save_project()
+        context = self._application.save_project()
+        self._document_collection_dirty = False
+        return context
 
     def save_project_as(self, path: str) -> ProjectContext:
         """Persist through the Application facade using a UI-resolved Save As path."""
         if not isinstance(path, str) or not path.strip():
             raise ValueError("A non-empty Save As path is required.")
-        return self._application.save_project_as(path)
+        context = self._application.save_project_as(path)
+        self._document_collection_dirty = False
+        return context
 
     def close_project(
         self,
