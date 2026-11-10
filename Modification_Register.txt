@@ -1264,3 +1264,33 @@ Verification boundary:
 - Interactive event-consumer and undo/redo acceptance remain open; #1180 stays
   OPEN pending the complete acceptance contract.
 
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-005 — ROOT ISSUE #1180 BUS ATTACHMENT CLOSURE
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Extend complete-selection preflight to inspect physical Bus attachments from
+  the immutable NetworkReadModel before any delete child is executed.
+- For each selected Bus, inspect other elements' terminal_connectivity pairs
+  and branch from_endpoint/to_endpoint identities. Reject the batch if any
+  physically attached equipment is not also selected for deletion.
+- This keeps unsupported dependent types (including Lines/Cables and other
+  equipment without an allowed batch delete command) fail-closed rather than
+  relying on a later child handler or leaving stale terminal-to-Bus references.
+- Preserve the existing explicit Simple Wire dependency check, junction
+  ownership, one Application transaction, and one history record.
+
+Verification boundary:
+- Static inspection confirms NetworkReadService._connectivity() publishes
+  terminal_connectivity endpoint IDs and _branch_endpoint_ids() publishes
+  branch endpoint IDs in ElementReadModel.attributes.
+- Restored the earlier committed identity/type and Simple Wire/Draft dependency
+  preflight into the current branch tree before adding this physical attachment
+  check; all five #1180 register entries are retained.
+- Updated preflight and this register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse and interactive acceptance remain open; #1180 stays OPEN.
+
