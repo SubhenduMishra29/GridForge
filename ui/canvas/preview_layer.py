@@ -294,6 +294,7 @@ class PreviewLayer:
     def items_for_owner(self, owner: str) -> tuple[QGraphicsItem, ...]:
         """Return the currently owned preview items for one interaction."""
         return tuple(self._owner_items.get(owner, ()))
+
     def show_segment(self, start: Any, end: Any) -> None:
         """Show one transient cursor-to-endpoint placement segment."""
         self.clear()
