@@ -31,7 +31,7 @@ from core.application.draft import DraftNetwork, DraftNetworkCollection
 from core.control.configuration import ControlConfiguration
 from core.network import Network
 from core.protection.project_configuration import ProtectionProjectConfiguration, ProtectionProjectConfigurationSnapshot
-from core.application.services.validation_service import ValidationService
+from core.application.services.validation_service import ValidationService, ValidationSeverity
 
 from .network_serializer import deserialize_network, serialize_network
 from .migration import ProjectPersistenceMigration, ProjectMigrationError, SLDMigrationError, validate_canonical_sld
@@ -847,10 +847,10 @@ class ProjectPersistenceService:
                 presentation,
             )
             for issue in sld_validation.issues:
-                # BOUND references must resolve before persistence. Authored
-                # ORPHANED presentation objects remain valid warnings and are
-                # retained without synthesizing or mutating Core state.
-                raise ProjectPersistenceError(issue.message)
+                # Authored ORPHANED presentation objects remain warnings and
+                # are retained; malformed or stale BOUND associations block save.
+                if issue.severity == ValidationSeverity.ERROR:
+                    raise ProjectPersistenceError(issue.message)
         for association in dynamic_models:
             if association.project_id != context.project_id:
                 raise ProjectPersistenceError(f"Dynamic model association '{association.machine_id}' belongs to another project.")
