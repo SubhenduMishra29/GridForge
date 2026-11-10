@@ -644,13 +644,13 @@ class ProjectWorkspaceApplicationAdapter:
 
     def replace_document(self, document: SLDDocument) -> ProjectWorkspaceState:
         """Replace one registered SLD document through the Application presentation boundary."""
-        if self._presentation_state_capture_provider is not None:
-            self._presentation_state_capture_provider()
         if not isinstance(document, SLDDocument):
             raise TypeError("Only SLDDocument replacement is supported by the SLD document lifecycle.")
         existing = self._lifecycle.documents.require(document.document_id)
         if not isinstance(existing, SLDDocument):
             raise TypeError("Only an existing SLDDocument can be replaced by this adapter.")
+        if self._presentation_state_capture_provider is not None:
+            self._presentation_state_capture_provider()
         snapshot = self._lifecycle.capture_transition_state()
         previous = self._lifecycle.document
         previous_collection_dirty = self._document_collection_dirty
