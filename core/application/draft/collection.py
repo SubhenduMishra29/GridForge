@@ -100,12 +100,14 @@ class DraftNetworkCollection:
         *,
         project_id: str,
         activation_generation: int,
-        document_ids=(),
+        document_ids=None,
         legacy_document_id: str | None = None,
     ) -> "DraftNetworkCollection":
         collection = cls(project_id, activation_generation)
         if data is None:
-            collection.ensure_documents(document_ids)
+            if document_ids is not None:
+                if document_ids is not None:
+                collection.ensure_documents(document_ids)
             return collection
         if not isinstance(data, Mapping):
             raise TypeError("DraftNetworkCollection payload must be a mapping.")
@@ -161,7 +163,8 @@ class DraftNetworkCollection:
                     activation_generation=activation_generation,
                 ),
             )
-        collection.ensure_documents(document_ids)
+        if document_ids is not None:
+            collection.ensure_documents(document_ids)
         return collection
 
     @staticmethod
