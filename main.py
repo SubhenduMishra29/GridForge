@@ -493,7 +493,7 @@ def _build_application_impl(
         if not path:
             _save_project_as()
             return
-        gridforge_application.save_project(path)
+        project_workspace_adapter.save_project()
         _refresh_status()
 
     def _choose_save_as_path(context: object) -> str | None:
@@ -508,7 +508,7 @@ def _build_application_impl(
     def _save_project_as() -> None:
         path = _choose_save_as_path(gridforge_application.project_lifecycle.context)
         if path:
-            gridforge_application.save_project_as(path)
+            project_workspace_adapter.save_project_as(path)
             _refresh_status()
 
     def _close_project() -> None:
