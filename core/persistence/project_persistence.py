@@ -831,7 +831,7 @@ class ProjectPersistenceService:
                     document,
                 )
                 for issue in document_validation.issues:
-                    if issue.code != "SLD_EQUIPMENT_REFERENCE_UNRESOLVED":
+                    if issue.severity == ValidationSeverity.ERROR:
                         raise ProjectPersistenceError(issue.message)
         if presentation is not None:
             if not isinstance(presentation, Mapping):
