@@ -25,6 +25,9 @@ class _State:
     def mark_dirty(self):
         self.dirty = True
 
+    def reset(self):
+        self.dirty = False
+
 
 def _controller(document):
     controller = object.__new__(SLDController)
@@ -92,3 +95,59 @@ def test_annotation_changes_on_locked_layer_are_rejected_before_command():
         ])
 
     assert controller._application.commands == []
+
+
+def test_project_load_clears_transient_layer_selection_even_when_ids_are_reused():
+    controller = object.__new__(SLDController)
+    controller._active_layer_by_document = {
+        "shared-sld-id": "engineering",
+        "another-sld-id": "protection",
+    }
+    reconciled = []
+    controller.reconcile_presentation = lambda: reconciled.append(True)
+
+    controller._on_project_loaded(None)
+
+    assert controller._active_layer_by_document == {}
+    assert reconciled == [True]
+
+
+def test_project_close_and_dispose_clear_transient_layer_selection():
+    controller = object.__new__(SLDController)
+    controller._active_layer_by_document = {"sld": "engineering"}
+    controller._state = _State()
+    controller._application = None
+    controller._document_activation_handler = object()
+
+    controller._on_project_closed(None)
+    assert controller._active_layer_by_document == {}
+    assert controller._state.dirty is False
+
+    controller._active_layer_by_document["sld"] = "protection"
+    controller.dispose()
+    assert controller._active_layer_by_document == {}
+    assert controller._document_activation_handler is None
+
+
+def test_active_layer_selection_is_scoped_to_each_document():
+    first = SLDDocument(
+        "sld-one",
+        layers=[
+            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer("engineering", "Engineering", order=1),
+        ],
+    )
+    second = SLDDocument("sld-two")
+    controller = object.__new__(SLDController)
+    controller._active_layer_by_document = {
+        "sld-one": "engineering",
+        "sld-two": "default",
+    }
+    active = [first]
+    controller._require_active_document = lambda: active[0]
+
+    assert controller.active_layer_id == "engineering"
+    active[0] = second
+    assert controller.active_layer_id == "default"
+    active[0] = first
+    assert controller.active_layer_id == "engineering"

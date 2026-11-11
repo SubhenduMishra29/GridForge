@@ -255,3 +255,44 @@ def test_sld_schema4_validator_rejects_unknown_layer_membership():
     payload["layers"][0]["opacity"] = 1.5
     with pytest.raises(SLDMigrationError, match="opacity"):
         validate_canonical_sld(payload)
+
+
+def test_project_package_round_trip_preserves_layer_registry_and_all_memberships(tmp_path):
+    service = ProjectPersistenceService()
+    context = ProjectContext("PROJECT-001", "Layered SLD Persistence", None)
+    path = tmp_path / "layered-roundtrip.gridforge"
+    base = _sld()
+    document = SLDDocument(
+        document_id=base.document_id,
+        name=base.name,
+        project_id=base.project_id,
+        model=base.model,
+        layers=[
+            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer(
+                "protection", "Protection", visible=False, locked=True,
+                opacity=0.55, order=1,
+            ),
+        ],
+    )
+    document.model.get_node("SLD-NODE-001").layer_id = "protection"
+    document.model.get_connection("SLD-CONN-001").layer_id = "protection"
+    document.add_annotation_block(SLDAnnotationBlock(
+        block_id="ANN-LAYER-001",
+        node_id="SLD-NODE-001",
+        fields=("identity",),
+        layer_id="protection",
+    ))
+
+    service.save(context, _network(), document.to_dict(), path)
+    first = SLDDocument.from_dict(service.load(path).presentation)
+    assert [layer.to_dict() for layer in first.layers] == [
+        layer.to_dict() for layer in document.layers
+    ]
+    assert first.model.get_node("SLD-NODE-001").layer_id == "protection"
+    assert first.model.get_connection("SLD-CONN-001").layer_id == "protection"
+    assert first.annotation_blocks[0].layer_id == "protection"
+
+    service.save(context, _network(), first.to_dict(), path)
+    second = SLDDocument.from_dict(service.load(path).presentation)
+    assert second.to_dict() == first.to_dict()
