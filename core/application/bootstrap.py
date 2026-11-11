@@ -242,8 +242,8 @@ def create_application(
                 "sld.remove_node": "node_id",
                 "sld.remove_connection": "connection_id",
             }
-            if len(children) < 2 or not document_id:
-                raise ValueError("Selection delete batch requires at least two commands and one active SLD document.")
+            if not children or not document_id:
+                raise ValueError("Selection delete batch requires at least one command and one active SLD document.")
             active_presentation = getattr(application, "presentation", None)
             if active_presentation is None or getattr(active_presentation, "document_id", None) != document_id:
                 raise ValueError("Selection delete batch does not target the active SLD document.")
