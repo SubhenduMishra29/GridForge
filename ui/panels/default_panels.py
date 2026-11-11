@@ -30,6 +30,7 @@ from .messages_panel import MessagesPanelWidget
 from .properties_panel import PropertiesPanel
 from .engineering_parameter_editor import EngineeringParameterEditor
 from .transformer_configuration_editor import TransformerConfigurationEditor
+from .ct_secondary_channel_editor import CTSecondaryChannelEditor
 from .study_cases_panel import StudyCasesPanelWidget
 
 
@@ -354,6 +355,7 @@ class PropertiesPanelWidget(QWidget):
         self.logical_panel.on_create()
         self._engineering_editor: EngineeringParameterEditor | None = None
         self._transformer_configuration_editor = TransformerConfigurationEditor(self)
+        self._ct_secondary_channel_editor = CTSecondaryChannelEditor(self)
         self._application: Any | None = None
         self._parameter_controls: dict[str, QWidget] = {}
         self._parameter_states: dict[str, EngineeringParameterState] = {}
@@ -374,6 +376,7 @@ class PropertiesPanelWidget(QWidget):
         self._form_layout = QFormLayout()
         root.addLayout(self._form_layout)
         root.addWidget(self._transformer_configuration_editor)
+        root.addWidget(self._ct_secondary_channel_editor)
         self._annotation_layout = QFormLayout()
         root.addWidget(QLabel("SLD Data Annotations", self))
         root.addLayout(self._annotation_layout)
@@ -408,6 +411,8 @@ class PropertiesPanelWidget(QWidget):
         self._application = application
         self._engineering_editor = EngineeringParameterEditor(application)
         self._transformer_configuration_editor.bind_application(application)
+        self._ct_secondary_channel_editor.bind_application(application)
+        self._ct_secondary_channel_editor.set_target(self.logical_panel.target)
         self._creation_context = creation_context
         self._creation_controller = controller
         if controller is not None:
@@ -861,6 +866,7 @@ class PropertiesPanelWidget(QWidget):
 
     def _render_projection(self, target: ProjectionState | None) -> None:
         self._transformer_configuration_editor.set_target(target)
+        self._ct_secondary_channel_editor.set_target(target)
         self._clear_parameter_controls()
         if target is None:
             if self._validation_label is not None:
@@ -1084,6 +1090,7 @@ class PropertiesPanelWidget(QWidget):
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
         self._transformer_configuration_editor.set_target(None)
+        self._ct_secondary_channel_editor.set_target(None)
         self._clear_parameter_controls()
         assert self._form_layout is not None
         for definition in draft.parameter_schema:
@@ -1461,6 +1468,7 @@ __all__ = [
     "EquipmentPanelWidget",
     "PropertiesPanelWidget",
     "TransformerConfigurationEditor",
+    "CTSecondaryChannelEditor",
     "ElementListPanelWidget",
     "MessagesPanelWidget",
     "StudyCasesPanelWidget",

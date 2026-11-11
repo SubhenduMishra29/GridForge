@@ -2609,3 +2609,34 @@ Addendum after GUI action-path reconciliation:
 - MainWindow _delete_selection now delegates to the canonical SLDController batch path rather than rebuilding and executing per-object commands locally. The existing _cut_selection continues to copy semantic equipment first, then calls the same atomic delete path; if delete fails, the previous clipboard contents are restored.
 - Selection capability and copy normalization now resolve either an equipment identity or its SLD node identity. This keeps the Cut/Delete action enabled and correctly mapped when a symbol node_id differs from equipment_id.
 - Fetched back main.py and confirmed the Delete/Cut action path delegates to SLDController; no Qt runtime interaction was executed.
+
+
+======================================================================
+GridForge V2 — Engineer-Facing CT Secondary Channel Editor
+Date: 2026-11-11
+Implementation repository: madhuri196mishra-cpu/GridForge
+Authoritative audit repository: SubhenduMishra29/GridForge
+Upstream contribution: PR #1189 (DRAFT)
+Related issues: Madhuri #156 / upstream #774
+
+Implementation:
+- Added CTSecondaryChannelEditor as an engineer-facing Properties-panel section for one selected, committed CurrentTransformer.
+- The editor exposes existing S1/S2 channel selection and create/update/delete actions. A New Channel action clears the current selection so a CT can own distinct S1 and S2 channels without reusing an existing channel identity.
+- The form explicitly captures channel ID, optional display name, physical secondary terminal, phase, nominal secondary current, channel scale, polarity, trusted producer identity, timestamp domain, and staleness duration. Signal type CURRENT and unit A are fixed by the CT channel contract.
+- The editor obtains channel inventory and authoring metadata only through Application.read_measurement_channels(), which returns detached MeasurementChannelReadModel snapshots. It does not inspect live Core equipment or MeasurementChannel objects.
+- Extended MeasurementChannelReadModel with source equipment identity, source terminal role, nameplate channel definition values, scale, and polarity so presentation can filter and edit channels without crossing the Core boundary.
+- All create/update/delete operations instantiate immutable MeasurementChannel commands and call Application.execute(). Protection/Control reference guards, transaction history, persistence, and runtime composition remain Application-owned.
+- The editor is mounted in the existing PropertiesPanelWidget, shown only for a committed CurrentTransformer projection, and hidden for other equipment and draft placements. No parallel panel registry or editor lifecycle was introduced.
+- New and restored channels continue to display their actual quality/availability; the UI explicitly reports that a channel awaits trusted sample publication and never simulates a live value.
+
+Changed source:
+- ui/panels/ct_secondary_channel_editor.py (new)
+- ui/panels/default_panels.py
+- core/application/read_models.py
+- core/application/read_service.py
+- Modification_Register.txt
+
+Verification boundary:
+- Static source and composition-path review only. No tests, CI, application startup, GUI interaction, or runtime experiments were run.
+- Manual acceptance still required for CT selection/visibility, authoring S1 and S2 separately, update/delete with bound and unbound channels, save/reopen, undo/redo, and trusted sample ingress.
+- PT/CVT channel authoring and broader inline replacement acceptance remain outside this CT-only editor slice. Madhuri #156 and upstream #774 remain open pending full issue scope and acceptance.
