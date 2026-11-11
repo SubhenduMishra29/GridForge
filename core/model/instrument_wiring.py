@@ -282,9 +282,10 @@ class WiringTagPolicy:
         matches = [item for item in self.series if item.record_kind == kind]
         if len(matches) != 1:
             raise ValueError(f"No unique tag series is configured for {kind!r}.")
-        used = set(used_tags)
-        if any(not isinstance(item, str) for item in used):
+        used_values = tuple(used_tags)
+        if any(not isinstance(item, str) for item in used_values):
             raise TypeError("used_tags must contain strings.")
+        used = set(used_values)
         current = matches[0]
         number = current.next_number
         tag = current.format(number)
