@@ -181,7 +181,7 @@ class SLDInstrumentationWiringAdapter:
 
         segments = tuple(
             SLDPhysicalWiringSegment(
-                projection_id=f"{carrier_kind}:{carrier_id}:{index + 1}",
+                projection_id=f"__gf_projection__:instrumentation_wiring:{carrier_kind}:{carrier_id}:{index + 1}",
                 carrier_kind=carrier_kind,
                 carrier_id=carrier_id,
                 carrier_tag=carrier_tag,
