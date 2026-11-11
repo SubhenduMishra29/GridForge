@@ -35,6 +35,7 @@ class SLDConnectionItem(QGraphicsPathItem):
         presentation_owner: str | None = None,
         projection_source: str | None = None,
         core_connection_id: str | None = None,
+        instrumentation_route_identity: tuple[str, str, int] | None = None,
     ) -> None:
         for name, value in (("object_id", object_id), ("source_object_id", source_object_id), ("target_object_id", target_object_id)):
             if not isinstance(value, str) or not value:
@@ -55,6 +56,11 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._connection_kind = connection_kind
         self._presentation_owner = presentation_owner
         self._projection_source = projection_source
+        if instrumentation_route_identity is not None:
+            kind, carrier_id, segment_index = instrumentation_route_identity
+            if not kind or not carrier_id or isinstance(segment_index, bool) or not isinstance(segment_index, int) or segment_index < 1:
+                raise ValueError("instrumentation route identity must contain carrier kind, carrier ID and positive segment index")
+        self._instrumentation_route_identity = instrumentation_route_identity
         self._route_points: tuple[tuple[float, float], ...] = ()
         self._route_ownership = "auto"
         self._visual_source = QPointF()
@@ -267,8 +273,9 @@ class SLDConnectionItem(QGraphicsPathItem):
     def insert_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
         """Insert one authored bend into a draft or persistent route proposal."""
         is_draft = self._projection_source == "draft_network"
-        if self._core_connection_id is None and not is_draft:
-            raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
+        is_instrumentation = self._projection_source == "instrumentation_wiring" and self._instrumentation_route_identity is not None
+        if self._core_connection_id is None and not is_draft and not is_instrumentation:
+            raise RuntimeError("Cannot edit route without an explicit Core, DraftNetwork or physical carrier identity.")
         if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index > len(self._route_points):
             raise IndexError(index)
         point = (float(x), float(y))
@@ -282,6 +289,9 @@ class SLDConnectionItem(QGraphicsPathItem):
             "core_connection_id": self._core_connection_id,
             "points": proposed_route,
         }
+        if is_instrumentation:
+            kind, carrier_id, segment_index = self._instrumentation_route_identity
+            request.update({"instrumentation_wiring": True, "carrier_kind": kind, "carrier_id": carrier_id, "segment_index": segment_index})
         if is_draft:
             request["draft_connection_id"] = self._presentation_id
         self.route_edit_requested.emit(request)
