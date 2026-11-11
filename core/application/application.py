@@ -5461,6 +5461,29 @@ class Application:
                 correlation_id=command.correlation_id,
                 causation_id=command.causation_id,
             ))
+        elif command.command_type == "model.update_batch":
+            children = tuple(command.payload.get("commands", ()))
+            batch_metadata = {
+                **metadata,
+                "command_type": command.command_type,
+                "child_command_ids": tuple(str(child.command_id) for child in children),
+                "equipment_count": len(children),
+                "atomic": True,
+            }
+            for child in children:
+                child_metadata = {
+                    **batch_metadata,
+                    "batch_command_id": str(command.command_id),
+                    "child_command_id": str(child.command_id),
+                }
+                self._publish_model_event(child, child_metadata, operation=operation)
+            self._event_bus.publish(NetworkChanged(
+                operation=operation,
+                metadata=batch_metadata,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+            ))
+            return
         elif command.command_type.startswith("model."):
             self._publish_model_event(command, metadata, operation=operation); self._publish_network_changed(command, metadata)
         elif command.command_type.startswith("control."): self._publish_control_event(command, result, metadata, operation=operation)
