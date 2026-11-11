@@ -2917,3 +2917,43 @@ UI audit status refinement:
   single-target; no multi-selection/batch parameter editing across assets.
   Native form controls have ordinary Tab traversal, but no batch asset workflow.
   Keep OPEN. Vertical scrolling is separately tracked in #1191.
+
+
+======================================================================
+GRIDFORGE V2 — UI AUDIT BATCH 2 / PANEL VISIBILITY STATE
+Date: 2026-11-11
+New authoritative issue: #undefined
+
+Finding:
+- SLD editor header has checkable Explorer, Inspector and Messages controls;
+  SLDEditor._sync_panel_buttons() projects actual region visibility into them.
+- View -> Panels menu exposes corresponding Project Explorer, Inspector and
+  Messages & Diagnostics actions, plus Tool Settings.
+- Canonical ActionDefinition entries for view.toggle_explorer,
+  view.toggle_inspector, view.toggle_messages and view.toggle_tool_settings
+  are not checkable. MenuPlugin therefore creates ordinary menu actions and
+  does not project actual panel visibility into their checked state.
+- Application menu/toolbar refresh currently projects enabled state, not panel
+  visibility state. Header and menu feedback are therefore inconsistent.
+
+New issue #undefined requires a single authoritative panel-visibility presentation
+state projected to all applicable controls. Keep Layers and Equipment Browser
+as distinct navigation/open actions unless their behavior is separately
+reconciled.
+
+Batch 2 findings reviewed:
+- SLD editor region sizing is definition-driven; SLD tool shelf preferred
+  width 52 px, Explorer 250 px when shown, Inspector 300 px when shown.
+- Canvas minimum region is 520 x 360 px in the editor composition, with
+  workspace definition preserving the stronger existing minimum.
+- Primary canvas zoom +/- header controls and View-menu/keyboard navigation
+  are multiple affordances to the same NavigationController, not independent
+  navigation authorities. The comparison viewport Fit button is a separate
+  viewport operation and must not be removed as a duplicate.
+- Toolbar is intentionally a compact global command bar (Undo/Redo/Delete/
+  Commit/Equipment/Studies); discipline tools remain in the ToolShelf.
+- Existing rotation shortcut/action inconsistency remains tracked in #1190.
+
+Verification:
+- Static source inspection only. No GUI, runtime, tests or CI.
+======================================================================
