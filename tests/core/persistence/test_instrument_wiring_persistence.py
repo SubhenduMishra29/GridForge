@@ -84,3 +84,9 @@ def test_wiring_service_rejects_inventory_without_project():
     service = InstrumentationWiringService()
     with pytest.raises(ValueError, match="project-less"):
         service.activate(None, sample_inventory())
+
+def test_wiring_inventory_codec_rejects_unknown_record_fields():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["cables"][0]["unmodeled_tag"] = "not-safe-to-drop"
+    with pytest.raises(InstrumentationWiringSerializationError, match="unknown"):
+        deserialize_instrumentation_wiring(payload)
