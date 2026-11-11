@@ -579,6 +579,59 @@ class DraftNetwork:
         return tuple(errors)
 
     def clear_after_commit(self) -> None: self._equipment.clear(); self._connections.clear(); self.validation_state = {}
+    def snapshot_state(self) -> tuple[tuple[tuple[str, DraftEquipment], ...], tuple[tuple[str, DraftConnection], ...], dict[str, Any]]:
+        """Capture exact immutable draft objects for transaction rollback/undo."""
+        return (
+            tuple(self._equipment.items()),
+            tuple(self._connections.items()),
+            deepcopy(self.validation_state),
+        )
+
+    def restore_state(
+        self,
+        snapshot: tuple[
+            tuple[tuple[str, DraftEquipment], ...],
+            tuple[tuple[str, DraftConnection], ...],
+            dict[str, Any],
+        ],
+    ) -> None:
+        """Restore a transaction snapshot without replacing captured objects or overwriting collisions."""
+        if not isinstance(snapshot, tuple) or len(snapshot) != 3:
+            raise TypeError("DraftNetwork state snapshot must be a three-part tuple.")
+        equipment_items, connection_items, validation_state = snapshot
+        if not isinstance(equipment_items, tuple) or not isinstance(connection_items, tuple):
+            raise TypeError("DraftNetwork state snapshot collections must be tuples.")
+        if not isinstance(validation_state, Mapping):
+            raise TypeError("DraftNetwork validation snapshot must be a mapping.")
+
+        equipment_snapshot = dict(equipment_items)
+        connection_snapshot = dict(connection_items)
+        if len(equipment_snapshot) != len(equipment_items) or len(connection_snapshot) != len(connection_items):
+            raise ValueError("DraftNetwork state snapshot contains duplicate identities.")
+        if any(key != item.draft_id for key, item in equipment_items):
+            raise ValueError("DraftNetwork equipment snapshot identity does not match its object.")
+        if any(key != item.connection_id for key, item in connection_items):
+            raise ValueError("DraftNetwork connection snapshot identity does not match its object.")
+
+        # A transaction that only removes draft objects may leave a subset of
+        # the captured dictionaries. Never overwrite an unexpected object that
+        # now occupies a captured identity, or silently discard an object that
+        # was not part of this transaction's original state.
+        for identity, current in self._equipment.items():
+            if equipment_snapshot.get(identity) is not current:
+                raise ValueError(
+                    f"Cannot restore DraftNetwork equipment {identity!r}: identity is occupied by a different object."
+                )
+        for identity, current in self._connections.items():
+            if connection_snapshot.get(identity) is not current:
+                raise ValueError(
+                    f"Cannot restore DraftNetwork connection {identity!r}: identity is occupied by a different object."
+                )
+
+        self._equipment = equipment_snapshot
+        self._connections = connection_snapshot
+        self.validation_state = deepcopy(dict(validation_state))
+
     def restore_snapshot(self, snapshot: Mapping[str, Any]) -> None:
         restored = DraftNetwork.from_dict(snapshot, project_id=self.project_id, activation_generation=self.activation_generation)
         self._equipment = restored._equipment; self._connections = restored._connections; self.validation_state = restored.validation_state
