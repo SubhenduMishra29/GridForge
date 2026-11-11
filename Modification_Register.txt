@@ -2570,3 +2570,36 @@ Verification:
 - Fetched current main, issue #1180, batch command, Application bootstrap handler, SLDService, SLDController, selection state, and relevant command/service contracts.
 - This is a source audit only. No source files were changed for #1180 in this pass; no tests/CI or GUI verification were run.
 - Issue #1180 remains open. Do not close or advertise multi-object Cut as enabled.
+
+
+======================================================================
+GridForge V2 — Atomic semantic SLD multi-object Delete/Cut integration (#1180)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Application transaction boundary:
+- DeleteSelectionBatchCommand now accepts a one-object or multi-object selection. The Application batch handler executes every child through one CommandManager transaction, producing one outer history record and one coherent SLDPresentationChanged event; Core mutations additionally publish the matching topology/network events.
+- Added engineer-owned sld.remove_connection to the batch allowlist, complete identity preflight, layer ownership/lock checks, and connection-before-node ordering.
+- SLD node preflight rejects projection-owned/non-engineer objects and checks every attached connection for Core/projection/orphan ownership and locked/missing layers before mutation.
+- Existing Application child command journals preserve exact Core Simple Wire, DraftNetwork, and SLD node/connection state for rollback and undo/redo. Bus dependency closure and incident Simple Wire closure remain fail-closed; unsupported Core equipment types and Junction commands are not implicitly deleted.
+
+Canonical SLDController integration:
+- Replaced the old homogeneous-selection deletion path with one document-scoped DeleteSelectionBatchCommand.
+- Resolves SLD node identity and equipment identity separately; supported Core BUS, TRANSFORMER, and BREAKER map to their canonical delete commands. Unsupported Core equipment types are rejected before Application mutation.
+- Resolves Core Simple Wire presentation companions by explicit core_connection_id and automatically includes every directly incident Simple Wire when selected Core equipment is deleted.
+- Resolves DraftNetwork equipment/connections using the active document's read snapshot; deleting draft equipment includes every attached draft connection in the same batch.
+- Supports mixed node+connection selections and engineer-owned SLD-only connections. Stale, unknown, ambiguous, or cross-document selections fail closed.
+- Main-window Delete now delegates to SLDController. Existing Cut workflow performs semantic copy first, then invokes the same atomic deletion boundary; it restores the previous clipboard if deletion fails. Existing copy capability remains limited to supported semantic Core equipment (BUS/TRANSFORMER/BREAKER); other kinds remain unavailable for Cut rather than being copied incompletely.
+
+Regression coverage added:
+- Mixed SLD node/connection batch deletion, one history entry, one presentation event, undo and redo.
+- Application preflight for cross-document, unknown, duplicate, unsupported, projection-owned, and locked-layer identities.
+- Actual late-child failure after an earlier SLD connection removal, proving shared-transaction rollback restores the SLD connection and leaves no undo/redo entry.
+- UI controller routing for mixed SLD nodes/connections, DraftNetwork equipment plus attached draft wire, Core equipment plus incident Simple Wire, and unsupported Core equipment fail-closed behavior.
+- Junction topology commands remain outside the selection-delete child allowlist; Junction identities and ownership are not converted into equipment or implicitly removed.
+
+Verification boundary:
+- Fetched back changed Application command, batch handler, SLDController, MainWindow composition, regression tests, and this register from main.
+- Source integration and command/event routing were inspected. Tests/CI and Qt GUI interaction were not run. Manual multi-selection Cut/Delete, cancellation/clipboard behavior, junction-connected selection behavior, undo/redo interaction, and project save/reopen still require interactive GUI acceptance.
+- Issue #1180 is closed at the user's request after source integration. Runtime GUI acceptance remains an explicit follow-up verification item; no GUI execution is claimed.
