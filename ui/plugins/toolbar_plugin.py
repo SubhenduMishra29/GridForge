@@ -1251,27 +1251,6 @@ def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
             separator_before=True,
         ),
         ToolbarActionSpec(
-            action_id="view.zoom_out",
-            text="Zoom −",
-            tooltip="Zoom out of the SLD view.",
-            separator_before=True,
-        ),
-        ToolbarActionSpec(
-            action_id="view.zoom_in",
-            text="Zoom +",
-            tooltip="Zoom into the SLD view.",
-        ),
-        ToolbarActionSpec(
-            action_id="view.fit",
-            text="Fit",
-            tooltip="Fit the SLD view.",
-        ),
-        ToolbarActionSpec(
-            action_id="view.pan",
-            text="Pan",
-            tooltip="Pan the SLD viewport.",
-        ),
-        ToolbarActionSpec(
             action_id="study.cases",
             text="Studies",
             tooltip="Open Study Cases.",
