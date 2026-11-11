@@ -3761,3 +3761,8 @@ Automatic active-canvas composition binding for physical wiring:
 - Project-closed handling remains unchanged and produces an empty committed snapshot; the next active-project synchronization reads the newly activated project's inventory.
 - Updated CanvasPlugin active-document test doubles for the new keyword-only contract and added a regression asserting that the active wiring projection is forwarded into the surface.
 - Test source only; no runtime, Qt, import or CI execution claimed.
+
+Physical wiring hover identification:
+- SLDGraphicsItemFactory now gives transient instrumentation-wiring connection graphics a structured hover tooltip containing carrier kind/tag, conductor role, segment index, cable assembly tag, core number and all bound signal tags.
+- This makes the physical cable/core and signal provenance discoverable on the SLD route without creating a second editable label or another identity source. The tooltip is regenerated from the Application projection on each canvas synchronization.
+- Added factory regression test source for cable/core/signal hover metadata. Test remains unexecuted.
