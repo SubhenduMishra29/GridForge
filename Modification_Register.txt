@@ -3471,3 +3471,58 @@ Disposition:
 - No source code, Core/Application architecture or domain model changed.
 - Static source and GitHub diff inspection only. No GUI/runtime/tests/CI run.
 ======================================================================
+
+======================================================================
+GridForge V2 — Batch 8: MeasurementChannel Authoring and Subscription UI
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Source audit:
+- Core MeasurementChannel contract separates physical source equipment from
+  logical signal state. It carries signal type, phase/sequence, engineering
+  unit, nominal value, scale, polarity, quality, availability, raw sample,
+  timestamp/domain, sample sequence and stale_after.
+- Engineering value = raw_value * scale * polarity. Physical CT/PT/CVT ratio,
+  burden, saturation, filtering and instrument error belong to measurement
+  generation, not a second MeasurementChannel transform.
+- MeasurementChannelService activates project-persisted definitions,
+  provisions source terminal references through MeasurementProvisioning,
+  binds immutable producer identity, and serializes configuration without
+  live samples. Project-managed channel configuration is immutable after
+  activation; live sample updates are authorized only through the service.
+- Trusted sample ingress fails closed unless source verifier, trusted clock
+  and clock domain are configured. Attestations bind producer, project,
+  activation generation, channel, timestamp, quality, availability and
+  monotonic sample sequence.
+- Application.read_measurement_channels() returns detached live telemetry
+  read models (value/unit/type/phase/quality/availability/timestamp/domain/
+  sequence/stale_after/producer/validity).
+- Gaps: no project-scoped Application command/API was found to create,
+  update or delete channel definitions after activation; no detached
+  configuration read model exposing name/source/terminal/nominal/scale/
+  polarity/configuration provenance; no dedicated channel authoring UI.
+- ControlInspector can select MeasurementChannel sources and displays
+  sample metadata, but does not author channel definitions. Consumer binding
+  lists are separate from channel authoring.
+- No canonical universal consumer-subscription registry/read model was found
+  for Metering/SCADA/Synchronism/Monitoring. Preserve distinct Protection
+  RelayInput and Control signal mapping ownership; do not invent subscription
+  records or imply consumers are bound without canonical source data.
+- Quality/availability/value/timestamp/sequence are live read-only telemetry.
+  stale_after is configuration; timestamp_domain must align with trusted
+  Application clock. Producer identity is read-only provenance, not an
+  editable free-text field.
+- Channel scale must be finite; polarity exactly +/-1; nominal value finite
+  and non-negative; stale_after finite and non-negative. Units represent
+  post-scale engineering values. Never apply physical CT/PT/CVT ratio twice.
+- Created issue #1199 for project-scoped channel CRUD, immutable configuration
+  read model, dedicated editor with Apply/Discard and authoritative refresh,
+  and consumer views only where canonical consumer registrations exist.
+  Coordinate with #1198, #1196, #1197 and #1031.
+
+Disposition:
+- #1199 OPEN. No issues closed and no PRs merged in Batch 8.
+- No source code, Core/Application architecture or domain model changed.
+- Static source inspection only; no GUI/runtime/tests/CI execution.
+======================================================================
