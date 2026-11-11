@@ -37,7 +37,7 @@ from core.application.commands.sld_commands import (
 )
 
 from .sld_document import SLDDocument
-from .sld_model import SLDConnection, SLDNode
+from .sld_model import SLDAnnotationBlock, SLDConnection, SLDNode
 from .sld_projection_manager import SLDProjectionManager
 from .sld_state import SLDState
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
@@ -361,11 +361,13 @@ class SLDController:
                 # Match equipment/wire authoring: Default means the current
                 # authoring layer for newly created visual objects.
                 payload["layer_id"] = active_layer_id
-            layer = layers.get(payload["layer_id"])
+            normalized = SLDAnnotationBlock.from_dict(payload)
+            payload = normalized.to_dict()
+            layer = layers.get(normalized.layer_id)
             if layer is None:
                 raise ValueError("Annotation block references an unknown SLD layer.")
             if layer.locked:
-                unchanged = current is not None and payload == current.to_dict()
+                unchanged = current is not None and normalized == current
                 if not unchanged:
                     raise ValueError("Cannot create, edit, move, or remove annotation content on a locked SLD layer.")
             proposed.append(payload)
