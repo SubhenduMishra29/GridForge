@@ -37,7 +37,6 @@ from .network_serializer import deserialize_network, serialize_network
 from .instrument_wiring_serializer import (
     deserialize_instrumentation_wiring,
     serialize_instrumentation_wiring,
-    InstrumentationWiringSerializationError,
 )
 from core.model.instrument_wiring import InstrumentationWiringInventory
 from .migration import ProjectPersistenceMigration, ProjectMigrationError, SLDMigrationError, validate_canonical_sld
