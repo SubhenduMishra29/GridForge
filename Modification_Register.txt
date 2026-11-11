@@ -1,3 +1,33 @@
+GridForge V2 — Group transform API and fail-closed commit correction
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- A fresh main-branch source audit found the group transform public API had regressed: GraphicsView called the private _selected_transform_nodes() method, while the expected public selected_transform_nodes() API was absent.
+- apply_group_transform() reported success after _commit_group_transform() returned early for an empty selection. The private commit helper returned None, so the caller could not distinguish a committed command from a no-op.
+
+Correction:
+- Added selected_transform_nodes() as the public, immutable tuple snapshot API; selected_transform_count() now delegates to it.
+- GraphicsView group-toolbar selection/anchor resolution now uses selected_transform_nodes(), not the private helper.
+- apply_group_transform() rejects fewer than two fully resolvable selected equipment symbols before dispatch.
+- _commit_group_transform() returns False for an invalid selection and True only after Application.execute(SetSLDNodeTransformsCommand(...)) reports success.
+- apply_group_transform() propagates the explicit commit result and reports failure rather than false success.
+- The existing single-transaction group command and stale-state-safe inverse remain unchanged.
+
+Undo/redo source assessment:
+- The group service captures each node object, equipment identity, logical identity fields, original position, full presentation DTO and complete properties before mutation.
+- The inverse validates the entire group before restoring any member, then restores position, presentation and properties together.
+- CommandManager redo re-executes the original command through the normal command handler, which creates a fresh inverse journal from the then-current pre-redo state. This is consistent with exact undo/redo state restoration at source level.
+- Renderer projection derives terminal anchors and connection endpoints from the current symbol realization; automatic routes are recomputed and engineer-authored intermediate bends remain presentation-owned.
+- Runtime verification of exact wire path and undo/redo remains outstanding.
+
+Verification:
+- SelectTool, GraphicsView, SLDService, command definition, and Modification Register were inspected.
+- Updated SelectTool and GraphicsView were fetched back from main; public API and explicit commit checks confirmed.
+- No Python import/syntax execution, Qt GUI interaction, runtime undo/redo, or save/reopen acceptance was performed.
+
+======================================================================
 GridForge V2 — Canvas-axis mirroring for rotated symbols
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
