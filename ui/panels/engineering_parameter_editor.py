@@ -13,7 +13,6 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from ui.projection.projection_state import ProjectionState
-from core.application.commands.selection_commands import EngineeringUpdateBatchCommand
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +135,7 @@ class EngineeringParameterEditor:
 
         # Prepare and validate every target before dispatch. No Core mutation
         # occurs if any target rejects a field, paired value or typed conversion.
-        commands = []
+        intents = []
         for target, changes in zip(targets, per_target):
             if not changes:
                 continue
@@ -148,12 +147,14 @@ class EngineeringParameterEditor:
             }
             if any(editable[key].topology_impact for key in changes):
                 raise ValueError("Batch editing does not permit topology-impacting parameters.")
-            commands.append(self._application.prepare_engineering_update(intent))
-        if not commands:
+            intents.append(intent)
+        if not intents:
             raise ValueError("No selected equipment item contains a valid change.")
-        if len(commands) == 1:
-            return self._application.execute(commands[0])
-        return self._application.execute(EngineeringUpdateBatchCommand(commands=tuple(commands)))
+        if len(intents) == 1:
+            command = self._application.prepare_engineering_update(intents[0])
+        else:
+            command = self._application.prepare_engineering_update_batch(tuple(intents))
+        return self._application.execute(command)
 
     @staticmethod
     def _coerce_typed_value(
