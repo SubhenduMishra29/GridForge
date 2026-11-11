@@ -37,7 +37,7 @@ from core.application.commands.sld_commands import (
 )
 
 from .sld_document import SLDDocument
-from .sld_model import SLDConnection, SLDNode
+from .sld_model import SLDAnnotationBlock, SLDConnection, SLDNode
 from .sld_projection_manager import SLDProjectionManager
 from .sld_state import SLDState
 from ui.workspace.project_workspace import ProjectWorkspaceLifecycle
@@ -324,10 +324,65 @@ class SLDController:
         self._state.mark_dirty()
 
     def set_annotation_blocks(self, annotation_blocks: list[dict[str, Any]]) -> None:
-        """Persist annotation edits through Application command history."""
-        self._require_active_document()
+        """Persist annotation edits through Application history on their owning layers.
+
+        New blocks without an explicit layer inherit the active authoring layer.
+        Existing blocks retain their current layer when callers submit legacy
+        payloads without layer_id. Locked-layer content is immutable, including
+        deletion through this full-replacement API.
+        """
+        document = self._require_active_document()
+        if not isinstance(annotation_blocks, list):
+            raise TypeError("annotation_blocks must be supplied as a list.")
+        existing = {block.block_id: block for block in document.annotation_blocks}
+        proposed: list[dict[str, Any]] = []
+        proposed_ids: set[str] = set()
+        active_layer_id = self.active_layer_id
+        layers = {layer.layer_id: layer for layer in document.layers}
+        for value in annotation_blocks:
+            if callable(getattr(value, "to_dict", None)):
+                payload = value.to_dict()
+            elif isinstance(value, dict):
+                payload = dict(value)
+            else:
+                raise TypeError("Each annotation block must be a mapping or SLDAnnotationBlock.")
+            block_id = payload.get("block_id")
+            if not isinstance(block_id, str) or not block_id.strip():
+                raise ValueError("Annotation block requires a non-empty block_id.")
+            if block_id in proposed_ids:
+                raise ValueError("Duplicate SLD annotation block ID: " + block_id)
+            proposed_ids.add(block_id)
+            current = existing.get(block_id)
+            if "layer_id" not in payload:
+                payload["layer_id"] = (
+                    current.layer_id if current is not None else active_layer_id
+                )
+            elif current is None and payload["layer_id"] == "default":
+                # Match equipment/wire authoring: Default means the current
+                # authoring layer for newly created visual objects.
+                payload["layer_id"] = active_layer_id
+            normalized = SLDAnnotationBlock.from_dict(payload)
+            payload = normalized.to_dict()
+            layer = layers.get(normalized.layer_id)
+            if layer is None:
+                raise ValueError("Annotation block references an unknown SLD layer.")
+            if layer.locked:
+                unchanged = current is not None and normalized == current
+                if not unchanged:
+                    raise ValueError("Cannot create, edit, move, or remove annotation content on a locked SLD layer.")
+            proposed.append(payload)
+        removed_locked = [
+            block.block_id for block in document.annotation_blocks
+            if block.layer_id in layers and layers[block.layer_id].locked
+            and block.block_id not in proposed_ids
+        ]
+        if removed_locked:
+            raise ValueError(
+                "Cannot remove annotation content from locked SLD layer(s): "
+                + ", ".join(sorted(removed_locked))
+            )
         result = self.application.execute(
-            SetSLDAnnotationBlocksCommand(annotation_blocks=annotation_blocks)
+            SetSLDAnnotationBlocksCommand(annotation_blocks=proposed)
         )
         if not result.success:
             raise RuntimeError(result.message)
