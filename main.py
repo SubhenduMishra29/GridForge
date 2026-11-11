@@ -1734,6 +1734,7 @@ def _build_application_impl(
     explorer_tabs.setTabsClosable(False)
     layer_manager_panel = SLDLayerManagerWidget(sld_controller=sld_controller, parent=explorer_tabs)
     layer_manager_panel.setObjectName("SLDLayerManagerPanel")
+    canvas_composition.view.layers_requested.connect(_show_layer_manager)
     if "project" in detached:
         explorer_tabs.addTab(detached["project"], "Project")
     if "equipment" in detached:
