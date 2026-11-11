@@ -37,6 +37,7 @@ class WireTool(ToolBase):
         self._preview = ConnectionPreview()
         self._preview_layer = preview_layer or getattr(controller, "preview_layer", None)
         self._preview_owner = f"wire-tool:{id(self)}"
+        self._wire_layer_id: str | None = None
 
     @property
     def tool_id(self) -> str:
@@ -78,6 +79,7 @@ class WireTool(ToolBase):
         if self._preview.source_endpoint is None:
             self._failure_reason = ""
             self._preview.begin(endpoint)
+            self._wire_layer_id = self._capture_active_layer_id()
             self._start_snap = snap_result
             self._start_position = position
             self._current_position = position
@@ -262,6 +264,7 @@ class WireTool(ToolBase):
                     "target": target.to_dict(),
                     "connection_kind": "simple_wire",
                     "route": dict(presentation_route or {}),
+                    "layer_id": self._wire_layer_id or "default",
                 }
             )
         else:
@@ -271,6 +274,15 @@ class WireTool(ToolBase):
                 presentation_route=presentation_route,
             )
         return self.execute_command(command)
+
+    def _capture_active_layer_id(self) -> str:
+        """Capture the active document layer when the first wire endpoint is acquired."""
+        getter = getattr(self.controller, "get_sld_controller", None)
+        sld_controller = getter() if callable(getter) else None
+        layer_id = getattr(sld_controller, "active_layer_id", "default")
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            raise ValueError("Wire authoring requires a valid active SLD presentation layer.")
+        return layer_id.strip()
 
     @staticmethod
     def _authoring_endpoint(snap_result: Any) -> Any:
@@ -443,6 +455,7 @@ class WireTool(ToolBase):
                     if callable(clear):
                         clear()
         self._start_position = None
+        self._wire_layer_id = None
         self._failure_reason = ""
         self._start_snap = None
         self._current_position = None
