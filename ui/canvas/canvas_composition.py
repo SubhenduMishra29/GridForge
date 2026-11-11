@@ -662,6 +662,22 @@ class CanvasComposition:
 
     def __post_init__(self) -> None:
         self.surface.bind_composition(self)
+        self.route_edit_controller.bind_refresh_callback(self.refresh_active_document)
+
+    def refresh_active_document(self):
+        """Reproject the active document after a presentation-only route edit."""
+        document = self.sld_controller.active_document
+        if document is None:
+            return None
+        if self.draft_sld_projection is None:
+            raise RuntimeError("CanvasComposition requires DraftSLDProjection to refresh the active document.")
+        draft_snapshot = self.draft_sld_projection.project()
+        wiring_projection = self.sld_controller.read_instrumentation_wiring_projection()
+        return self.surface.present_composite_document(
+            document,
+            draft_snapshot,
+            instrumentation_wiring=wiring_projection,
+        )
 
     @staticmethod
     def _run_cleanup(label: str, operation: Any, failures: list[tuple[str, BaseException]]) -> None:
