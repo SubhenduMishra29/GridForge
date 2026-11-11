@@ -348,6 +348,31 @@ class SelectTool(ToolBase):
             return []
         return nodes
 
+    def selected_transform_count(self) -> int:
+        """Return the number of fully resolvable selected SLD nodes."""
+        return len(self._selected_transform_nodes())
+
+    def apply_group_transform(
+        self,
+        *,
+        rotation_degrees: float = 0.0,
+        mirror_x: bool = False,
+        mirror_y: bool = False,
+    ) -> bool:
+        """Public selection-tool entry point for contextual group transforms."""
+        try:
+            self._commit_group_transform(
+                rotation_degrees=rotation_degrees,
+                mirror_x=mirror_x,
+                mirror_y=mirror_y,
+            )
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+            self.controller.show_status_message(
+                f"Group symbol transform rejected: {exc}"
+            )
+            return False
+        return True
+
     def _commit_group_transform(
         self,
         *,
