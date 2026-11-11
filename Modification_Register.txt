@@ -1,3 +1,25 @@
+GridForge V2 — Group transform API fail-closed correction
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- Source audit found that SelectTool.apply_group_transform() returned success when _commit_group_transform() silently returned for an empty or invalid selection.
+- The contextual GraphicsView also reached into SelectTool's private _selected_transform_nodes() method.
+
+Correction:
+- Added public selected_transform_nodes() returning the complete preflighted selection snapshot for transient UI anchoring.
+- Routed GraphicsView group-toolbar resolution through that public API.
+- apply_group_transform() now requires at least two fully resolvable equipment nodes, reports invalid selection, and returns false if the command is not committed.
+- _commit_group_transform() now returns an explicit boolean and rejects selections with fewer than two nodes before calculating a pivot or constructing a command.
+- Successful execution is reported only after SetSLDNodeTransformsCommand returns success.
+
+Verification:
+- SelectTool, GraphicsView, and Modification Register fetched back from main.
+- Source inspection confirms public selection API usage, minimum-two-node guard, explicit commit result, and unchanged atomic command dispatch.
+- No Python import/syntax execution, Qt GUI interaction, undo/redo runtime, wire endpoint runtime, or save/reopen acceptance was performed.
+
+======================================================================
 GridForge V2 — Contextual group toolbar initial visibility guard
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
