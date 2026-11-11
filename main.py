@@ -55,6 +55,7 @@ from ui.projection.study_projection import StudyProjection
 from ui.projection.ui_projection_coordinator import UIProjectionCoordinator
 from ui.projection.validation_projection import ValidationProjection
 from ui.sld.sld_controller import SLDController
+from ui.sld.sld_layer_manager_widget import SLDLayerManagerWidget
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_projection_manager import SLDProjectionManager
 from ui.sld.sld_state import SLDState
@@ -1718,12 +1719,15 @@ def _build_application_impl(
     explorer_tabs.setDocumentMode(True)
     explorer_tabs.setMovable(False)
     explorer_tabs.setTabsClosable(False)
+    layer_manager_panel = SLDLayerManagerWidget(sld_controller=sld_controller, parent=explorer_tabs)
+    layer_manager_panel.setObjectName("SLDLayerManagerPanel")
     if "project" in detached:
         explorer_tabs.addTab(detached["project"], "Project")
     if "equipment" in detached:
         explorer_tabs.addTab(detached["equipment"], "Equipment")
     if "element_list" in detached:
         explorer_tabs.addTab(detached["element_list"], "Elements")
+    explorer_tabs.addTab(layer_manager_panel, "Layers")
     workspace_surface_host.set_region_widgets(
         "sld",
         explorer=explorer_tabs,
