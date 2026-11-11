@@ -975,6 +975,9 @@ class PropertiesPanelWidget(QWidget):
                     cell = self._batch_table.item(row, column)
                     raw = "" if cell is None else cell.text().strip()
                     parameter = parameter_states[common.parameter_id]
+                    original = "" if parameter.value is None else str(parameter.value)
+                    if raw == original:
+                        continue
                     if parameter.datatype.lower() in {"bool", "boolean"}:
                         normalized = raw.lower()
                         if normalized not in {"true", "false"}:
@@ -982,6 +985,11 @@ class PropertiesPanelWidget(QWidget):
                         value = normalized == "true"
                     elif raw == "" and parameter.validation.get("nullable") is True:
                         value = None
+                    elif parameter.datatype.lower() == "complex":
+                        try:
+                            value = complex(raw)
+                        except (TypeError, ValueError, OverflowError) as exc:
+                            raise ValueError(f"{target.object_id}: {common.parameter_id} must be a complex value.") from exc
                     else:
                         value = EngineeringParameterEditor._coerce_typed_value(
                             parameter.datatype, raw, common.parameter_id, parameter.validation
