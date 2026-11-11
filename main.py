@@ -1028,7 +1028,7 @@ def _build_application_impl(
         )
 
     def _delete_selection() -> None:
-        selected_ids = tuple(str(value) for value in canvas_composition.selection_manager.get_selected_ids())
+        selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
             return
         if not _selection_supports("delete"):
@@ -1036,85 +1036,16 @@ def _build_application_impl(
                 "Delete canceled: the complete selection contains an object without a supported semantic delete command. Nothing was deleted."
             )
             return
-
         try:
-            draft_snapshot = gridforge_application.read_draft_network()
-        except (RuntimeError, ValueError, TypeError) as exc:
-            messages_panel.append_message(f"Delete canceled: DraftNetwork could not be read: {exc}")
-            return
-        draft_snapshot = draft_snapshot if isinstance(draft_snapshot, dict) else {}
-        draft_equipment = {
-            str(item.get("draft_id", "")) for item in draft_snapshot.get("equipment", ())
-            if isinstance(item, dict)
-        }
-        draft_connections = {
-            str(item.get("connection_id", "")) for item in draft_snapshot.get("connections", ())
-            if isinstance(item, dict)
-        }
-        document_id = getattr(gridforge_application.presentation, "document_id", None)
-        if not isinstance(document_id, str) or not document_id.strip():
-            messages_panel.append_message("Delete canceled: the active SLD document identity is unavailable.")
-            return
-
-        commands = []
-        for selected_id in selected_ids:
-            element = _find_network_element(selected_id)
-            if element is not None:
-                element_type = str(element.element_type).strip().lower()
-                if element_type == "bus":
-                    commands.append(DeleteBusCommand(bus_id=str(element.object_id)))
-                elif element_type == "transformer":
-                    commands.append(DeleteTransformerCommand(transformer_id=str(element.object_id)))
-                elif element_type == "breaker":
-                    commands.append(DeleteBreakerCommand(breaker_id=str(element.object_id)))
-                else:
-                    messages_panel.append_message(
-                        f"Delete canceled: no semantic delete mapping exists for {element_type!r}. Nothing was deleted."
-                    )
-                    return
-                continue
-
-            try:
-                wire = gridforge_application.read_simple_wire(selected_id)
-            except (KeyError, RuntimeError):
-                wire = None
-            if wire is not None:
-                commands.append(RemoveSimpleWireConnectionCommand(connection_id=selected_id))
-                continue
-            if selected_id in draft_connections:
-                commands.append(RemoveDraftConnectionCommand(connection_id=selected_id, document_id=document_id))
-                continue
-            if selected_id in draft_equipment:
-                commands.append(RemoveDraftEquipmentCommand(draft_id=selected_id, document_id=document_id))
-                continue
-
-            node = _find_sld_node(selected_id)
-            if node is not None and getattr(node, "equipment_id", None) is None:
-                commands.append(RemoveSLDNodeCommand(node_id=str(node.node_id)))
-                continue
-
-            messages_panel.append_message(
-                f"Delete canceled: selection {selected_id!r} has no authoritative delete mapping. Nothing was deleted."
-            )
-            return
-
-        try:
-            if len(commands) == 1:
-                result = gridforge_application.execute(commands[0])
-            else:
-                result = gridforge_application.execute(
-                    DeleteSelectionBatchCommand(commands=tuple(commands), document_id=document_id)
-                )
-            if not result.success:
-                raise RuntimeError(result.message or "Application rejected the deletion.")
+            if not sld_controller.delete_selection():
+                return
         except Exception as exc:
             messages_panel.append_message(
                 f"Delete failed; the Application transaction was rolled back: {exc}"
             )
             return
-
-        canvas_composition.selection_manager.clear()
-
+        # SLDController clears the authoritative typed selection only after
+        # the single Application batch command commits successfully.
     def _cut_selection() -> None:
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:

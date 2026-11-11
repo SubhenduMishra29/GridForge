@@ -3,10 +3,12 @@ from __future__ import annotations
 import pytest
 
 from core.application.bootstrap import create_application
+from core.application.command import Command
 from core.network.network import Network
 from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
-from core.application.commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, SetSLDNodePositionCommand, SetSLDNodeTransformsCommand, CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand, ReorderSLDLayersCommand
+from core.application.commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand, SetSLDNodePositionCommand, SetSLDNodeTransformsCommand, CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand, ReorderSLDLayersCommand
+from core.application.commands.selection_commands import DeleteSelectionBatchCommand
 from core.application.commands.model_commands import CreateBusCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
@@ -275,3 +277,143 @@ def test_add_sld_objects_use_requested_layer_and_locked_layer_rejects_edits():
         application.execute(AddSLDNodeCommand(node_id="blocked", layer_id="detail"))
     assert document.layer_state_snapshot() == before
     assert not document.model.has_node("blocked")
+
+
+def test_atomic_selection_batch_deletes_mixed_sld_nodes_and_connections_with_one_history_entry():
+    application, document = _application()
+    application.execute(AddSLDNodeCommand(node_id="selection-a"))
+    application.execute(AddSLDNodeCommand(node_id="selection-b"))
+    application.execute(AddSLDConnectionCommand(
+        connection_id="selection-link",
+        source_node_id="selection-a",
+        target_node_id="selection-b",
+        presentation_owner="engineer",
+    ))
+    application.clear_history()
+    events = []
+    application.event_bus.subscribe(SLDPresentationChanged, events.append)
+
+    result = application.execute(DeleteSelectionBatchCommand(
+        document_id=document.document_id,
+        commands=(
+            RemoveSLDNodeCommand(node_id="selection-a"),
+            RemoveSLDConnectionCommand(connection_id="selection-link"),
+            RemoveSLDNodeCommand(node_id="selection-b"),
+        ),
+    ))
+
+    assert result.success
+    assert not document.model.has_node("selection-a")
+    assert not document.model.has_node("selection-b")
+    assert not document.model.has_connection("selection-link")
+    assert application.undo_count() == 1
+    assert len(events) == 1
+
+    application.undo()
+    assert document.model.has_node("selection-a")
+    assert document.model.has_node("selection-b")
+    assert document.model.has_connection("selection-link")
+    application.redo()
+    assert not document.model.has_node("selection-a")
+    assert not document.model.has_node("selection-b")
+    assert not document.model.has_connection("selection-link")
+
+
+def test_atomic_selection_batch_preflights_projection_owned_nodes_before_any_mutation():
+    application, document = _application()
+    application.execute(AddSLDNodeCommand(node_id="rollback-a"))
+    application.execute(AddSLDNodeCommand(node_id="rollback-b"))
+    application.execute(AddSLDNodeCommand(
+        node_id="projection-owned",
+        presentation_owner="projection",
+        projection_source="application_read_model",
+    ))
+    application.execute(AddSLDConnectionCommand(
+        connection_id="rollback-link",
+        source_node_id="rollback-a",
+        target_node_id="rollback-b",
+        presentation_owner="engineer",
+    ))
+    application.clear_history()
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(
+                RemoveSLDConnectionCommand(connection_id="rollback-link"),
+                RemoveSLDNodeCommand(node_id="projection-owned"),
+            ),
+        ))
+
+    assert document.model.has_connection("rollback-link")
+    assert document.model.has_node("projection-owned")
+    assert application.undo_count() == 0
+    assert application.redo_count() == 0
+
+
+def test_atomic_selection_batch_rejects_locked_sld_connection_layer_before_mutation():
+    application, document = _application()
+    application.execute(CreateSLDLayerCommand(layer_id="locked-selection", name="Locked"))
+    application.execute(AddSLDNodeCommand(node_id="locked-a", layer_id="locked-selection"))
+    application.execute(AddSLDNodeCommand(node_id="locked-b", layer_id="locked-selection"))
+    application.execute(AddSLDConnectionCommand(
+        connection_id="locked-link",
+        source_node_id="locked-a",
+        target_node_id="locked-b",
+        layer_id="locked-selection",
+        presentation_owner="engineer",
+    ))
+    application.execute(UpdateSLDLayerCommand(layer_id="locked-selection", locked=True))
+    application.clear_history()
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(RemoveSLDConnectionCommand(connection_id="locked-link"),),
+        ))
+
+    assert document.model.has_connection("locked-link")
+    assert application.undo_count() == 0
+
+
+def test_atomic_selection_batch_rejects_cross_document_and_unknown_identities():
+    application, document = _application()
+    application.execute(AddSLDNodeCommand(node_id="batch-known"))
+    application.clear_history()
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id="another-document",
+            commands=(RemoveSLDNodeCommand(node_id="batch-known"),),
+        ))
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(RemoveSLDConnectionCommand(connection_id="missing-connection"),),
+        ))
+
+    assert document.model.has_node("batch-known")
+    assert application.undo_count() == 0
+
+
+def test_atomic_selection_batch_rejects_duplicate_and_unsupported_children():
+    application, document = _application()
+    application.execute(AddSLDNodeCommand(node_id="duplicate-a"))
+    application.execute(AddSLDNodeCommand(node_id="duplicate-b"))
+    application.clear_history()
+    remove_a = RemoveSLDNodeCommand(node_id="duplicate-a")
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(remove_a, RemoveSLDNodeCommand(node_id="duplicate-a")),
+        ))
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(remove_a, Command(command_type="connectivity.remove_junction", payload={"junction_id": "junction-1"})),
+        ))
+
+    assert document.model.has_node("duplicate-a")
+    assert document.model.has_node("duplicate-b")
+    assert application.undo_count() == 0

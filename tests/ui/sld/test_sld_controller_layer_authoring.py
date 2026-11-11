@@ -17,13 +17,25 @@ class _Application:
         self.commands.append(command)
         return SimpleNamespace(success=True, message="")
 
+    def read_network(self):
+        return SimpleNamespace(elements=(), simple_wires=())
+
+    def read_draft_network(self, document_id=None):
+        return {"equipment": [], "connections": []}
+
 
 class _State:
     def __init__(self):
         self.dirty = False
+        self.selected_node_ids = set()
+        self.selected_connection_ids = set()
 
     def mark_dirty(self):
         self.dirty = True
+
+    def clear_selection(self):
+        self.selected_node_ids.clear()
+        self.selected_connection_ids.clear()
 
     def reset(self):
         self.dirty = False
@@ -175,3 +187,96 @@ def test_active_layer_fails_closed_when_every_layer_is_hidden_or_locked():
         _ = controller.active_layer_id
 
     assert document.document_id not in controller._active_layer_by_document
+
+
+def test_delete_selection_routes_mixed_sld_nodes_and_connections_through_one_batch():
+    from core.application.commands.selection_commands import DeleteSelectionBatchCommand
+
+    document = _document()
+    document.model.add_node(SLDNode("node-2"))
+    document.model.create_connection(
+        "engineer-wire", "node-1", "node-2",
+        properties={"presentation_owner": "engineer"},
+    )
+    controller = _controller(document)
+    controller._state.selected_node_ids = {"node-1"}
+    controller._state.selected_connection_ids = {"engineer-wire"}
+
+    assert controller.delete_selection() is True
+
+    assert len(controller._application.commands) == 1
+    batch = controller._application.commands[0]
+    assert isinstance(batch, DeleteSelectionBatchCommand)
+    assert {command.command_type for command in batch.payload["commands"]} == {
+        "sld.remove_node", "sld.remove_connection",
+    }
+    assert batch.payload["document_id"] == document.document_id
+    assert controller._state.selected_node_ids == set()
+    assert controller._state.selected_connection_ids == set()
+    assert controller._state.dirty is True
+
+
+def test_delete_selection_resolves_draft_node_and_attached_wire_as_one_batch():
+    from core.application.commands.selection_commands import DeleteSelectionBatchCommand
+
+    document = _document()
+    controller = _controller(document)
+    controller._application.read_draft_network = lambda document_id=None: {
+        "equipment": [{"draft_id": "draft-1"}],
+        "connections": [{
+            "connection_id": "draft-wire",
+            "source": {"scope": "draft", "object_id": "draft-1"},
+            "target": {"scope": "core", "object_id": "bus-1"},
+        }],
+    }
+    controller._state.selected_node_ids = {"draft-1"}
+
+    assert controller.delete_selection() is True
+
+    batch = controller._application.commands[0]
+    assert isinstance(batch, DeleteSelectionBatchCommand)
+    assert {command.command_type for command in batch.payload["commands"]} == {
+        "draft.remove_equipment", "draft.remove_connection",
+    }
+
+
+def test_delete_selection_fails_closed_for_unsupported_core_equipment_type():
+    controller = _controller(_document())
+    controller._state.selected_node_ids = {"unsupported-node"}
+    controller._require_active_document().model.add_node(
+        SLDNode("unsupported-node", equipment_id="line-1")
+    )
+    controller._application.read_network = lambda: SimpleNamespace(
+        elements=(SimpleNamespace(object_id="line-1", element_type="LINE"),),
+        simple_wires=(),
+    )
+
+    with pytest.raises(ValueError, match="not yet supported"):
+        controller.delete_selection()
+
+    assert controller._application.commands == []
+
+
+def test_delete_selection_batches_core_equipment_with_all_incident_simple_wires():
+    from core.application.commands.selection_commands import DeleteSelectionBatchCommand
+
+    document = _document()
+    document.model.add_node(SLDNode("bus-symbol", equipment_id="bus-1"))
+    controller = _controller(document)
+    controller._state.selected_node_ids = {"bus-symbol"}
+    controller._application.read_network = lambda: SimpleNamespace(
+        elements=(SimpleNamespace(object_id="bus-1", element_type="BUS"),),
+        simple_wires=(SimpleNamespace(
+            connection_id="wire-1",
+            endpoint_a={"kind": "bus", "endpoint": {"object_id": "bus-1"}},
+            endpoint_b={"kind": "terminal", "endpoint": {"object_id": "other-equipment"}},
+        ),),
+    )
+
+    assert controller.delete_selection() is True
+
+    batch = controller._application.commands[0]
+    assert isinstance(batch, DeleteSelectionBatchCommand)
+    assert {command.command_type for command in batch.payload["commands"]} == {
+        "model.delete_bus", "connectivity.remove_simple_wire",
+    }

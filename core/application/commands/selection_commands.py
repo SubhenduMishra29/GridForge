@@ -24,8 +24,8 @@ class DeleteSelectionBatchCommand(Command):
         causation_id: UUID | None = None,
     ) -> None:
         children = tuple(commands)
-        if len(children) < 2:
-            raise ValueError("A selection batch requires at least two delete commands.")
+        if not children:
+            raise ValueError("A selection batch requires at least one delete command.")
         if any(not isinstance(child, Command) for child in children):
             raise TypeError("Selection batch children must be immutable Application commands.")
         if not isinstance(document_id, str) or not document_id.strip():

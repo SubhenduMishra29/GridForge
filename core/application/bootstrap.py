@@ -240,9 +240,10 @@ def create_application(
                 "draft.remove_equipment": "draft_id",
                 "draft.remove_connection": "connection_id",
                 "sld.remove_node": "node_id",
+                "sld.remove_connection": "connection_id",
             }
-            if len(children) < 2 or not document_id:
-                raise ValueError("Selection delete batch requires at least two commands and one active SLD document.")
+            if not children or not document_id:
+                raise ValueError("Selection delete batch requires at least one command and one active SLD document.")
             active_presentation = getattr(application, "presentation", None)
             if active_presentation is None or getattr(active_presentation, "document_id", None) != document_id:
                 raise ValueError("Selection delete batch does not target the active SLD document.")
@@ -323,6 +324,57 @@ def create_application(
                         raise ValueError(
                             f"Selection delete preflight could not resolve an engineer-owned SLD-only node {identity!r}."
                         )
+                    node_properties = getattr(node, "properties", {})
+                    if (
+                        node_properties.get("projection_source") is not None
+                        or node_properties.get("presentation_owner") not in (None, "engineer")
+                    ):
+                        raise ValueError(f"SLD node {identity!r} is not engineer-owned.")
+                    layer = next((item for item in sld_document.layers if item.layer_id == node.layer_id), None)
+                    if layer is None or layer.locked:
+                        raise ValueError(f"SLD node {identity!r} belongs to a missing or locked layer.")
+                    for attached in sld_document.model.connections:
+                        if attached.source_node_id != identity and attached.target_node_id != identity:
+                            continue
+                        attached_properties = attached.properties
+                        if (
+                            attached_properties.get("core_connection_id")
+                            or attached_properties.get("projection_source") is not None
+                            or attached_properties.get("connection_kind") == "SIMPLE_WIRE"
+                            or attached_properties.get("orphaned_from_core_connection_id")
+                            or attached_properties.get("presentation_owner") != "engineer"
+                        ):
+                            raise ValueError(
+                                f"SLD node {identity!r} has a Core-backed, projection-owned, orphaned, or non-engineer connection {attached.connection_id!r}."
+                            )
+                        attached_layer = next(
+                            (item for item in sld_document.layers if item.layer_id == attached.layer_id),
+                            None,
+                        )
+                        if attached_layer is None or attached_layer.locked:
+                            raise ValueError(
+                                f"Attached SLD connection {attached.connection_id!r} belongs to a missing or locked layer."
+                            )
+                elif child.command_type == "sld.remove_connection":
+                    connection = sld_document.model.get_connection_optional(identity)
+                    if connection is None:
+                        raise ValueError(
+                            f"Selection delete preflight could not resolve engineer-owned SLD connection {identity!r}."
+                        )
+                    properties = connection.properties
+                    if (
+                        properties.get("core_connection_id")
+                        or properties.get("projection_source") is not None
+                        or properties.get("connection_kind") == "SIMPLE_WIRE"
+                        or properties.get("orphaned_from_core_connection_id")
+                        or properties.get("presentation_owner") != "engineer"
+                    ):
+                        raise ValueError(
+                            f"SLD connection {identity!r} is Core-backed, projection-owned, orphaned, or not engineer-owned."
+                        )
+                    layer = next((item for item in sld_document.layers if item.layer_id == connection.layer_id), None)
+                    if layer is None or layer.locked:
+                        raise ValueError(f"SLD connection {identity!r} belongs to a missing or locked layer.")
 
             # Dependency closure is checked against the complete immutable snapshots
             # before the first child mutation. Core Simple Wires are explicit batch
@@ -445,6 +497,7 @@ def create_application(
                 "model.delete_breaker": 1,
                 "draft.remove_equipment": 1,
                 "sld.remove_node": 2,
+                "sld.remove_connection": 0,
             }
             ordered = tuple(sorted(children, key=lambda child: rank[child.command_type]))
             for child in ordered:
