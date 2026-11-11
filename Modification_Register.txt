@@ -2481,3 +2481,28 @@ Verification:
 - Source-level checks confirm the menu action, UIActionRouter handler, canvas context-menu signal, and single canonical Explorer-tab destination. QMenu is already exported through ui/core/qt.py.
 - Tests/CI and Qt runtime interactions were not run. Actual menu selection, right-click context menu behavior, event-driven widget refresh, and multi-document GUI acceptance remain runtime checks.
 - Phase D3 source integration is complete. Phase D still needs final Qt UI acceptance; Phase E collision-aware annotation decluttering remains outstanding.
+
+
+======================================================================
+GridForge V2 — Collision-aware SLD annotation decluttering (Phase E)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Implementation:
+- Added transient display priority to SLDCanvasAnnotation projection. Ordering is deterministic: equipment identity (0), equipment type (10), study-result overlay (15), authored labels (20), attributes (30), engineering parameters (40), unknown fields (50). For a multi-field block, its highest-priority field controls its placement priority.
+- SLDCanvasRenderSystem now performs collision resolution against actual QGraphicsTextItem sceneBoundingRect values. Candidates are processed by priority and stable render identity.
+- A lower-priority label is progressively scaled through 100%, 90%, 80%, 70%, and 60% until its padded rendered bounds no longer intersect an accepted label. If it still cannot fit, it is hidden for the current viewport projection.
+- Layout is recalculated after each complete SLD snapshot synchronization and when zoom crosses the existing minimum annotation visibility threshold. It is independent of saved annotation offsets, authored text, layer membership, and Core electrical data.
+- Replaced annotation items retain their priority in the active layout registry; removed items clear their transient layout entries. Renderer teardown clears layout state.
+
+Regression coverage added:
+- Identity beats colliding engineering parameter; independent identity labels remain visible.
+- Lower-priority label scales before it is hidden and accepted rendered bounds do not intersect.
+- Zoom below the existing threshold hides labels; zooming back restores eligible labels and reruns collision resolution.
+- Projection priority mapping covers identity, type, label, attribute, and parameter precedence.
+
+Verification:
+- Fetched back projection, renderer, regression test file, and this register after edits. Source-level checks confirm transient priority metadata, rendered-bounds collision checks, deterministic priority order, progressive scaling/hiding, zoom reflow, and regression coverage.
+- Tests/CI and Qt runtime visual acceptance were not run. The actual font metrics, label readability at each scale, and collision behavior in a populated engineering drawing still require GUI review.
+- Phase E source implementation is complete; issue #820 should remain open until runtime acceptance and any visual tuning are completed.
