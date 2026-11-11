@@ -4635,6 +4635,20 @@ class Application:
         values = tuple(intents)
         if len(values) < 2:
             raise ValueError("Engineering update batch requires at least two typed intents.")
+        element_types = {
+            str(getattr(intent, "element_type", "")).strip().lower()
+            for intent in values
+        }
+        element_ids = tuple(
+            str(getattr(intent, "element_id", "")).strip()
+            for intent in values
+        )
+        if len(element_types) != 1 or not next(iter(element_types), ""):
+            raise ValueError("Engineering update batch requires one compatible equipment type.")
+        if any(not identity for identity in element_ids) or len(set(element_ids)) != len(element_ids):
+            raise ValueError("Engineering update batch requires distinct non-empty equipment identities.")
+        if any(str(getattr(intent, "identity_kind", "element")).strip().lower() != "element" for intent in values):
+            raise ValueError("Engineering update batch supports committed equipment only.")
         commands = tuple(EngineeringUpdatePreparer.prepare(intent) for intent in values)
         return EngineeringUpdateBatchCommand(commands=commands)
 
