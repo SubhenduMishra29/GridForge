@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from core.application.command import Command
@@ -99,6 +99,28 @@ class InstrumentationWiringService:
                 continue
             seen.add(reference.identity)
             cls._validate_terminal_reference(network, reference)
+
+    def allocate_tag(
+        self, record_kind: str
+    ) -> tuple[str, InstrumentationWiringInventory]:
+        """Prepare one project-policy tag and the inventory carrying its advanced counter.
+
+        The returned inventory is not installed until the caller submits it
+        through create_replace_command() and the normal Application command path.
+        """
+        kind = str(record_kind).strip().upper()
+        used_by_kind = {
+            "CABLE": tuple(item.tag for item in self._inventory.cables),
+            "CORE": tuple(item.core_tag for item in self._inventory.cores if item.core_tag is not None),
+            "PANEL_WIRE": tuple(item.tag for item in self._inventory.panel_wires),
+            "SIGNAL": tuple(item.tag for item in self._inventory.signals),
+        }
+        if kind not in used_by_kind:
+            raise ValueError(f"Unsupported instrumentation wiring tag category: {kind!r}.")
+        tag, updated_policy = self._inventory.tag_policy.allocate(
+            kind, used_tags=used_by_kind[kind]
+        )
+        return tag, replace(self._inventory, tag_policy=updated_policy)
 
     def create_replace_command(
         self, replacement: InstrumentationWiringInventory
