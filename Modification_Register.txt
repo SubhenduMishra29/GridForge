@@ -3427,3 +3427,47 @@ Disposition:
   No issues closed and no PRs merged in this batch.
 - Static source inspection only. No GUI, runtime, tests or CI execution.
 ======================================================================
+
+======================================================================
+GridForge V2 — Batch 7: CT/PT/CVT Instrument Configuration and Channels
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Source audit:
+- Core CT/PT/CVT models expose validated physical nameplate fields and
+  explicit primary/secondary terminals and polarity conventions.
+- Application MeasurementModelService and PTModelService provide transactional
+  update methods; immutable UpdateCurrentTransformerCommand,
+  UpdatePTCommand and UpdateCapacitiveVoltageTransformerCommand exist.
+  Service updates snapshot old values, validate the candidate, restore on
+  rejection, and register transaction undo.
+- NetworkReadService projects CT/PT/CVT physical attributes and marks
+  nameplate parameters editable for the generic Properties inspector.
+  Derived ratio/voltage_ratio are explicitly read-only. Thus the claim that
+  committed instruments cannot be edited at all would be incorrect; the gap
+  is a cohesive dedicated engineering workflow and channel authoring.
+- Canonical units: CT current ratings A; PT/CVT primary kV and secondary V;
+  burden VA; frequency Hz; phase displacement degrees. Polarity is enum.
+  No implicit unit conversion or rounding is required.
+- MeasurementProvisioning validates secondary terminal roles for all three
+  instrument families: CT S1/S2, PT secondary_a/secondary_b, CVT X1/X2.
+  CTMeasurementAssociationResolver separately resolves P1/P2 topology and
+  S1/S2 references without inferring protection-zone or relay-input ownership.
+- Draft PR #1189 contains CT S1/S2 secondary channel authoring but remains
+  unmerged; it does not provide PT/CVT secondary channel authoring. Its
+  related issue #156 / authoritative #774 remains mismatched (Inline Branch
+  Equipment Replacement Mechanics).
+- Created issue #1198 for dedicated CT/PT/CVT configuration UX and complete
+  PT/CVT channel authoring. Scope explicitly separates physical instrument
+  ratio/polarity/burden/accuracy from logical MeasurementChannel scaling,
+  phase, unit, quality, freshness and producer identity. Derived ratio stays
+  read-only; no unsupported saturation/accuracy/precision fields are invented.
+- Reconcile #1198 with #992 generic parameter metadata and #1191 scrolling;
+  do not duplicate their generic editor and form-layout scopes.
+
+Disposition:
+- #1198 OPEN. No issues closed and no PRs merged in Batch 7.
+- No source code, Core/Application architecture or domain model changed.
+- Static source and GitHub diff inspection only. No GUI/runtime/tests/CI run.
+======================================================================
