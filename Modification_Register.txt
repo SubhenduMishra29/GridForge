@@ -2976,3 +2976,26 @@ UI audit closure — #820 Information Density & Visual Clutter Controls:
 - Implementation mirror madhuri196mishra-cpu/GridForge #135 remains OPEN pending
   synchronized closure because the current connection is read-only there.
 - Static source inspection only.
+
+
+======================================================================
+GRIDFORGE V2 — UI INSPECTOR CONTENT REACHABILITY (#1191)
+Date: 11 November 2026
+Repository: madhuri196mishra-cpu/GridForge
+Upstream issue: SubhenduMishra29/GridForge#1191
+
+- Reworked PropertiesPanelWidget composition so all variable-height content
+  (engineering parameter rows, transformer configuration, CT secondary
+  channel editor, SLD annotation controls, and symbol-variant review) is
+  hosted by one widget-resizable vertical QScrollArea.
+- Kept the validation/status label and both Apply / Commit and Commit Network
+  actions in a persistent footer outside the scroll area.
+- Disabled horizontal scrolling and removed the scroll container itself from
+  the keyboard Tab chain; focus remains on actual editor controls in their
+  declared layout order.
+- Preserved the existing PropertiesPanelWidget, single-target projection,
+  Application command submission, and editor splitter composition. No Core,
+  Application, SLD model, registry, or command authority was added.
+- Verification: static source inspection and GitHub fetch-back only. No Qt
+  GUI, tests, pytest, CI, startup, or runtime experiments were run. Manual
+  keyboard-focus and constrained-height acceptance remains outstanding.

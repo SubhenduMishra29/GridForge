@@ -373,16 +373,41 @@ class PropertiesPanelWidget(QWidget):
 
     def _build_controls(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+
+        # All variable-height inspector content lives in one scroll owner.
+        # Keep the status and primary actions outside it so they remain
+        # reachable while the central SLD canvas retains its splitter space.
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setObjectName("PropertiesInspectorScrollArea")
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        # The scroll container must not become an unexpected Tab stop; focus
+        # proceeds through the actual engineering controls in layout order.
+        self._scroll_area.setFocusPolicy(Qt.NoFocus)
+
+        self._scroll_content = QWidget()
+        self._scroll_content.setObjectName("PropertiesInspectorScrollContent")
+        content_layout = QVBoxLayout(self._scroll_content)
+        content_layout.setContentsMargins(6, 6, 6, 6)
+        content_layout.setSpacing(8)
+
         self._form_layout = QFormLayout()
-        root.addLayout(self._form_layout)
-        root.addWidget(self._transformer_configuration_editor)
-        root.addWidget(self._ct_secondary_channel_editor)
+        content_layout.addLayout(self._form_layout)
+        content_layout.addWidget(self._transformer_configuration_editor)
+        content_layout.addWidget(self._ct_secondary_channel_editor)
         self._annotation_layout = QFormLayout()
-        root.addWidget(QLabel("SLD Data Annotations", self))
-        root.addLayout(self._annotation_layout)
+        content_layout.addWidget(QLabel("SLD Data Annotations", self._scroll_content))
+        content_layout.addLayout(self._annotation_layout)
         self._symbol_review_layout = QFormLayout()
-        root.addWidget(QLabel("Symbol Standard / Variant Review", self))
-        root.addLayout(self._symbol_review_layout)
+        content_layout.addWidget(QLabel("Symbol Standard / Variant Review", self._scroll_content))
+        content_layout.addLayout(self._symbol_review_layout)
+        content_layout.addStretch(1)
+        self._scroll_area.setWidget(self._scroll_content)
+        root.addWidget(self._scroll_area, 1)
+
         self._symbol_registry: Any | None = None
         self._symbol_equipment_registry: Any | None = None
         self._symbol_variant_combo: QComboBox | None = None
@@ -392,20 +417,34 @@ class PropertiesPanelWidget(QWidget):
         self._sld_selection_manager: Any | None = None
         self._sld_selection_ids: tuple[str, ...] = ()
         self._sld_annotations_cleared = False
-        self._validation_label = QLabel("Select an element to inspect.", self)
+
+        footer = QWidget(self)
+        footer.setObjectName("PropertiesInspectorActionFooter")
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(6, 4, 6, 6)
+        footer_layout.setSpacing(4)
+        self._validation_label = QLabel("Select an element to inspect.", footer)
+        self._validation_label.setObjectName("PropertiesInspectorStatus")
         self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
-        root.addWidget(self._validation_label)
-        self._apply_button = QPushButton("Apply / Commit", self)
+        footer_layout.addWidget(self._validation_label)
+
+        action_row = QHBoxLayout()
+        self._apply_button = QPushButton("Apply / Commit", footer)
+        self._apply_button.setObjectName("PropertiesInspectorApplyCommit")
         self._apply_button.setProperty("role", "primaryAction")
         self._apply_button.setEnabled(False)
         self._apply_button.clicked.connect(self._apply_changes)
-        root.addWidget(self._apply_button)
-        self._commit_network_button = QPushButton("Commit Network", self)
+        action_row.addWidget(self._apply_button, 1)
+
+        self._commit_network_button = QPushButton("Commit Network", footer)
+        self._commit_network_button.setObjectName("PropertiesInspectorCommitNetwork")
         self._commit_network_button.setProperty("role", "commitNetworkAction")
         self._commit_network_button.setEnabled(False)
         self._commit_network_button.clicked.connect(self._commit_network)
-        root.addWidget(self._commit_network_button)
+        action_row.addWidget(self._commit_network_button, 1)
+        footer_layout.addLayout(action_row)
+        root.addWidget(footer, 0)
 
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._application = application
