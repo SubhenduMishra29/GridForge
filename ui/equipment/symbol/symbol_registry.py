@@ -197,6 +197,8 @@ class SymbolRegistry:
             and bool(item.source_document_title)
             and bool(item.source_document_revision)
             and item.source_use_status in {"licensed", "permission_granted", "public_domain"}
+            and item.source_use_scope in {"software_distribution", "public_domain"}
+            and (item.source_use_scope != "public_domain" or item.source_use_status == "public_domain")
         )
 
     def get_variant(
