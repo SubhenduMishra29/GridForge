@@ -315,18 +315,31 @@ class SelectTool(ToolBase):
                 node = node_getter(selected_key)
             if node is None and selected_key.startswith("presentation:") and callable(node_getter):
                 node = node_getter(selected_key[len("presentation:"):])
-            if node is None or str(node.node_id) in seen:
+            if node is None:
+                # A group transform is all-or-nothing: never silently apply
+                # to only the resolvable subset of a user's selection.
+                return []
+            node_key = str(node.node_id)
+            if node_key in seen:
                 continue
-            seen.add(str(node.node_id))
+            seen.add(node_key)
             symbol = node.presentation
             if symbol is None:
-                item = next((candidate for candidate in items
-                             if str(getattr(candidate, "object_id", "")) in {str(selected_id), str(node.node_id)}
-                             and getattr(candidate, "symbol_instance", None) is not None), None)
+                accepted_ids = {selected_key, node_key, str(node.equipment_id)}
+                item = next((
+                    candidate for candidate in items
+                    if str(getattr(candidate, "object_id", "")) in accepted_ids
+                    and getattr(candidate, "symbol_instance", None) is not None
+                ), None)
                 symbol = getattr(item, "symbol_instance", None)
             if symbol is None:
-                continue
-            nodes.append((node, SymbolBase.from_dict(symbol.to_dict())))
+                return []
+            try:
+                nodes.append((node, SymbolBase.from_dict(symbol.to_dict())))
+            except (AttributeError, TypeError, ValueError):
+                return []
+        if len(nodes) != len(seen) or not nodes:
+            return []
         return nodes
 
     def _commit_group_transform(
