@@ -30,6 +30,7 @@ class SymbolPreviewItem(QGraphicsItem):
         draft_id: str | None = None,
         terminal_names: tuple[str, ...] = (),
         element_type: str = "",
+        preview_opacity: float | None = None,
     ) -> None:
         if not isinstance(definition, SymbolDefinition):
             raise TypeError("definition must be a SymbolDefinition.")
@@ -40,6 +41,12 @@ class SymbolPreviewItem(QGraphicsItem):
         self._element_type = str(element_type)
         self._presentation_state = MappingProxyType(dict(presentation_state or {}))
         self._visual_state = VisualState.PREVIEW
+        if preview_opacity is not None:
+            preview_opacity = float(preview_opacity)
+            if not isfinite(preview_opacity) or not 0.0 <= preview_opacity <= 1.0:
+                raise ValueError("preview_opacity must be finite and between zero and one.")
+            self.setOpacity(preview_opacity)
+        self._solid_preview = preview_opacity is not None
         state = self._presentation_state
         mirror_x = bool(state.get("mirror_x", False))
         mirror_y = bool(state.get("mirror_y", False))
@@ -125,14 +132,22 @@ class SymbolPreviewItem(QGraphicsItem):
         del option, widget
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         visual_state = VisualState.SELECTED if self.isSelected() else self._visual_state
-        painter.setBrush(visual_brush("symbol", visual_state))
+        brush = visual_brush("symbol", visual_state)
+        if self._solid_preview:
+            # Insertion shadows are deliberately translucent, solid silhouettes;
+            # dense hatching/dashed strokes make the proposed equipment hard to read.
+            brush.setStyle(Qt.BrushStyle.SolidPattern)
+        painter.setBrush(brush)
         painter.setFont(visual_font("engineering"))
         for primitive in self._definition.primitives:
             # Honour the renderer-neutral catalogue's per-primitive stroke
             # width (e.g. the heavier IEEE/ANSI busbar), while preserving the
             # common visual-state pen styling for every primitive.
             stroke_width = float(primitive.get("stroke_width", 1.8))
-            painter.setPen(visual_pen("symbol", visual_state, width=stroke_width))
+            pen = visual_pen("symbol", visual_state, width=stroke_width)
+            if self._solid_preview:
+                pen.setStyle(Qt.PenStyle.SolidLine)
+            painter.setPen(pen)
             kind = primitive.get("kind")
             if kind == "line":
                 painter.drawLine(

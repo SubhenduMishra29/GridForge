@@ -2886,3 +2886,54 @@ UI audit closures — renderer/terminal cleanup:
 - Closures apply only to the authoritative audit repository. Implementation
   repository write/triage access is unavailable in this connection.
 - Static source inspection only.
+
+======================================================================
+GridForge V2 — Translucent Predictive Placement Shadow
+Date: 2026-11-11
+Implementation repository: madhuri196mishra-cpu/GridForge
+Authoritative integration repository: SubhenduMishra29/GridForge
+Authoritative issue: #827 — Predictive Placement Shadow Corridor
+Implementation tracking: #133 — Viewport Drag-and-Drop Drop-Zone Ambiguity
+
+Reconciliation:
+- Compared both current main branches against their common ancestor
+  c808d24858b7f0b2b2b27119f51c1e910b0a1b98.
+- The authoritative root main is three commits ahead; its only changed path
+  relative to implementation main is Modification_Register.txt.
+- The five insertion/canvas source files are byte-identical across both main
+  branches. The 15-viewport-pixel candidate corridor, actual routed-polyline
+  closest-point calculation, nearest-target resolution, ambiguity rejection,
+  automatic no-Shift insertion, and release-time revalidation are retained.
+- Authoritative issue #822 is already closed on root main. This change addresses
+  the remaining visual-shadow gap tracked by root issue #827; it does not
+  duplicate or alter the completed corridor calculation.
+
+Correction:
+- Added an insertion-only solid preview treatment to SymbolPreviewItem. The
+  proposed equipment silhouette is rendered at 55% opacity with solid fill
+  and solid strokes rather than the general dense-pattern/dashed preview style.
+- Added dedicated translucent solid pens to both split-route preview halves.
+- Added visible terminal-anchor markers at the rotated input/output anchor
+  coordinates. These markers and all preview geometry remain owned by the
+  existing ElectricalInsertionTool preview owner and are removed by its
+  existing clear-target/cancel/deactivate lifecycle.
+- The correction remains presentation-only; canonical insertion command,
+  route ownership, endpoint identity, terminal mapping, and Application
+  mutation boundary are unchanged.
+
+Changed files:
+- ui/canvas/symbol_preview_item.py
+- ui/tools/electrical_insertion_tool.py
+- tests/ui/tools/test_electrical_insertion_preview.py
+- Modification_Register.txt
+
+Verification boundary:
+- Both main branches and all five insertion/canvas source files were fetched
+  and compared before implementation.
+- Changed files are to be fetched back from the feature branch for source
+  verification. Automated tests and live Qt GUI interaction have not been run.
+- Root issue #822 is already closed by its authoritative integration. Keep
+  implementation issue #133 and root issue #827 open until this visual-shadow
+  contribution is independently reviewed and integrated.
+======================================================================
+
