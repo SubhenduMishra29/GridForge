@@ -1997,3 +1997,28 @@ Scope:
 Verification:
 - Test and Modification Register fetched back from main after commit.
 - Tests were not executed. The test source is not evidence of runtime success; Python import/test execution and desktop Qt GUI acceptance remain outstanding.
+
+
+======================================================================
+GridForge V2 — Canvas navigation command de-duplication and projection alignment
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit:
+- The primary SLD canvas header created a standalone Fit button that directly called NavigationController.fit_content().
+- The View > Canvas Navigation menu already exposed view.fit through UIActionRouter.
+- The global toolbar independently exposed view.fit, view.zoom_in, view.zoom_out and view.pan. This created a third navigation-control surface alongside the canvas header and menu.
+- The primary canvas header's Zoom +/- controls are the direct, local viewport affordance; the View menu remains the discoverable command surface. The comparison viewport has a separate Fit control for its independent read-only view and is not redundant with primary SLD Fit.
+
+Correction:
+- Removed the primary SLD header Fit button and its callback/teardown state. Fit is now exposed through the canonical routed View > Canvas Navigation > Fit SLD View command (keyboard shortcut 0 remains available).
+- Removed Zoom +, Zoom -, Fit and Pan from the global command toolbar. This avoids repeating the canvas-local zoom controls and menu navigation commands in a third toolbar surface.
+- Retained primary canvas Zoom +/- and synchronized zoom readout.
+- Retained the comparison viewport Fit control because it operates on a distinct QGraphicsView and independent viewport state.
+- Kept menu navigation actions routed through UIActionRouter; no parallel canvas Fit callback now bypasses the action projection.
+
+Verification:
+- Source inspection confirmed one primary SLD Fit presentation (View menu), one local Zoom +/- pair, and no global-toolbar navigation duplicates.
+- Updated canvas surface and toolbar files committed to main; fetch-back verification pending at register entry creation.
+- No Qt runtime or GUI interaction performed.
