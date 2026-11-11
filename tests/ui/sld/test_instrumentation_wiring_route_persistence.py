@@ -85,3 +85,13 @@ def test_route_edit_controller_resets_physical_segment_to_automatic():
     })
 
     assert controller.calls == ("PANEL_WIRE", "wire-1", 1)
+
+def test_clearing_sld_document_also_clears_physical_route_overrides():
+    document = SLDDocument("sld-1", project_id="project-1")
+    document.set_instrumentation_wiring_route(
+        "CABLE_CORE", "core-1", 1, ((10.0, 20.0),),
+    )
+
+    document.clear()
+
+    assert document.instrumentation_wiring_routes() == {}
