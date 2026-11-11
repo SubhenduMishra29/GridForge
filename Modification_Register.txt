@@ -1373,3 +1373,21 @@ Architecture and safety:
 Verification boundary:
 - Source-level update and fetch-back verification only. No Python import/syntax execution, Qt inspector runtime, approved-variant application, undo/redo, or project save/reopen runtime was performed.
 - No tests/CI were treated as acceptance gates.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-017 — CANDIDATE REFERENCE LABELING
+======================================================================
+Date: 2026-11-11 | Issue: #823
+
+Correction:
+- The contextual symbol review inspector now labels an in_review standard reference as a "Candidate standard record (not a compliance claim)".
+- The standard identifier is displayed as a catalogue namespace, avoiding presentation of an unreviewed candidate as an approved standards-conformant symbol.
+- Only definitions outside in_review state are labeled with an approved standard reference; actual approval remains subject to the evidence and equipment-contract gates.
+
+Boundary:
+- No IEC geometry or terminal-anchor claim is introduced. Existing five IEC candidates remain in_review and non-selectable.
+- This is a UI wording/provenance correction only; symbol geometry, terminal identities, Core topology, and persistence payloads are unchanged.
+
+Verification:
+- Source fetch-back verification only. No Qt GUI inspection or runtime acceptance performed. No tests/CI gate was run or required.
