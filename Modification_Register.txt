@@ -2118,3 +2118,32 @@ Verification:
 - Fetched current main branch (branch commit observed: 4cba62c892dae588fc0e58e792346e3110ae7f7e) and inspected ControlWorkspace, ControlEditor, ControlToolPalette, ControlToolbar, ControlToolRegistry and main.py construction/activation wiring.
 - Confirmed ControlWorkspace contains no ControlToolPalette/ControlToolbar imports, constructors, fields or hidden setVisible calls; main.py derives Control tool definitions from control_workspace.tool_definitions and routes activation through activate_tool_id.
 - No code/test change was made because the target allocation had already been removed in the current source. No Qt runtime, visible-window, tool-selection interaction or desktop GUI acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — Tool Settings and Inspector ownership audit across editors
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Audited SLD, Control, Protection and Study editor composition, ToolSettingsPanel ownership, Inspector Region replacement, workspace Region defaults, and the canonical ControlSurfaceHost registration path.
+
+Findings:
+- Each editor realizes exactly one Tool Settings Region and one Inspector Region. The shared ToolSettingsPanel class is instantiated once per editor, not mounted twice within an editor.
+- ToolSettingsPanel is a passive presentation widget: set_context() rebuilds labels from the immutable EditorContext snapshot. It does not subscribe to signals, own timers, retain project services, or create background work. Hidden instances therefore do not retain unnecessary subscriptions or active runtime state.
+- The four editors are registered once in the canonical EngineeringEditorHost. Their Region widgets remain allocated while their editor is retained in the stack; this is deliberate workspace-state retention, not duplicate visible presentation.
+- Inspector widgets are discipline-specific: SLD receives the canonical Properties panel; Control receives ControlWorkspace.editor_inspector; Protection receives ProtectionWorkspace.editor_inspector; Study receives the study dashboard/results inspector. Only the active editor is presented, and these are not duplicate instances of one shared Inspector.
+- ControlSurfaceHost.set_region_widgets() replaces the editor's placeholder Region child with the supplied canonical widget. It does not create a second Region or second visible Inspector. Tool Settings remains the editor-local context presentation because no external tool-settings widget is injected in the current composition.
+- SLD's Tool Settings visibility is context-driven and additionally participates in user Region visibility state; Control, Protection and Study hide it when the current context has no tool-setting values. Initial hidden state is explicit in each editor constructor.
+
+Decision:
+- No source correction is justified. The hidden Tool Settings panels have no subscriptions or external ownership to release, and the per-discipline Inspector widgets are distinct authoritative views rather than duplicate ownership. Lazy construction or shared cross-editor Tool Settings would complicate editor-context ownership without a demonstrated runtime or memory defect.
+- Preserve current per-editor Region identity and retained editor state. Revisit only if runtime profiling demonstrates material idle cost or if editor teardown/lifecycle evidence identifies retained resources.
+
+Verification:
+- Fetched and inspected current main source for SLDEditor, ControlEditor, ProtectionEditor, StudyEditor, ToolShelf/ToolSettingsPanel, EditorRegionFrame, workspace defaults, ControlSurfaceHost and EngineeringEditorHost.
+- Confirmed ToolSettingsPanel contains no signal connections/subscriptions or service references; its only state is title/form presentation rebuilt by set_context().
+- Confirmed one Tool Settings Region and one Inspector Region per editor, with one canonical editor registration per discipline and injected inspector identity at composition.
+- No source files changed. Modification Register updated and fetched back from main.
+- No Python import/syntax execution, memory profiling, Qt GUI visibility check, or workspace-switch runtime acceptance was performed.
