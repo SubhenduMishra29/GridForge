@@ -284,6 +284,8 @@ class GraphicsView(QGraphicsView):
 
     def _cycle_contextual_annotation_quadrant(self) -> None:
         """Persist annotation placement through the existing Application command path."""
+        if self.sld_controller is None:
+            return
         node, _item = self._selected_presentation_node()
         document = getattr(self.sld_controller, "active_document", None)
         if node is None or document is None:
@@ -314,6 +316,9 @@ class GraphicsView(QGraphicsView):
         """Persist a symbol-only transform through the SLD Application command."""
         from ui.equipment.symbol.symbol_base import SymbolBase
 
+        if self.sld_controller is None:
+            self.controller.show_status_message("Contextual SLD editing is not bound to the active document.")
+            return
         node, item = self._selected_presentation_node()
         if node is None:
             return
