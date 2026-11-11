@@ -549,6 +549,7 @@ class PropertiesPanelWidget(QWidget):
                 f"Source document: {definition.source_document_title or 'Not recorded'}",
                 f"Source revision: {definition.source_document_revision or 'Not recorded'}",
                 f"Source-use status: {definition.source_use_status}",
+                f"Source-use scope: {definition.source_use_scope}",
                 f"Equipment terminal contract: {'Compatible' if compatible else 'INCOMPATIBLE'}",
                 f"Selectable: {'Yes' if is_approved else 'No — approval gate not satisfied'}",
                 "Terminal-anchor comparison (local symbol coordinates):",
