@@ -682,6 +682,22 @@ class SLDController:
         document.set_instrumentation_wiring_route(carrier_kind, carrier_id, segment_index, points)
         self._state.mark_dirty()
 
+    def clear_instrumentation_wiring_route(
+        self, carrier_kind: str, carrier_id: str, segment_index: int,
+    ) -> None:
+        """Return one physical segment to automatic presentation routing."""
+        document = self._require_active_document()
+        projection = self.read_instrumentation_wiring_projection()
+        if not any(
+            segment.carrier_kind == carrier_kind
+            and segment.carrier_id == carrier_id
+            and segment.segment_index == segment_index
+            for segment in projection.segments
+        ):
+            raise ValueError("Physical wiring route target is not present in the active Application projection.")
+        document.clear_instrumentation_wiring_route(carrier_kind, carrier_id, segment_index)
+        self._state.mark_dirty()
+
     def set_connection_route(
         self,
         connection_id: str,
