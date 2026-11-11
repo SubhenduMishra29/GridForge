@@ -21,6 +21,9 @@ from ui.core.qt import (
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
+from ui.equipment.terminal_contract import reconcile_terminal_contract
+from ui.sld.sld_equipment_identity import equipment_type_for_semantic
+from ui.sld.sld_vocabulary import semantic_type
 from .element_list_panel import ElementListPanelWidget
 from .messages_panel import MessagesPanelWidget
 from .properties_panel import PropertiesPanel
@@ -373,6 +376,14 @@ class PropertiesPanelWidget(QWidget):
         self._annotation_layout = QFormLayout()
         root.addWidget(QLabel("SLD Data Annotations", self))
         root.addLayout(self._annotation_layout)
+        self._symbol_review_layout = QFormLayout()
+        root.addWidget(QLabel("Symbol Standard / Variant Review", self))
+        root.addLayout(self._symbol_review_layout)
+        self._symbol_registry: Any | None = None
+        self._symbol_equipment_registry: Any | None = None
+        self._symbol_variant_combo: QComboBox | None = None
+        self._symbol_variant_detail: QLabel | None = None
+        self._symbol_variant_details: dict[str, str] = {}
         self._sld_controller: Any | None = None
         self._sld_selection_manager: Any | None = None
         self._sld_selection_ids: tuple[str, ...] = ()
@@ -434,6 +445,134 @@ class PropertiesPanelWidget(QWidget):
             str(value) for value in selection_manager.get_selected_ids()
         )
         self._refresh_sld_annotation_controls()
+
+    def bind_symbol_review_runtime(self, *, symbol_registry: Any, equipment_registry: Any) -> None:
+        """Bind read-only symbol catalogue review to canonical registries."""
+        if symbol_registry is None or not callable(getattr(symbol_registry, "variants_for_family", None)):
+            raise TypeError("symbol_registry must provide variants_for_family().")
+        if equipment_registry is None or not callable(getattr(equipment_registry, "approved_symbol_variants", None)):
+            raise TypeError("equipment_registry must provide approved_symbol_variants().")
+        self._symbol_registry = symbol_registry
+        self._symbol_equipment_registry = equipment_registry
+        self._refresh_symbol_variant_review_controls()
+
+    def _refresh_symbol_variant_review_controls(self) -> None:
+        layout = self._symbol_review_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._symbol_variant_combo = None
+        self._symbol_variant_detail = None
+        self._symbol_variant_details = {}
+
+        controller = self._sld_controller
+        document = getattr(controller, "active_document", None) if controller is not None else None
+        node = self._selected_sld_node()
+        if document is None or node is None:
+            layout.addRow(QLabel("Select one SLD equipment node to review its symbol family.", self))
+            return
+        if self._symbol_registry is None or self._symbol_equipment_registry is None:
+            layout.addRow(QLabel("Symbol catalogue review runtime is not bound.", self))
+            return
+
+        element_type = (
+            node.read_model.element_type
+            if getattr(node, "read_model", None) is not None
+            else node.properties.get("element_type")
+        )
+        try:
+            equipment_type = equipment_type_for_semantic(semantic_type(element_type))
+            equipment = self._symbol_equipment_registry.require(equipment_type)
+            canonical = self._symbol_registry.require(equipment.symbol_id)
+            variants = self._symbol_registry.variants_for_family(canonical.symbol_family_id)
+            approved = {
+                item.symbol_id
+                for item in self._symbol_equipment_registry.approved_symbol_variants(
+                    equipment_type, self._symbol_registry
+                )
+            }
+        except (KeyError, TypeError, ValueError) as exc:
+            layout.addRow(QLabel(f"Symbol review unavailable: {exc}", self))
+            return
+
+        current_symbol_id = (
+            getattr(getattr(node, "presentation", None), "symbol_id", None)
+            or canonical.symbol_id
+        )
+        combo = QComboBox(self)
+        combo.setObjectName("SymbolVariantReviewSelector")
+        for definition in variants:
+            label = (
+                f"{definition.display_name} · {definition.standard_id} · "
+                f"{definition.variant_id}"
+            )
+            combo.addItem(label, definition.symbol_id)
+            report = reconcile_terminal_contract(
+                equipment,
+                creation_definition=equipment.creation_definition,
+                symbol_definition=definition,
+            )
+            compatible = not report.errors
+            is_approved = definition.symbol_id in approved
+            anchor_lines = []
+            anchor_names = sorted(set(canonical.terminal_anchors) | set(definition.terminal_anchors))
+            for name in anchor_names:
+                base_anchor = canonical.terminal_anchors.get(name)
+                candidate_anchor = definition.terminal_anchors.get(name)
+                if base_anchor is None:
+                    anchor_lines.append(f"{name}: missing in canonical; candidate={candidate_anchor}")
+                elif candidate_anchor is None:
+                    anchor_lines.append(f"{name}: canonical={base_anchor}; missing in candidate")
+                else:
+                    anchor_lines.append(
+                        f"{name}: canonical=({base_anchor[0]:g}, {base_anchor[1]:g}) "
+                        f"candidate=({candidate_anchor[0]:g}, {candidate_anchor[1]:g})"
+                    )
+            review_text = [
+                f"Symbol ID: {definition.symbol_id}",
+                f"Family: {definition.symbol_family_id}",
+                f"Standard: {definition.standard_id}",
+                f"Variant: {definition.variant_id}",
+                f"Standard reference: {definition.standard_reference_id or 'Not recorded'}",
+                f"Review status: {definition.review_status}",
+                f"Geometry reviewed: {'Yes' if definition.geometry_reviewed else 'No'}",
+                f"Terminal anchors reviewed: {'Yes' if definition.terminal_anchors_reviewed else 'No'}",
+                f"Equipment terminal contract: {'Compatible' if compatible else 'INCOMPATIBLE'}",
+                f"Selectable: {'Yes' if is_approved else 'No — approval gate not satisfied'}",
+                "Terminal-anchor comparison (local symbol coordinates):",
+                *(anchor_lines or ["No terminal anchors declared."]),
+            ]
+            if report.errors:
+                review_text.append("Contract findings: " + " ".join(report.errors))
+            self._symbol_variant_details[definition.symbol_id] = "\n".join(review_text)
+
+        current_index = combo.findData(current_symbol_id)
+        combo.setCurrentIndex(current_index if current_index >= 0 else 0)
+        detail = QLabel(self)
+        detail.setObjectName("SymbolVariantReviewDetails")
+        detail.setWordWrap(True)
+        detail.setText(self._symbol_variant_details.get(
+            str(combo.currentData()), "No symbol variant details are available."
+        ))
+        combo.currentIndexChanged.connect(
+            lambda _index: detail.setText(
+                self._symbol_variant_details.get(
+                    str(combo.currentData()), "No symbol variant details are available."
+                )
+            )
+        )
+        layout.addRow("Catalogue candidate", combo)
+        layout.addRow(detail)
+        if not approved:
+            layout.addRow(QLabel(
+                "Variant application is disabled: no candidate in this equipment family "
+                "has passed standard-reference, geometry, anchor, and equipment-contract approval.",
+                self,
+            ))
+        self._symbol_variant_combo = combo
+        self._symbol_variant_detail = detail
 
     def unbind_sld_annotation_runtime(self) -> None:
         """Disconnect the selection observer before Canvas composition teardown."""
@@ -497,6 +636,7 @@ class PropertiesPanelWidget(QWidget):
         layout.addRow(QLabel("No active SLD document.", self))
 
     def _refresh_sld_annotation_controls(self) -> None:
+        self._refresh_symbol_variant_review_controls()
         layout = getattr(self, "_annotation_layout", None)
         if layout is None:
             return
