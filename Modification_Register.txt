@@ -3361,3 +3361,69 @@ Issue #821 final source-audit refinement:
 - Issue #821 remains OPEN. All changes have been fetched back from main and
   source markers reconciled. Runtime GUI acceptance and undo/redo/rollback
   interaction remain unverified.
+
+======================================================================
+GridForge V2 — Batch 6: Protection and Control Configuration Editors
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Protection editor audit:
+- Protection workspace includes a dedicated ProtectionInspector. It reads
+  Protection and physical relay configuration through Application read APIs;
+  it edits typed function settings through
+  Application.update_protection_function_settings() and physical relay
+  identity/lifecycle fields through
+  Application.update_physical_relay_configuration().
+- Function setting presentation metadata is canonical in
+  core/protection/function_catalog.py::ProtectionSettingDefinition: datatype
+  number/string, unit, required, choices and dependent choices.
+- The physical Relay editor deliberately keeps plugin-specific settings
+  read-only when no typed plugin schema exists. Runtime pickup/trip state is
+  read-only and separate from configuration. Preserve this boundary.
+- Successful Apply reloads the selected Application read model; rejected
+  commands retain staged controls and report an error.
+- Gap: ProtectionInspector._build_settings_editor() uses QLineEdit for every
+  non-choice setting, including datatype=number. No numeric validator or
+  finite-value input contract is applied locally. Canonical settings metadata
+  has no min/max/precision, so UI must not invent these values.
+- Gap: no explicit Discard action exists. A fresh refresh rebuilds from the
+  latest Application read model, but the engineer cannot deliberately discard
+  staged edits without changing selection or forcing refresh.
+- Created issue #1196 for typed numeric setting controls, canonical bounds/
+  precision where declared, explicit Apply/Discard and catalogue-wide UI
+  mapping coverage. Dense form scrolling remains with #1191.
+
+Control editor audit:
+- ControlInspector exposes timer editing only through fixed +/-0.5 buttons
+  and a TON/TOF/TP cycle button; there is no direct typed preset entry or
+  explicit unit/bounds/precision presentation.
+- _apply_configuration() executes UpdateControlComponent but discards the
+  ApplicationResult and does not refresh the authoritative component snapshot
+  or report success/rejection.
+- _create_action_binding() and _create_interlock() likewise discard command
+  results and provide no actionable success/rejection feedback.
+- Signal mapping uses Application.read_measurement_channels() and persists
+  detached source-to-destination configuration via SetControlSignalMapping.
+  The UI already separates Core attributes from MeasurementChannel sources;
+  cross-domain Protection/dynamic-controller catalogue and freshness are
+  distinct open scopes #1035 and #1031.
+- ControlUpdateCoordinator refreshes the canvas and workspace callback, but
+  _presentation_refresh() does not re-project the still-selected component
+  into ControlInspector. External Control changes can therefore leave the
+  inspector stale.
+- Created issue #1197 for typed timer input, Apply/Discard, command result
+  feedback, and selection-preserving inspector refresh after relevant events.
+
+Disposition:
+- Issue #1003 remains closed: the dedicated Protection workflow exists and
+  exposes supported configuration through Application; the new #1196 issue
+  tracks residual editor interaction/input-quality gaps, not the old missing
+  relay projection finding.
+- Existing #1031 and #1035 retain MeasurementChannel freshness and cross-domain
+  signal catalogue ownership. Existing #1037 retains signal semantic/unit
+  compatibility. No duplicate issue created for those scopes.
+- No source code, Core/Application architecture or domain model changed.
+  No issues closed and no PRs merged in this batch.
+- Static source inspection only. No GUI, runtime, tests or CI execution.
+======================================================================
