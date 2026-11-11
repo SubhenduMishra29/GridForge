@@ -537,9 +537,9 @@ class PropertiesPanelWidget(QWidget):
                 f"Catalogue standard namespace: {definition.standard_id}",
                 f"Variant: {definition.variant_id}",
                 (
-                    f"Candidate standard record (not a compliance claim): {definition.standard_reference_id or 'Not recorded'}"
-                    if definition.review_status == "in_review"
-                    else f"Approved standard reference: {definition.standard_reference_id or 'Not recorded'}"
+                    f"Approved standard reference: {definition.standard_reference_id or 'Not recorded'}"
+                    if definition.review_status == "approved"
+                    else f"Unapproved standard reference: {definition.standard_reference_id or 'Not recorded'}"
                 ),
                 f"Review status: {definition.review_status}",
                 f"Geometry reviewed: {'Yes' if definition.geometry_reviewed else 'No'}",
