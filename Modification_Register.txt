@@ -2930,8 +2930,9 @@ Changed files:
 Verification boundary:
 - Both main branches and all five insertion/canvas source files were fetched
   and compared before implementation.
-- Changed files are to be fetched back from the feature branch for source
-  verification. Automated tests and live Qt GUI interaction have not been run.
+- Fetched back all four changed files from the feature branch and verified the
+  constructor, rendering, preview-owner cleanup, test assertions, and register entry.
+  Automated tests and live Qt GUI interaction have not been run.
 - Root issue #822 is already closed by its authoritative integration. Keep
   implementation issue #133 and root issue #827 open until this visual-shadow
   contribution is independently reviewed and integrated.
