@@ -138,3 +138,34 @@ def test_instrumentation_wiring_item_exposes_cable_core_and_signal_tags_on_hover
     assert "Cable: IC-001" in item.toolTip()
     assert "Core: 1" in item.toolTip()
     assert "Signals: IA_A, IA_B" in item.toolTip()
+
+def test_instrumentation_wiring_route_bend_emits_carrier_identity_not_core_identity():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:CABLE_CORE:core-1:1",
+        source_node_id="ct-node",
+        target_node_id="tb-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(routing_mode="manual", ownership="engineer", points=((20.0, 30.0),)),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "CABLE_CORE", "carrier_id": "core-1",
+            "segment_index": 1, "carrier_tag": "IC-001/1",
+        },
+    )
+    item = factory.create_connection(connection, QPointF(0.0, 0.0), QPointF(50.0, 0.0))
+    requests = []
+    item.route_edit_requested.connect(requests.append)
+
+    proposed = item.set_bend(0, 25.0, 35.0)
+
+    assert proposed == ((25.0, 35.0),)
+    assert requests[0]["instrumentation_wiring"] is True
+    assert requests[0]["carrier_kind"] == "CABLE_CORE"
+    assert requests[0]["carrier_id"] == "core-1"
+    assert requests[0]["segment_index"] == 1
+    assert requests[0]["core_connection_id"] is None
+    assert item.route_points() == ((20.0, 30.0),)
