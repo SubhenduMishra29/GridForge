@@ -2022,3 +2022,25 @@ Verification:
 - Source inspection confirmed one primary SLD Fit presentation (View menu), one local Zoom +/- pair, and no global-toolbar navigation duplicates.
 - Updated canvas surface and toolbar files committed to main; fetch-back verification pending at register entry creation.
 - No Qt runtime or GUI interaction performed.
+
+
+======================================================================
+GridForge V2 — Workspace command/tool redundancy audit (batch 2)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit findings:
+- The global toolbar still repeated the SLD Select, Bus and Wire tool actions already present in the editor-owned ToolShelf. The menu Tools hierarchy remains the secondary discoverability/access path; the ToolShelf remains the primary editor tool inventory.
+- The legacy ControlToolbar included Undo and Redo even though history is already available in the global command toolbar and Edit menu. This history group was a third duplicate surface in the Control workspace.
+- ControlToolbar remains contextual for rung editing, transient tool cancellation and Control-cycle execution; those commands are not duplicates of the global command toolbar.
+
+Corrections:
+- Removed tool.sld.select, tool.sld.bus and tool.sld.wire from the global toolbar. ToolShelf remains the authoritative visible tool inventory; toolbar no longer creates a second tool-selection presentation.
+- Removed Undo and Redo from ControlToolbar. Global toolbar and Edit menu remain the canonical history affordances.
+- Retained Control-specific Add/Remove/Move/Enable rung, Cancel transient tool and Execute Cycle actions.
+- No workspace/panel architecture or application command ownership changed.
+
+Verification:
+- Source changes committed to main and fetch-back verification pending at register entry creation.
+- No Qt runtime/GUI acceptance claimed.
