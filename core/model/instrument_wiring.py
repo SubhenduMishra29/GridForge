@@ -55,7 +55,7 @@ class WiringTerminalReference:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "equipment_id", _required_text(self.equipment_id, "equipment_id"))
-        object.__setattr__(self, "terminal_id", _required_text(self.terminal_id, "terminal_id"))
+        object.__setattr__(self, "terminal_role", _required_text(self.terminal_role, "terminal_role"))
         object.__setattr__(self, "designation", _required_text(self.designation, "designation"))
 
     @property
