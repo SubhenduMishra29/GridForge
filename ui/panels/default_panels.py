@@ -17,7 +17,8 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt, QDrag, QMimeData,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QHBoxLayout,
+    QScrollArea, QWidget, QSize, Qt, QDrag, QMimeData,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -444,7 +445,36 @@ class PropertiesPanelWidget(QWidget):
         self._commit_network_button.clicked.connect(self._commit_network)
         action_row.addWidget(self._commit_network_button, 1)
         footer_layout.addLayout(action_row)
+        self._action_footer = footer
         root.addWidget(footer, 0)
+        self._refresh_inspector_tab_order()
+
+    def _refresh_inspector_tab_order(self) -> None:
+        """Set focus traversal in visual layout order across nested inspector forms."""
+        ordered: list[QWidget] = []
+
+        def collect(layout: Any) -> None:
+            if layout is None:
+                return
+            for index in range(layout.count()):
+                item = layout.itemAt(index)
+                nested_layout = item.layout()
+                if nested_layout is not None:
+                    collect(nested_layout)
+                    continue
+                widget = item.widget()
+                if widget is None:
+                    continue
+                child_layout = widget.layout()
+                if child_layout is not None:
+                    collect(child_layout)
+                elif widget.focusPolicy() != Qt.NoFocus and widget.isEnabled():
+                    ordered.append(widget)
+
+        collect(self._scroll_content.layout())
+        collect(self._action_footer.layout())
+        for previous, current in zip(ordered, ordered[1:]):
+            QWidget.setTabOrder(previous, current)
 
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._application = application
@@ -517,9 +547,11 @@ class PropertiesPanelWidget(QWidget):
         node = self._selected_sld_node()
         if document is None or node is None:
             layout.addRow(QLabel("Select one SLD equipment node to review its symbol family.", self))
+            self._refresh_inspector_tab_order()
             return
         if self._symbol_registry is None or self._symbol_equipment_registry is None:
             layout.addRow(QLabel("Symbol catalogue review runtime is not bound.", self))
+            self._refresh_inspector_tab_order()
             return
 
         element_type = (
@@ -540,6 +572,7 @@ class PropertiesPanelWidget(QWidget):
             }
         except (KeyError, TypeError, ValueError) as exc:
             layout.addRow(QLabel(f"Symbol review unavailable: {exc}", self))
+            self._refresh_inspector_tab_order()
             return
 
         current_symbol_id = (
@@ -642,6 +675,7 @@ class PropertiesPanelWidget(QWidget):
             ))
         self._symbol_variant_combo = combo
         self._symbol_variant_detail = detail
+        self._refresh_inspector_tab_order()
 
     def _apply_selected_symbol_variant(self) -> None:
         """Apply an approved variant through SLDController's presentation command."""
@@ -749,6 +783,7 @@ class PropertiesPanelWidget(QWidget):
             if widget is not None:
                 widget.deleteLater()
         layout.addRow(QLabel("No active SLD document.", self))
+        self._refresh_inspector_tab_order()
 
     def _refresh_sld_annotation_controls(self) -> None:
         self._refresh_symbol_variant_review_controls()
@@ -765,6 +800,7 @@ class PropertiesPanelWidget(QWidget):
         node = self._selected_sld_node()
         if document is None or node is None:
             layout.addRow(QLabel("Select one SLD node to configure its data annotation.", self))
+            self._refresh_inspector_tab_order()
             return
 
         blocks = [block.to_dict() for block in document.annotation_blocks if block.node_id == node.node_id]
@@ -802,6 +838,7 @@ class PropertiesPanelWidget(QWidget):
         add_button = QPushButton("Add Data Annotation Block", self)
         add_button.clicked.connect(lambda _checked=False, nid=node.node_id: self._add_sld_annotation(nid))
         layout.addRow(add_button)
+        self._refresh_inspector_tab_order()
 
     def _save_sld_annotation(
         self, block_id: str, fields_text: str, visible: bool, offset_x: float, offset_y: float
@@ -923,6 +960,7 @@ class PropertiesPanelWidget(QWidget):
                 self._apply_button.setText("Apply / Commit")
                 self._apply_button.setProperty("role", "primaryAction")
                 self._apply_button.setEnabled(False)
+            self._refresh_inspector_tab_order()
             return
         self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
         assert self._form_layout is not None
@@ -975,6 +1013,7 @@ class PropertiesPanelWidget(QWidget):
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
             )
+        self._refresh_inspector_tab_order()
 
     @staticmethod
     def _draft_required_connection_errors(draft: Any) -> tuple[str, ...]:
@@ -1173,6 +1212,7 @@ class PropertiesPanelWidget(QWidget):
             if not self._place_draft_connected:
                 self._apply_button.clicked.connect(self._place_draft)
                 self._place_draft_connected = True
+        self._refresh_inspector_tab_order()
 
     def _place_draft(self) -> None:
         if not self._creation_mode or self._creation_context is None:
