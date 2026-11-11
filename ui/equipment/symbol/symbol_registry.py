@@ -192,6 +192,8 @@ class SymbolRegistry:
             and item.geometry_reviewed
             and item.terminal_anchors_reviewed
             and bool(item.standard_reference_id)
+            and bool(item.geometry_review_reference_id)
+            and bool(item.terminal_anchor_review_reference_id)
         )
 
     def get_variant(
