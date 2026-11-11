@@ -3732,3 +3732,12 @@ SLD physical instrumentation wiring projection:
 - Projection is read-only: it does not add SLDConnection document records, mutate Core topology, allocate IDs, or duplicate physical cable/core identity in SLD persistence.
 - Added SLDController.read_instrumentation_wiring_projection() as the active-document integration boundary and lazy exports for the presentation DTOs/adapter.
 - Added regression test source for multi-hop core projection, signal provenance, absent/ambiguous node handling, unassigned paths, and non-mutation of SLDModel. Tests remain unexecuted; no Qt canvas realization or GUI drawing is claimed in this slice.
+
+SLD Canvas snapshot and render realization hand-off:
+- Extended the renderer-neutral SLDCanvasSnapshot projection to accept the explicit physical wiring projection and append transient SLDCanvasConnection render inputs for each physical conductor segment.
+- Render inputs retain cable/core/wire identity, role, segment index and signal tags in detached properties. They use stable projection IDs scoped by carrier and segment.
+- Unresolved carrier diagnostics are exposed on SLDCanvasSnapshot.physical_wiring_diagnostics; incomplete carriers contribute no render connections.
+- Physical wiring uses the SLD default presentation layer and the existing terminal-anchor resolver, ConnectionRouter and SLDConnectionItem realization path. The existing renderer therefore tracks endpoint movement/rotation without introducing a second graphics subsystem.
+- Prevented projected physical wiring items from binding to the authored SLD route-edit controller: their geometry is regenerated from canonical terminal paths and their projection IDs are not persisted SLD connection IDs.
+- The render snapshot path is still transient: no SLDDocument connection is added and no Core topology mutation is performed.
+- Added canvas projection test source for segment metadata, terminal identity, signal provenance, unresolved diagnostics and document non-mutation. Tests and Qt realization remain unexecuted.
