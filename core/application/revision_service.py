@@ -224,6 +224,15 @@ class RevisionService:
         if not isinstance(command, Command):
             raise TypeError("command must be a Command")
         command_type = command.command_type
+        if command_type == "sld.delete_selection_batch":
+            core_delete_types = {
+                "model.delete_bus", "model.delete_transformer",
+                "model.delete_breaker", "connectivity.remove_simple_wire",
+            }
+            return any(
+                getattr(child, "command_type", None) in core_delete_types
+                for child in tuple(command.payload.get("commands", ()))
+            )
         # Measurement/protection equipment is not conductive topology. Its
         # creation or engineering/protection updates must never acquire a
         # topology revision merely because an endpoint association field is
@@ -357,6 +366,33 @@ class RevisionService:
             ),
         )
         return self._record_transition(after, command_id=str(command.command_id))
+
+    def record_selection_batch(
+        self, command: Command, *, has_core_mutation: bool,
+        topology_revision: int | None = None,
+    ) -> ProjectRevision:
+        """Record one mixed Core/SLD selection delete as one revision transition."""
+        if not isinstance(command, Command) or command.command_type != "sld.delete_selection_batch":
+            raise ValueError("record_selection_batch requires sld.delete_selection_batch.")
+        if not isinstance(has_core_mutation, bool):
+            raise TypeError("has_core_mutation must be an explicit bool.")
+        if has_core_mutation:
+            if not isinstance(topology_revision, int) or isinstance(topology_revision, bool):
+                raise ValueError("A Core selection delete requires the committed topology revision.")
+            if topology_revision < self._current.topology_revision:
+                raise ValueError("topology_revision must not move backwards.")
+        elif topology_revision is not None:
+            raise ValueError("A presentation-only selection delete cannot supply topology_revision.")
+        next_revision = ProjectRevision(
+            model_revision=self._current.model_revision + int(has_core_mutation),
+            topology_revision=(topology_revision if has_core_mutation else self._current.topology_revision),
+            presentation_revision=self._current.presentation_revision + 1,
+            persisted_revision=self._current.persisted_revision,
+            instrumentation_revision=self._current.instrumentation_revision,
+            protection_equipment_revision=self._current.protection_equipment_revision,
+            protection_configuration_revision=self._current.protection_configuration_revision,
+        )
+        return self._record_transition(next_revision, command_id=str(command.command_id))
 
     def record_presentation_change(self, command: Command) -> ProjectRevision:
         """Record one successfully committed persistent SLD presentation command.
