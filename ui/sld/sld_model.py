@@ -156,7 +156,7 @@ class SLDAnnotationBlock:
         if not isinstance(data, Mapping):
             raise TypeError("SLD annotation block payload must be a mapping")
         allowed = {"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant", "layer_id"}
-        required = allowed - {"quadrant"}
+        required = allowed - {"quadrant", "layer_id"}
         unknown = sorted(set(data) - allowed)
         missing = sorted(required - set(data))
         if unknown:
@@ -171,7 +171,7 @@ class SLDAnnotationBlock:
             offset_x=data["offset_x"],
             offset_y=data["offset_y"],
             quadrant=data.get("quadrant", "custom"),
-            layer_id=data["layer_id"],
+            layer_id=data.get("layer_id", "default"),
         )
 
 
