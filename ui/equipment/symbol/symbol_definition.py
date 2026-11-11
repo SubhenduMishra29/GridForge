@@ -79,6 +79,8 @@ class SymbolDefinition:
     review_status: str = "unreviewed"
     geometry_reviewed: bool = False
     terminal_anchors_reviewed: bool = False
+    geometry_review_reference_id: str = ""
+    terminal_anchor_review_reference_id: str = ""
 
     def __post_init__(self) -> None:
         """Validate and defensively freeze nested state."""
@@ -131,11 +133,18 @@ class SymbolDefinition:
             raise ValueError("review_status must be unreviewed, in_review, approved, or rejected.")
         if not isinstance(self.geometry_reviewed, bool) or not isinstance(self.terminal_anchors_reviewed, bool):
             raise TypeError("geometry_reviewed and terminal_anchors_reviewed must be booleans.")
+        for field_name in ("geometry_review_reference_id", "terminal_anchor_review_reference_id"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str):
+                raise TypeError(f"{field_name} must be a string.")
+            object.__setattr__(self, field_name, value.strip())
         if review_status == "approved" and (
             not self.standard_reference_id
             or self.standard_id.strip().lower() == "unspecified"
             or not self.geometry_reviewed
             or not self.terminal_anchors_reviewed
+            or not self.geometry_review_reference_id
+            or not self.terminal_anchor_review_reference_id
         ):
             raise ValueError("Approved symbols require a specific standard reference and reviewed geometry and terminal anchors.")
         object.__setattr__(self, "review_status", review_status)
@@ -281,6 +290,8 @@ class SymbolDefinition:
             "review_status": self.review_status,
             "geometry_reviewed": self.geometry_reviewed,
             "terminal_anchors_reviewed": self.terminal_anchors_reviewed,
+            "geometry_review_reference_id": self.geometry_review_reference_id,
+            "terminal_anchor_review_reference_id": self.terminal_anchor_review_reference_id,
         }
 
     # --------------------------------------------------------
@@ -325,6 +336,8 @@ class SymbolDefinition:
             review_status=data.get("review_status", "unreviewed"),
             geometry_reviewed=data.get("geometry_reviewed", False),
             terminal_anchors_reviewed=data.get("terminal_anchors_reviewed", False),
+            geometry_review_reference_id=data.get("geometry_review_reference_id", ""),
+            terminal_anchor_review_reference_id=data.get("terminal_anchor_review_reference_id", ""),
         )
 
 
