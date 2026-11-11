@@ -884,6 +884,12 @@ class SLDService:
         authoritative_value: Any = None,
     ) -> ApplicationResult:
         p = command.payload
+        layer_id = p.get("layer_id", self.document.default_layer_id)
+        target_layer = next((layer for layer in self.document.layers if layer.layer_id == layer_id), None)
+        if target_layer is None:
+            raise ValueError("Unknown SLD presentation layer: " + str(layer_id))
+        if target_layer.locked:
+            raise ValueError("Cannot add an SLD object to a locked presentation layer.")
         equipment_id = p.get("equipment_id")
         if equipment_id is not None:
             self._validate_equipment_reference(
@@ -967,6 +973,7 @@ class SLDService:
                 float(node.y),
                 deepcopy(dict(node.properties)),
                 deepcopy(node_presentation),
+                node.layer_id,
             )
 
         # Capture the created object and its state after successful insertion.
@@ -1014,6 +1021,7 @@ class SLDService:
                     or float(current.y) != y
                     or dict(current.properties) != properties
                     or current_presentation != expected_presentation
+                    or current.layer_id != layer_id
                 ):
                     raise ValueError(
                         f"Cannot compensate failed SLD node creation; identity collision: {node_id!r}."
@@ -1030,6 +1038,7 @@ class SLDService:
                 y=y,
                 presentation=presentation,
                 properties=properties,
+                layer_id=layer_id,
             )
             created_node = self.document.model.get_node_optional(node_id)
             if created_node is not None:
@@ -2573,6 +2582,12 @@ class SLDService:
 
     def _add_connection(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
+        layer_id = p.get("layer_id", self.document.default_layer_id)
+        target_layer = next((layer for layer in self.document.layers if layer.layer_id == layer_id), None)
+        if target_layer is None:
+            raise ValueError("Unknown SLD presentation layer: " + str(layer_id))
+        if target_layer.locked:
+            raise ValueError("Cannot add an SLD object to a locked presentation layer.")
         source_endpoint = p.get("source_endpoint")
         target_endpoint = p.get("target_endpoint")
         route = p.get("route")
@@ -2653,6 +2668,7 @@ class SLDService:
                 or endpoint_signature(current.target_endpoint) != endpoint_signature(target_endpoint)
                 or current.route.to_dict() != expected_route
                 or dict(current.properties) != properties
+                or current.layer_id != layer_id
             ):
                 raise ValueError(
                     "Cannot undo added SLD connection; its structure or ownership "
@@ -2672,6 +2688,7 @@ class SLDService:
             target_endpoint=target_endpoint,
             route=route,
             properties=properties,
+            layer_id=layer_id,
         )
         created_connection = self.document.model.get_connection_optional(connection_id)
         self.document.mark_modified()
