@@ -255,7 +255,7 @@ class EngineeringUpdatePreparer:
 
     @classmethod
     def prepare_batch(cls, intents: Any) -> tuple[Command, ...]:
-        """Preflight a homogeneous batch and reject topology-impacting parameters."""
+        """Prepare homogeneous batch children with target-specific canonical validation."""
         values = tuple(intents)
         if len(values) < 2:
             raise ValueError("Engineering update batch requires at least two typed intents.")
