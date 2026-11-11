@@ -64,11 +64,16 @@ class SLDInstrumentationWiringAdapter:
         self,
         read_model: InstrumentationWiringReadModel,
         model: SLDModel,
+        route_overrides: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> SLDInstrumentationWiringProjection:
         if not isinstance(read_model, InstrumentationWiringReadModel):
             raise TypeError("read_model must be an InstrumentationWiringReadModel")
         if not isinstance(model, SLDModel):
             raise TypeError("model must be an SLDModel")
+        if route_overrides is None:
+            route_overrides = {}
+        if not isinstance(route_overrides, Mapping):
+            raise TypeError("route_overrides must be a mapping or None")
 
         nodes_by_equipment: dict[str, list[Any]] = {}
         for node in model.nodes:
@@ -142,6 +147,7 @@ class SLDInstrumentationWiringAdapter:
         cable_tag: str | None = None,
         core_id: str | None = None,
         core_number: int | None = None,
+        route_overrides: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> SLDPhysicalWiringRecord:
         if not terminal_path:
             return SLDPhysicalWiringRecord(
@@ -179,6 +185,7 @@ class SLDInstrumentationWiringAdapter:
                 ("One or more physical terminal references could not be resolved.",),
             )
 
+        route_overrides = route_overrides or {}
         segments = tuple(
             SLDPhysicalWiringSegment(
                 projection_id=f"__gf_projection__:instrumentation_wiring:{carrier_kind}:{carrier_id}:{index + 1}",
@@ -194,6 +201,7 @@ class SLDInstrumentationWiringAdapter:
                 core_id=core_id,
                 core_number=core_number,
                 signal_tags=signal_tags,
+                route=SLDRoute.from_dict(route_overrides[f"{carrier_kind}:{carrier_id}:{index + 1}"]) if f"{carrier_kind}:{carrier_id}:{index + 1}" in route_overrides else SLDRoute(),
             )
             for index in range(len(endpoints) - 1)
         )
