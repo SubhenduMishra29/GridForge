@@ -175,6 +175,7 @@ class SelectionProjectionCoordinator:
                 try:
                     for selected_id in selected_ids:
                         self.selection_manager.select_single(selected_id)
+                        self.refresh()
                         target = getattr(self.properties_panel, "target", None)
                         if isinstance(target, ProjectionState):
                             projected.append(target)
