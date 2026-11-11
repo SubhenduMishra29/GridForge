@@ -25,6 +25,9 @@ class _State:
     def mark_dirty(self):
         self.dirty = True
 
+    def reset(self):
+        self.dirty = False
+
 
 def _controller(document):
     controller = object.__new__(SLDController)
@@ -118,7 +121,7 @@ def test_project_close_and_dispose_clear_transient_layer_selection():
 
     controller._on_project_closed(None)
     assert controller._active_layer_by_document == {}
-    assert controller._state.active_document_id if hasattr(controller._state, "active_document_id") else True
+    assert controller._state.dirty is False
 
     controller._active_layer_by_document["sld"] = "protection"
     controller.dispose()
