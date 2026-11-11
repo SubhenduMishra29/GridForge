@@ -200,6 +200,14 @@ def test_layer_commands_are_atomic_and_undo_redo_membership_with_content():
     application.execute(CreateSLDLayerCommand(
         layer_id="details", name="Details", visible=True, opacity=0.8,
     ))
+    for node in document.model.nodes:
+        node.layer_id = "details"
+    for connection in document.model.connections:
+        connection.layer_id = "details"
+    document.replace_annotation_blocks([
+        {**block.to_dict(), "layer_id": "details"}
+        for block in document.annotation_blocks
+    ])
     application.execute(UpdateSLDLayerCommand(
         layer_id="details", name="Engineering details", visible=False, opacity=0.45,
     ))
