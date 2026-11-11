@@ -2865,3 +2865,53 @@ Verification:
 - Static source inspection only. No GUI or runtime measurement performed.
 ======================================================================
 
+PR UI audit note — #1189 (CT secondary measurement-channel authoring):
+- The PR root-relative diff adds ui/panels/ct_secondary_channel_editor.py and
+  integrates CTSecondaryChannelEditor into PropertiesPanelWidget.
+- The widget imports Qt only through ui.core.qt and submits immutable
+  measurement commands through Application.execute(); no direct Core mutation
+  is visible in the inspected widget.
+- The PR description says a dedicated UI editor is not included, contradicting
+  the actual diff. A review comment requests correction: CT S1/S2 editor is
+  included; PT/CVT authoring remains out of scope.
+- The new editor increases the Properties inspector's vertical content and is
+  covered by new issue #1191.
+- PR #1189 remains Draft; no merge was performed.
+
+
+GridForge V2 — Multi-asset Inspector audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+Issue: #821 — Menu and Input Navigation Barriers
+Implementation mirror: madhuri196mishra-cpu/GridForge#134
+
+Source findings:
+- SelectionManager supports additive selection and returns the complete selected ID tuple.
+- SelectionProjectionCoordinator reads the complete tuple but projects only selected_ids[0].
+- PropertiesPanelWidget renders a single ProjectionState and builds one object's
+  parameter form. Its EngineeringConfigurationIntent contains one element_id.
+- EngineeringParameterEditor validates and submits one target at a time.
+- No mixed-value aggregate projection, multi-target editor, batch update command,
+  or per-target batch validation/result contract is present.
+- The existing typed edit path already routes changes through Application-prepared
+  commands; this boundary must be retained.
+- Ordinary Qt focus traversal inside a single form is not evidence of a missing
+  Tab key implementation. The unimplemented requirement is cross-asset keyboard
+  traversal and spreadsheet-style batch editing.
+
+Required design before implementation:
+- Define a common parameter contract and explicitly supported equipment scope.
+- Represent mixed values distinctly from zero, false, and null.
+- Validate every selected target against its own canonical update contract,
+  including coupled fields and topology/study impact.
+- Use fail-all transactional semantics by default: one Application transaction,
+  one undo record, and no partial commits. Return target/field-specific errors.
+- Preserve UI-only selection and editor state; all persistent changes remain
+  Application commands.
+
+Disposition:
+- No safe production correction is ready without the common-field, mixed-value,
+  validation, and transaction contracts above.
+- Keep root issue #821 and implementation issue #134 open.
+- This is a source audit; no Qt GUI, tests, pytest, or CI were run.
