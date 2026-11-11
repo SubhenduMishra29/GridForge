@@ -64,6 +64,12 @@ class SLDRouteEditController:
                 raise ValueError("Physical wiring route edit requires a positive segment_index.")
             if not isinstance(points, (tuple, list)):
                 raise TypeError("Physical wiring route edit requires route points.")
+            if request.get("clear_route") is True:
+                clearer = getattr(self._controller, "clear_instrumentation_wiring_route", None)
+                if not callable(clearer):
+                    raise RuntimeError("SLDController does not expose physical wiring route reset.")
+                clearer(carrier_kind, carrier_id, segment_index)
+                return
             setter = getattr(self._controller, "set_instrumentation_wiring_route", None)
             if not callable(setter):
                 raise RuntimeError("SLDController does not expose physical wiring route persistence.")
