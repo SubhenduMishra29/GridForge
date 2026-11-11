@@ -2406,3 +2406,31 @@ Verification:
 - Fetched back all changed source, test, and register files from current main. Source-level checks confirm serialization, compatibility fallback, first-endpoint capture, command payload propagation, route-edit preservation, projection, renderer state application, signature invalidation, and commit metadata propagation.
 - Tests and CI were not run. No Python import/syntax execution, Qt runtime, manual wire gesture, multi-layer visibility/opacity/order interaction, project save/reopen, or post-commit SLD presentation acceptance is claimed.
 - Phase D2b source work is complete. Phase D2c (draft annotation ownership) and D2d (undo/redo, document switching, save/reopen reconciliation) remain open.
+
+
+======================================================================
+GridForge V2 — SLD annotation layer ownership (Phase D2c)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope and architecture finding:
+- Audited annotation creation, editing, projection, rendering, and persistence before adding a second authoring model.
+- GridForge does not currently define a DraftAnnotation or draft-annotation tool path. SLDAnnotationBlock is already a document-owned presentation configuration, persisted through SetSLDAnnotationBlocksCommand and resolved against Application read models. Creating a parallel DraftNetwork annotation collection would duplicate the existing authority and add unnecessary reconciliation state.
+- D2c therefore closes annotation layer ownership at the canonical SLDController authoring boundary, preserving the existing SLDDocument/Application command lifecycle.
+
+Implementation:
+- SLDController.set_annotation_blocks now assigns the active SLD layer to newly authored annotation blocks that omit layer_id; newly supplied SLDAnnotationBlock values on their default layer inherit the active authoring layer, consistent with equipment and wire placement.
+- Existing annotation blocks retain their current layer when a legacy edit payload omits layer_id, so unrelated edits cannot silently move them to Default or the currently selected layer.
+- Annotation payloads are canonicalized through SLDAnnotationBlock validation before command submission.
+- Locked-layer annotations cannot be created, edited, moved, or removed through the controller. The Application SLD service already enforces the same locked-layer invariant for direct command execution, so the boundary remains protected even when callers bypass the UI controller.
+- Existing renderer-neutral projection already carries layer_id, visibility, opacity, order, and lock state for annotations. Existing annotation rendering applies visibility, opacity, and layer Z ordering; its signature includes layer state so updates replace stale graphics. No duplicate renderer or DraftNetwork annotation state was introduced.
+- Annotation text remains derived from Application read-model values; layer assignment does not alter node identity, anchor offsets, or electrical data.
+
+Regression coverage:
+- Added tests for new annotation active-layer inheritance, existing annotation layer retention when legacy payload omits layer_id, SLDAnnotationBlock default-layer inheritance, and locked-layer rejection before command dispatch.
+
+Verification:
+- Fetched back the controller, regression test, projection, renderer, Application SLD service, and register. Source-level checks confirm authoring-layer capture, existing membership preservation, validation, controller and Application lock guards, and existing renderer layer behavior.
+- Tests/CI and Qt GUI interaction were not run. No runtime annotation editing, collision/decluttering acceptance, save/reopen, or visual review is claimed.
+- Phase D2c source work is complete. Phase D2d (undo/redo, document switching, and save/reopen reconciliation) remains open.
