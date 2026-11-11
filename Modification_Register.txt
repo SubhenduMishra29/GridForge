@@ -2609,3 +2609,37 @@ Addendum after GUI action-path reconciliation:
 - MainWindow _delete_selection now delegates to the canonical SLDController batch path rather than rebuilding and executing per-object commands locally. The existing _cut_selection continues to copy semantic equipment first, then calls the same atomic delete path; if delete fails, the previous clipboard contents are restored.
 - Selection capability and copy normalization now resolve either an equipment identity or its SLD node identity. This keeps the Cut/Delete action enabled and correctly mapped when a symbol node_id differs from equipment_id.
 - Fetched back main.py and confirmed the Delete/Cut action path delegates to SLDController; no Qt runtime interaction was executed.
+
+
+======================================================================
+GridForge V2 — Transactional CT Secondary Measurement-Channel Authoring
+Date: 2026-11-11
+Implementation repository: madhuri196mishra-cpu/GridForge
+Authoritative audit repository: SubhenduMishra29/GridForge
+Upstream contribution: PR #1189 (DRAFT)
+Related issues: Madhuri #156 / upstream #774
+
+Implementation:
+- Added immutable create/update/delete MeasurementChannel commands to the existing measurement command module and exported them through the public Application command package.
+- Registered dedicated MeasurementChannel command handlers in the canonical Application composition root and extended the existing MeasurementChannelService; no second channel registry or Core mutation authority was introduced.
+- CT channel authoring requires an active project, authoritative CurrentTransformer identity, explicit S1/S2 terminal reference, CURRENT signal type, explicit phase, A unit, positive nominal secondary value, positive scale, polarity (+1/-1), producer identity, timestamp domain, and positive stale-after duration.
+- Duplicate channel IDs and duplicate CT secondary terminal identities are rejected. Project activation also rejects persisted CT channel definitions that point to P1/P2 or duplicate a CT secondary terminal.
+- Authored/restored channels begin unavailable with UNKNOWN quality. Trusted sample ingress remains the only route that can publish a live value; no simulated sample, producer identity, or timestamp is inferred.
+- Channel mutations use the existing Application transaction journal and participate in rollback, undo, and redo. Runtime recomposition occurs at the outer command boundary and channel-definition changes advance instrumentation revision.
+- Update/delete are blocked while Protection inputs, Protection measurement bindings, ANSI 25 configuration, active ControlSignalMapping, or project-scoped dynamic ControlSignalMapping reference the channel. Edit/delete fail closed if the Protection reference validator is not composed.
+- Existing project package measurement.channels serialization/load path remains authoritative. Existing CT primary-side P1/P2 inline insertion and the Core CT terminal topology are unchanged.
+
+Changed source:
+- core/application/commands/measurement_commands.py
+- core/application/commands/__init__.py
+- core/application/protection_configuration_handlers.py
+- core/application/services/measurement_channel_service.py
+- core/application/services/protection_configuration_service.py
+- core/application/revision_service.py
+- core/application/application.py
+- core/application/bootstrap.py
+
+Verification boundary:
+- Static source reconciliation and GitHub fetch-back verification only. No tests, CI, application startup, GUI, or runtime experiments were run under the repository audit mandate.
+- Required follow-up acceptance: create/edit/delete command rollback and undo/redo; CT S1/S2 and persisted-invalid-source rejection; Protection and Control reference guards; save/reopen; trusted sample ingress; relay binding and runtime composition; dedicated UI authoring/acceptance.
+- This is a CT secondary-channel implementation slice only. PT/CVT authoring, a dedicated UI editor, and the broader inline equipment replacement mechanics remain open. Madhuri #156 and upstream #774 remain OPEN pending that wider scope and acceptance.
