@@ -534,9 +534,13 @@ class PropertiesPanelWidget(QWidget):
             review_text = [
                 f"Symbol ID: {definition.symbol_id}",
                 f"Family: {definition.symbol_family_id}",
-                f"Standard: {definition.standard_id}",
+                f"Catalogue standard namespace: {definition.standard_id}",
                 f"Variant: {definition.variant_id}",
-                f"Standard reference: {definition.standard_reference_id or 'Not recorded'}",
+                (
+                    f"Candidate standard record (not a compliance claim): {definition.standard_reference_id or 'Not recorded'}"
+                    if definition.review_status == "in_review"
+                    else f"Approved standard reference: {definition.standard_reference_id or 'Not recorded'}"
+                ),
                 f"Review status: {definition.review_status}",
                 f"Geometry reviewed: {'Yes' if definition.geometry_reviewed else 'No'}",
                 f"Terminal anchors reviewed: {'Yes' if definition.terminal_anchors_reviewed else 'No'}",
