@@ -2901,3 +2901,19 @@ UI audit closure — #820 Information Density & Visual Clutter Controls:
 - Implementation mirror madhuri196mishra-cpu/GridForge #135 remains OPEN pending
   synchronized closure because the current connection is read-only there.
 - Static source inspection only.
+
+
+UI audit status refinement:
+- #760: current SLDCanvasRenderSystem uses stable render signatures,
+  reuses unchanged items, removes absent IDs and retains last-good items during
+  replacement. It remains synchronous in the UI-thread path; keep OPEN for
+  large-document responsiveness and frame-budget performance.
+- #768: the described custom viewport-culling algorithm is absent from current
+  SLDCanvasProjection/SLDCanvasRenderSystem. The projection emits the full
+  snapshot and Qt scene/view clipping is used. Keep OPEN only pending concrete
+  reproduction or a new source-level clipping defect; do not add a duplicate
+  culling subsystem from the obsolete issue premise.
+- #821: PropertiesPanelWidget and EngineeringParameterEditor remain
+  single-target; no multi-selection/batch parameter editing across assets.
+  Native form controls have ordinary Tab traversal, but no batch asset workflow.
+  Keep OPEN. Vertical scrolling is separately tracked in #1191.
