@@ -1005,7 +1005,7 @@ class PropertiesPanelWidget(QWidget):
             result = self._engineering_editor.submit_batch_per_target(
                 self._batch_targets, tuple(changes_by_target)
             )
-        except (RuntimeError, TypeError, ValueError, KeyError) as exc:
+        except (ExecutionError, RuntimeError, TypeError, ValueError, KeyError) as exc:
             if self._batch_status_label is not None:
                 self._batch_status_label.setText(f"Batch update rejected; no changes committed: {exc}")
             return
