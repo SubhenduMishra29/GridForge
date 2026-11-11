@@ -2744,3 +2744,12 @@ Verification boundary:
   repository are unrelated to this rotation finding and remain outside this
   first UI correction batch.
 ======================================================================
+
+UI audit follow-up — issue #1190:
+- Additional source evidence: GraphicsView.__init__ registers Q/E QAction shortcuts
+  with WidgetWithChildrenShortcut, while GraphicsView.keyPressEvent also
+  intercepts Q/E and directly invokes the same single-symbol transform helper.
+  The same gesture therefore has two shortcut-dispatch registrations.
+- The issue acceptance contract now requires one authoritative dispatch route
+  for menu, keyboard and contextual rotation controls.
+
