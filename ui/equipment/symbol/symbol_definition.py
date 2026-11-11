@@ -120,6 +120,12 @@ class SymbolDefinition:
         if not isinstance(self.standard_reference_id, str):
             raise TypeError("standard_reference_id must be a string.")
         object.__setattr__(self, "standard_reference_id", self.standard_reference_id.strip())
+        family_id = self.symbol_family_id or self.symbol_id
+        for field_name, value in (("symbol_family_id", family_id), ("standard_id", self.standard_id), ("variant_id", self.variant_id)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field_name} must be a non-empty string.")
+            object.__setattr__(self, field_name, value.strip().lower())
+
         review_status = self.review_status.strip().lower() if isinstance(self.review_status, str) else ""
         if review_status not in {"unreviewed", "in_review", "approved", "rejected"}:
             raise ValueError("review_status must be unreviewed, in_review, approved, or rejected.")
@@ -133,12 +139,6 @@ class SymbolDefinition:
         ):
             raise ValueError("Approved symbols require a specific standard reference and reviewed geometry and terminal anchors.")
         object.__setattr__(self, "review_status", review_status)
-
-        family_id = self.symbol_family_id or self.symbol_id
-        for field_name, value in (("symbol_family_id", family_id), ("standard_id", self.standard_id), ("variant_id", self.variant_id)):
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{field_name} must be a non-empty string.")
-            object.__setattr__(self, field_name, value.strip().lower())
 
         # ----------------------------------------------------
         # Terminal anchors
