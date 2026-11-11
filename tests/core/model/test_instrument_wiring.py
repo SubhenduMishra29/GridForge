@@ -4,6 +4,7 @@ import pytest
 
 from core.model import (
     CableAssembly,
+    InstrumentationWiringInventory,
     CableCore,
     CarrierKind,
     ConductorRole,
@@ -100,3 +101,30 @@ def test_signal_binding_validates_carrier_and_direction():
             id="b1", signal_id="s1", carrier_kind=CarrierKind.CABLE_CORE,
             carrier_id="c1", direction="SIDEWAYS",
         )
+
+
+
+def test_inventory_enforces_cable_core_ownership_and_numbering():
+    cable = CableAssembly(id="c1", tag="C-1", service="instrument", core_count=1)
+    core = CableCore(id="cc1", cable_id="c1", core_number=1, role=ConductorRole.SIGNAL)
+    inventory = InstrumentationWiringInventory(cables=(cable,), cores=(core,))
+    assert inventory.cores == (core,)
+
+    invalid = CableCore(id="cc2", cable_id="c1", core_number=2, role=ConductorRole.RETURN)
+    with pytest.raises(ValueError, match="exceeds cable"):
+        InstrumentationWiringInventory(cables=(cable,), cores=(invalid,))
+
+
+def test_inventory_rejects_duplicate_tags_and_dangling_signal_bindings():
+    cable_a = CableAssembly(id="c1", tag="C-1", service="instrument", core_count=1)
+    cable_b = CableAssembly(id="c2", tag="C-1", service="instrument", core_count=1)
+    with pytest.raises(ValueError, match="Duplicate cable tag"):
+        InstrumentationWiringInventory(cables=(cable_a, cable_b))
+
+    signal = SignalDefinition(id="s1", tag="SIG-1", description="Current", kind=SignalKind.CURRENT)
+    dangling = SignalCarrierBinding(
+        id="b1", signal_id=signal.id, carrier_kind=CarrierKind.CABLE_CORE,
+        carrier_id="missing-core",
+    )
+    with pytest.raises(ValueError, match="missing cable core"):
+        InstrumentationWiringInventory(signals=(signal,), signal_bindings=(dangling,))
