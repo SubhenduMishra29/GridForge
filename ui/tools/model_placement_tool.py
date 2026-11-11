@@ -139,6 +139,20 @@ class ModelPlacementTool(ToolBase):
         self._show_preview(self._position or draft.placement_position)
         return True
 
+    def _active_sld_layer_id(self) -> str:
+        """Resolve the active presentation layer from the canonical SLD controller."""
+        controller = self.controller
+        layer_id = getattr(controller, "active_layer_id", None)
+        if layer_id is None:
+            layer_id = getattr(getattr(controller, "sld_controller", None), "active_layer_id", None)
+        if callable(layer_id):
+            layer_id = layer_id()
+        if layer_id is None:
+            return "default"
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            raise RuntimeError("The active SLD presentation layer is invalid.")
+        return layer_id.strip()
+
     def place_creation_draft(self) -> bool:
         """Persist the current placement as Application-owned DraftNetwork state."""
         self._ensure_active()
@@ -170,6 +184,9 @@ class ModelPlacementTool(ToolBase):
                 "draft_id": equipment_id,
                 "equipment_type": equipment_type,
                 "display_name": draft.definition.equipment_type,
+                # Capture the active layer at commit time; subsequent layer
+                # selection changes must not move an existing draft object.
+                "layer_id": self._active_sld_layer_id(),
                 "terminal_contract": tuple(canonical_contract["terminal_contract"]),
                 "engineering_data": dict(draft.snapshot_values()),
                 # Preserve every explicitly acquired creation endpoint using
