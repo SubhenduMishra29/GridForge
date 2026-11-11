@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from core.application.read_models import InstrumentationWiringReadModel
-from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind, SLDModel
+from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind, SLDModel, SLDRoute
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +30,7 @@ class SLDPhysicalWiringSegment:
     core_id: str | None = None
     core_number: int | None = None
     signal_tags: tuple[str, ...] = ()
+    route: SLDRoute = SLDRoute()
 
 
 @dataclass(frozen=True, slots=True)
