@@ -173,6 +173,27 @@ class SymbolRegistry:
             )
         )
 
+    def approved_variants_for_family(
+        self,
+        symbol_family_id: str,
+        *,
+        standard_id: str | None = None,
+    ) -> tuple[SymbolDefinition, ...]:
+        """Return only explicitly approved variants with reviewed geometry and anchors.
+
+        Equipment-specific terminal-role reconciliation remains a separate
+        mandatory gate in EquipmentRegistry before a candidate is selectable.
+        """
+        return tuple(
+            item for item in self.variants_for_family(
+                symbol_family_id, standard_id=standard_id
+            )
+            if item.review_status == "approved"
+            and item.geometry_reviewed
+            and item.terminal_anchors_reviewed
+            and bool(item.standard_reference_id)
+        )
+
     def get_variant(
         self,
         symbol_family_id: str,
