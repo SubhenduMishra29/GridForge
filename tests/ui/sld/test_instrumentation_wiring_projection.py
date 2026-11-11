@@ -118,3 +118,21 @@ def test_panel_wire_projects_with_its_own_identity_and_carrier_kind():
     assert wire_record.segments[0].carrier_kind == "PANEL_WIRE"
     assert wire_record.segments[0].carrier_tag == "W-001"
     assert wire_record.segments[0].cable_id is None
+
+def test_engineer_owned_route_override_is_attached_to_stable_carrier_segment():
+    route = {
+        "routing_mode": "manual",
+        "ownership": "engineer",
+        "points": [[12.0, 18.0], [42.0, 18.0]],
+    }
+    projection = SLDInstrumentationWiringAdapter().project(
+        _read_model(),
+        _sld_model(),
+        route_overrides={"CABLE_CORE:core-1:1": route},
+    )
+
+    assert projection.records[0].segments[0].route.ownership == "engineer"
+    assert projection.records[0].segments[0].route.points == (
+        (12.0, 18.0), (42.0, 18.0),
+    )
+    assert projection.records[0].segments[1].route.ownership == "auto"
