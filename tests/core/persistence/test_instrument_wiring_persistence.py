@@ -154,3 +154,71 @@ def test_inventory_replacement_command_rejects_stale_expected_snapshot():
     service.activate(context, InstrumentationWiringInventory(), network=network, generation=5)
     with pytest.raises(ValueError, match="changed since"):
         service.execute(stale_command, SimpleNamespace(network=network), Transaction())
+
+def _apply_wiring_command(service, network, command):
+    transaction = Transaction()
+    result = service.execute(command, SimpleNamespace(network=network), transaction)
+    assert result.success is True
+    transaction.commit()
+
+
+def test_typed_record_add_and_update_use_atomic_inventory_command():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    service.activate(context, InstrumentationWiringInventory(), network=network, generation=1)
+    cable = CableAssembly(id="new-cable", tag="CAB-1", service="RTD", core_count=2)
+    add = service.create_add_record_command(cable)
+    _apply_wiring_command(service, network, add)
+    assert service.inventory.cables == (cable,)
+
+    updated = CableAssembly(
+        id="new-cable", tag="CAB-1", service="RTD loop", core_count=2,
+        length_m=18.0,
+    )
+    update = service.create_update_record_command(updated)
+    _apply_wiring_command(service, network, update)
+    assert service.inventory.cables == (updated,)
+
+
+def test_typed_record_add_rejects_duplicate_identity_and_tag():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    cable = CableAssembly(id="c1", tag="CAB-1", service="RTD", core_count=1)
+    service.activate(context, InstrumentationWiringInventory(cables=(cable,)), network=network, generation=1)
+    with pytest.raises(ValueError, match="already exists"):
+        service.create_add_record_command(cable)
+    duplicate_tag = CableAssembly(id="c2", tag="CAB-1", service="PT", core_count=1)
+    with pytest.raises(ValueError, match="Duplicate cable tag"):
+        service.create_add_record_command(duplicate_tag)
+
+
+def test_record_removal_rejects_dangling_cable_core_and_signal_references():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    inventory = sample_inventory()
+    service.activate(context, inventory, network=network, generation=1)
+    with pytest.raises(ValueError, match="references missing cable"):
+        service.create_remove_record_command(CableAssembly, "cable-id")
+    with pytest.raises(ValueError, match="references missing cable core"):
+        service.create_remove_record_command(CableCore, "core-id")
+    with pytest.raises(ValueError, match="references missing signal"):
+        service.create_remove_record_command(SignalDefinition, "signal-id")
+
+
+def test_record_removal_succeeds_after_dependencies_are_removed():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    service.activate(context, sample_inventory(), network=network, generation=1)
+    binding = service.create_remove_record_command(SignalCarrierBinding, "binding-id")
+    _apply_wiring_command(service, network, binding)
+    core = service.create_remove_record_command(CableCore, "core-id")
+    _apply_wiring_command(service, network, core)
+    signal = service.create_remove_record_command(SignalDefinition, "signal-id")
+    _apply_wiring_command(service, network, signal)
+    cable = service.create_remove_record_command(CableAssembly, "cable-id")
+    _apply_wiring_command(service, network, cable)
+    assert service.inventory == InstrumentationWiringInventory()
