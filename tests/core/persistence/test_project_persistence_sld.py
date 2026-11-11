@@ -7,7 +7,7 @@ from core.model.bus import Bus
 from core.model.line import Line
 from core.network import Network
 from core.persistence.project_persistence import LoadedProject, ProjectPersistenceError, ProjectPersistenceService
-from core.persistence.migration import ProjectPersistenceMigration
+from core.persistence.migration import ProjectPersistenceMigration, SLDMigrationError, validate_canonical_sld
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind, SLDRoute, SLDAnnotationBlock, SLDPresentationLayer
 from ui.equipment.symbol.symbol_base import SymbolBase
@@ -243,3 +243,15 @@ def test_sld_schema3_migration_assigns_all_legacy_content_to_default_layer():
     assert all(node["layer_id"] == "default" for node in migrated["model"]["nodes"])
     assert all(connection["layer_id"] == "default" for connection in migrated["model"]["connections"])
     assert all(block["layer_id"] == "default" for block in migrated["annotation_blocks"])
+
+
+def test_sld_schema4_validator_rejects_unknown_layer_membership():
+    payload = _sld().to_dict()
+    payload["model"]["nodes"][0]["layer_id"] = "missing-layer"
+    with pytest.raises(SLDMigrationError, match="unknown presentation layer"):
+        validate_canonical_sld(payload)
+
+    payload = _sld().to_dict()
+    payload["layers"][0]["opacity"] = 1.5
+    with pytest.raises(SLDMigrationError, match="opacity"):
+        validate_canonical_sld(payload)
