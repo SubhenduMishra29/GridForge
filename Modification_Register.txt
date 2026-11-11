@@ -1349,3 +1349,27 @@ Source references:
 
 Verification boundary:
 - Fetch-back/source inspection only. No IEC licensed artwork was acquired or inspected; no geometry/anchor review, Qt visual comparison, catalogue runtime registration, project save/reopen, or GUI acceptance is claimed. No test/CI gate was run or required for this metadata-only correction.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-016 — EXPLICIT REVIEW EVIDENCE GATE
+======================================================================
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Correction:
+- SymbolDefinition now carries separate geometry-review and terminal-anchor-review evidence references.
+- Approved definitions require both review flags and both non-empty evidence references in addition to the specific standard reference and identified standard.
+- SymbolRegistry independently retains the evidence-reference checks when enumerating approved variants.
+- The contextual symbol review inspector displays both evidence references so missing review provenance is visible to the engineer.
+- Existing definitions deserialize with empty evidence references and remain backward compatible; no existing symbol is promoted by this change.
+- The five IEC candidate entries remain in_review, with geometry/anchor review flags false and no evidence references. They remain non-selectable.
+
+Architecture and safety:
+- Review evidence is catalogue metadata only; no Core electrical model, terminal identity, topology, or project runtime behavior is changed.
+- No IEC/ANSI geometry compliance is claimed. Evidence references must point to permitted authoritative source material before an engineer can mark a candidate approved.
+
+Verification boundary:
+- Source-level update and fetch-back verification only. No Python import/syntax execution, Qt inspector runtime, approved-variant application, undo/redo, or project save/reopen runtime was performed.
+- No tests/CI were treated as acceptance gates.
