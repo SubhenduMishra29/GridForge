@@ -1968,3 +1968,9 @@ Verification:
 - Inspected current SLDDocument, SLDNode, SymbolBase, SLDConnection, SLDEndpoint, SLDRoute, ProjectPersistenceService, migration validation, and existing persistence tests.
 - New test source committed and fetched back from main.
 - Tests were not executed; no Python syntax/import, Qt GUI, runtime terminal-anchor geometry, runtime wire path, undo/redo, or interactive save/close/reopen acceptance is claimed.
+
+
+Fixture reconciliation:
+- The new round-trip fixture was reconciled with ValidationService.validate_sld_associations(): its SLD nodes must reference actual Core equipment in the fixture Network.
+- Updated the two presentation nodes and semantic endpoint equipment identities to BUS-001 and BUS-002, which are present in the canonical test Network. Symbol presentation remains deliberately transformed; this avoids a false-positive test fixture that would be rejected before serialization.
+- Test and register were fetched back from main after their respective commits. No test execution is claimed.
