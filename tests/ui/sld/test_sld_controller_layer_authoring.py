@@ -127,3 +127,27 @@ def test_project_close_and_dispose_clear_transient_layer_selection():
     controller.dispose()
     assert controller._active_layer_by_document == {}
     assert controller._document_activation_handler is None
+
+
+def test_active_layer_selection_is_scoped_to_each_document():
+    first = SLDDocument(
+        "sld-one",
+        layers=[
+            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer("engineering", "Engineering", order=1),
+        ],
+    )
+    second = SLDDocument("sld-two")
+    controller = object.__new__(SLDController)
+    controller._active_layer_by_document = {
+        "sld-one": "engineering",
+        "sld-two": "default",
+    }
+    active = [first]
+    controller._require_active_document = lambda: active[0]
+
+    assert controller.active_layer_id == "engineering"
+    active[0] = second
+    assert controller.active_layer_id == "default"
+    active[0] = first
+    assert controller.active_layer_id == "engineering"
