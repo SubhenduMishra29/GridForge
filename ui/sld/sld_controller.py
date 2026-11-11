@@ -142,6 +142,7 @@ class SLDController:
         if existing is None:
             lifecycle.documents.register(document)
         elif existing is not document:
+            self._active_layer_by_document.pop(document.document_id, None)
             lifecycle.documents.replace(document)
         if lifecycle.documents.active_document_id == document.document_id:
             self.reconcile_presentation()
@@ -152,6 +153,7 @@ class SLDController:
         if not isinstance(document, SLDDocument):
             raise TypeError("Document is not an SLDDocument.")
         lifecycle.remove_document(document_id)
+        self._active_layer_by_document.pop(document_id, None)
         return document
 
     def replace_document(self, document: SLDDocument) -> SLDDocument:
@@ -159,6 +161,9 @@ class SLDController:
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument")
         lifecycle = self._require_workspace_lifecycle()
+        existing = lifecycle.documents.get(document.document_id)
+        if existing is not document:
+            self._active_layer_by_document.pop(document.document_id, None)
         lifecycle.replace_document(document)
         self.reconcile_presentation()
         return document
@@ -227,15 +232,21 @@ class SLDController:
         return document
 
     def _on_project_loaded(self, _event: ProjectLoaded) -> None:
+        # Active-layer selection is transient UI state, not project persistence.
+        # A newly loaded project may reuse document/layer IDs, so never carry
+        # authoring selection across the project boundary.
+        self._active_layer_by_document.clear()
         self.reconcile_presentation()
 
     def _on_project_closed(self, _event: ProjectClosed) -> None:
+        self._active_layer_by_document.clear()
         self._state.reset()
 
     def dispose(self) -> None:
         if self._application is not None:
             self._application.event_bus.unsubscribe(ProjectLoaded, self._on_project_loaded)
             self._application.event_bus.unsubscribe(ProjectClosed, self._on_project_closed)
+        self._active_layer_by_document.clear()
         self._state.reset()
         self._document_activation_handler = None
 
