@@ -913,6 +913,7 @@ class CanvasComposer:
             tool_manager=tool_manager,
             scene=scene,
             parent=parent,
+            sld_controller=sld_controller,
         )
         _cleanup_stack.append(("graphics view references", view.dispose))
         coordinate_system = CoordinateSystem(view=view, grid_system=grid_system)
