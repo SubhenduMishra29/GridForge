@@ -2869,3 +2869,20 @@ UI audit partial-status notes:
   Standard/style and remaining quick visual attributes are not fully available
   in the contextual strip; issue stays OPEN. Rotation dispatch reconciliation
   is tracked in #1190.
+
+
+UI audit closures — renderer/terminal cleanup:
+- CLOSED #761: EquipmentItem owns its terminal snap points; terminals are not
+  separate child QGraphicsItems. SLDCanvasRenderSystem._remove_realized()
+  unbinds route-edit callbacks, unregisters snap candidates and removes each
+  realized item from the scene with independent cleanup guards.
+  Implementation mirror #165 remains OPEN pending synchronized closure.
+- CLOSED #767: current rendering uses one SLDConnectionItem per stable
+  connection identity, not the former SimpleWireGroup model. Full-snapshot
+  synchronization removes stale connection IDs; equipment snap points are
+  unregistered with their owning EquipmentItem; endpoint geometry is resolved
+  against current realized items.
+  Implementation mirror #83 remains OPEN pending synchronized closure.
+- Closures apply only to the authoritative audit repository. Implementation
+  repository write/triage access is unavailable in this connection.
+- Static source inspection only.
