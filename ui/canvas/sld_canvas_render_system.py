@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import math
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from ui.core.qt import QGraphicsScene, QPointF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
@@ -483,6 +484,10 @@ class SLDCanvasRenderSystem:
         for node in draft.nodes:
             render_id = self._draft_render_id(node.draft_id)
             layer = draft_layers.get(node.layer_id)
+            if layer is None and not draft.layers and node.layer_id == "default":
+                # Compatibility for direct renderer callers predating the
+                # document-layer registry on DraftSLDCanvasSnapshot.
+                layer = SimpleNamespace(layer_id="default", visible=True, opacity=1.0, order=0, locked=False)
             if layer is None:
                 raise ValueError(f"Draft equipment {node.draft_id!r} references unknown SLD layer {node.layer_id!r}.")
             signature = self._draft_node_signature(node, layer)
