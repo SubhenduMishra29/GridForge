@@ -392,6 +392,8 @@ class _SLDSchema3To4(SLDMigration):
         result = deepcopy(dict(data))
         if result.get("schema") != self.source_schema:
             raise SLDMigrationError("SLD schema 3-to-4 received a non-schema-3 payload.")
+        if "layers" in result:
+            raise SLDMigrationError("SLD schema 3 payload cannot contain a layers registry.")
         result["layers"] = [{"layer_id": "default", "name": "Default", "visible": True, "locked": False, "opacity": 1.0, "order": 0}]
         model = result.get("model")
         if not isinstance(model, Mapping):
@@ -404,6 +406,8 @@ class _SLDSchema3To4(SLDMigration):
             for index, item in enumerate(collection):
                 if not isinstance(item, Mapping):
                     raise SLDMigrationError("SLD " + collection_name + "[" + str(index) + "] must be an object during schema 3-to-4 migration.")
+                if "layer_id" in item:
+                    raise SLDMigrationError("SLD schema 3 " + collection_name + " cannot contain layer_id.")
                 item_copy = deepcopy(dict(item))
                 item_copy["layer_id"] = "default"
                 collection[index] = item_copy
@@ -415,6 +419,8 @@ class _SLDSchema3To4(SLDMigration):
         for index, block in enumerate(annotations):
             if not isinstance(block, Mapping):
                 raise SLDMigrationError("SLD annotation_blocks[" + str(index) + "] must be an object during schema 3-to-4 migration.")
+            if "layer_id" in block:
+                raise SLDMigrationError("SLD schema 3 annotation blocks cannot contain layer_id.")
             block_copy = deepcopy(dict(block))
             block_copy["layer_id"] = "default"
             migrated_annotations.append(block_copy)
