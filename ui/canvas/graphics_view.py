@@ -459,8 +459,14 @@ class GraphicsView(QGraphicsView):
         elif operation == "rotate_cw":
             presentation.rotation = (presentation.rotation + 90.0) % 360.0
         elif operation == "flip_h":
+            # Reflect across the canvas vertical axis, not the symbol's
+            # already-rotated local axis. The item applies local reflection
+            # before rotation, so negate the angle to compose the world-space
+            # reflection correctly.
+            presentation.rotation = (-float(presentation.rotation)) % 360.0
             presentation.set_property("mirror_x", not bool(presentation.get_property("mirror_x", False)))
         elif operation == "flip_v":
+            presentation.rotation = (-float(presentation.rotation)) % 360.0
             presentation.set_property("mirror_y", not bool(presentation.get_property("mirror_y", False)))
         else:
             raise ValueError(f"Unsupported contextual symbol action: {operation}")
