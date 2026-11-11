@@ -2326,3 +2326,23 @@ Verification:
 - Updated and fetched back projection, renderer, and CanvasComposition sources on current main. Regression tests were added but not executed; CI was not run.
 - Source inspection confirms all three document projection paths pass the persisted layer registry, and the render signatures include layer metadata for nodes, connections, and annotations.
 - No Qt GUI acceptance, manual snapping gesture, pointer hit-test runtime, multi-layer visual ordering, save/reopen runtime, or large-network performance acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — SLD Layer Manager UI (Phase D1)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Correction:
+- Added SLDLayerManagerWidget as a tab in the existing canonical SLD Explorer Region; no additional dock, panel host, or parallel layer state was introduced.
+- The manager lists document layers in persisted order and exposes active-layer selection, visibility, lock, opacity, rename, create, delete, and reorder controls.
+- Default layer deletion is blocked in the UI; non-default deletion reassigns its contents to Default through the existing Application command.
+- Added SLDController layer-command methods for create/update/delete/reorder and transient active-layer selection. Locked or missing layers cannot become active.
+- SLDController.add_node() and add_connection() now route default-layer placements through the active layer and reject missing/locked target layers. Explicit non-default node/connection layer assignments remain respected.
+- Layer controls use the existing typed Application commands, preserving the established transaction and undo/redo boundary. The manager refreshes when its Explorer tab is shown.
+
+Scope and remaining work:
+- This is Phase D1 (manager presentation and controller integration), not completion of all Phase D requirements.
+- DraftNetwork equipment placement and its later commit-to-SLD projection still require explicit active-layer propagation. Do not treat the active-layer selector as fully integrated with draft placement until that path is corrected.
+- Qt GUI interaction, visual layout, undo/redo runtime, and Python import/syntax execution were not performed. Source-only implementation; no tests or CI were run.
