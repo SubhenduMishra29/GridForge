@@ -123,6 +123,7 @@ def test_insertion_preview_has_translucent_route_halves_and_terminal_markers(qap
     assert all(item.opacity() == pytest.approx(0.78) for item in markers)
     assert len(symbols) == 1
     assert symbols[0].opacity() == pytest.approx(0.55)
+    assert all(item.zValue() > symbols[0].zValue() for item in markers)
 
     marker_centers = {
         (
@@ -132,3 +133,35 @@ def test_insertion_preview_has_translucent_route_halves_and_terminal_markers(qap
         for item in markers
     }
     assert marker_centers == {(5.0, 20.0), (25.0, 20.0)}
+
+
+
+def test_insertion_preview_owner_is_cleared_on_cancel_and_deactivation(qapp):
+    definition = _breaker_definition()
+    layer = FakePreviewLayer()
+    tool = ElectricalInsertionTool(
+        controller=SimpleNamespace(),
+        application=object(),
+        selection_manager=object(),
+        snap_system=object(),
+        preview_layer=layer,
+        symbol_registry=FakeSymbolRegistry(definition),
+    )
+    tool.begin("breaker")
+    target = {
+        "closest_point": (15.0, 20.0),
+        "source": (0.0, 20.0),
+        "target": (30.0, 20.0),
+        "route": ((10.0, 20.0), (20.0, 20.0)),
+        "segment_index": 1,
+    }
+
+    tool._show_preview(target)
+    assert layer.items[tool._preview_owner]
+    tool.on_cancel()
+    assert tool._preview_owner not in layer.items
+
+    tool._show_preview(target)
+    assert layer.items[tool._preview_owner]
+    tool.on_deactivate()
+    assert tool._preview_owner not in layer.items

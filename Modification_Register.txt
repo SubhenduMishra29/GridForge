@@ -2985,10 +2985,12 @@ Correction:
   proposed equipment silhouette is rendered at 55% opacity with solid fill
   and solid strokes rather than the general dense-pattern/dashed preview style.
 - Added dedicated translucent solid pens to both split-route preview halves.
+- Added focused assertions for anchor-marker stacking and preview-owner cleanup
+  on cancellation and tool deactivation.
 - Added visible terminal-anchor markers at the rotated input/output anchor
-  coordinates. These markers and all preview geometry remain owned by the
-  existing ElectricalInsertionTool preview owner and are removed by its
-  existing clear-target/cancel/deactivate lifecycle.
+  coordinates and raised them above the symbol silhouette for legibility. These
+  markers and all preview geometry remain owned by the existing ElectricalInsertionTool
+  preview owner and are removed by its existing clear-target/cancel/deactivate lifecycle.
 - The correction remains presentation-only; canonical insertion command,
   route ownership, endpoint identity, terminal mapping, and Application
   mutation boundary are unchanged.

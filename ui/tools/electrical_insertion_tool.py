@@ -327,6 +327,7 @@ class ElectricalInsertionTool(ToolBase):
             marker.setPen(anchor_pen)
             marker.setBrush(anchor_brush)
             marker.setOpacity(0.78)
+            marker.setZValue(1.0)
             items.append(marker)
 
         definition = self._symbol_definition()
