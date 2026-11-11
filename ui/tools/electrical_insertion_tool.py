@@ -45,6 +45,7 @@ class ElectricalInsertionTool(ToolBase):
         self._orientation = 0.0
         self._target: dict[str, Any] | None = None
         self._target_item: Any | None = None
+        self._last_resolution_ambiguous = False
         self._preview_owner = f"electrical-insertion:{uuid4().hex}"
 
     @property
@@ -66,6 +67,10 @@ class ElectricalInsertionTool(ToolBase):
         self._creation_parameters = dict(creation_parameters or {})
         self._orientation = float(orientation)
         self._clear_target()
+
+    @property
+    def last_resolution_ambiguous(self) -> bool:
+        return self._last_resolution_ambiguous
 
     def insertion_target(self, event: Any) -> dict[str, Any] | None:
         return self._resolve_target(event)
@@ -151,6 +156,7 @@ class ElectricalInsertionTool(ToolBase):
         return had_target
 
     def _resolve_target(self, event: Any) -> dict[str, Any] | None:
+        self._last_resolution_ambiguous = False
         position = self._position_tuple(self.event_position(event))
         explicit_item = event.get("connection_item") if isinstance(event, dict) else None
         if explicit_item is not None:
@@ -213,7 +219,8 @@ class ElectricalInsertionTool(ToolBase):
             }
             if len(nearest_connection_ids) > 1:
                 # Geometric ambiguity at a crossing is never resolved by
-                # graphics stacking order.
+                # graphics stacking order or converted into ordinary placement.
+                self._last_resolution_ambiguous = True
                 self._clear_target()
                 return None
             _, item, target = candidates[0]
