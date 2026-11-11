@@ -80,7 +80,7 @@ class CTSecondaryChannelEditor(QGroupBox):
 
         self._timestamp_domain = QLineEdit(self)
         self._timestamp_domain.setObjectName("CTSecondaryTimestampDomain")
-        self._timestamp_domain.setPlaceholderText("Trusted Application clock domain")
+        self._timestamp_domain.setPlaceholderText("Must match trusted Application clock domain")
 
         self._stale_after = self._number("CTSecondaryStaleAfter", 2.0, 0.001, 86400.0, 3)
 
@@ -195,6 +195,11 @@ class CTSecondaryChannelEditor(QGroupBox):
             )
         except (RuntimeError, TypeError, ValueError) as exc:
             self._channels_by_id = {}
+            self._refreshing = True
+            try:
+                self._channel_selector.clear()
+            finally:
+                self._refreshing = False
             self._status.setText(f"Measurement channels unavailable: {exc}")
             self._set_enabled(False)
             return
