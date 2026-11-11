@@ -209,7 +209,14 @@ class GraphicsView(QGraphicsView):
         presentation = getattr(application, "presentation", None)
         model = getattr(presentation, "model", None)
         selection_manager = getattr(self.tool_manager, "selection_manager", None)
-        if model is None or selection_manager is None:
+        active_document = getattr(self.sld_controller, "active_document", None)
+        active_model = getattr(active_document, "model", None)
+        if (
+            model is None
+            or selection_manager is None
+            or active_document is None
+            or active_model is not model
+        ):
             return None, None
 
         # The SelectTool stores node selection in the typed NODE domain.
@@ -236,6 +243,9 @@ class GraphicsView(QGraphicsView):
         if node is None and callable(getter):
             node = getter(selected_id)
         if node is None:
+            return None, None
+        active_nodes = getattr(active_model, "nodes", None)
+        if active_nodes is not None and node.node_id not in active_nodes:
             return None, None
 
         item = selection_manager.get_item_for_id(selected_ids[0], scene=self._scene)
