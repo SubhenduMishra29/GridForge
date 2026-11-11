@@ -142,12 +142,25 @@ _BUILTIN_SYMBOLS = (
     ), {}),
 )
 
+# IEC database record candidates are identity/provenance leads only. The
+# GridForge primitive geometry has NOT been verified against the licensed
+# IEC artwork; these entries must remain in_review and non-selectable until
+# geometry and terminal-anchor review is completed.
+_BUILTIN_IEC_CANDIDATES = {
+    "breaker": "S00287",
+    "disconnector": "S00288",
+    "fuse": "S00362",
+    "transformer": "S00841",
+    "current_transformer": "S00850",
+}
+
 
 def register_builtin_symbols(registry: SymbolRegistry) -> None:
     """Register every canonical symbol definition."""
     if not isinstance(registry, SymbolRegistry):
         raise TypeError("registry must be a SymbolRegistry")
     for symbol_id, display_name, terminals, primitives, anchors in _BUILTIN_SYMBOLS:
+        iec_record = _BUILTIN_IEC_CANDIDATES.get(symbol_id)
         registry.register(
             SymbolDefinition(
                 symbol_id=symbol_id,
@@ -156,6 +169,13 @@ def register_builtin_symbols(registry: SymbolRegistry) -> None:
                 height=40.0,
                 terminal_anchors=anchors,
                 primitives=primitives,
+                standard_id="iec-60617-2026-db" if iec_record else "unspecified",
+                standard_reference_id=(
+                    f"IEC 60617:2026 DB / {iec_record}" if iec_record else ""
+                ),
+                review_status="in_review" if iec_record else "unreviewed",
+                geometry_reviewed=False,
+                terminal_anchors_reviewed=False,
             )
         )
 
