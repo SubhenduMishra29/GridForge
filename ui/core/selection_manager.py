@@ -6,7 +6,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from contextlib import contextmanager
+from typing import Any, Iterable, Iterator, Optional
 
 from ui.core.qt import QGraphicsScene, QObject, Signal
 
@@ -66,6 +67,23 @@ class SelectionManager(QObject):
         previous = self.get_selected_ids()
         self._selected_ids_by_domain = restored or {"default": []}
         self._emit_if_changed(previous)
+
+    @contextmanager
+    def temporary_single_selection(self, object_id: Any, *, domain: str = "default") -> Iterator[None]:
+        """Temporarily expose one identity to a projection without changing graphics selection."""
+        if object_id is None:
+            raise ValueError("object_id must not be None.")
+        domain = self._require_domain(domain)
+        snapshot = self.snapshot_selection()
+        try:
+            for ids in self._selected_ids_by_domain.values():
+                ids.clear()
+            self._selected_ids_by_domain[domain] = [object_id]
+            yield
+        finally:
+            self._selected_ids_by_domain = {
+                key: list(values) for key, values in snapshot.items()
+            } or {"default": []}
 
     def has_selection(self, domain: Optional[str] = None) -> bool:
         return bool(self.get_selected_ids(domain=domain))
