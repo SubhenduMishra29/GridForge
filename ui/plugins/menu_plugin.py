@@ -294,6 +294,7 @@ def default_menus() -> tuple[MenuSpec, ...]:
         MenuSpec("view", "View", (
             sub("view.panels", "Panels",
                 a("view.toggle_explorer", "Project Explorer"),
+                a("view.layers", "SLD Layers"),
                 a("view.equipment_browser", "Equipment Browser"),
                 a("view.toggle_inspector", "Inspector"),
                 a("view.toggle_tool_settings", "Tool Settings"),
