@@ -63,7 +63,7 @@ class WiringTerminalReference:
         return self.equipment_id, self.terminal_id
 
 
-class ConductorRole(str, Enum):
+class WiringConductorRole(str, Enum):
     SIGNAL = "SIGNAL"
     RETURN = "RETURN"
     SUPPLY = "SUPPLY"
@@ -137,7 +137,7 @@ class CableCore:
     id: str
     cable_id: str
     core_number: int
-    role: ConductorRole
+    role: WiringConductorRole
     terminal_path: tuple[WiringTerminalReference, ...] = ()
     colour: Optional[str] = None
     pair_id: Optional[str] = None
@@ -147,8 +147,8 @@ class CableCore:
         for field in ("id", "cable_id"):
             object.__setattr__(self, field, _required_text(getattr(self, field), field))
         object.__setattr__(self, "core_number", _positive_int(self.core_number, "core_number"))
-        if not isinstance(self.role, ConductorRole):
-            raise TypeError("role must be a ConductorRole.")
+        if not isinstance(self.role, WiringConductorRole):
+            raise TypeError("role must be a WiringConductorRole.")
         path = tuple(self.terminal_path)
         if any(not isinstance(item, WiringTerminalReference) for item in path):
             raise TypeError("terminal_path entries must be WiringTerminalReference values.")
@@ -167,7 +167,7 @@ class PanelWire:
 
     id: str
     tag: str
-    role: ConductorRole
+    role: WiringConductorRole
     terminal_path: tuple[WiringTerminalReference, ...]
     cross_section_mm2: Optional[float] = None
     colour: Optional[str] = None
@@ -175,8 +175,8 @@ class PanelWire:
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required_text(self.id, "id"))
         object.__setattr__(self, "tag", _required_text(self.tag, "tag"))
-        if not isinstance(self.role, ConductorRole):
-            raise TypeError("role must be a ConductorRole.")
+        if not isinstance(self.role, WiringConductorRole):
+            raise TypeError("role must be a WiringConductorRole.")
         path = tuple(self.terminal_path)
         if len(path) < 2 or any(not isinstance(item, WiringTerminalReference) for item in path):
             raise ValueError("terminal_path must contain at least two terminal references.")
@@ -310,7 +310,7 @@ class InstrumentationWiringInventory:
 
 __all__ = [
     "WiringTerminalReference",
-    "ConductorRole",
+    "WiringConductorRole",
     "SignalKind",
     "CarrierKind",
     "CableAssembly",
