@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from ui.core.qt import QEvent, QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt
+from ui.core.qt import QEvent, QLabel, QHBoxLayout, QSplitter, QToolButton, QVBoxLayout, QWidget, Qt, Signal
 from ui.editors.common.editor_host import EditorRegionFrame
 from ui.editors.common.tool_shelf import ToolShelf, ToolSettingsPanel
 from ui.tools.tool_definition import ToolDefinition, contextual_tool_definitions
@@ -20,6 +20,8 @@ _LOG = logging.getLogger(__name__)
 
 
 class SLDEditor(QWidget):
+    region_visibility_changed = Signal(str, bool)
+
     """Professional 2D SLD authoring surface with contextual secondary regions."""
 
     editor_type = "sld"
@@ -346,6 +348,10 @@ class SLDEditor(QWidget):
             if self._initial_sizes_pending:
                 self._initial_sizes_pending = not self._splitters_have_geometry()
         self._sync_panel_buttons()
+        for region_id in ("explorer", "sidebar", "diagnostics", "tool_settings"):
+            self.region_visibility_changed.emit(
+                region_id, bool(self.region_visibility(region_id))
+            )
 
     def _splitters_have_geometry(self) -> bool:
         # The outer body and the visible canvas/tool paths are required for the
@@ -508,6 +514,7 @@ class SLDEditor(QWidget):
             if user:
                 self._restore_visibility[region_id] = visible
             self._sync_panel_buttons()
+            self.region_visibility_changed.emit(region_id, bool(self.region_visibility(region_id)))
             return
         was_visible = not frame.isHidden()
         frame.setVisible(visible)
@@ -515,6 +522,7 @@ class SLDEditor(QWidget):
         if was_visible != visible:
             self._apply_splitter_sizes(affected={region_id})
         self._sync_panel_buttons()
+        self.region_visibility_changed.emit(region_id, bool(self.region_visibility(region_id)))
 
     def update_contextual_regions(self) -> None:
         selected = getattr(getattr(self._editor_context, "engineering", None), "selected_ids", ()) or ()
@@ -559,6 +567,10 @@ class SLDEditor(QWidget):
         changed_regions = set(getattr(self, "_restore_visibility", {}))
         self._apply_splitter_sizes(affected=changed_regions)
         self._sync_panel_buttons()
+        for region_id in ("explorer", "sidebar", "diagnostics", "tool_settings"):
+            self.region_visibility_changed.emit(
+                region_id, bool(self.region_visibility(region_id))
+            )
         if callable(self._maximize_callback):
             self._maximize_callback(maximized)
 

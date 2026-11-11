@@ -1693,6 +1693,9 @@ def _build_application_impl(
                 refresh()
 
     engineering_context.subscribe(_refresh_action_presentations)
+    workspace_surface_host.region_visibility_changed.connect(
+        lambda *_: _refresh_action_presentations(engineering_context.current)
+    )
     # Command-history availability can change without an engineering-context
     # update (for example, a canvas command). Refresh menu/toolbar QAction state
     # whenever the canonical Controller reports a state transition.

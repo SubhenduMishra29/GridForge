@@ -14,7 +14,7 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
-from ui.core.qt import QFileDialog, QMessageBox, QWidget, QVBoxLayout
+from ui.core.qt import QFileDialog, QMessageBox, QWidget, QVBoxLayout, Signal
 from ui.core.action_router import UIActionRouter
 from ui.editors.common.editor_host import EngineeringEditorHost
 from ui.editors.common.tool_shelf import ToolShelf
@@ -29,6 +29,8 @@ from ui.workspace.engineering_workspace_tabs import MapWorkspaceView, ReportsWor
 
 
 class ControlSurfaceHost(QWidget):
+    region_visibility_changed = Signal(str, str, bool)
+
     """Compatibility facade whose actual composition is the canonical editor host."""
 
     def __init__(
@@ -108,6 +110,11 @@ class ControlSurfaceHost(QWidget):
                 parent=self._host,
             )
             self._host.register_editor("sld-editor", sld_editor)
+            sld_editor.region_visibility_changed.connect(
+                lambda region_id, visible: self.region_visibility_changed.emit(
+                    "sld", region_id, visible
+                )
+            )
             sld_editor.set_maximize_callback(
                 lambda maximized: self._host.set_area_maximized("main-sld", maximized)
             )
@@ -293,6 +300,11 @@ class ControlSurfaceHost(QWidget):
         if not callable(setter):
             raise AttributeError(f"Editor {editor_id!r} does not expose contextual region visibility.")
         setter(region_id, bool(visible), user=True)
+        editor_signal = getattr(editor, "region_visibility_changed", None)
+        if not callable(getattr(editor_signal, "connect", None)):
+            effective = self.region_visibility(editor_type, region_id)
+            if effective is not None:
+                self.region_visibility_changed.emit(editor_type, region_id, effective)
 
     def region_visibility(self, editor_type: str, region_id: str) -> bool | None:
         """Read the owning editor's effective region visibility without adding state."""

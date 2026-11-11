@@ -3134,3 +3134,13 @@ Upstream issue: SubhenduMishra29/GridForge#1193
   region composition. User override and splitter-size paths remain unchanged.
 - Verification: static source inspection and GitHub fetch-back only. No GUI,
   tests, pytest, CI, startup, or runtime experiments were run.
+
+
+UI visibility follow-up — immediate menu projection:
+- SLDEditor emits region visibility changes after direct header toggles,
+  maximize/restore, and workspace region-definition application.
+- ControlSurfaceHost relays those events and emits equivalent notifications
+  for editors without their own region signal.
+- The composition root subscribes the existing menu/toolbar presentation
+  refresh to that event. The checked-state provider remains a live read from
+  the active editor; the signal carries no stored visibility state.
