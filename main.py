@@ -77,11 +77,10 @@ from ui.editors.study.study_tool_runtime import StudyToolRuntime
 from ui.editors.common.tool_icon_adapter import ToolIconAdapter
 from ui.protection.protection_tools import ProtectionInteractionController
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
-from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
-from core.application.commands.breaker_commands import CreateBreakerCommand, DeleteBreakerCommand
-from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE, RemoveSimpleWireConnectionCommand
-from core.application.commands.draft_commands import RemoveDraftConnectionCommand, RemoveDraftEquipmentCommand, PasteDraftSelectionCommand
-from core.application.commands.selection_commands import DeleteSelectionBatchCommand
+from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, CreateTransformerCommand
+from core.application.commands.breaker_commands import CreateBreakerCommand
+from core.application.commands.simple_wire_commands import CREATE_SIMPLE_WIRE
+from core.application.commands.draft_commands import PasteDraftSelectionCommand
 from ui.branding import BrandingService
 from ui.splash_screen import StartupSplash
 Cleanup = Callable[[], None]
