@@ -3691,3 +3691,10 @@ Follow-up source correction:
 - Boolean values are rejected as wiring schema versions even though Python treats bool as an int subclass.
 - Added regression test source for unknown per-record fields, boolean schema values, and global stable-ID collisions.
 - Remaining unresolved integration boundary: stable WiringTerminalReference.terminal_id values are not yet reconciled against a canonical Core terminal registry. This is intentionally left open rather than guessed from terminal role/designation or SLD projection.
+
+Terminal identity reconciliation:
+- Source inspection of core/model/terminal.py and core/application/endpoint_resolver.py confirmed that GridForge has no independent Terminal ID. Its canonical identity is the owning equipment identity plus the exact, case-sensitive terminal role.
+- Replaced the proposed terminal_id field with terminal_role. The visible designation remains a separate display label and is not part of stable identity.
+- InstrumentationWiringService now validates every referenced equipment/terminal pair against the candidate project's canonical Network before activation. Missing owners, missing roles, duplicate matching roles, and cross-project/unregistered identities fail closed.
+- Project activation passes the exact candidate Network into this validation and preserves service/network identity in rollback snapshots.
+- Added a test source for rejection of terminal references absent from the active Network. Positive save/reopen and live project activation remain unexecuted.
