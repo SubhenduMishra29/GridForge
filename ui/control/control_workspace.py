@@ -12,11 +12,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
-from ui.core.qt import QGraphicsView, QHBoxLayout, QVBoxLayout, QWidget, QSplitter, Qt
+from ui.core.qt import QGraphicsView, QVBoxLayout, QWidget, Qt
 from ui.canvas.control_canvas import ControlCanvas
-from .control_tool_palette import ControlToolDescriptor, ControlToolPalette
+from .control_tool_palette import ControlToolDescriptor, ControlToolRegistry
 from .control_inspector import ControlInspector
-from .control_toolbar import ControlToolbar
 from .control_status_bar import ControlStatusBar
 from .ladder.ladder_interaction import LadderInteraction
 from ui.events.control_update_coordinator import ControlUpdateCoordinator
@@ -82,16 +81,7 @@ class ControlWorkspace(QWidget):
             on_status=self._status.set_status,
             selection_manager=selection_manager,
         )
-        self._palette = ControlToolPalette(application=application, on_selected=self._tool_selected)
-        self._toolbar = ControlToolbar(
-            application=application,
-            on_add_rung=self._add_rung,
-            on_remove_rung=self._remove_rung,
-            on_toggle_rung=self._toggle_rung,
-            on_move_rung_up=self._move_rung_up,
-            on_cancel_tool=self._interaction.cancel,
-            on_execute_cycle=self._execute_cycle,
-        )
+        self._tool_registry = ControlToolRegistry.create_default(application=application)
         self._view = _LadderView(interaction=self._interaction, scene=self._canvas)
         self._selection_manager.selection_changed.connect(self._on_canonical_selection)
         self._coordinator = ControlUpdateCoordinator(
@@ -104,10 +94,6 @@ class ControlWorkspace(QWidget):
             application.event_bus.subscribe(event_type, self._coordinator.refresh)
             self._subscriptions.append((event_type, self._coordinator.refresh))
 
-        self._palette.setVisible(False)
-        self._toolbar.setVisible(False)
-        self._palette.setMinimumWidth(180)
-        self._palette.setMaximumWidth(300)
         self._inspector.setMinimumWidth(280)
         self._inspector.setMaximumWidth(420)
         self._view.setMinimumWidth(500)
@@ -115,9 +101,8 @@ class ControlWorkspace(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
         root.addWidget(self._view, 1)
-        # Historical palette/toolbar/inspector widgets remain owned by this
-        # compatibility coordinator but are no longer part of its visible
-        # surface. ControlEditor realizes them through canonical Regions.
+        # ControlEditor owns the visible ToolShelf; this workspace retains only
+        # registry metadata and activation, not a second tool-presentation widget.
         self._workspace_splitter = None
 
         self.refresh()
@@ -146,9 +131,17 @@ class ControlWorkspace(QWidget):
     def editor_status(self) -> QWidget:
         return self._status
 
+    @property
+    def tool_definitions(self):
+        """Canonical ToolDefinitions supplied to the visible Control ToolShelf."""
+        return self._tool_registry.definitions()
+
     def activate_tool_id(self, tool_id: str) -> None:
         """Activate a Control tool by its canonical ToolDefinition ID."""
-        descriptor = next((item for item in self._palette.descriptors if item.tool_id == str(tool_id)), None)
+        descriptor = next(
+            (item for item in self._tool_registry.descriptors() if item.tool_id == str(tool_id)),
+            None,
+        )
         if descriptor is None:
             raise KeyError(f"Unknown Control tool: {tool_id!r}")
         self._tool_selected(descriptor)
@@ -163,7 +156,6 @@ class ControlWorkspace(QWidget):
             self._status.set_status(
                 f"Control: {len(model.rungs)} rung(s), {len(model.components)} component(s)"
             )
-            self._set_editing_enabled(True)
         except RuntimeError:
             self._interaction.clear_project_state()
             self._canvas.reset_scene()
@@ -172,7 +164,6 @@ class ControlWorkspace(QWidget):
                 None,
             )
             self._status.set_status("Control: no active project")
-            self._set_editing_enabled(False)
 
     def _reconcile_selection(self, read_model: Any) -> None:
         rung_ids = {r.rung_id for r in read_model.rungs}
@@ -253,64 +244,6 @@ class ControlWorkspace(QWidget):
             self._status.set_status(
                 f"Selected connection: {identity[0]}.{identity[1]} -> {identity[2]}.{identity[3]}"
             )
-
-    def _add_rung(self) -> None:
-        try:
-            model = self._application.read_control()
-        except RuntimeError:
-            return
-        order = max((r.order for r in model.rungs), default=-1) + 1
-        rung_id = f"rung-{order + 1:03d}-{uuid4().hex[:6]}"
-        from core.application.commands.control_commands import AddLadderRung
-        self._application.execute(AddLadderRung(rung_id=rung_id, order=order))
-        self._interaction._select_rung(rung_id)
-
-    def _selected_rung(self):
-        try:
-            model = self._application.read_control()
-        except RuntimeError:
-            return None
-        return next(
-            (r for r in model.rungs if r.rung_id == self._interaction.selected_rung_id),
-            None,
-        )
-
-    def _toggle_rung(self) -> None:
-        rung = self._selected_rung()
-        if rung is None:
-            self._status.set_status("Select a rung first.")
-            return
-        from core.application.commands.control_commands import SetLadderRungEnabled
-        self._application.execute(SetLadderRungEnabled(rung_id=rung.rung_id, enabled=not rung.enabled))
-
-    def _move_rung_up(self) -> None:
-        rung = self._selected_rung()
-        if rung is None:
-            self._status.set_status("Select a rung first.")
-            return
-        from core.application.commands.control_commands import MoveLadderRung
-        self._application.execute(MoveLadderRung(rung_id=rung.rung_id, order=max(0, rung.order - 1)))
-
-    def _remove_rung(self) -> None:
-        rung = self._selected_rung()
-        if rung is None:
-            self._status.set_status("Select a rung first.")
-            return
-        from core.application.commands.control_commands import RemoveLadderRung
-        self._application.execute(RemoveLadderRung(rung_id=rung.rung_id))
-
-    def _execute_cycle(self) -> None:
-        try:
-            result = self._application.execute_control_cycle()
-        except Exception as exc:
-            self._status.set_status(f"Control execution failed: {exc}")
-            return
-        simulation_time = getattr(result, "simulation_time", None)
-        self._status.set_status("Control cycle completed" if simulation_time is None else f"Control cycle completed at t={simulation_time:g}")
-
-    def _set_editing_enabled(self, enabled: bool) -> None:
-        self._toolbar.set_editing_enabled(enabled)
-        self._palette.setEnabled(bool(enabled))
 
     def dispose(self) -> None:
         self._interaction.clear_project_state()
