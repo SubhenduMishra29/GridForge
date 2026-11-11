@@ -2856,3 +2856,16 @@ UI audit closure / partial completion — placement corridor:
   A review comment records this residual visual requirement. Do not duplicate
   the already-implemented 15px corridor.
 - Static source inspection only.
+
+
+UI audit partial-status notes:
+- #818: multi-sheet comparison is present through SLDCanvasSurface +
+  ReadOnlySLDViewport, including per-view viewport persistence, topology
+  reconciliation status and promotion to editing. Incremental renderer
+  reconciliation is present, but synchronous UI-thread performance remains
+  unverified; issue stays OPEN for large-scene navigation/performance.
+- #823: contextual strips now expose single-symbol rotate/mirror, annotation
+  placement and group transforms; symbol-variant review exists in the inspector.
+  Standard/style and remaining quick visual attributes are not fully available
+  in the contextual strip; issue stays OPEN. Rotation dispatch reconciliation
+  is tracked in #1190.
