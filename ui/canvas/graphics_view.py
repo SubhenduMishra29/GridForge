@@ -153,6 +153,7 @@ class GraphicsView(QGraphicsView):
                     )
             )
             strip_layout.addWidget(button)
+            button.hide()
             self._group_transform_buttons.append(button)
         self._annotation_quadrant_button = QToolButton(self._contextual_strip)
         self._annotation_quadrant_button.setToolTip(
