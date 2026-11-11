@@ -118,6 +118,7 @@ class GraphicsView(QGraphicsView):
         strip_layout = QHBoxLayout(self._contextual_strip)
         strip_layout.setContentsMargins(4, 3, 4, 3)
         strip_layout.setSpacing(2)
+        self._single_symbol_buttons = []
         for label, tooltip, operation in (
             ("↶", "Rotate selected symbol 90° counter-clockwise (Q)", "rotate_ccw"),
             ("↷", "Rotate selected symbol 90° clockwise (E)", "rotate_cw"),
@@ -132,6 +133,27 @@ class GraphicsView(QGraphicsView):
                 lambda _checked=False, op=operation: self._apply_contextual_symbol_action(op)
             )
             strip_layout.addWidget(button)
+            self._single_symbol_buttons.append(button)
+
+        self._group_transform_buttons = []
+        for label, tooltip, rotation, mirror_x, mirror_y in (
+            ("↶ Group", "Rotate selected group 90° counter-clockwise", -90.0, False, False),
+            ("↷ Group", "Rotate selected group 90° clockwise", 90.0, False, False),
+            ("Flip H", "Mirror selected group horizontally (H)", 0.0, True, False),
+            ("Flip V", "Mirror selected group vertically (V)", 0.0, False, True),
+        ):
+            button = QToolButton(self._contextual_strip)
+            button.setText(label)
+            button.setToolTip(tooltip)
+            button.setAccessibleName(tooltip)
+            button.clicked.connect(
+                lambda _checked=False, r=rotation, mx=mirror_x, my=mirror_y:
+                    self._apply_contextual_group_action(
+                        rotation_degrees=r, mirror_x=mx, mirror_y=my
+                    )
+            )
+            strip_layout.addWidget(button)
+            self._group_transform_buttons.append(button)
         self._annotation_quadrant_button = QToolButton(self._contextual_strip)
         self._annotation_quadrant_button.setToolTip(
             "Cycle selected equipment annotations through top-right, top-left, bottom-right, and bottom-left quadrants"
@@ -269,31 +291,79 @@ class GraphicsView(QGraphicsView):
         return node, item
 
     def _refresh_contextual_tool_strip(self, *_args) -> None:
-        """Anchor the transient strip to the selected symbol in viewport space."""
-        node, item = self._selected_presentation_node()
-        if node is None or item is None:
-            self._contextual_strip.hide()
-            return
+        """Anchor single- or multi-selection controls to visible SLD content."""
         document = getattr(self.sld_controller, "active_document", None)
         if document is None:
             self._contextual_strip.hide()
             return
-        document_model = getattr(document, "model", None)
-        nodes = getattr(document_model, "nodes", None)
-        if nodes is not None and node.node_id not in nodes:
-            self._contextual_strip.hide()
-            return
-        annotation_blocks = tuple(
-            block for block in getattr(document, "annotation_blocks", ())
-            if block.node_id == node.node_id
+        selection_manager = getattr(self.tool_manager, "selection_manager", None)
+        select_tool = (
+            self.tool_manager.get_tool("select")
+            if self.tool_manager is not None
+            and callable(getattr(self.tool_manager, "get_tool", None))
+            else None
         )
-        self._annotation_quadrant_button.setEnabled(bool(annotation_blocks))
-        self._annotation_quadrant_button.setText("Label ↻")
+        selected_count = (
+            select_tool.selected_transform_count()
+            if callable(getattr(select_tool, "selected_transform_count", None))
+            else 0
+        )
+        group_mode = selected_count > 1
+        for button in self._single_symbol_buttons:
+            button.setVisible(not group_mode)
+        for button in self._group_transform_buttons:
+            button.setVisible(group_mode)
+        self._annotation_quadrant_button.setVisible(not group_mode)
 
-        # Keep the overlay attached only while the selected symbol is actually
-        # visible. Clamping an off-screen symbol to a viewport edge creates a
-        # misleading toolbar that appears to belong to unrelated canvas content.
-        scene_bounds = item.mapRectToScene(item.boundingRect())
+        if group_mode:
+            selected = select_tool._selected_transform_nodes()
+            active_model = getattr(document, "model", None)
+            active_nodes = getattr(active_model, "nodes", None)
+            if not selected or active_model is None:
+                self._contextual_strip.hide()
+                return
+            scene_bounds_list = []
+            for node, _symbol in selected:
+                if active_nodes is not None and node.node_id not in active_nodes:
+                    self._contextual_strip.hide()
+                    return
+                accepted_ids = {
+                    str(node.node_id),
+                    str(node.equipment_id),
+                    f"presentation:{node.node_id}",
+                }
+                item = next((
+                    candidate for candidate in self._scene.items()
+                    if str(getattr(candidate, "object_id", "")) in accepted_ids
+                    and getattr(candidate, "symbol_instance", None) is not None
+                ), None)
+                if item is None:
+                    self._contextual_strip.hide()
+                    return
+                scene_bounds_list.append(item.mapRectToScene(item.boundingRect()))
+            scene_bounds = scene_bounds_list[0]
+            for bounds in scene_bounds_list[1:]:
+                scene_bounds = scene_bounds.united(bounds)
+        else:
+            node, item = self._selected_presentation_node()
+            if node is None or item is None:
+                self._contextual_strip.hide()
+                return
+            document_model = getattr(document, "model", None)
+            nodes = getattr(document_model, "nodes", None)
+            if nodes is not None and node.node_id not in nodes:
+                self._contextual_strip.hide()
+                return
+            annotation_blocks = tuple(
+                block for block in getattr(document, "annotation_blocks", ())
+                if block.node_id == node.node_id
+            )
+            self._annotation_quadrant_button.setEnabled(bool(annotation_blocks))
+            self._annotation_quadrant_button.setText("Label ↻")
+            scene_bounds = item.mapRectToScene(item.boundingRect())
+
+        # Keep the overlay attached only while the selected content is actually
+        # visible. Clamping off-screen content to a viewport edge is misleading.
         viewport_bounds = self.mapFromScene(scene_bounds).boundingRect()
         viewport_rect = self.viewport().rect()
         if not viewport_bounds.intersects(viewport_rect):
@@ -309,6 +379,33 @@ class GraphicsView(QGraphicsView):
         self._contextual_strip.move(x, y)
         self._contextual_strip.show()
         self._contextual_strip.raise_()
+
+    def _apply_contextual_group_action(
+        self,
+        *,
+        rotation_degrees: float = 0.0,
+        mirror_x: bool = False,
+        mirror_y: bool = False,
+    ) -> None:
+        """Route contextual group operations through the canonical SelectTool."""
+        select_tool = (
+            self.tool_manager.get_tool("select")
+            if self.tool_manager is not None
+            and callable(getattr(self.tool_manager, "get_tool", None))
+            else None
+        )
+        apply_transform = getattr(select_tool, "apply_group_transform", None)
+        if not callable(apply_transform):
+            self.controller.show_status_message(
+                "Group transformation is unavailable in the active SLD workspace."
+            )
+            return
+        apply_transform(
+            rotation_degrees=rotation_degrees,
+            mirror_x=mirror_x,
+            mirror_y=mirror_y,
+        )
+        self._refresh_contextual_tool_strip()
 
     def _cycle_contextual_annotation_quadrant(self) -> None:
         """Persist annotation placement through the existing Application command path."""
