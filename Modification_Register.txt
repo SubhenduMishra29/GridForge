@@ -2254,3 +2254,9 @@ Verification:
 - Source changes committed to main and fetched back for migration, package schema, model, document, and persistence test files.
 - Static source inspection confirmed the schema-4 validator requires layer membership on all three authored collections and validates all references against the document layer registry.
 - Added tests but did not execute tests, CI, imports, project package runtime, or Qt GUI acceptance. No runtime save/reopen or rendering behavior is claimed.
+
+
+Phase A follow-up:
+- Exported SLDPresentationLayer through the lazy ui.sld package API so callers can use the new document model without importing its implementation module directly.
+- Kept SLDAnnotationBlock.from_dict() backward-friendly for programmatic mapping construction by defaulting an omitted layer_id to "default". Canonical schema-4 persistence remains strict: validate_canonical_sld() still requires the explicit layer_id field before document restoration.
+- These refinements do not expand Phase A into command, renderer, or UI behavior.
