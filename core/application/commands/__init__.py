@@ -3,6 +3,10 @@
 Author: Subhendu Mishra
 """
 
+from .instrumentation_wiring_commands import (
+    SET_INSTRUMENTATION_WIRING_INVENTORY,
+    SetInstrumentationWiringInventoryCommand,
+)
 from .battery_commands import (
     CREATE_BATTERY, UPDATE_BATTERY, DELETE_BATTERY,
     PUT_BATTERY_IN_SERVICE, TAKE_BATTERY_OUT_OF_SERVICE,
