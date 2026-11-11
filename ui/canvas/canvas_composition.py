@@ -1010,6 +1010,15 @@ class CanvasComposer:
             raise ValueError("properties_panel must not be None.")
         coordinator = composition.selection_projection
         coordinator.set_properties_panel(properties_panel)
+        bind_sld_annotation_runtime = getattr(
+            properties_panel, "bind_sld_annotation_runtime", None
+        )
+        if callable(bind_sld_annotation_runtime):
+            bind_sld_annotation_runtime(
+                controller=composition.sld_controller,
+                selection_manager=composition.selection_manager,
+            )
+            composition.sld_inspector = properties_panel
         return coordinator
 
 
