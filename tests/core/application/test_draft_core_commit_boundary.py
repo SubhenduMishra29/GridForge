@@ -537,3 +537,22 @@ def test_empty_draft_commit_is_rejected_and_retained():
     assert not app.read_network().elements
     assert not draft.equipment
     assert not draft.connections
+
+
+def test_draft_equipment_persists_presentation_layer_without_changing_core_contract():
+    equipment = _bus("layered-bus")
+    layered = DraftEquipment(
+        **{**equipment.__dict__, "layer_id": "protection"}
+    )
+    restored = DraftEquipment.from_dict(layered.to_dict())
+    assert restored.layer_id == "protection"
+
+    draft = DraftNetwork("project-layered", 1)
+    draft.add_equipment(restored)
+    updated = draft.update_equipment("layered-bus", layer_id="control")
+    assert updated.layer_id == "control"
+    assert DraftNetwork.from_dict(
+        draft.to_dict(),
+        project_id="project-layered",
+        activation_generation=1,
+    ).require_equipment("layered-bus").layer_id == "control"
