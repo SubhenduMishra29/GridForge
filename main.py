@@ -1053,25 +1053,26 @@ def _build_application_impl(
             "Paste preview active. Move the selection and click to accept, or press Escape to cancel."
         )
 
-    def _delete_selection() -> None:
+    def _delete_selection() -> bool:
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
-            return
+            return False
         if not _selection_supports("delete"):
             messages_panel.append_message(
                 "Delete canceled: the complete selection contains an object without a supported semantic delete command. Nothing was deleted."
             )
-            return
+            return False
         try:
-            if not sld_controller.delete_selection():
-                return
+            deleted = bool(sld_controller.delete_selection())
         except Exception as exc:
             messages_panel.append_message(
                 f"Delete failed; the Application transaction was rolled back: {exc}"
             )
-            return
+            return False
         # SLDController clears the authoritative typed selection only after
         # the single Application batch command commits successfully.
+        return deleted
+
     def _cut_selection() -> None:
         selected_ids = tuple(canvas_composition.selection_manager.get_selected_ids())
         if not selected_ids:
@@ -1083,15 +1084,18 @@ def _build_application_impl(
             )
             return
 
+        previous_clipboard = list(sld_clipboard)
         _copy_selection()
         if len(sld_clipboard) != len(selected_ids):
+            sld_clipboard[:] = previous_clipboard
             messages_panel.append_message(
                 "Cut canceled: one or more selected items cannot be copied "
                 "as semantic equipment. Nothing was deleted."
             )
             return
 
-        _delete_selection()
+        if not _delete_selection():
+            sld_clipboard[:] = previous_clipboard
 
     def _selected_sld_nodes() -> tuple[object, ...]:
         return tuple(
