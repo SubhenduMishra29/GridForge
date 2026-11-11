@@ -1974,3 +1974,26 @@ Fixture reconciliation:
 - The new round-trip fixture was reconciled with ValidationService.validate_sld_associations(): its SLD nodes must reference actual Core equipment in the fixture Network.
 - Updated the two presentation nodes and semantic endpoint equipment identities to BUS-001 and BUS-002, which are present in the canonical test Network. Symbol presentation remains deliberately transformed; this avoids a false-positive test fixture that would be rejected before serialization.
 - Test and register were fetched back from main after their respective commits. No test execution is claimed.
+
+
+======================================================================
+GridForge V2 — Atomic group-transform undo/redo regression coverage
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- Group transforms already use one Application transaction and one inverse journal entry.
+- The inverse validates all selected nodes and their expected post-transform state before restoring any member. This important all-or-nothing behavior lacked focused Application history regression coverage.
+
+Correction:
+- Added a group transform lifecycle test that captures complete pre-transform and post-transform state for two SLD nodes: positions, SymbolBase presentation DTOs (rotation, scale and mirror flags), and node properties.
+- The test exercises Application execute -> undo -> redo and compares exact complete state at each boundary.
+- Added a stale-member test that externally changes one member after group transform, attempts undo, and asserts that undo fails closed without restoring the other group member.
+
+Scope:
+- Regression coverage only. No change to Core equipment, terminal identity, electrical topology/connectivity, transform calculations, or transaction architecture.
+
+Verification:
+- Test and Modification Register fetched back from main after commit.
+- Tests were not executed. The test source is not evidence of runtime success; Python import/test execution and desktop Qt GUI acceptance remain outstanding.
