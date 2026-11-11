@@ -361,7 +361,10 @@ class SLDUpdateCoordinator:
                 # snapshot (including commit undo/redo).
                 if (
                     self._draft_projection is not None
-                    and event.payload.get("presentation_operation") == "network_commit_draft"
+                    and event.payload.get("presentation_operation") in {
+                        "network_commit_draft",
+                        "selection_delete_batch",
+                    }
                 ):
                     self._draft_projection.project()
                 self._refresh_canvas()
@@ -387,12 +390,14 @@ class SLDUpdateCoordinator:
                     document,
                     self._application.read_network(),
                 )
-                if event.payload.get("presentation_operation") == "network_commit_draft":
-                    # Draft→Core commit publishes a paired network event and
-                    # SLD presentation event. Reconcile the Core projection
-                    # now, but defer the canvas refresh until the latter has
-                    # also removed the committed draft snapshot. This prevents
-                    # a transient frame containing both draft and Core items.
+                if event.payload.get("presentation_operation") in {
+                    "network_commit_draft",
+                    "selection_delete_batch",
+                }:
+                    # Aggregate Core/SLD mutations publish a paired network
+                    # event and SLD presentation event. Reconcile the Core
+                    # projection now, but defer canvas refresh until the latter
+                    # has also synchronized the document-scoped draft projection.
                     self._last_reconciliation_error = None
                     return
             elif isinstance(event, ProjectLoaded):
