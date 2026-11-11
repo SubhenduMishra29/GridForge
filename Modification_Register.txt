@@ -2352,3 +2352,30 @@ Phase D1 follow-up:
 - Active authoring-layer selection is stored by SLD document ID, not in one controller-global slot, so switching between open SLD documents does not leak the active layer selection.
 - Hidden or locked layers are rejected as active authoring layers. Hiding or locking the currently active layer returns that document's active selection to its Default layer.
 - The Layer Manager refreshes on tab display, including after a document switch while the Layers tab is not visible.
+
+
+======================================================================
+GridForge V2 — Draft placement layer propagation (Phase D2a)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Begin Phase D2 by carrying active SLD presentation-layer identity from the placement interaction through Application-owned DraftNetwork state and the draft canvas projection.
+
+Implementation:
+- DraftEquipment now has an explicit presentation-only layer_id (default "default"), strict non-empty identity validation, serialization/deserialization support, and update_equipment support. Existing draft payloads without layer_id remain backward-compatible and restore to Default.
+- ModelPlacementTool captures the active layer at the placement commit point. It resolves the canonical SLDController through the public Controller.get_sld_controller() capability, rather than reaching into controller private state. Later layer selection changes do not move already placed draft equipment.
+- DraftSLDCanvasNode carries layer_id. DraftSLDCanvasSnapshot carries the current SLD layer registry from CanvasComposition.
+- Draft rendering now resolves each draft equipment object's layer against the active document registry and applies layer ordering, opacity and visibility to both normal symbol previews and degraded fallback items. The full draft object remains in DraftNetwork and the hidden preview remains registered in SnapSystem where symbol realization supports snap registration.
+- Layer metadata participates in draft node render signatures so layer visibility/opacity/order changes reconcile existing draft graphics.
+- Added source regression coverage for DraftEquipment layer serialization, mutation and DraftNetwork round-trip.
+
+Architecture:
+- layer_id is stored only on Application-owned DraftEquipment and UI presentation snapshots. No Core equipment, terminal, connectivity, topology or study model receives SLD layer metadata.
+- Existing schema payloads are compatible through the "default" fallback.
+- This is D2a, not complete D2. DraftConnection layer ownership and all draft-wire/connection authoring routes still require explicit active-layer propagation and rendering. Draft annotation placement also remains to be reconciled where applicable.
+
+Verification:
+- Source files and the new regression test were committed and fetched back from current main.
+- No tests, CI, Python import/syntax execution, Qt GUI interaction, snap gesture, project save/reopen, or DraftNetwork-to-Core commit runtime was executed. No runtime acceptance is claimed.
