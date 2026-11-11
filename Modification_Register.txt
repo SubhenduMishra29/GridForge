@@ -1268,3 +1268,30 @@ Next integration contract:
 Verification boundary:
 - Source audit only; no files changed in this audit batch.
 - No GUI, selection lifecycle, command undo/redo, or project save/reopen runtime acceptance is claimed.
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-013 — CANONICAL SLD INSPECTOR SELECTION LIFECYCLE
+======================================================================
+Date: 2026-11-11 | Issue: #823
+
+Correction:
+- The actual application composition root creates CanvasComposition before the PropertiesPanelWidget, then calls CanvasComposer.bind_selection_projection() after the panel is realized. The earlier GF-UI-SYMBOL-STANDARD-012 audit correctly found a missing runtime bind, but its proposed PluginContext field expansion was unnecessary; the existing late composition handoff is the canonical route.
+- CanvasComposer.bind_selection_projection() now binds the PropertiesPanelWidget's SLD annotation/selection runtime using composition.sld_controller and composition.selection_manager, then records the inspector as a CanvasComposition-owned lifecycle dependency.
+- PropertiesPanelWidget binding is idempotent for the same controller/selection manager, disconnects a previous manager before rebinding, initializes its local selection snapshot from get_selected_ids(), and exposes unbind_sld_annotation_runtime() to disconnect cleanly.
+- CanvasComposition.dispose() now unbinds the inspector before releasing the selection projection and other Canvas resources.
+- The duplicate direct bind in main.py was removed. This leaves one canonical selection subscription and makes the binding lifecycle follow the Canvas composition.
+- The optional early bind in CanvasComposer.compose() remains supported for callers that already supply a Properties panel; the later bind_selection_projection() path is safe because binding is idempotent.
+
+Architecture:
+- SelectionManager remains the sole transient UI selection authority.
+- SLDController remains the Application-facing SLD mutation route.
+- No Core equipment, terminal, connectivity, or wire-route state is changed by this binding.
+
+Commits:
+- PropertiesPanelWidget lifecycle: 2e5c9879eaeeb4c5f8e6da0e35a6b87b5a51d81c; current-selection initialization: 8d106d840cf2ae4ba28c5d2a620b657f7efd15aa.
+- CanvasComposition binding/disposal: b28ba32f0e5c0a5388b7236dd4b3845efd204f7a; canonical late handoff: 89ab4dffb5f92b45c34988936efd08b889aaddd8.
+- Startup duplicate removal: 1006e75c1f6e3d77210a85598dbb88b99dd54411.
+
+Fetch-back checks: inspector bind/unbind, initial selected-ID hydration, composition ownership/disposal, canonical late handoff, and removal of the duplicate startup bind all passed.
+
+Verification boundary: source-level only. No Python import/syntax execution, Qt GUI selection test, signal lifecycle runtime, undo/redo, or project save/reopen test is claimed. Symbol variant editor controls are not yet implemented; no unapproved variant is exposed.
