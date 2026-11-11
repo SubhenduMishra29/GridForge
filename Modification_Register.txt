@@ -1,3 +1,27 @@
+GridForge V2 — Atomic group horizontal and vertical mirroring
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- Multi-selection transforms already supported group translation, rotation, and scale through SetSLDNodeTransformsCommand.
+- Group mirroring was not implemented in SelectTool; the contextual Flip H/Flip V actions applied to one symbol only.
+
+Correction:
+- Added H to mirror the complete NODE selection horizontally and V to mirror vertically.
+- Group reflection is performed about the same selection pivot used for group rotation/scale; equipment node positions are reflected as a group, preserving relative spacing and arrangement.
+- Each symbol's corresponding mirror_x or mirror_y presentation flag is toggled in its renderer-neutral SymbolBase DTO.
+- Position and symbol presentation changes are submitted together through the existing SetSLDNodeTransformsCommand, retaining one Application transaction and one group undo journal entry.
+- Mirror axis flags are type-checked; a single operation mirrors one axis only. Invalid/unresolvable selections continue to fail closed.
+- Core equipment identity, terminal identity, electrical connectivity, and connection topology are not mutated. Terminal anchors follow the symbol's presentation transform during projection.
+
+Verification:
+- Updated SelectTool fetched back from main.
+- Source-level checks confirm H/V key routes, pivot-relative coordinate reflection, corresponding symbol mirror flags, and dispatch through the atomic group transform command.
+- Existing SLD service undo guard and complete-selection preflight remain in force.
+- No Python import/syntax execution, Qt GUI/key event acceptance, connected-wire runtime check, undo/redo runtime, or save/reopen acceptance was performed.
+
+======================================================================
 GridForge V2 — Group transform complete-selection preflight
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
