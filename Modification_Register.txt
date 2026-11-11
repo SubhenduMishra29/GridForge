@@ -2147,3 +2147,38 @@ Verification:
 - Confirmed one Tool Settings Region and one Inspector Region per editor, with one canonical editor registration per discipline and injected inspector identity at composition.
 - No source files changed. Modification Register updated and fetched back from main.
 - No Python import/syntax execution, memory profiling, Qt GUI visibility check, or workspace-switch runtime acceptance was performed.
+
+
+======================================================================
+GridForge V2 — SLD annotation density and presentation-layer model audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Reconciled issue #820's fixed-pixel annotation collision report and missing non-destructive visual-layer requirement against the current symbol renderer, annotation projection, SLD document schema, and canvas render lifecycle.
+
+Findings — annotation scaling and density:
+- The reported fixed-pixel font implementation in SLDGraphicsItemFactory is not present in current main. The factory resolves semantic descriptors and constructs equipment presentation; it does not assign a fixed screen-space font to engineering labels.
+- Equipment symbol text primitives are painted by EquipmentItem in symbol-local coordinates using the engineering presentation font. The item's scale/rotation/reflection transform therefore applies to the text with the symbol; no ItemIgnoresTransformations/fixed-screen-font behavior was found in this path.
+- Data annotations are separate transient QGraphicsTextItem objects projected from SLDAnnotationBlock/Application read models. They use scene coordinates and a deterministic annotation Z value, so their text scales with the canvas transform rather than remaining fixed in screen pixels.
+- SLDCanvasRenderSystem already has a configurable annotation_min_zoom (default 0.65) and a NavigationController zoom listener. It hides data annotations below that threshold without modifying persisted visibility. This is a coarse zoom-level density gate, not collision detection: no viewport-space overlap test, label prioritization, or intermediate-zoom decluttering was found.
+- Annotation placement currently supports four fixed quadrants or a custom offset. This is useful manual placement but does not solve automatic collisions between neighboring labels.
+
+Findings — non-destructive visual layers:
+- SLDDocument persists annotation_blocks as a flat ordered collection. SLDAnnotationBlock has block/node identity, fields, visibility, offsets and quadrant, but no layer identity, grouping, opacity, display mode, or layer visibility state.
+- SymbolBase persists per-symbol visibility and presentation properties, but no canonical named layer membership or independent layer presentation configuration was found in the inspected model.
+- SLDCanvasRenderSystem has fixed technical Z bands for connections, equipment and annotations. These are renderer ordering constants, not engineer-controlled non-destructive layers.
+- The current project/SLD presentation schema therefore does not provide the requested Protection/Control, thermal-loading, or physical-layout presentation-layer isolation. Encoding this in ad-hoc node properties or renderer-only flags would create split authority and is not an acceptable correction.
+
+Decision / next design boundary:
+- Do not change font sizing based on the issue's stated fixed-pixel mechanism; that mechanism is not present in current main.
+- The verified gap is collision-aware decluttering above the existing 0.65 zoom cutoff and a persisted, renderer-neutral presentation-layer model. These require explicit product semantics: layer identity and ordering, visibility/opacity, default layer, annotation/symbol membership, backward-compatible serialization, command/undo semantics, and interaction with selection, snapping, connectivity and study overlays.
+- Keep all such state in the SLD presentation document/application command path; it must not alter Core equipment, terminal identity, topology or study results. Avoid treating renderer Z values as layer authority.
+- No implementation was made in this audit because the layer contract and migration semantics are not yet defined; a speculative renderer-only patch would risk persistence and multi-view inconsistencies.
+
+Verification:
+- Inspected SLDGraphicsItemFactory, EquipmentItem, SLDCanvasRenderSystem, SLDCanvasProjection, SLDAnnotationBlock/SLDModel, SLDDocument and SymbolBase on current main.
+- Source inspection confirms scene-scaled text, existing coarse zoom suppression, absence of collision-aware decluttering, and absence of canonical named presentation layers in the inspected SLD schema.
+- Modification Register updated and fetched back. No source files changed.
+- No Python import/syntax execution, Qt zoom/overlap visual acceptance, large-network profiling, or save/reopen migration test was performed.
