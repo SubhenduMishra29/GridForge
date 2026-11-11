@@ -6,7 +6,7 @@ from core.application.bootstrap import create_application
 from core.network.network import Network
 from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
-from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand
+from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand, SetSLDNodeTransformsCommand
 from core.application.commands.model_commands import CreateBusCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
@@ -82,3 +82,102 @@ def test_undo_and_redo_publish_presentation_events() -> None:
     application.redo()
 
     assert [event.payload["operation"] for event in events] == ["execute", "undo", "redo"]
+
+
+
+def _group_transform_fixture():
+    application, document = _application()
+    first = document.model.create_node(
+        "bus-1", equipment_id="bus-1", x=10, y=20,
+        presentation=SymbolBase(
+            "symbol-1", "bus", rotation=0.0, scale=1.0,
+            properties={"mirror_x": False, "mirror_y": False},
+        ),
+        properties={"position_owner": "core", "symbol_owner": "catalogue"},
+    )
+    second = document.model.create_node(
+        "bus-2", equipment_id="bus-1", x=110, y=120,
+        presentation=SymbolBase(
+            "symbol-2", "bus", rotation=90.0, scale=1.5,
+            properties={"mirror_x": True, "mirror_y": False},
+        ),
+        properties={"position_owner": "core", "symbol_owner": "catalogue"},
+    )
+    before = {
+        node.node_id: {
+            "position": tuple(node.position),
+            "presentation": node.presentation.to_dict(),
+            "properties": dict(node.properties),
+        }
+        for node in (first, second)
+    }
+    transforms = [
+        {
+            "node_id": "bus-1", "x": 35.0, "y": 45.0,
+            "presentation": SymbolBase(
+                "symbol-1", "bus", rotation=90.0, scale=1.0,
+                properties={"mirror_x": False, "mirror_y": False},
+            ).to_dict(),
+        },
+        {
+            "node_id": "bus-2", "x": 135.0, "y": 145.0,
+            "presentation": SymbolBase(
+                "symbol-2", "bus", rotation=180.0, scale=1.5,
+                properties={"mirror_x": True, "mirror_y": True},
+            ).to_dict(),
+        },
+    ]
+    return application, document, before, transforms
+
+
+def _group_state(document, node_ids=("bus-1", "bus-2")):
+    return {
+        node_id: {
+            "position": tuple(document.model.get_node(node_id).position),
+            "presentation": document.model.get_node(node_id).presentation.to_dict(),
+            "properties": dict(document.model.get_node(node_id).properties),
+        }
+        for node_id in node_ids
+    }
+
+
+def test_group_transform_undo_redo_restores_exact_complete_member_state() -> None:
+    application, document, before, transforms = _group_transform_fixture()
+
+    result = application.execute(SetSLDNodeTransformsCommand(transforms=transforms))
+    assert result.success
+    after = _group_state(document)
+    assert after != before
+    assert application.undo_count() == 1
+
+    application.undo()
+    assert _group_state(document) == before
+    assert application.redo_count() == 1
+
+    application.redo()
+    assert _group_state(document) == after
+    assert application.undo_count() == 1
+
+
+def test_group_transform_stale_member_rejects_undo_without_partial_restore() -> None:
+    application, document, before, transforms = _group_transform_fixture()
+
+    application.execute(SetSLDNodeTransformsCommand(transforms=transforms))
+    after = _group_state(document)
+    stale_member = document.model.get_node("bus-2")
+    stale_member.set_presentation(
+        SymbolBase(
+            "symbol-2", "bus", rotation=225.0, scale=1.5,
+            properties={"mirror_x": True, "mirror_y": True},
+        ).to_dict()
+    )
+    externally_changed = _group_state(document)
+
+    with pytest.raises(ExecutionError):
+        application.undo()
+
+    # The first member must not be restored if validation of the second member
+    # fails: group inverse preflights the entire set before changing any member.
+    assert _group_state(document) == externally_changed
+    assert _group_state(document)["bus-1"] == after["bus-1"]
+    assert before["bus-1"] != after["bus-1"]
