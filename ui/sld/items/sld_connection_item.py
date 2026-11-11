@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Iterable
 import math
 
-from ui.core.qt import QObject, QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, Signal
+from ui.core.qt import QObject, QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, QMenu, Signal
 from ui.sld.sld_model import SLDEndpoint
 from ui.styling.presentation_style import VisualState, visual_pen
 
@@ -336,6 +336,54 @@ class SLDConnectionItem(QGraphicsPathItem):
             request["draft_connection_id"] = self._presentation_id
         self.route_edit_requested.emit(request)
         return proposed_route
+
+    def insert_instrumentation_bend_at(self, position: QPointF) -> tuple[tuple[float, float], ...]:
+        """Insert a bend at a scene position near this physical conductor path."""
+        if self._projection_source != "instrumentation_wiring" or self._instrumentation_route_identity is None:
+            raise RuntimeError("Only a physical instrumentation wiring segment supports this route action.")
+        px, py = float(position.x()), float(position.y())
+        polyline = [
+            (float(self._visual_source.x()), float(self._visual_source.y())),
+            *self._route_points,
+            (float(self._visual_target.x()), float(self._visual_target.y())),
+        ]
+        best_distance = float("inf")
+        best_index = 0
+        for index, (start, end) in enumerate(zip(polyline, polyline[1:])):
+            ax, ay = start
+            bx, by = end
+            dx, dy = bx - ax, by - ay
+            length_sq = dx * dx + dy * dy
+            if length_sq <= 0.0:
+                continue
+            ratio = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_sq))
+            nearest = (ax + ratio * dx, ay + ratio * dy)
+            distance = math.hypot(px - nearest[0], py - nearest[1])
+            if distance < best_distance:
+                best_distance = distance
+                best_index = index
+        return self.insert_bend(best_index, px, py)
+
+    def contextMenuEvent(self, event) -> None:
+        """Expose physical route bend and reset actions directly on the SLD path."""
+        if self._projection_source != "instrumentation_wiring" or self._instrumentation_route_identity is None:
+            event.ignore()
+            return
+        menu = QMenu()
+        add_bend_action = menu.addAction("Add bend here")
+        reset_action = None
+        if self._route_ownership == "engineer":
+            reset_action = menu.addAction("Reset to automatic route")
+        selected = menu.exec(event.screenPos())
+        if selected is add_bend_action:
+            self.insert_instrumentation_bend_at(event.scenePos())
+            event.accept()
+            return
+        if reset_action is not None and selected is reset_action:
+            self.reset_instrumentation_route()
+            event.accept()
+            return
+        event.ignore()
 
     def reset_instrumentation_route(self) -> None:
         """Request removal of engineer-owned bends for this physical segment."""
