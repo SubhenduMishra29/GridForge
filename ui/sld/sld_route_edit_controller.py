@@ -49,6 +49,26 @@ class SLDRouteEditController:
         """Commit one graphics-item route edit through SLDController/Application."""
         if not isinstance(request, dict):
             raise TypeError("route edit request must be a mapping")
+        if request.get("instrumentation_wiring") is True:
+            if request.get("core_connection_id") is not None:
+                raise ValueError("Physical wiring route edits must not carry a Core connection identity.")
+            carrier_kind = request.get("carrier_kind")
+            carrier_id = request.get("carrier_id")
+            segment_index = request.get("segment_index")
+            points = request.get("points")
+            if not isinstance(carrier_kind, str) or not carrier_kind:
+                raise ValueError("Physical wiring route edit requires carrier_kind.")
+            if not isinstance(carrier_id, str) or not carrier_id:
+                raise ValueError("Physical wiring route edit requires carrier_id.")
+            if isinstance(segment_index, bool) or not isinstance(segment_index, int) or segment_index < 1:
+                raise ValueError("Physical wiring route edit requires a positive segment_index.")
+            if not isinstance(points, (tuple, list)):
+                raise TypeError("Physical wiring route edit requires route points.")
+            setter = getattr(self._controller, "set_instrumentation_wiring_route", None)
+            if not callable(setter):
+                raise RuntimeError("SLDController does not expose physical wiring route persistence.")
+            setter(carrier_kind, carrier_id, segment_index, tuple(points))
+            return
         draft_connection_id = request.get("draft_connection_id")
         if isinstance(draft_connection_id, str) and draft_connection_id:
             application = getattr(self._controller, "application", None)
