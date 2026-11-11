@@ -175,21 +175,19 @@ class SelectionProjectionCoordinator:
             return
 
         if len(selected_ids) > 1 and self.properties_panel is not None:
-            snapshotter = getattr(self.selection_manager, "snapshot_selection", None)
-            restorer = getattr(self.selection_manager, "restore_selection", None)
+            temporary_selection = getattr(self.selection_manager, "temporary_single_selection", None)
             batch_setter = getattr(self.properties_panel, "set_batch_targets", None)
-            if callable(snapshotter) and callable(restorer) and callable(batch_setter):
-                selection_snapshot = snapshotter()
+            if callable(temporary_selection) and callable(batch_setter):
                 projected: list[ProjectionState] = []
                 self._batch_projection_active = True
                 try:
                     for selected_id in selected_ids:
-                        self.selection_manager.select_single(selected_id)
-                        target = getattr(self.properties_panel, "target", None)
-                        if isinstance(target, ProjectionState):
-                            projected.append(target)
+                        with temporary_selection(selected_id):
+                            self.refresh()
+                            target = getattr(self.properties_panel, "target", None)
+                            if isinstance(target, ProjectionState):
+                                projected.append(target)
                 finally:
-                    restorer(selection_snapshot)
                     self._batch_projection_active = False
                 if (
                     len(projected) == len(selected_ids)
