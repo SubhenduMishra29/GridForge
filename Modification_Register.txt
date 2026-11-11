@@ -3714,3 +3714,11 @@ Project-scoped identification and tag allocation:
 - Persisted the policy inside instrumentation_wiring schema 2 and advanced project schema 6 to 7. The 6-to-7 migration adds an empty policy only; it does not create tag conventions or renumber existing records.
 - Added test source for explicit separator/prefix formatting, collision skipping, migration, and transactional policy-counter consumption. Tests remain unexecuted.
 - Typed record-level CRUD builders remain outstanding; the aggregate reversible command is currently the only mutation endpoint.
+
+Typed record operations and detached read boundary:
+- Added Application command builders for adding, updating and removing CableAssembly, CableCore, PanelWire, SignalDefinition and SignalCarrierBinding records. All operations reduce to the single reversible inventory command, preserving one atomic aggregate mutation boundary and normal command history.
+- Add rejects duplicate stable IDs; updates locate by immutable stable ID; removals reconstruct the aggregate and therefore fail closed while dependent cable cores or signal-carrier bindings still reference the record.
+- Add can accept the advanced tag-policy inventory returned by allocate_tag(), so the tag counter and new record are committed atomically in one command. A tag allocation alone never consumes the counter.
+- Added InstrumentationWiringReadModel as a detached immutable Application DTO. Nested record data is recursively frozen; Core dataclass instances and canvas geometry are not exposed.
+- Added Application.read_instrumentation_wiring(), guarded by active project lifecycle state, and injected the project-scoped wiring service through the composition root.
+- Added test source for typed add/update/remove, duplicate identity/tag rejection, dangling dependency prevention, dependency-ordered removal, detached read model immutability and projectless read rejection. Tests remain unexecuted.
