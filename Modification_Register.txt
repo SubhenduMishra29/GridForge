@@ -2506,3 +2506,39 @@ Verification:
 - Fetched back projection, renderer, regression test file, and this register after edits. Source-level checks confirm transient priority metadata, rendered-bounds collision checks, deterministic priority order, progressive scaling/hiding, zoom reflow, and regression coverage.
 - Tests/CI and Qt runtime visual acceptance were not run. The actual font metrics, label readability at each scale, and collision behavior in a populated engineering drawing still require GUI review.
 - Phase E source implementation is complete; issue #820 should remain open until runtime acceptance and any visual tuning are completed.
+
+
+======================================================================
+GridForge V2 — Integrated SLD layer/annotation acceptance source audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Integrated audit scope:
+- Layer Manager lifecycle/event refresh and disposal subscriptions.
+- Per-document transient active-layer state, project load/close, document replacement.
+- Layer ownership for committed equipment, draft equipment, wires, and annotations.
+- Annotation projection, collision priority, transient render layout, zoom threshold behavior.
+- Canonical project persistence of layer registry and object membership.
+- Rotation presentation transforms and endpoint re-resolution/route reconciliation.
+
+Corrections:
+- Corrected annotation priority to identity (0), type (10), engineering parameters (20), authored labels (30), and secondary attributes (40). Study-result overlays remain at priority 15.
+- Corrected SLDController active-layer recovery. If the current authoring layer becomes hidden/locked or disappears, the controller now selects the first visible, unlocked layer by stable (order, layer_id) ordering. If no authorable layer exists, transient selection is cleared and active_layer_id fails closed with a specific RuntimeError instead of returning an unusable Default layer.
+- Deleting the active layer now adopts its reassignment target only when that target is visible and unlocked; otherwise it selects the next available authoring layer.
+
+Regression coverage added/updated:
+- Annotation priority assertions now enforce engineering parameters above labels and secondary attributes.
+- Active-layer recovery is covered when Default is hidden or locked.
+- No visible, unlocked layer is covered as a fail-closed condition.
+
+Audit observations:
+- Layer Manager refresh is subscribed to SLDPresentationChanged, ProjectLoaded, and ProjectClosed, and subscriptions are released on widget destruction.
+- Equipment placement captures active layer at commit; WireTool captures it on first endpoint acquisition.
+- Persisted SLD layers/membership and symbol transforms are represented in existing project round-trip coverage.
+- Renderer resolves terminal geometry before connection signature comparison, so symbol rotation/mirroring updates endpoint geometry without changing endpoint identity. Engineer-owned orthogonal bends are preserved with presentation-only endpoint elbows; auto routes are recalculated.
+
+Verification:
+- Fetched back all changed source/test/register files and verified the corrected priority mapping and active-layer recovery code are present.
+- This is a source integration audit. Tests/CI and Qt GUI/runtime acceptance were not executed. Real populated-drawing visual review, event ordering under live Qt interaction, and actual save/reopen acceptance remain pending.
+- Issue #820 remains open pending runtime visual acceptance.
