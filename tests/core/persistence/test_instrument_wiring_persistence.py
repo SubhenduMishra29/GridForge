@@ -222,3 +222,25 @@ def test_record_removal_succeeds_after_dependencies_are_removed():
     cable = service.create_remove_record_command(CableAssembly, "cable-id")
     _apply_wiring_command(service, network, cable)
     assert service.inventory == InstrumentationWiringInventory()
+
+def test_wiring_read_model_is_detached_and_immutable():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    inventory = sample_inventory()
+    service.activate(context, inventory, network=network, generation=8)
+    read_model = service.read_model()
+    assert read_model.project_id == "project-1"
+    assert read_model.activation_generation == 8
+    assert read_model.cables[0]["tag"] == "C-CT101"
+    with pytest.raises(TypeError):
+        read_model.cables[0]["tag"] = "MUTATED"
+    with pytest.raises(TypeError):
+        read_model.cores[0]["terminal_path"][0]["designation"] = "CHANGED"
+    assert service.inventory is inventory
+    assert service.inventory.cables[0].tag == "C-CT101"
+
+
+def test_wiring_read_model_rejects_projectless_service():
+    with pytest.raises(RuntimeError, match="No active project"):
+        InstrumentationWiringService().read_model()
