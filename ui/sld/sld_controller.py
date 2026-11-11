@@ -15,16 +15,21 @@ services.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Dict, Optional
 
 from core.application import Application
+from core.application.commands.selection_commands import DeleteSelectionBatchCommand
+from core.application.commands.model_commands import DeleteBusCommand, DeleteTransformerCommand
+from core.application.commands.breaker_commands import DeleteBreakerCommand
+from core.application.commands.simple_wire_commands import RemoveSimpleWireConnectionCommand
+from core.application.commands.draft_commands import RemoveDraftEquipmentCommand, RemoveDraftConnectionCommand
 from core.application.events import ProjectClosed, ProjectLoaded
 from core.application.commands.sld_commands import (
     AddSLDConnectionCommand,
     AddSLDNodeCommand,
     RemoveSLDConnectionCommand,
     RemoveSLDNodeCommand,
-    DeleteSLDSelectionCommand,
     SetSLDNodePositionCommand,
     SetSLDNodePresentationCommand,
     SetSLDNodePropertiesCommand,
