@@ -6,7 +6,7 @@ import pytest
 
 from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
-from ui.sld.sld_model import SLDAnnotationBlock, SLDPresentationLayer
+from ui.sld.sld_model import SLDAnnotationBlock, SLDModel, SLDNode, SLDPresentationLayer
 
 
 class _Application:
@@ -37,8 +37,11 @@ def _controller(document):
 
 
 def _document(*, annotations=(), engineering_locked=False):
+    model = SLDModel()
+    model.add_node(SLDNode("node-1"))
     return SLDDocument(
         "sld-layer-annotations",
+        model=model,
         annotation_blocks=list(annotations),
         layers=[
             SLDPresentationLayer("default", "Default", order=0),
