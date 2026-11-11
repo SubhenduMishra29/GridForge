@@ -337,6 +337,22 @@ class SLDConnectionItem(QGraphicsPathItem):
         self.route_edit_requested.emit(request)
         return proposed_route
 
+    def reset_instrumentation_route(self) -> None:
+        """Request removal of engineer-owned bends for this physical segment."""
+        if self._projection_source != "instrumentation_wiring" or self._instrumentation_route_identity is None:
+            raise RuntimeError("Only a physical instrumentation wiring segment has a resettable route.")
+        kind, carrier_id, segment_index = self._instrumentation_route_identity
+        self.route_edit_requested.emit({
+            "connection_id": self._presentation_id,
+            "core_connection_id": None,
+            "instrumentation_wiring": True,
+            "carrier_kind": kind,
+            "carrier_id": carrier_id,
+            "segment_index": segment_index,
+            "clear_route": True,
+            "points": (),
+        })
+
     def _rebuild_visual_path(self) -> None:
         """Rebuild the visible path from the last accepted realized route."""
         path = QPainterPath(QPointF(self._visual_source))
