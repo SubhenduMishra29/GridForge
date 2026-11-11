@@ -21,13 +21,13 @@ class InstrumentationWiringSerializationError(ValueError):
 def _terminal_to_dict(item: WiringTerminalReference) -> dict[str, str]:
     return {
         "equipment_id": item.equipment_id,
-        "terminal_id": item.terminal_id,
+        "terminal_role": item.terminal_role,
         "designation": item.designation,
     }
 
 
 def _terminal_from_dict(data: Mapping[str, Any]) -> WiringTerminalReference:
-    if not isinstance(data, Mapping) or set(data) != {"equipment_id", "terminal_id", "designation"}:
+    if not isinstance(data, Mapping) or set(data) != {"equipment_id", "terminal_role", "designation"}:
         raise InstrumentationWiringSerializationError("Malformed wiring terminal reference.")
     return WiringTerminalReference(**dict(data))
 
