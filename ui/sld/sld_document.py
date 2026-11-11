@@ -20,7 +20,7 @@ from ui.workspace.document import Document
 from core.persistence.project_package import SLD_SCHEMA_VERSION
 from core.persistence.migration import validate_canonical_sld
 
-from .sld_model import SLDAnnotationBlock, SLDModel
+from .sld_model import SLDAnnotationBlock, SLDModel, SLDPresentationLayer
 from ui.equipment.symbol.symbol_base import SymbolBase
 
 
@@ -44,6 +44,7 @@ class SLDDocument(Document):
         metadata: Optional[Dict[str, Any]] = None,
         default_symbol_presentation_factory: Callable[[str], Mapping[str, Any]] | None = None,
         annotation_blocks: list[SLDAnnotationBlock | Mapping[str, Any]] | None = None,
+        layers: list[SLDPresentationLayer | Mapping[str, Any]] | None = None,
     ) -> None:
         super().__init__(
             document_id=document_id,
@@ -54,7 +55,14 @@ class SLDDocument(Document):
         )
         self._model = model if model is not None else SLDModel()
         self._default_symbol_presentation_factory = default_symbol_presentation_factory
+        raw_layers = layers if layers is not None else [SLDPresentationLayer("default", "Default")]
+        self._layers = [layer if isinstance(layer, SLDPresentationLayer) else SLDPresentationLayer.from_dict(layer) for layer in raw_layers]
+        self._validate_layer_registry()
         self._annotation_blocks: list[SLDAnnotationBlock] = []
+        for node in self._model.nodes:
+            self._require_layer(node.layer_id)
+        for connection in self._model.connections:
+            self._require_layer(connection.layer_id)
         for block in annotation_blocks or ():
             self.add_annotation_block(block, mark_modified=False)
 
@@ -68,6 +76,29 @@ class SLDDocument(Document):
         """Return the presentation-layer default symbol factory."""
         return self._default_symbol_presentation_factory
 
+
+    @property
+    def layers(self) -> tuple[SLDPresentationLayer, ...]:
+        """Return layers in explicit persisted order."""
+        return tuple(sorted(self._layers, key=lambda layer: layer.order))
+
+    @property
+    def default_layer_id(self) -> str:
+        return "default"
+
+    def _validate_layer_registry(self) -> None:
+        if not self._layers:
+            raise ValueError("An SLD document must contain at least one presentation layer")
+        ids = [layer.layer_id for layer in self._layers]
+        orders = [layer.order for layer in self._layers]
+        if len(set(ids)) != len(ids) or "default" not in ids:
+            raise ValueError("SLD layer IDs must be unique and include the default layer")
+        if len(set(orders)) != len(orders) or set(orders) != set(range(len(orders))):
+            raise ValueError("SLD layer order must be unique and contiguous from zero")
+
+    def _require_layer(self, layer_id: str) -> None:
+        if not any(layer.layer_id == layer_id for layer in self._layers):
+            raise ValueError("Unknown SLD presentation layer: " + str(layer_id))
 
     @property
     def annotation_blocks(self) -> tuple[SLDAnnotationBlock, ...]:
@@ -86,6 +117,7 @@ class SLDDocument(Document):
             raise ValueError("Duplicate SLD annotation block ID: " + normalized.block_id)
         if self._model.get_node_optional(normalized.node_id) is None:
             raise ValueError("Annotation block references unknown SLD node: " + normalized.node_id)
+        self._require_layer(normalized.layer_id)
         self._annotation_blocks.append(normalized)
         if mark_modified:
             self.mark_modified()
@@ -110,6 +142,7 @@ class SLDDocument(Document):
         for block in normalized:
             if self._model.get_node_optional(block.node_id) is None:
                 raise ValueError("Annotation block references unknown SLD node: " + block.node_id)
+            self._require_layer(block.layer_id)
         self._annotation_blocks = normalized
         if mark_modified:
             self.mark_modified()
@@ -158,6 +191,7 @@ class SLDDocument(Document):
             "metadata": dict(self.metadata),
             "model": self.model.to_dict(),
             "annotation_blocks": [block.to_dict() for block in self._annotation_blocks],
+            "layers": [layer.to_dict() for layer in self.layers],
         }
 
     @classmethod
@@ -179,6 +213,7 @@ class SLDDocument(Document):
             model=SLDModel.from_dict(data["model"]),
             default_symbol_presentation_factory=default_symbol_presentation_factory,
             annotation_blocks=data["annotation_blocks"],
+            layers=data["layers"],
         )
         # Persisted presentation is authored state. Defaults may only be
         # materialized where presentation is explicitly absent.
