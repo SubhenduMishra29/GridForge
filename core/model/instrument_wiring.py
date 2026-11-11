@@ -231,6 +231,82 @@ class SignalCarrierBinding:
         object.__setattr__(self, "direction", direction)
 
 
+
+@dataclass(frozen=True, slots=True)
+class InstrumentationWiringInventory:
+    """Validated project-level snapshot of instrumentation wiring records.
+
+    This aggregate enforces cross-record identity and ownership invariants.
+    Persistence and controlled mutation remain Application responsibilities.
+    """
+
+    cables: tuple[CableAssembly, ...] = ()
+    cores: tuple[CableCore, ...] = ()
+    panel_wires: tuple[PanelWire, ...] = ()
+    signals: tuple[SignalDefinition, ...] = ()
+    signal_bindings: tuple[SignalCarrierBinding, ...] = ()
+
+    def __post_init__(self) -> None:
+        collections = (
+            ("cables", self.cables, CableAssembly),
+            ("cores", self.cores, CableCore),
+            ("panel_wires", self.panel_wires, PanelWire),
+            ("signals", self.signals, SignalDefinition),
+            ("signal_bindings", self.signal_bindings, SignalCarrierBinding),
+        )
+        for name, values, expected_type in collections:
+            values = tuple(values)
+            if any(not isinstance(value, expected_type) for value in values):
+                raise TypeError(f"{name} must contain only {expected_type.__name__} records.")
+            object.__setattr__(self, name, values)
+            ids = [value.id for value in values]
+            if len(ids) != len(set(ids)):
+                raise ValueError(f"{name} contains duplicate stable IDs.")
+
+        self._validate_unique_tags(self.cables, "cable")
+        self._validate_unique_tags(self.panel_wires, "panel wire")
+        self._validate_unique_tags(self.signals, "signal")
+        core_tags = [item.core_tag for item in self.cores if item.core_tag is not None]
+        if len(core_tags) != len(set(core_tags)):
+            raise ValueError("Cable cores contain duplicate core tags.")
+
+        cable_by_id = {item.id: item for item in self.cables}
+        core_numbers: set[tuple[str, int]] = set()
+        for core in self.cores:
+            cable = cable_by_id.get(core.cable_id)
+            if cable is None:
+                raise ValueError(f"Cable core '{core.id}' references missing cable '{core.cable_id}'.")
+            if core.core_number > cable.core_count:
+                raise ValueError(f"Cable core '{core.id}' exceeds cable '{cable.id}' core_count.")
+            key = (core.cable_id, core.core_number)
+            if key in core_numbers:
+                raise ValueError(f"Cable '{core.cable_id}' has duplicate core number {core.core_number}.")
+            core_numbers.add(key)
+
+        signal_ids = {item.id for item in self.signals}
+        carrier_ids = (
+            {item.id for item in self.cores}
+            | {item.id for item in self.panel_wires}
+        )
+        for binding in self.signal_bindings:
+            if binding.signal_id not in signal_ids:
+                raise ValueError(f"Signal binding '{binding.id}' references missing signal '{binding.signal_id}'.")
+            if binding.carrier_kind is CarrierKind.CABLE_CORE and binding.carrier_id not in {item.id for item in self.cores}:
+                raise ValueError(f"Signal binding '{binding.id}' references missing cable core '{binding.carrier_id}'.")
+            if binding.carrier_kind is CarrierKind.PANEL_WIRE and binding.carrier_id not in {item.id for item in self.panel_wires}:
+                raise ValueError(f"Signal binding '{binding.id}' references missing panel wire '{binding.carrier_id}'.")
+            if binding.carrier_kind in {CarrierKind.FIBRE, CarrierKind.LOGICAL} and binding.carrier_id in carrier_ids:
+                # IDs remain globally stable; a logical carrier must not masquerade
+                # as a separately modelled physical core or panel wire.
+                continue
+
+    @staticmethod
+    def _validate_unique_tags(records: tuple, label: str) -> None:
+        tags = [record.tag for record in records]
+        if len(tags) != len(set(tags)):
+            raise ValueError(f"Duplicate {label} tag in wiring inventory.")
+
+
 __all__ = [
     "WiringTerminalReference",
     "ConductorRole",
@@ -241,4 +317,5 @@ __all__ = [
     "PanelWire",
     "SignalDefinition",
     "SignalCarrierBinding",
+    "InstrumentationWiringInventory",
 ]
