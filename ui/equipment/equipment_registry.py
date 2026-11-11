@@ -314,6 +314,31 @@ class EquipmentRegistry:
             reports.append(report)
         return tuple(reports)
 
+    def approved_symbol_variants(
+        self,
+        equipment_type: str,
+        symbol_registry: "SymbolRegistry",
+    ) -> tuple[object, ...]:
+        """Return approved variants compatible with one equipment contract."""
+        from .symbol.symbol_registry import SymbolRegistry
+        if not isinstance(symbol_registry, SymbolRegistry):
+            raise TypeError("symbol_registry must be a SymbolRegistry")
+        equipment = self.require(equipment_type)
+        canonical = symbol_registry.require(equipment.symbol_id)
+        candidates = symbol_registry.approved_variants_for_family(
+            canonical.symbol_family_id
+        )
+        compatible = []
+        for symbol in candidates:
+            report = reconcile_terminal_contract(
+                equipment,
+                creation_definition=equipment.creation_definition,
+                symbol_definition=symbol,
+            )
+            if not report.errors:
+                compatible.append(symbol)
+        return tuple(compatible)
+
     def validate_symbol_family_variants(
         self,
         symbol_registry: "SymbolRegistry",
