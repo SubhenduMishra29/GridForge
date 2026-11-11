@@ -740,12 +740,19 @@ class SLDCanvasRenderSystem:
                 # draft node can move while the wire's endpoint identities stay
                 # unchanged; geometry must therefore participate in the
                 # reconciliation decision or the visible wire remains stale.
+                layer = draft_layers.get(connection.layer_id)
+                if layer is None and not draft.layers and connection.layer_id == "default":
+                    # Preserve compatibility for legacy direct renderer callers.
+                    layer = SimpleNamespace(layer_id="default", visible=True, unlocked=True, opacity=1.0, order=0, locked=False)
+                if layer is None:
+                    raise ValueError(f"Draft connection {connection.connection_id!r} references unknown SLD layer {connection.layer_id!r}.")
                 source, source_id = self._resolve_draft_endpoint(connection.source, realized)
                 target, target_id = self._resolve_draft_endpoint(connection.target, realized)
                 signature = self._draft_connection_signature(
                     connection,
                     source_position=(source.x(), source.y()),
                     target_position=(target.x(), target.y()),
+                    layer=layer,
                 )
                 if (
                     self._render_signatures.get(render_id) == signature
@@ -761,7 +768,9 @@ class SLDCanvasRenderSystem:
                     source_object_id=source_id,
                     target_object_id=target_id,
                 )
-                item.setZValue(self.CONNECTION_Z_VALUE)
+                item.setZValue(self._layer_z(layer.order, self.CONNECTION_Z_VALUE))
+                item.setOpacity(float(layer.opacity))
+                item.setVisible(bool(layer.visible))
                 if callable(getattr(item, "set_visual_state", None)):
                     # Draft wires are authoring previews, not committed Core
                     # connectivity. Keep them visibly distinct until commit.
@@ -837,7 +846,11 @@ class SLDCanvasRenderSystem:
         *,
         source_position: tuple[float, float],
         target_position: tuple[float, float],
+        layer: Any | None = None,
     ) -> str:
+        layer_signature = None if layer is None else (
+            layer.layer_id, layer.visible, layer.opacity, layer.order, layer.locked
+        )
         return repr((
             connection.connection_id,
             connection.source,
@@ -847,6 +860,8 @@ class SLDCanvasRenderSystem:
             connection.connection_kind,
             connection.route,
             connection.validation_state,
+            connection.layer_id,
+            layer_signature,
         ))
 
     def _resolve_draft_endpoint(self, endpoint: Any, realized: dict[str, Any]) -> tuple[QPointF, str]:
