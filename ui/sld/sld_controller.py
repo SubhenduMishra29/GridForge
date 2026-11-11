@@ -462,47 +462,144 @@ class SLDController:
         return node
 
     def delete_selection(self) -> bool:
-        """Delete the active typed SLD selection through one Application transaction."""
+        """Delete a mixed semantic SLD selection through one document-scoped Application transaction."""
         document = self._require_active_document()
-        node_ids = tuple(sorted(self._state.selected_node_ids))
-        connection_ids = tuple(sorted(self._state.selected_connection_ids))
-        if not node_ids and not connection_ids:
+        application = self._require_application()
+        node_ids = tuple(sorted(str(value) for value in self._state.selected_node_ids))
+        selected_connection_ids = tuple(sorted(str(value) for value in self._state.selected_connection_ids))
+        if not node_ids and not selected_connection_ids:
             return False
-        if node_ids and connection_ids:
-            raise RuntimeError("SLD selection spans incompatible domains; deletion is rejected.")
 
-        if connection_ids:
-            selected_connections = tuple(
-                document.model.get_connection(connection_id) for connection_id in connection_ids
-            )
-            simple_wires = tuple(
-                connection for connection in selected_connections
-                if connection.properties.get("connection_kind") == "SIMPLE_WIRE"
-            )
-            if simple_wires:
-                if len(selected_connections) != 1 or len(simple_wires) != 1:
-                    raise RuntimeError(
-                        "Multi-selection containing Simple Wires cannot be deleted "
-                        "as a presentation-only batch. Delete each electrical connection "
-                        "through its canonical Application command."
+        network = application.read_network()
+        elements = {str(item.object_id): item for item in network.elements}
+        wires = {str(item.connection_id): item for item in network.simple_wires}
+        draft_data = application.read_draft_network(document.document_id)
+        draft_data = draft_data if isinstance(draft_data, Mapping) else {}
+        draft_equipment = {
+            str(item.get("draft_id", "")): item
+            for item in draft_data.get("equipment", ()) if isinstance(item, Mapping)
+        }
+        draft_connections = {
+            str(item.get("connection_id", "")): item
+            for item in draft_data.get("connections", ()) if isinstance(item, Mapping)
+        }
+        commands: list[Any] = []
+        command_keys: set[tuple[str, str]] = set()
+        selected_core_equipment: set[str] = set()
+        selected_draft_equipment: set[str] = set()
+
+        def append(command: Any, identity: str) -> None:
+            key = (command.command_type, identity)
+            if key not in command_keys:
+                command_keys.add(key)
+                commands.append(command)
+
+        def endpoint_equipment_id(endpoint: Any) -> str | None:
+            if hasattr(endpoint, "to_mapping"):
+                endpoint = endpoint.to_mapping()
+            elif hasattr(endpoint, "to_dict"):
+                endpoint = endpoint.to_dict()
+            if not isinstance(endpoint, Mapping):
+                return None
+            if str(endpoint.get("kind", "")).strip().lower() not in {"terminal", "bus"}:
+                return None
+            reference = endpoint.get("endpoint", endpoint)
+            if not isinstance(reference, Mapping):
+                return None
+            value = str(reference.get("object_id", "")).strip()
+            return value or None
+
+        for node_id in node_ids:
+            node = document.model.get_node_optional(node_id)
+            if node is None:
+                raise KeyError(f"Selected SLD node {node_id!r} is no longer in the active document.")
+            equipment_id = str(node.equipment_id or "").strip()
+            if equipment_id and equipment_id in elements:
+                element_type = str(elements[equipment_id].element_type).strip().upper()
+                if element_type == "BUS":
+                    append(DeleteBusCommand(bus_id=equipment_id), equipment_id)
+                elif element_type == "TRANSFORMER":
+                    append(DeleteTransformerCommand(transformer_id=equipment_id), equipment_id)
+                elif element_type == "BREAKER":
+                    append(DeleteBreakerCommand(breaker_id=equipment_id), equipment_id)
+                else:
+                    raise ValueError(
+                        f"Deletion of Core equipment type {element_type!r} is unsupported; selection was not changed."
                     )
-                self.remove_connection(connection_ids[0])
-                return True
-            if any(connection.properties.get("core_connection_id") for connection in selected_connections):
-                raise RuntimeError(
-                    "Selected connection is bound to Core connectivity but has no supported "
-                    "SLD deletion command; refusing presentation-only deletion."
-                )
+                selected_core_equipment.add(equipment_id)
+                continue
+            properties = node.properties if isinstance(node.properties, Mapping) else {}
+            draft_id = str(properties.get("draft_id") or properties.get("draft_equipment_id") or "").strip()
+            if draft_id and draft_id in draft_equipment:
+                append(RemoveDraftEquipmentCommand(draft_id=draft_id, document_id=document.document_id), draft_id)
+                selected_draft_equipment.add(draft_id)
+                continue
+            if equipment_id:
+                raise ValueError(f"Selected SLD node {node_id!r} references unresolved equipment {equipment_id!r}.")
+            append(RemoveSLDNodeCommand(node_id=node_id), node_id)
 
-        result = self.application.execute(
-            DeleteSLDSelectionCommand(node_ids=node_ids, connection_ids=connection_ids)
+        for selected_id in selected_connection_ids:
+            connection = document.model.get_connection_optional(selected_id)
+            if connection is None:
+                matches = tuple(
+                    item for item in document.model.connections
+                    if str(item.properties.get("core_connection_id") or "") == selected_id
+                    or str(item.properties.get("draft_connection_id") or "") == selected_id
+                )
+                if len(matches) != 1:
+                    raise KeyError(
+                        f"Selected connection {selected_id!r} does not resolve in the active SLD document."
+                    )
+                connection = matches[0]
+            properties = connection.properties
+            core_id = str(properties.get("core_connection_id") or "").strip()
+            draft_id = str(properties.get("draft_connection_id") or "").strip()
+            if properties.get("connection_kind") == "SIMPLE_WIRE" or core_id:
+                if not core_id or core_id not in wires:
+                    raise ValueError(
+                        f"Selected Core-backed connection {connection.connection_id!r} has no resolvable Simple Wire identity."
+                    )
+                append(RemoveSimpleWireConnectionCommand(connection_id=core_id), core_id)
+            elif draft_id or connection.connection_id in draft_connections:
+                identity = draft_id or connection.connection_id
+                if identity not in draft_connections:
+                    raise ValueError(f"Selected DraftNetwork connection {identity!r} is stale.")
+                append(RemoveDraftConnectionCommand(connection_id=identity, document_id=document.document_id), identity)
+            else:
+                append(RemoveSLDConnectionCommand(connection_id=connection.connection_id), connection.connection_id)
+
+        for equipment_id in selected_core_equipment:
+            for wire_id, wire in wires.items():
+                if equipment_id in {
+                    endpoint_equipment_id(wire.endpoint_a),
+                    endpoint_equipment_id(wire.endpoint_b),
+                }:
+                    append(RemoveSimpleWireConnectionCommand(connection_id=wire_id), wire_id)
+
+        for draft_id in selected_draft_equipment:
+            for connection_id, item in draft_connections.items():
+                attached = any(
+                    isinstance(item.get(endpoint_name), Mapping)
+                    and item[endpoint_name].get("scope") == "draft"
+                    and str(item[endpoint_name].get("object_id", "")).strip() == draft_id
+                    for endpoint_name in ("source", "target")
+                )
+                if attached:
+                    append(
+                        RemoveDraftConnectionCommand(connection_id=connection_id, document_id=document.document_id),
+                        connection_id,
+                    )
+
+        if not commands:
+            return False
+        result = application.execute(
+            DeleteSelectionBatchCommand(commands=tuple(commands), document_id=document.document_id)
         )
         if not result.success:
             raise RuntimeError(result.message)
         self._state.clear_selection()
         self._state.mark_dirty()
         return True
-
     def add_connection(self, connection: SLDConnection) -> None:
         self._require_active_document()
         document = self._require_active_document()
