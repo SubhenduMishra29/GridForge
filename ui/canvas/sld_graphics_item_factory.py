@@ -160,6 +160,23 @@ class SLDGraphicsItemFactory:
         )
         route = connection.route
         item.set_visual_route(source, target, route.points, ownership=route.ownership)
+        if connection.projection_source == "instrumentation_wiring":
+            properties = connection.properties
+            carrier_tag = str(properties.get("carrier_tag") or properties.get("cable_tag") or "Unlabelled carrier")
+            carrier_kind = str(properties.get("carrier_kind") or "physical wiring")
+            details = [
+                f"{carrier_kind}: {carrier_tag}",
+                f"Role: {properties.get('conductor_role', 'unspecified')}",
+                f"Segment: {properties.get('segment_index', '?')}",
+            ]
+            if properties.get("cable_tag"):
+                details.append(f"Cable: {properties['cable_tag']}")
+            if properties.get("core_number") is not None:
+                details.append(f"Core: {properties['core_number']}")
+            signal_tags = tuple(properties.get("signal_tags", ()))
+            if signal_tags:
+                details.append("Signals: " + ", ".join(str(tag) for tag in signal_tags))
+            item.setToolTip("\\n".join(details))
         return item
 
     @staticmethod
