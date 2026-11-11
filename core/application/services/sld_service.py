@@ -556,6 +556,56 @@ class SLDService:
     def supports(self, command: Command) -> bool:
         return command.command_type in self.COMMAND_TYPES
 
+    def _preflight_layer_locks(self, command: Command) -> None:
+        """Reject mutations that would alter content on a locked SLD layer."""
+        document = self.document
+        locked_ids = {layer.layer_id for layer in document.layers if layer.locked}
+        if not locked_ids:
+            return
+        p = command.payload
+        node_ids: set[str] = set()
+        connection_ids: set[str] = set()
+        if command.command_type == "sld.set_node_position":
+            node_ids.add(str(p["node_id"]))
+        elif command.command_type == "sld.set_node_positions":
+            node_ids.update(str(item["node_id"]) for item in p["positions"])
+        elif command.command_type == "sld.set_node_transforms":
+            node_ids.update(str(item["node_id"]) for item in p["transforms"])
+        elif command.command_type in {"sld.set_node_presentation", "sld.set_node_properties", "sld.remove_node"}:
+            node_ids.add(str(p["node_id"]))
+        elif command.command_type == "sld.delete_selection":
+            node_ids.update(str(value) for value in p["node_ids"])
+            connection_ids.update(str(value) for value in p["connection_ids"])
+        elif command.command_type in {"sld.set_connection_route", "sld.remove_connection"}:
+            connection_ids.add(str(p["connection_id"]))
+
+        for node_id in node_ids:
+            node = document.model.get_node(node_id)
+            if node.layer_id in locked_ids:
+                raise ValueError("Cannot modify an object on locked SLD layer: " + node.layer_id)
+            if command.command_type in {"sld.remove_node", "sld.delete_selection"}:
+                for connection in document.model.connections:
+                    if connection.source_node_id == node_id or connection.target_node_id == node_id:
+                        if connection.layer_id in locked_ids:
+                            raise ValueError("Cannot remove a node connected by a wire on locked SLD layer: " + connection.layer_id)
+                for block in document.annotation_blocks:
+                    if block.node_id == node_id and block.layer_id in locked_ids:
+                        raise ValueError("Cannot remove a node with an annotation on locked SLD layer: " + block.layer_id)
+        for connection_id in connection_ids:
+            connection = document.model.get_connection(connection_id)
+            if connection.layer_id in locked_ids:
+                raise ValueError("Cannot modify an object on locked SLD layer: " + connection.layer_id)
+
+        if command.command_type == "sld.set_annotation_blocks":
+            old = {block.block_id: block.to_dict() for block in document.annotation_blocks}
+            new = {str(item["block_id"]): dict(item) for item in p["annotation_blocks"]}
+            for block_id, previous in old.items():
+                if previous != new.get(block_id) and previous["layer_id"] in locked_ids:
+                    raise ValueError("Cannot modify an annotation on locked SLD layer: " + previous["layer_id"])
+            for item in new.values():
+                if item.get("layer_id", "default") in locked_ids and old.get(str(item["block_id"])) != item:
+                    raise ValueError("Cannot add or modify an annotation on a locked SLD layer.")
+
     def execute(
         self,
         command: Command,
@@ -575,6 +625,7 @@ class SLDService:
             raise TypeError("transaction must be a Transaction")
         if not self.supports(command):
             raise ValueError(f"Unsupported SLD command: {command.command_type}")
+        self._preflight_layer_locks(command)
         handler = {
             "sld.set_node_position": self._set_node_position,
             "sld.set_node_positions": self._set_node_positions,
