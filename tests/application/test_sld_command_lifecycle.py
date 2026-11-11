@@ -5,6 +5,8 @@ import pytest
 from core.application.bootstrap import create_application
 from core.application.command import Command
 from core.network.network import Network
+from core.network import Junction, SimpleWireConnection, TopologyEndpointReference
+from core.application.commands.simple_wire_commands import RemoveSimpleWireConnectionCommand
 from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
 from core.application.commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand, SetSLDNodePositionCommand, SetSLDNodeTransformsCommand, CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand, ReorderSLDLayersCommand
@@ -417,3 +419,42 @@ def test_atomic_selection_batch_rejects_duplicate_and_unsupported_children():
     assert document.model.has_node("duplicate-a")
     assert document.model.has_node("duplicate-b")
     assert application.undo_count() == 0
+
+
+def test_atomic_selection_batch_rolls_back_sld_removal_when_later_core_wire_child_fails():
+    application, document = _application()
+    network = application.project_lifecycle.network
+    network.add_junction(Junction("batch-junction-a"))
+    network.add_junction(Junction("batch-junction-b"))
+    endpoint_a = TopologyEndpointReference.junction("batch-junction-a")
+    endpoint_b = TopologyEndpointReference.junction("batch-junction-b")
+    network.add_simple_wire_connection(
+        SimpleWireConnection("batch-core-wire", endpoint_a, endpoint_b)
+    )
+    application.execute(AddSLDNodeCommand(node_id="rollback-sld-a"))
+    application.execute(AddSLDNodeCommand(node_id="rollback-sld-b"))
+    application.execute(AddSLDConnectionCommand(
+        connection_id="rollback-sld-wire",
+        source_node_id="rollback-sld-a",
+        target_node_id="rollback-sld-b",
+        presentation_owner="engineer",
+    ))
+    application.clear_history()
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(
+                RemoveSLDConnectionCommand(connection_id="rollback-sld-wire"),
+                RemoveSimpleWireConnectionCommand(
+                    connection_id="batch-core-wire",
+                    endpoint_a=endpoint_a,
+                    endpoint_b=TopologyEndpointReference.junction("wrong-junction"),
+                ),
+            ),
+        ))
+
+    assert document.model.has_connection("rollback-sld-wire")
+    assert network.get_simple_wire_connection("batch-core-wire").endpoint_b == endpoint_b
+    assert application.undo_count() == 0
+    assert application.redo_count() == 0
