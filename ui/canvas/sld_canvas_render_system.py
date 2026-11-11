@@ -785,7 +785,7 @@ class SLDCanvasRenderSystem:
             self._attach_realized_item(item)
             if previous_item is not None:
                 self._remove_realized(render_id)
-            self._annotation_base_visibility[render_id] = bool(annotation.visible)
+            self._annotation_base_visibility[render_id] = bool(annotation.visible) and bool(annotation.layer_visible)
             self._items[render_id] = (item,)
             self._render_signatures[render_id] = signature
 
