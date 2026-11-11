@@ -1888,3 +1888,31 @@ Verification boundary:
   back from GitHub after commit.
 - No tests, CI, GUI, startup, or runtime experiments were run.
 - Core/SLD inverse acceptance and interactive #1180 acceptance remain open.
+
+
+GF-MEASUREMENT-STALE-AFTER-001 — PRESERVE MEASUREMENT CHANNEL STALENESS POLICY
+Date: 2026-11-10
+Implementation repository: madhuri196mishra-cpu/GridForge
+Authoritative integration repository: SubhenduMishra29/GridForge
+Implementation issue: #156
+Authoritative root issue: #774
+Implementation branch: fix/issue-156-persist-measurement-staleness-latest-root
+Root base: d795df585fdf77dd74e32ef66e804a7ce517221c
+
+Finding:
+- MeasurementChannel validates and stores optional stale_after, but MeasurementChannelService._serialize_channel omitted it and _provision_definition did not forward it to MeasurementProvisioning.
+- A project save/reopen cycle therefore silently reset an explicitly configured signal-staleness threshold to None, changing channel validity behavior after activation.
+
+Correction:
+- Serialize channel.stale_after with the persisted measurement definition.
+- Forward definition.stale_after to MeasurementProvisioning.provision_channel; the canonical MeasurementChannel constructor validates it as finite and non-negative.
+- Legacy definitions without stale_after remain compatible and retain the existing None default.
+
+Scope:
+- One focused Application service correction; no new command/service/registry/event bus, no inferred measurement configuration, no Core or Qt mutation.
+- This does not complete active-project CT/PT/CVT source-definition authoring, PT/CVT primary voltage sensing, relay binding UX, or the complete measurement-channel lifecycle.
+
+Verification:
+- Current root main was used as the rebased implementation branch base.
+- Static source inspection confirmed serialization and project-activation provisioning use the same MeasurementChannelService path. No tests, CI, startup, GUI, save/reopen runtime experiment or protection simulation was executed.
+- Root PR #1184 is superseded by this rebased integration PR; implementation #156 and root #774 remain OPEN for remaining measurement lifecycle scope.
