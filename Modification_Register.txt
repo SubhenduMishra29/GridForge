@@ -1,3 +1,25 @@
+GridForge V2 — Contextual toolbar canonical SLD controller binding
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- GraphicsView is composed with the UI coordination Controller, while contextual annotation actions require SLDController.active_document and SLDController.set_annotation_blocks().
+- The annotation action therefore queried the wrong owner and could remain disabled or no-op. Symbol presentation edits also duplicated Application command dispatch instead of using the injected canonical SLDController capability.
+
+Correction:
+- CanvasComposer now injects the canonical SLDController directly into GraphicsView.
+- GraphicsView validates and retains that capability; contextual strip reads the active SLD document from it.
+- Annotation quadrant edits use SLDController.set_annotation_blocks(), preserving Application command history and dirty-state handling.
+- Rotation and mirror edits use SLDController.set_node_presentation(), preserving the same command boundary.
+- Failures are surfaced through the UI Controller status channel; teardown clears the SLDController reference.
+- No Core equipment, terminal identity, or electrical topology mutation is introduced.
+
+Verification:
+- Updated source fetched back from main and checked for canonical binding, active-document access, command routing, error feedback, and teardown release.
+- No Python import/syntax execution or Qt GUI runtime acceptance was performed.
+
+======================================================================
 GridForge V2 — Symbol catalogue software-distribution rights gate
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
