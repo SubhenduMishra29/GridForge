@@ -296,9 +296,10 @@ class InstrumentationWiringInventory:
             if binding.carrier_kind is CarrierKind.PANEL_WIRE and binding.carrier_id not in {item.id for item in self.panel_wires}:
                 raise ValueError(f"Signal binding '{binding.id}' references missing panel wire '{binding.carrier_id}'.")
             if binding.carrier_kind in {CarrierKind.FIBRE, CarrierKind.LOGICAL} and binding.carrier_id in carrier_ids:
-                # IDs remain globally stable; a logical carrier must not masquerade
-                # as a separately modelled physical core or panel wire.
-                continue
+                raise ValueError(
+                    f"Signal binding '{binding.id}' reuses a physical core/wire ID "
+                    "for a different carrier kind."
+                )
 
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:
