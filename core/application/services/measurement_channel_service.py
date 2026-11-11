@@ -249,20 +249,9 @@ class MeasurementChannelService:
                 if channel.id in next_channels:
                     raise ValueError(f"Duplicate measurement channel ID: {channel.id}")
                 if isinstance(channel.source, CurrentTransformer):
-                    reference = channel.source_terminal
-                    if any(
-                        isinstance(existing.source, CurrentTransformer)
-                        and getattr(existing.source, "id", None) == channel.source.id
-                        and isinstance(existing.source_terminal, EndpointReference)
-                        and isinstance(reference, EndpointReference)
-                        and existing.source_terminal.terminal_role == reference.terminal_role
-                        for existing in next_channels.values()
-                    ):
-                        raise ValueError(
-                            f"CT secondary terminal {channel.source.id}:{reference.terminal_role} "
-                            "has more than one persisted measurement channel."
-                        )
-                # Bind immutable producer identity before sealing the channel.
+                    self._validate_ct_channel_definition(
+                        definition, channel, existing_channels=next_channels
+                    )
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
                 channel._bind_sample_update_authority(self._sample_update_authority)
                 next_channels[channel.id] = channel
@@ -462,40 +451,75 @@ class MeasurementChannelService:
         producer_id = self._normalize_optional_id(definition.get("producer_id"))
         if producer_id is None:
             raise ValueError("CT secondary channels require an explicit producer_id; no producer is inferred.")
+        channel = self._provision_definition(self._context, self._network, definition)
+        self._validate_ct_channel_definition(
+            definition, channel, existing_channels=self._channels
+        )
+
+
+    def _validate_ct_channel_definition(
+        self,
+        definition: Mapping[str, Any],
+        channel: MeasurementChannel,
+        *,
+        existing_channels: Mapping[str, MeasurementChannel],
+    ) -> None:
+        """Apply one CT secondary-channel contract during authoring and restore."""
+        if not isinstance(definition, Mapping):
+            raise TypeError("CT channel definition must be a mapping.")
+        if not isinstance(channel.source, CurrentTransformer):
+            raise TypeError("CT channel validation requires an authoritative CurrentTransformer.")
+        reference = channel.source_terminal
+        if not isinstance(reference, EndpointReference) or reference.terminal_role not in {"S1", "S2"}:
+            raise ValueError("CT measurement channels must originate from physical secondary terminal S1 or S2.")
+        if channel.signal_type is not MeasurementSignalType.CURRENT:
+            raise ValueError("CT secondary channels must expose a CURRENT signal.")
+        if self._normalize_optional_id(definition.get("producer_id")) is None:
+            raise ValueError("CT secondary channels require an explicit producer_id; no producer is inferred.")
         timestamp_domain = definition.get("timestamp_domain")
-        if not isinstance(timestamp_domain, str) or not timestamp_domain.strip() or timestamp_domain != timestamp_domain.strip():
+        if (
+            not isinstance(timestamp_domain, str)
+            or not timestamp_domain.strip()
+            or timestamp_domain != timestamp_domain.strip()
+        ):
             raise ValueError("CT secondary channels require an explicit canonical timestamp_domain.")
         if self._clock_domain is not None and timestamp_domain != self._clock_domain:
             raise ValueError("CT channel timestamp_domain must match the configured trusted Application clock domain.")
-        for field in ("phase", "scale", "polarity", "stale_after"):
+        if "phase" not in definition:
+            raise ValueError("CT secondary channels require an explicit phase setting.")
+        if not isinstance(definition.get("unit"), str) or definition["unit"].strip().upper() != "A":
+            raise ValueError("CT secondary current channel unit must be 'A'.")
+        for field in ("scale", "polarity", "stale_after"):
             if field not in definition:
                 raise ValueError(f"CT secondary channels require an explicit {field} setting.")
-        unit = definition.get("unit")
-        if not isinstance(unit, str) or unit.strip().upper() != "A":
-            raise ValueError("CT secondary current channel unit must be 'A'.")
         try:
-            nominal_value = float(definition.get("nominal_value"))
-            scale = float(definition.get("scale", 1.0))
-            polarity = float(definition.get("polarity", 1.0))
+            nominal_value = float(channel.nominal_value)
+            scale = float(channel.scale)
+            polarity = float(channel.polarity)
+            stale_after = float(channel.stale_after)
         except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError("CT nominal_value, scale and polarity must be numeric.") from exc
+            raise ValueError("CT nominal_value, scale, polarity and stale_after must be numeric.") from exc
         if not math.isfinite(nominal_value) or nominal_value <= 0.0:
             raise ValueError("CT secondary nominal_value must be finite and positive (normally 1 A or 5 A).")
         if not math.isfinite(scale) or scale <= 0.0:
             raise ValueError("CT channel scale must be finite and positive.")
         if polarity not in (-1.0, 1.0):
             raise ValueError("CT channel polarity must be +1.0 or -1.0.")
-        try:
-            stale_after = float(definition.get("stale_after"))
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise ValueError("CT channel stale_after must be a finite positive duration.") from exc
         if not math.isfinite(stale_after) or stale_after <= 0.0:
             raise ValueError("CT channel stale_after must be a finite positive duration.")
-        self._ensure_unique_ct_source(source_id, reference.terminal_role, channel_id)
-        channel = self._provision_definition(self._context, self._network, definition)
-        channel.producer_id = producer_id
-        channel._bind_sample_update_authority(self._sample_update_authority)
-        return channel
+        for existing_id, existing in existing_channels.items():
+            existing_reference = existing.source_terminal
+            if (
+                existing_id != channel.id
+                and isinstance(existing.source, CurrentTransformer)
+                and getattr(existing.source, "id", None) == channel.source.id
+                and isinstance(existing_reference, EndpointReference)
+                and existing_reference.terminal_role == reference.terminal_role
+            ):
+                raise ValueError(
+                    f"CT secondary terminal {channel.source.id}:{reference.terminal_role} "
+                    f"already has measurement channel {existing_id!r}."
+                )
 
     def _provision_definition(self, context: Any, network: Network, definition: Mapping[str, Any]) -> MeasurementChannel:
         if not isinstance(definition, Mapping):
