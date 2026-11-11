@@ -49,7 +49,7 @@ from .application import Application
 from .command import Command
 from .protection_execution_audit import ProtectionExecutionAuditStore
 from .control_dispatch import ControlTripBatchCommand
-from .commands.selection_commands import DELETE_SELECTION_BATCH
+from .commands.selection_commands import DELETE_SELECTION_BATCH, ENGINEERING_UPDATE_BATCH
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
@@ -514,6 +514,56 @@ def create_application(
         command_manager.register_handler(
             DELETE_SELECTION_BATCH,
             execute_selection_delete_batch,
+        )
+
+        def execute_engineering_update_batch(command: Any, _context: Any, transaction: Any) -> Any:
+            """Execute canonical per-equipment updates in one shared transaction."""
+            children = tuple(command.payload.get("commands", ()))
+            if len(children) < 2:
+                raise ValueError("Engineering update batch requires at least two equipment updates.")
+            identities: set[tuple[str, str]] = set()
+            excluded = {
+                "model.update_current_transformer",
+                "model.update_potential_transformer",
+                "model.update_capacitive_voltage_transformer",
+            }
+            for child in children:
+                if (
+                    not isinstance(child, Command)
+                    or not child.command_type.startswith("model.update_")
+                    or child.command_type in excluded
+                    or not type(child).__name__.startswith("Update")
+                ):
+                    raise ValueError("Engineering update batch accepts only supported canonical model update commands.")
+                identity_fields = tuple(
+                    key for key in child.payload
+                    if key.endswith("_id") and key not in {"document_id"}
+                )
+                if len(identity_fields) != 1:
+                    raise ValueError("Engineering update batch child must identify exactly one equipment target.")
+                identity = str(child.payload.get(identity_fields[0], "")).strip()
+                key = (child.command_type, identity)
+                if not identity or key in identities:
+                    raise ValueError("Engineering update batch contains an empty or duplicate equipment identity.")
+                identities.add(key)
+
+            # All child commands have already been prepared and canonically
+            # validated by EngineeringUpdatePreparer before this handler runs.
+            # The child handlers now share one transaction and one history entry.
+            for child in children:
+                command_manager.execute_in_transaction(child, transaction)
+            return ApplicationResult.success_result(
+                message=f"Atomically updated {len(children)} selected equipment items.",
+                metadata={
+                    "child_command_ids": tuple(str(child.command_id) for child in children),
+                    "equipment_count": len(children),
+                    "atomic": True,
+                },
+            )
+
+        command_manager.register_handler(
+            ENGINEERING_UPDATE_BATCH,
+            execute_engineering_update_batch,
         )
 
         def execute_control_trip_batch(command: Any, _context: Any, transaction: Any) -> Any:
