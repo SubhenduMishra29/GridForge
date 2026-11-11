@@ -413,7 +413,11 @@ class PropertiesPanelWidget(QWidget):
         """Bind annotation editing to the canonical SLD controller and selection authority."""
         if controller is None or not callable(getattr(controller, "set_annotation_blocks", None)):
             raise TypeError("controller must provide set_annotation_blocks().")
-        if selection_manager is None or not callable(getattr(selection_manager, "select_single", None)):
+        if (
+            selection_manager is None
+            or not callable(getattr(selection_manager, "select_single", None))
+            or not callable(getattr(selection_manager, "get_selected_ids", None))
+        ):
             raise TypeError("selection_manager must be the canonical selection manager.")
         signal = getattr(selection_manager, "selection_changed", None)
         connect = getattr(signal, "connect", None)
@@ -426,6 +430,9 @@ class PropertiesPanelWidget(QWidget):
         connect(self._on_sld_selection_changed)
         self._sld_controller = controller
         self._sld_selection_manager = selection_manager
+        self._sld_selection_ids = tuple(
+            str(value) for value in selection_manager.get_selected_ids()
+        )
         self._refresh_sld_annotation_controls()
 
     def unbind_sld_annotation_runtime(self) -> None:
