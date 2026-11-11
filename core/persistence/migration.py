@@ -272,6 +272,32 @@ class _ProjectSchema4To5(ProjectMigration):
         return result
 
 
+class _ProjectSchema5To6(ProjectMigration):
+    source_schema = 5
+    target_schema = 6
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 5-to-6 received a non-schema-5 payload.")
+        # Historical projects have no canonical instrumentation wiring
+        # inventory. An empty inventory is explicit and lossless; migration
+        # never infers cable tags or terminal paths from SLD geometry.
+        result.setdefault(
+            "instrumentation_wiring",
+            {
+                "schema": 1,
+                "cables": [],
+                "cores": [],
+                "panel_wires": [],
+                "signals": [],
+                "signal_bindings": [],
+            },
+        )
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -695,6 +721,7 @@ class ProjectPersistenceMigration:
         2: _ProjectSchema2To3(),
         3: _ProjectSchema3To4(),
         4: _ProjectSchema4To5(),
+        5: _ProjectSchema5To6(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3(), 3: _SLDSchema3To4()}
 
@@ -727,6 +754,7 @@ class ProjectPersistenceMigration:
         current.setdefault("dynamic_models", [])
         current.setdefault("measurement", {"channels": []})
         current.setdefault("study_cases", [])
+        current.setdefault("instrumentation_wiring", {"schema": 1, "cables": [], "cores": [], "panel_wires": [], "signals": [], "signal_bindings": []})
         current = self._migrate_presentation_collection(current)
         current = self._migrate_network_connectivity(current)
         self._reject_legacy_project_aliases(current)
