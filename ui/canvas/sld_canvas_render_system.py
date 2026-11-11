@@ -333,6 +333,7 @@ class SLDCanvasRenderSystem:
             raise TypeError("snapshot must be an SLDCanvasSnapshot or CompositeSLDCanvasSnapshot")
         if not isinstance(draft, DraftSLDCanvasSnapshot):
             raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
+        draft_layers = {layer.layer_id: layer for layer in draft.layers}
 
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
@@ -481,7 +482,10 @@ class SLDCanvasRenderSystem:
         # connection set, so one shared scene/registry can resolve mixed endpoints.
         for node in draft.nodes:
             render_id = self._draft_render_id(node.draft_id)
-            signature = self._draft_node_signature(node)
+            layer = draft_layers.get(node.layer_id)
+            if layer is None:
+                raise ValueError(f"Draft equipment {node.draft_id!r} references unknown SLD layer {node.layer_id!r}.")
+            signature = self._draft_node_signature(node, layer)
             if (
                 self._render_signatures.get(render_id) == signature
                 and render_id in self._items
@@ -499,7 +503,9 @@ class SLDCanvasRenderSystem:
                 self._remove_realized(render_id)
             try:
                 item = self._draft_presentation_factory.create_node(node)
-                item.setZValue(self.EQUIPMENT_Z_VALUE)
+                item.setZValue(self._layer_z(layer.order, self.EQUIPMENT_Z_VALUE))
+                item.setOpacity(float(layer.opacity))
+                item.setVisible(bool(layer.visible))
                 self._attach_realized_item(item, register_snap=True)
                 if previous_degraded is not None:
                     self._remove_realized(render_id)
@@ -552,7 +558,9 @@ class SLDCanvasRenderSystem:
                     fallback.draft_id = node.draft_id
                     fallback.is_draft_presentation = True
                     fallback.setPos(float(node.x), float(node.y))
-                    fallback.setZValue(self.EQUIPMENT_Z_VALUE)
+                    fallback.setZValue(self._layer_z(layer.order, self.EQUIPMENT_Z_VALUE))
+                    fallback.setOpacity(float(layer.opacity))
+                    fallback.setVisible(bool(layer.visible))
                     label = QGraphicsTextItem(
                         f"Symbol unavailable\n{node.display_name}", fallback
                     )
@@ -807,9 +815,13 @@ class SLDCanvasRenderSystem:
         return f"draft:{identity}"
 
     @staticmethod
-    def _draft_node_signature(node: DraftSLDCanvasNode) -> str:
+    def _draft_node_signature(node: DraftSLDCanvasNode, layer: Any | None = None) -> str:
+        layer_signature = None if layer is None else (
+            layer.layer_id, layer.visible, layer.opacity, layer.order, layer.locked
+        )
         return repr((node.draft_id, node.equipment_type, node.display_name, node.x, node.y,
-                     node.rotation, node.terminal_roles, node.presentation, node.validation_state))
+                     node.rotation, node.terminal_roles, node.presentation, node.validation_state,
+                     node.layer_id, layer_signature))
 
     @staticmethod
     def _draft_connection_signature(
