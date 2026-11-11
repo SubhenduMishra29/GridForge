@@ -1320,3 +1320,32 @@ Fetch-back checks passed for review section, family enumeration, anchor comparis
 Current catalogue boundary: no built-in non-default variant has been established as approved. Therefore the apply action remains disabled for non-default candidates until a real candidate satisfies every gate.
 
 Verification boundary: source-level only. No Qt GUI inspection, candidate visual preview, interactive selection, actual approved-variant apply, undo/redo, connected-wire endpoint movement, or project save/reopen runtime acceptance is claimed. No test/CI gate was run or required for this source correction.
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-015 — BUILT-IN IEC REFERENCE CANDIDATE AUDIT
+======================================================================
+Date: 2026-11-11 | Issue: #823
+
+Audit finding:
+- The built-in catalogue contains 22 provisional GridForge primitive glyphs. The catalogue had no IEC/ANSI provenance metadata and its geometry must not be represented as certified standard artwork.
+- Five built-in concepts have defensible IEC 60617 database record candidates suitable for traceable review: breaker S00287, disconnector S00288, fuse S00362, two-winding transformer S00841, and current transformer S00850.
+- These are candidate identity references only. The existing GridForge primitive geometry and terminal-anchor placement have not been checked against the licensed IEC artwork and must not be treated as conformant.
+- The five candidates are now marked standard_id=iec-60617-2026-db, review_status=in_review, geometry_reviewed=false, terminal_anchors_reviewed=false, with exact IEC database record IDs. They therefore remain excluded from approved_variants_for_family() and cannot be applied through the inspector.
+- All other built-in symbols remain standard_id=unspecified and review_status=unreviewed. No ANSI/IEEE mapping is fabricated. IEEE 315 is not substituted as a current standard reference.
+- No IEC artwork was copied or embedded; only record identifiers and provenance references were added.
+
+Implementation:
+- ui/equipment/symbol/built_in_symbol_catalogue.py now declares _BUILTIN_IEC_CANDIDATES and propagates candidate identity metadata at registration.
+- Every candidate is explicitly held in review; geometry and terminal-anchor review flags are false.
+
+Commit:
+- ui/equipment/symbol/built_in_symbol_catalogue.py — 7d1e79cdc8703df0bd8519b105b5e439b3324852.
+
+Source references:
+- IEC 60617:2026 DB product page (publication date 2026-03-04): https://webstore.iec.ch/en/publication/2723
+- IEC official preview, S00287 Circuit breaker and S00288 Disconnector / Isolator: https://webstore.iec.ch/en/iec_catalog/product/preview/?id=L3B1Yi9wZGYvcHJldmlldy9pbmZvX2llYzYwNjE3e2VkMS4wfWIucGRm
+- IEC official preview, S00362 Fuse, general symbol: same IEC 60617 preview record above.
+- IEC official preview, S00841 Transformer with two windings, general symbol and S00850 Current transformer, general symbol: same IEC 60617 preview record above.
+
+Verification boundary:
+- Fetch-back/source inspection only. No IEC licensed artwork was acquired or inspected; no geometry/anchor review, Qt visual comparison, catalogue runtime registration, project save/reopen, or GUI acceptance is claimed. No test/CI gate was run or required for this metadata-only correction.
