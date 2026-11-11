@@ -1247,3 +1247,24 @@ Verification boundary:
   therefore no variant was made selectable and no selector widget was added.
 - GUI selection, connected-wire preservation, undo/redo, and project
   save/reopen remain unverified. No tests/CI were treated as acceptance gates.
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-012 — INSPECTOR / VARIANT REVIEW WIRING AUDIT
+======================================================================
+Audit date: 2026-11-11 | Issue: #823
+
+Findings:
+- The canonical PropertiesPanelWidget already has a single-node SLD selection resolver and document-aware refresh behavior for data annotations.
+- It exposes bind_sld_annotation_runtime(controller, selection_manager), but the current PanelsPlugin initialization path binds only equipment runtime and configuration runtime. It does not invoke the SLD annotation runtime binder.
+- PluginContext currently has no explicit sld_controller or selection_manager field. Its selection_controller field is not proven to be the canonical SLD SelectionManager, and context.controller is the general UI controller; neither may be silently substituted.
+- Therefore, the existing selection-aware property panel is not yet a safe integration point for a symbol-variant editor. Adding a second selection subscription or guessing dependencies would create competing selection authority.
+- SymbolRegistry and EquipmentRegistry already expose the approved-family and equipment-terminal compatibility gates. The built-in catalogue currently has no approved non-default variant, so an apply selector must remain disabled/absent until a reviewed candidate exists.
+
+Next integration contract:
+- Extend the existing plugin composition dependency handoff with the exact canonical SLDController and SelectionManager created by CanvasComposition; do not create either service in PanelsPlugin.
+- Bind the existing PropertiesPanelWidget selection lifecycle once, then add the read-only variant review/terminal-anchor comparison section there.
+- Apply must preserve the current presentation transform and representation properties and submit through SLDController.set_node_presentation(); it must not mutate Core equipment, terminal identity, connectivity, or manual wire-route ownership.
+
+Verification boundary:
+- Source audit only; no files changed in this audit batch.
+- No GUI, selection lifecycle, command undo/redo, or project save/reopen runtime acceptance is claimed.
