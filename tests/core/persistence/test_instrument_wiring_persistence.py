@@ -1,6 +1,9 @@
 """Canonical instrumentation wiring persistence and lifecycle contracts."""
 
 import pytest
+from types import SimpleNamespace
+
+from core.application.transaction import Transaction
 
 from core.application.project import ProjectContext
 from core.application.services.instrumentation_wiring_service import InstrumentationWiringService
@@ -122,3 +125,32 @@ def test_wiring_service_rejects_terminal_not_in_active_network():
         InstrumentationWiringService().activate(
             context, inventory, network=FakeNetwork(), generation=1
         )
+
+def test_inventory_replacement_command_is_transactional_and_undoable():
+    service = InstrumentationWiringService()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    network = FakeNetwork()
+    original = sample_inventory()
+    service.activate(context, original, network=network, generation=4)
+    replacement = InstrumentationWiringInventory()
+    command = service.create_replace_command(replacement)
+    transaction = Transaction()
+    result = service.execute(command, SimpleNamespace(network=network), transaction)
+    assert result.success is True
+    assert service.inventory is replacement
+    journal = transaction.commit()
+    assert len(journal) == 1
+    journal[0]()
+    assert service.inventory is original
+
+
+def test_inventory_replacement_command_rejects_stale_expected_snapshot():
+    service = InstrumentationWiringService()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    network = FakeNetwork()
+    original = sample_inventory()
+    service.activate(context, original, network=network, generation=4)
+    stale_command = service.create_replace_command(InstrumentationWiringInventory())
+    service.activate(context, InstrumentationWiringInventory(), network=network, generation=5)
+    with pytest.raises(ValueError, match="changed since"):
+        service.execute(stale_command, SimpleNamespace(network=network), Transaction())
