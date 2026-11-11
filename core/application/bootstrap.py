@@ -593,14 +593,21 @@ def create_application(
     def measurement_channel_is_referenced(channel_id: str) -> bool:
         if protection_configuration_service.references_measurement_channel(channel_id):
             return True
-        mapping = application.control_signal_mapping
-        return bool(
+        active_context = application.project_lifecycle.context
+        mappings = [application.control_signal_mapping]
+        if (
+            active_context is not None
+            and application._dynamic_control_signal_mapping_project_id == active_context.project_id
+        ):
+            mappings.append(application._dynamic_control_signal_mapping)
+        return any(
             mapping is not None
             and any(
                 binding.source.domain == "measurement"
                 and binding.source.object_id == channel_id
                 for binding in mapping.bindings
             )
+            for mapping in mappings
         )
 
     measurement_channel_service.bind_channel_usage_validator(
