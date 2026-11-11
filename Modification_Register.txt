@@ -2839,3 +2839,20 @@ Disposition:
 - Keep root issue #821 and implementation issue #134 open.
 - This is a source audit; no Qt GUI, tests, pytest, or CI were run.
 ======================================================================
+
+
+UI audit closure / partial completion — placement corridor:
+- CLOSED #822 (Viewport Drag-and-Drop Drop-Zone Ambiguity) as completed:
+  GraphicsView calculates a 15-viewport-pixel corridor; ElectricalInsertionTool
+  searches the expanded scene rectangle, ranks by geometric distance, and
+  rejects ambiguous crossings; drag/drop routes through the insertion preview
+  and release commit path.
+- Implementation mirror madhuri196mishra-cpu/GridForge #133 remains OPEN pending
+  synchronized closure because this connection is read-only there.
+- #827 (Predictive Placement Shadow Corridor) remains OPEN. The corridor,
+  nearest-wire resolution and split-route/symbol preview are present, but the
+  current preview is a dense-pattern/dashed VisualState.PREVIEW, and the
+  split-route QGraphicsLineItem preview does not set a dedicated preview pen.
+  A review comment records this residual visual requirement. Do not duplicate
+  the already-implemented 15px corridor.
+- Static source inspection only.
