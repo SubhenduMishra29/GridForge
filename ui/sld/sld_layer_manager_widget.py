@@ -69,6 +69,10 @@ class SLDLayerManagerWidget(QWidget):
         self._down.clicked.connect(lambda: self._move_layer(1))
         self.refresh()
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh()
+
     def refresh(self) -> None:
         document = self._controller.active_document
         self._layers = () if document is None else document.layers
