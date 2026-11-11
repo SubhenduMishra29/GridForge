@@ -2915,3 +2915,64 @@ Disposition:
   validation, and transaction contracts above.
 - Keep root issue #821 and implementation issue #134 open.
 - This is a source audit; no Qt GUI, tests, pytest, or CI were run.
+
+UI audit closure / partial completion — placement corridor:
+- CLOSED #822 (Viewport Drag-and-Drop Drop-Zone Ambiguity) as completed:
+  GraphicsView calculates a 15-viewport-pixel corridor; ElectricalInsertionTool
+  searches the expanded scene rectangle, ranks by geometric distance, and
+  rejects ambiguous crossings; drag/drop routes through the insertion preview
+  and release commit path.
+- Implementation mirror madhuri196mishra-cpu/GridForge #133 remains OPEN pending
+  synchronized closure because this connection is read-only there.
+- #827 (Predictive Placement Shadow Corridor) remains OPEN. The corridor,
+  nearest-wire resolution and split-route/symbol preview are present, but the
+  current preview is a dense-pattern/dashed VisualState.PREVIEW, and the
+  split-route QGraphicsLineItem preview does not set a dedicated preview pen.
+  A review comment records this residual visual requirement. Do not duplicate
+  the already-implemented 15px corridor.
+- Static source inspection only.
+
+
+UI audit partial-status notes:
+- #818: multi-sheet comparison is present through SLDCanvasSurface +
+  ReadOnlySLDViewport, including per-view viewport persistence, topology
+  reconciliation status and promotion to editing. Incremental renderer
+  reconciliation is present, but synchronous UI-thread performance remains
+  unverified; issue stays OPEN for large-scene navigation/performance.
+- #823: contextual strips now expose single-symbol rotate/mirror, annotation
+  placement and group transforms; symbol-variant review exists in the inspector.
+  Standard/style and remaining quick visual attributes are not fully available
+  in the contextual strip; issue stays OPEN. Rotation dispatch reconciliation
+  is tracked in #1190.
+
+
+UI audit closures — renderer/terminal cleanup:
+- CLOSED #761: EquipmentItem owns its terminal snap points; terminals are not
+  separate child QGraphicsItems. SLDCanvasRenderSystem._remove_realized()
+  unbinds route-edit callbacks, unregisters snap candidates and removes each
+  realized item from the scene with independent cleanup guards.
+  Implementation mirror #165 remains OPEN pending synchronized closure.
+- CLOSED #767: current rendering uses one SLDConnectionItem per stable
+  connection identity, not the former SimpleWireGroup model. Full-snapshot
+  synchronization removes stale connection IDs; equipment snap points are
+  unregistered with their owning EquipmentItem; endpoint geometry is resolved
+  against current realized items.
+  Implementation mirror #83 remains OPEN pending synchronized closure.
+- Closures apply only to the authoritative audit repository. Implementation
+  repository write/triage access is unavailable in this connection.
+- Static source inspection only.
+
+
+UI audit closure — #820 Information Density & Visual Clutter Controls:
+- Annotation labels are suppressed below DEFAULT_ANNOTATION_MIN_ZOOM (0.65);
+  _reflow_annotation_layout() tests sceneBoundingRect collisions, progressively
+  scales labels from 1.0 to 0.6 and hides only labels that still cannot fit.
+- Equipment symbol text is painted in item-local coordinates and follows the
+  item/view transform; it is not a fixed-pixel viewport overlay.
+- Non-destructive document-owned SLDPresentationLayer and SLDLayerManagerWidget
+  provide visibility, lock, opacity, ordering and layer CRUD; the renderer
+  applies layer state to equipment, connections and annotations.
+- Closed authoritative audit issue #820 as completed.
+- Implementation mirror madhuri196mishra-cpu/GridForge #135 remains OPEN pending
+  synchronized closure because the current connection is read-only there.
+- Static source inspection only.
