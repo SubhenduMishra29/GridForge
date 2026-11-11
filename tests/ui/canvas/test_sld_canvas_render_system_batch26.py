@@ -402,3 +402,13 @@ def test_annotation_layout_shrinks_labels_before_hiding_them(qapp):
     assert not primary.sceneBoundingRect().intersects(secondary.sceneBoundingRect())
 
     renderer.dispose()
+
+
+def test_annotation_projection_priority_prefers_identity_then_type_then_secondary_fields():
+    from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+
+    assert SLDCanvasProjection._annotation_priority(("parameter:voltage", "identity")) == 0
+    assert SLDCanvasProjection._annotation_priority(("attribute:rating", "type")) == 10
+    assert SLDCanvasProjection._annotation_priority(("parameter:voltage",)) == 40
+    assert SLDCanvasProjection._annotation_priority(("attribute:rating",)) == 30
+    assert SLDCanvasProjection._annotation_priority(("label:name",)) == 20
