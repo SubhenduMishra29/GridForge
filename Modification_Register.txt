@@ -1,3 +1,25 @@
+GridForge V2 — Contextual toolbar viewport visibility and document guard
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- The contextual toolbar clamped its anchor to the viewport even when the selected symbol was completely outside the visible canvas. This could leave a floating toolbar at a viewport edge during pan/zoom.
+- Toolbar visibility was not explicitly guarded against a missing active document or a selected node absent from the active document model.
+
+Correction:
+- Hide the contextual strip when no active SLD document exists.
+- When the active document model exposes its node mapping, hide the strip if the selected node is not part of that document.
+- Convert the selected symbol bounds into viewport coordinates and hide the strip when those bounds do not intersect the viewport.
+- Position and clamp the strip using the visible symbol bounds, retaining existing selection, resize, and scrollbar refresh triggers.
+- No persisted presentation, Core equipment, terminal, topology, or electrical connection state is changed.
+
+Verification:
+- Updated GraphicsView and Modification_Register.txt fetched back from main.
+- Source checks cover active-document guard, node membership guard, viewport intersection, and clamped placement.
+- No Python import/syntax execution or Qt GUI runtime acceptance was performed.
+
+======================================================================
 GridForge V2 — Contextual toolbar canonical SLD controller binding
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
