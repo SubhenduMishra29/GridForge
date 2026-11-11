@@ -263,6 +263,14 @@ class InstrumentationWiringInventory:
             if len(ids) != len(set(ids)):
                 raise ValueError(f"{name} contains duplicate stable IDs.")
 
+        all_ids = [
+            record.id
+            for _, values, _ in collections
+            for record in values
+        ]
+        if len(all_ids) != len(set(all_ids)):
+            raise ValueError("Instrumentation wiring records must have globally unique stable IDs.")
+
         self._validate_unique_tags(self.cables, "cable")
         self._validate_unique_tags(self.panel_wires, "panel wire")
         self._validate_unique_tags(self.signals, "signal")
