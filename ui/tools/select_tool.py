@@ -276,6 +276,12 @@ class SelectTool(ToolBase):
             factor = (1.0 / 1.1) if self._event_modifiers(event) & self.SHIFT_MODIFIER else 1.1
             self._commit_group_transform(scale_factor=factor)
             return True
+        if key in (72, "H", "h"):
+            self._commit_group_transform(mirror_x=True)
+            return True
+        if key in (86, "V", "v"):
+            self._commit_group_transform(mirror_y=True)
+            return True
         return False
 
     def on_cancel(self) -> bool:
@@ -349,6 +355,8 @@ class SelectTool(ToolBase):
         scale_factor: float = 1.0,
         delta_x: float = 0.0,
         delta_y: float = 0.0,
+        mirror_x: bool = False,
+        mirror_y: bool = False,
     ) -> None:
         selected = self._selected_transform_nodes()
         if not selected:
@@ -356,8 +364,12 @@ class SelectTool(ToolBase):
         values = (rotation_degrees, scale_factor, delta_x, delta_y)
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
             raise TypeError("group transform values must be numeric")
+        if not isinstance(mirror_x, bool) or not isinstance(mirror_y, bool):
+            raise TypeError("group mirror flags must be boolean")
         if scale_factor <= 0.0:
             raise ValueError("group scale factor must be positive")
+        if mirror_x and mirror_y:
+            raise ValueError("apply one group mirror axis per operation")
         nodes = [node for node, _symbol in selected]
         if self._rotation_pivot is None:
             scene = self._scene()
@@ -405,6 +417,16 @@ class SelectTool(ToolBase):
         transforms = []
         for node, symbol in selected:
             dx, dy = float(node.x) - pivot[0], float(node.y) - pivot[1]
+            if mirror_x:
+                dx = -dx
+                symbol.set_property(
+                    "mirror_x", not bool(symbol.get_property("mirror_x", False))
+                )
+            if mirror_y:
+                dy = -dy
+                symbol.set_property(
+                    "mirror_y", not bool(symbol.get_property("mirror_y", False))
+                )
             x = pivot[0] + (dx * c - dy * sn) * scale_factor + delta_x
             y = pivot[1] + (dx * sn + dy * c) * scale_factor + delta_y
             symbol.rotation = (symbol.rotation + float(rotation_degrees)) % 360.0
