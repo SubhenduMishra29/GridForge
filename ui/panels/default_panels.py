@@ -21,6 +21,7 @@ from ui.core.qt import (
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
+from ui.equipment.symbol.symbol_factory import SymbolFactory
 from ui.equipment.terminal_contract import reconcile_terminal_contract
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
 from ui.sld.sld_vocabulary import semantic_type
@@ -556,15 +557,29 @@ class PropertiesPanelWidget(QWidget):
         detail.setText(self._symbol_variant_details.get(
             str(combo.currentData()), "No symbol variant details are available."
         ))
+        apply_button = QPushButton("Apply Approved Variant", self)
+        apply_button.setObjectName("ApplyApprovedSymbolVariant")
+        selected_id = str(combo.currentData() or "")
+        apply_button.setEnabled(
+            selected_id in approved and selected_id != current_symbol_id
+        )
         combo.currentIndexChanged.connect(
-            lambda _index: detail.setText(
-                self._symbol_variant_details.get(
-                    str(combo.currentData()), "No symbol variant details are available."
-                )
+            lambda _index: (
+                detail.setText(
+                    self._symbol_variant_details.get(
+                        str(combo.currentData()), "No symbol variant details are available."
+                    )
+                ),
+                apply_button.setEnabled(
+                    str(combo.currentData() or "") in approved
+                    and str(combo.currentData() or "") != current_symbol_id
+                ),
             )
         )
+        apply_button.clicked.connect(self._apply_selected_symbol_variant)
         layout.addRow("Catalogue candidate", combo)
         layout.addRow(detail)
+        layout.addRow(apply_button)
         if not approved:
             layout.addRow(QLabel(
                 "Variant application is disabled: no candidate in this equipment family "
@@ -573,6 +588,51 @@ class PropertiesPanelWidget(QWidget):
             ))
         self._symbol_variant_combo = combo
         self._symbol_variant_detail = detail
+
+    def _apply_selected_symbol_variant(self) -> None:
+        """Apply an approved variant through SLDController's presentation command."""
+        controller = self._sld_controller
+        node = self._selected_sld_node()
+        combo = self._symbol_variant_combo
+        if controller is None or node is None or combo is None:
+            return
+        candidate_id = str(combo.currentData() or "")
+        if not candidate_id:
+            return
+        element_type = (
+            node.read_model.element_type
+            if getattr(node, "read_model", None) is not None
+            else node.properties.get("element_type")
+        )
+        try:
+            equipment_type = equipment_type_for_semantic(semantic_type(element_type))
+            equipment = self._symbol_equipment_registry.require(equipment_type)
+            canonical = self._symbol_registry.require(equipment.symbol_id)
+            candidate = self._symbol_registry.require(candidate_id)
+            approved = self._symbol_equipment_registry.approved_symbol_variants(
+                equipment_type, self._symbol_registry
+            )
+            if candidate_id == canonical.symbol_id or not any(
+                item.symbol_id == candidate_id for item in approved
+            ):
+                raise ValueError("Selected symbol variant is not approved for this equipment contract.")
+            if candidate.symbol_family_id != canonical.symbol_family_id:
+                raise ValueError("Selected symbol variant is outside the canonical equipment family.")
+            current = node.presentation
+            symbol = SymbolFactory(self._symbol_registry).create(
+                candidate_id,
+                scale=float(getattr(current, "scale", 1.0)),
+                rotation=float(getattr(current, "rotation", 0.0)),
+                visible=bool(getattr(current, "visible", True)),
+                representation_id=str(getattr(current, "representation_id", "symbol")),
+                properties=dict(getattr(current, "properties", {}) or {}),
+            )
+            controller.set_node_presentation(node.node_id, symbol)
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Symbol variant update rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
 
     def unbind_sld_annotation_runtime(self) -> None:
         """Disconnect the selection observer before Canvas composition teardown."""
@@ -625,6 +685,7 @@ class PropertiesPanelWidget(QWidget):
         """Clear document-specific annotation controls when no SLD document is active."""
         self._sld_annotations_cleared = True
         self._sld_selection_ids = ()
+        self._refresh_symbol_variant_review_controls()
         layout = getattr(self, "_annotation_layout", None)
         if layout is None:
             return
