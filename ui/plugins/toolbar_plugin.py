@@ -1201,28 +1201,6 @@ def default_tool_actions() -> tuple[ToolbarActionSpec, ...]:
     """Return a compact global command bar; discipline tools remain in ToolShelf."""
     return (
         ToolbarActionSpec(
-            action_id="tool.sld.select",
-            text="Select",
-            tool_id="select",
-            tooltip="Select and inspect engineering objects.",
-            checkable=True,
-            checked=True,
-        ),
-        ToolbarActionSpec(
-            action_id="tool.sld.bus",
-            text="Bus",
-            tool_id="bus",
-            tooltip="Place a bus in the SLD.",
-            checkable=True,
-        ),
-        ToolbarActionSpec(
-            action_id="tool.sld.wire",
-            text="Wire",
-            tool_id="wire",
-            tooltip="Connect two compatible SLD terminals.",
-            checkable=True,
-        ),
-        ToolbarActionSpec(
             action_id="edit.undo",
             text="Undo",
             tooltip="Undo the last application command.",
