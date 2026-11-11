@@ -440,15 +440,6 @@ class SLDCanvasSurface(QWidget):
         zoom_in.clicked.connect(self._zoom_in_callback)
         header_layout.addWidget(zoom_in)
 
-        fit = QPushButton("Fit", header)
-        fit.setObjectName("SLDFit")
-        fit.setToolTip("Fit the SLD content in the viewport")
-        # QPushButton.clicked emits a bool; do not pass that signal payload as
-        # the numeric fit margin. Retain the exact slot for deterministic teardown.
-        self._fit_button = fit
-        self._fit_callback = lambda _checked=False: navigation_controller.fit_content()
-        fit.clicked.connect(self._fit_callback)
-        header_layout.addWidget(fit)
 
         root.addWidget(header)
 
@@ -496,14 +487,11 @@ class SLDCanvasSurface(QWidget):
             except Exception:
                 _LOGGER.exception("Failed to detach SLD surface zoom readout listener")
 
-        # QPushButton connections retain bound methods (and the Fit closure)
-        # even after GraphicsView releases its navigation reference. Disconnect
-        # the exact slots installed by this surface so a retained editor cannot
-        # keep the disposed NavigationController alive.
+        # Disconnect the exact zoom slots installed by this surface so a
+        # retained editor cannot keep the disposed NavigationController alive.
         for button_name, callback_name in (
             ("_zoom_out_button", "_zoom_out_callback"),
             ("_zoom_in_button", "_zoom_in_callback"),
-            ("_fit_button", "_fit_callback"),
         ):
             button = getattr(self, button_name, None)
             callback = getattr(self, callback_name, None)
