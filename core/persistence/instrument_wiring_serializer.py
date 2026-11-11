@@ -32,6 +32,21 @@ def _terminal_from_dict(data: Mapping[str, Any]) -> WiringTerminalReference:
     return WiringTerminalReference(**dict(data))
 
 
+def _check_record_fields(data: Mapping[str, Any], *, required: set[str], optional: set[str], label: str) -> None:
+    keys = set(data)
+    missing = required - keys
+    unknown = keys - required - optional
+    if missing or unknown:
+        details = []
+        if missing:
+            details.append("missing " + ", ".join(sorted(missing)))
+        if unknown:
+            details.append("unknown " + ", ".join(sorted(str(item) for item in unknown)))
+        raise InstrumentationWiringSerializationError(
+            label + " fields are not canonical: " + "; ".join(details)
+        )
+
+
 def serialize_instrumentation_wiring(
     inventory: InstrumentationWiringInventory,
 ) -> dict[str, Any]:
@@ -108,6 +123,16 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
 
     try:
+        _field_contracts = (
+            ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
+            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag"}, "Cable core"),
+            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour"}, "Panel wire"),
+            ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
+            ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
+        )
+        for collection_name, required, optional, label in _field_contracts:
+            for item in data[collection_name]:
+                _check_record_fields(item, required=required, optional=optional, label=label)
         cables = tuple(CableAssembly(**dict(item)) for item in data["cables"])
         cores = tuple(
             CableCore(
