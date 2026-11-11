@@ -2296,3 +2296,33 @@ Regression coverage added:
 Verification:
 - Fetched latest main before each source update and fetched back updated command, service, handler, document, package export, and test sources.
 - Tests and CI were not executed. No Qt runtime or GUI acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — SLD presentation-layer projection and renderer integration (Phase C)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Implement Phase C of issue #820: carry persisted presentation-layer metadata through the renderer-neutral canvas projection and apply visibility, opacity, and order in the transient Qt renderer.
+
+Implementation:
+- Extended renderer-neutral SLD node, connection, and annotation snapshots with explicit layer identity, visibility, opacity, order, and lock metadata. Defaults preserve existing callers and schema-4 default-layer behavior.
+- SLDCanvasProjection now resolves each authored object against the document's canonical layer registry and rejects missing layer references. It retains all nodes and connections in the snapshot regardless of visibility; it does not remove semantic records or rewrite endpoint identity.
+- Updated canonical CanvasComposition document presentation paths, including the read-only comparison viewport, to pass SLDDocument.layers into projection. Layer changes therefore arrive through the normal complete-snapshot reconciliation path.
+- Applied layer visibility to node, connection, and annotation graphics; opacity to their rendered graphics; and deterministic layer Z bands composed with the existing connection/equipment/annotation technical bands. The technical order remains intact within each layer.
+- Hidden equipment remains realized and registered with the canonical SnapSystem. Its item is invisible and therefore not pointer-hit-testable, while its snap anchors and endpoint geometry remain available to routing and connection resolution.
+- Added layer metadata to node, connection, and annotation render signatures so visibility, opacity, membership, or order changes invalidate stale graphics. Annotation zoom-threshold refresh now preserves the owning layer's hidden state.
+- Study-result annotations remain transient and are projected on the default visible layer; they are not persisted as authored annotation blocks.
+- No Core equipment, terminal, connectivity, topology, calculation, or study state was changed. Layer locking remains an Application interaction policy from Phase B and is not interpreted as electrical state by the renderer.
+
+Regression coverage added:
+- Hidden equipment remains in the renderer and SnapSystem while invisible to canvas hit-testing.
+- Layer opacity and deterministic layer/technical Z composition are applied.
+- Layer visibility/opacity/order changes invalidate node rendering signatures and refresh graphics.
+
+Verification:
+- Updated and fetched back projection, renderer, and CanvasComposition sources on current main. Regression tests were added but not executed; CI was not run.
+- Source inspection confirms all three document projection paths pass the persisted layer registry, and the render signatures include layer metadata for nodes, connections, and annotations.
+- No Qt GUI acceptance, manual snapping gesture, pointer hit-test runtime, multi-layer visual ordering, save/reopen runtime, or large-network performance acceptance is claimed.
