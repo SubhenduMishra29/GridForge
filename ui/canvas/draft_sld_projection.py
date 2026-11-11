@@ -73,10 +73,12 @@ class DraftSLDCanvasConnection:
 class DraftSLDCanvasSnapshot:
     nodes: tuple[DraftSLDCanvasNode, ...]
     connections: tuple[DraftSLDCanvasConnection, ...]
+    layers: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "nodes", tuple(self.nodes))
         object.__setattr__(self, "connections", tuple(self.connections))
+        object.__setattr__(self, "layers", tuple(self.layers))
 
 
 class DraftSLDProjection:
