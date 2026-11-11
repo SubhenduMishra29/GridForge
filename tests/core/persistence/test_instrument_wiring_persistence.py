@@ -10,13 +10,14 @@ from core.application.services.instrumentation_wiring_service import Instrumenta
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
     SignalCarrierBinding, SignalDefinition, SignalKind, WiringConductorRole,
+    WiringTagSeries, WiringTagPolicy,
 )
 from core.persistence.instrument_wiring_serializer import (
     InstrumentationWiringSerializationError,
     deserialize_instrumentation_wiring,
     serialize_instrumentation_wiring,
 )
-from core.persistence.migration import _ProjectSchema5To6
+from core.persistence.migration import _ProjectSchema5To6, _ProjectSchema6To7
 
 
 class FakeNetwork:
@@ -242,3 +243,47 @@ def test_wiring_read_model_is_detached_and_immutable():
 def test_wiring_read_model_rejects_projectless_service():
     with pytest.raises(RuntimeError, match="No active project"):
         InstrumentationWiringService().read_model()
+
+def test_schema_six_migration_adds_empty_tag_policy_without_inference():
+    source = {
+        "schema": 6,
+        "instrumentation_wiring": {
+            "schema": 1, "cables": [], "cores": [], "panel_wires": [],
+            "signals": [], "signal_bindings": [],
+        },
+    }
+    migrated = _ProjectSchema6To7().migrate(source)
+    assert migrated["schema"] == 7
+    assert migrated["instrumentation_wiring"]["schema"] == 2
+    assert migrated["instrumentation_wiring"]["tag_policy"] == []
+    assert source["instrumentation_wiring"]["schema"] == 1
+
+
+def test_tag_policy_uses_explicit_project_format_and_skips_collisions():
+    policy = WiringTagPolicy(series=(
+        WiringTagSeries(
+            record_kind="CABLE", prefix="INST-CAB",
+            separator="/", minimum_digits=4, next_number=1,
+        ),
+    ))
+    tag, advanced = policy.allocate("cable", used_tags=("INST-CAB/0001",))
+    assert tag == "INST-CAB/0002"
+    assert advanced.series[0].next_number == 3
+    assert policy.series[0].next_number == 1
+
+
+def test_tag_counter_and_new_record_are_one_inventory_command():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    policy = WiringTagPolicy(series=(
+        WiringTagSeries(record_kind="CABLE", prefix="CAB", separator="-"),
+    ))
+    initial = InstrumentationWiringInventory(tag_policy=policy)
+    service.activate(context, initial, network=network, generation=1)
+    tag, policy_candidate = service.allocate_tag("CABLE")
+    cable = CableAssembly(id="tagged-cable", tag=tag, service="PT secondary", core_count=2)
+    command = service.create_add_record_command(cable, tag_policy_inventory=policy_candidate)
+    _apply_wiring_command(service, network, command)
+    assert service.inventory.cables[0].tag == "CAB-001"
+    assert service.inventory.tag_policy.series[0].next_number == 2
