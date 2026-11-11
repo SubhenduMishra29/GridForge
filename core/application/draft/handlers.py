@@ -29,10 +29,10 @@ def _thaw_payload(value: Any) -> Any:
 
 
 def _record_draft_undo(draft: DraftNetwork, transaction: Any) -> None:
-    """Register the exact pre-command draft snapshot as the transaction inverse."""
-    snapshot = draft.to_dict()
+    """Register exact immutable DraftNetwork objects as the transaction inverse."""
+    snapshot = draft.snapshot_state()
     transaction.record_undo(
-        lambda snapshot=snapshot, draft=draft: draft.restore_snapshot(snapshot)
+        lambda snapshot=snapshot, draft=draft: draft.restore_state(snapshot)
     )
 
 
