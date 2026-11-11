@@ -318,7 +318,7 @@ def test_atomic_selection_batch_deletes_mixed_sld_nodes_and_connections_with_one
     assert not document.model.has_connection("selection-link")
 
 
-def test_atomic_selection_batch_rolls_back_earlier_connection_removal_on_late_child_failure():
+def test_atomic_selection_batch_preflights_projection_owned_nodes_before_any_mutation():
     application, document = _application()
     application.execute(AddSLDNodeCommand(node_id="rollback-a"))
     application.execute(AddSLDNodeCommand(node_id="rollback-b"))
@@ -372,4 +372,47 @@ def test_atomic_selection_batch_rejects_locked_sld_connection_layer_before_mutat
         ))
 
     assert document.model.has_connection("locked-link")
+    assert application.undo_count() == 0
+
+
+def test_atomic_selection_batch_rejects_cross_document_and_unknown_identities():
+    application, document = _application()
+    application.execute(AddSLDNodeCommand(node_id="batch-known"))
+    application.clear_history()
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id="another-document",
+            commands=(RemoveSLDNodeCommand(node_id="batch-known"),),
+        ))
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(RemoveSLDConnectionCommand(connection_id="missing-connection"),),
+        ))
+
+    assert document.model.has_node("batch-known")
+    assert application.undo_count() == 0
+
+
+def test_atomic_selection_batch_rejects_duplicate_and_unsupported_children():
+    application, document = _application()
+    application.execute(AddSLDNodeCommand(node_id="duplicate-a"))
+    application.execute(AddSLDNodeCommand(node_id="duplicate-b"))
+    application.clear_history()
+    remove_a = RemoveSLDNodeCommand(node_id="duplicate-a")
+
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(remove_a, RemoveSLDNodeCommand(node_id="duplicate-a")),
+        ))
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSelectionBatchCommand(
+            document_id=document.document_id,
+            commands=(remove_a, RemoveSLDConnectionCommand(connection_id="unsupported-kind")),
+        ))
+
+    assert document.model.has_node("duplicate-a")
+    assert document.model.has_node("duplicate-b")
     assert application.undo_count() == 0
