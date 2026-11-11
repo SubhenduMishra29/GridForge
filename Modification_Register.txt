@@ -3087,3 +3087,64 @@ Disposition:
 - Static source/diff review only. No GUI interaction, drag/drop runtime,
   preview rendering runtime, or import/syntax execution performed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Batch 4: Properties Inspector / Engineering Parameter Audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Source audit:
+- Reconciled the older root issue #992 against current main and prior audit
+  comments. The original report's missing projection metadata claims are
+  stale: EngineeringParameterState now carries display_name, unit, datatype,
+  choices, editable/derived, validation, required/default metadata, min/max
+  and inspectable. Draft and committed projection paths populate the
+  canonical metadata; unavailable committed parameters are explicitly
+  marked non-inspectable.
+- PR #1097 hardened EngineeringParameterDefinition construction with
+  supported datatype, finite/ordered/type-compatible bounds, integral
+  integer bounds, enum choice uniqueness and default-value validation.
+- PR #1098 moved ordinary committed engineering-update validation to the
+  Application preparation boundary using the trusted CreationDefinition.
+  Partial updates remain partial and Core remains final domain authority.
+- Properties inspector uses human-readable display names, unit labels,
+  required/read-only indicators, metadata tooltips, min/max numeric validators,
+  enum choices, and typed boolean controls.
+- Apply / Commit reports parse/command rejection and restores the current
+  projected selection after failure. Draft placement remains separate from
+  final Commit Network validation; network commit has a non-blocking
+  completion/error presentation path.
+
+Residual gaps confirmed:
+- Committed numeric QDoubleValidator sets range but no explicit decimals,
+  notation or locale. QDoubleSpinBox creation controls hard-code six decimal
+  places. EngineeringParameterDefinition currently has no precision/scale
+  metadata; precision must be defined canonically rather than guessed in UI.
+- Creation integer parameters fall through to QLineEdit without QIntValidator,
+  although CreationDefinition rejects non-integral/out-of-range values at
+  validation/commit. This is input-quality, not a Core authority bypass.
+- ConditionalParameterRequirement is enforced as group-level completeness
+  text; fields are not marked as conditionally required when a rule activates.
+  Schema does not declare conditional visibility, so fields must not be hidden
+  by inference.
+- Inspected UI projection tests assert presence of engineering parameters but
+  do not provide catalogue-wide parameter-to-projection/control compatibility
+  coverage.
+
+Disposition:
+- Added current-main re-audit comment to authoritative issue #992; it remains
+  open for numeric precision/locale policy, integer creation validation,
+  conditional requirement presentation and catalogue-wide compatibility
+  coverage. Existing implementation mirror #33 remains outside write scope.
+- Existing #1191 separately tracks scrollable inspector content and persistent
+  action footer. No duplicate issue created.
+- Existing #1195 separately tracks editable contextual Tool Settings.
+- Equipment engineering parameters remain in Properties/Creation workflow;
+  Tool Settings remain separate. No duplicate parameter editor introduced.
+- No new PR merged or issue closed in this batch. No Core/Application/SLD
+  architecture changes made.
+- Static source and test-inventory review only. No GUI interaction or test
+  execution performed.
+======================================================================
