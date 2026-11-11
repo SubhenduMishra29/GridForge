@@ -687,14 +687,6 @@ class GraphicsView(QGraphicsView):
                 event.ignore()
                 return
             hit = semantic.hit_target
-            if (
-                getattr(getattr(hit, "kind", None), "value", None) != "simple_wire_segment"
-                or not isinstance(hit.core_connection_id, str)
-                or hit.draft_connection_id is not None
-            ):
-                self._finish_palette_drag(restore_previous_tool=True)
-                event.ignore()
-                return
             try:
                 insertion_tool = self.tool_manager.get_tool("electrical-insertion")
                 candidate = insertion_tool.insertion_target(semantic)
