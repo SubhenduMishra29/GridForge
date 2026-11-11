@@ -1,3 +1,24 @@
+GridForge V2 — Group transform complete-selection preflight
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- SelectTool._selected_transform_nodes() silently skipped selected IDs that could not resolve to an SLD node or a symbol presentation.
+- A group rotate/scale/grab could therefore apply to only the resolvable subset while the user believed the entire selection was transformed.
+
+Correction:
+- Group transform target resolution now fails closed if any selected NODE-domain ID cannot resolve to a live SLD node.
+- Every distinct resolved node must have a renderer-neutral symbol presentation, either persisted on the node or available from its matching symbol-bearing scene item.
+- Symbol presentation cloning/normalization failures reject the complete group.
+- Duplicate selection aliases resolving to the same node are deduplicated; no node is transformed twice.
+- No command is issued when the complete selection cannot be prepared. The existing SetSLDNodeTransformsCommand remains the one atomic Application mutation for a valid group.
+
+Verification:
+- Source fetched back from main and checked for fail-closed unresolved-node and missing-symbol paths.
+- No Python import/syntax execution or Qt GUI runtime acceptance was performed.
+
+======================================================================
 GridForge V2 — Group transform stale-state-safe undo and rollback
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
