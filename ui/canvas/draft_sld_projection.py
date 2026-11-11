@@ -57,6 +57,7 @@ class DraftSLDCanvasConnection:
     connection_kind: str
     route: tuple[tuple[float, float], ...]
     validation_state: Mapping[str, Any]
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source", DraftEndpointReference.from_value(self.source))
@@ -67,6 +68,9 @@ class DraftSLDCanvasConnection:
             tuple((float(point[0]), float(point[1])) for point in self.route),
         )
         object.__setattr__(self, "validation_state", _freeze(dict(self.validation_state)))
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("Draft canvas connection requires a non-empty layer_id.")
+        object.__setattr__(self, "layer_id", self.layer_id.strip())
 
 
 @dataclass(frozen=True, slots=True)
@@ -155,6 +159,7 @@ class DraftSLDProjection:
                     connection_kind=str(item.get("connection_kind", "simple_wire")),
                     route=tuple(points),
                     validation_state=dict(item.get("validation_state", {})),
+                    layer_id=str(item.get("layer_id", "default")),
                 )
             )
 
