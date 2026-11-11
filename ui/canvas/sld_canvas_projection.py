@@ -89,6 +89,7 @@ class SLDCanvasAnnotation:
     layer_opacity: float = 1.0
     layer_order: int = 0
     layer_locked: bool = False
+    priority: int = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,7 +215,23 @@ class SLDCanvasProjection:
             visible=block.visible and bool(lines),
             layer_id=layer.layer_id, layer_visible=layer.visible, layer_opacity=layer.opacity,
             layer_order=layer.order, layer_locked=layer.locked,
+            priority=SLDCanvasProjection._annotation_priority(block.fields),
         )
+
+    @staticmethod
+    def _annotation_priority(fields: tuple[str, ...]) -> int:
+        """Return deterministic display priority without changing authored fields."""
+        priorities = {
+            "identity": 0,
+            "type": 10,
+        }
+        values = [
+            priorities.get(field, 20 if field.startswith("label:") else
+                           30 if field.startswith("attribute:") else
+                           40 if field.startswith("parameter:") else 50)
+            for field in fields
+        ]
+        return min(values, default=100)
 
     @staticmethod
     def _project_study_result_annotations(
@@ -281,6 +298,7 @@ class SLDCanvasProjection:
                     text=f"Study V: {magnitude_value:.5f} pu\nAngle: {angle_value:.3f} deg",
                     visible=True,
                     layer_id="default", layer_visible=True, layer_opacity=1.0, layer_order=0, layer_locked=False,
+                    priority=15,
                 )
             )
         return tuple(overlays)

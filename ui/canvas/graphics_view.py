@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ui.core.qt import QAction, QBrush, QGraphicsScene, QGraphicsView, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
+from ui.core.qt import QAction, QBrush, QGraphicsScene, QGraphicsView, QMenu, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -47,6 +47,7 @@ class GraphicsView(QGraphicsView):
     """Canonical GridForge Canvas viewport."""
 
     cursor_scene_position = Signal(object)
+    layers_requested = Signal()
     PALETTE_EQUIPMENT_MIME = "application/x-gridforge-equipment-type"
 
     def __init__(
@@ -797,6 +798,18 @@ class GraphicsView(QGraphicsView):
             return
         super().wheelEvent(event)
         self._refresh_contextual_tool_strip()
+
+    def contextMenuEvent(self, event: Any) -> None:
+        """Expose the canonical Layer Manager from the SLD canvas context menu."""
+        if self.sld_controller is None:
+            super().contextMenuEvent(event)
+            return
+        menu = QMenu(self)
+        manage_layers = menu.addAction("Manage SLD Layers…")
+        selected = menu.exec(event.globalPos())
+        if selected == manage_layers:
+            self.layers_requested.emit()
+        event.accept()
 
     def keyPressEvent(self, event: Any) -> None:
         key = event.key()

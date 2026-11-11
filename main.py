@@ -611,6 +611,18 @@ def _build_application_impl(
         _refresh_status()
 
     explorer_tabs: QTabWidget | None = None
+    layer_manager_panel: SLDLayerManagerWidget | None = None
+
+    def _show_layer_manager() -> None:
+        # Layer management is a tab in the canonical SLD Explorer Region.
+        # The menu action reveals that region rather than constructing a
+        # second panel or a parallel layer-management surface.
+        _activate_workspace(SLD_WORKSPACE_ID, "sld")
+        if explorer_tabs is not None and layer_manager_panel is not None:
+            explorer_tabs.setCurrentWidget(layer_manager_panel)
+        workspace_surface_host.set_region_visible("sld", "explorer", True)
+        if layer_manager_panel is not None:
+            layer_manager_panel.refresh()
 
     def _show_equipment_browser() -> None:
         # Open the Explorer Region and focus its Equipment tab. This is an
@@ -1256,6 +1268,7 @@ def _build_application_impl(
         "view.toggle_messages": lambda: _toggle_active_region("diagnostics"),
         "view.toggle_tool_settings": lambda: _toggle_active_region("tool_settings"),
         "view.equipment_browser": _show_equipment_browser,
+        "view.layers": _show_layer_manager,
         "study.cases": _show_study_cases,
         "protection.panel": lambda: _activate_workspace(PROTECTION_WORKSPACE_ID, "protection"),
         "control.panel": lambda: _activate_workspace(CONTROL_WORKSPACE_ID, "control"),
@@ -1721,6 +1734,7 @@ def _build_application_impl(
     explorer_tabs.setTabsClosable(False)
     layer_manager_panel = SLDLayerManagerWidget(sld_controller=sld_controller, parent=explorer_tabs)
     layer_manager_panel.setObjectName("SLDLayerManagerPanel")
+    canvas_composition.view.layers_requested.connect(_show_layer_manager)
     if "project" in detached:
         explorer_tabs.addTab(detached["project"], "Project")
     if "equipment" in detached:

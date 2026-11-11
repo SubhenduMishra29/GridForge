@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from core.application.events import ProjectClosed, ProjectLoaded, SLDPresentationChanged
 from ui.core.qt import (
     QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
@@ -16,6 +17,11 @@ class SLDLayerManagerWidget(QWidget):
     def __init__(self, *, sld_controller, parent=None) -> None:
         super().__init__(parent)
         self._controller = sld_controller
+        self._event_bus = sld_controller.application.event_bus
+        self._event_bus.subscribe(SLDPresentationChanged, self._on_presentation_changed)
+        self._event_bus.subscribe(ProjectLoaded, self._on_project_lifecycle_changed)
+        self._event_bus.subscribe(ProjectClosed, self._on_project_lifecycle_changed)
+        self.destroyed.connect(self._dispose_event_subscriptions)
         self.setObjectName("SLDLayerManager")
         self._layers: tuple = ()
 
@@ -72,6 +78,21 @@ class SLDLayerManagerWidget(QWidget):
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.refresh()
+
+    def _on_presentation_changed(self, _event) -> None:
+        self.refresh()
+
+    def _on_project_lifecycle_changed(self, _event) -> None:
+        self.refresh()
+
+    def _dispose_event_subscriptions(self, *_args) -> None:
+        event_bus = self._event_bus
+        if event_bus is None:
+            return
+        event_bus.unsubscribe(SLDPresentationChanged, self._on_presentation_changed)
+        event_bus.unsubscribe(ProjectLoaded, self._on_project_lifecycle_changed)
+        event_bus.unsubscribe(ProjectClosed, self._on_project_lifecycle_changed)
+        self._event_bus = None
 
     def refresh(self) -> None:
         document = self._controller.active_document

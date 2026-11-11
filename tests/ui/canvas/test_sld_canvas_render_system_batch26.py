@@ -330,3 +330,85 @@ def test_batch26_layer_metadata_change_invalidates_node_render_signature(qapp) -
     assert current.opacity() == pytest.approx(0.8)
     assert current.zValue() == pytest.approx(320.0)
     renderer.dispose()
+
+
+def test_annotation_layout_prioritizes_identity_and_hides_colliding_secondary_labels(qapp):
+    from ui.canvas.sld_canvas_projection import SLDCanvasAnnotation
+
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    renderer = SLDCanvasRenderSystem(scene, factory, realization)
+    annotations = (
+        SLDCanvasAnnotation(
+            block_id="identity", node_id="node-1", x=100.0, y=100.0,
+            text="ID: CB-1", visible=True, priority=0,
+        ),
+        SLDCanvasAnnotation(
+            block_id="parameter", node_id="node-1", x=100.0, y=100.0,
+            text="Parameter: 11 kV", visible=True, priority=40,
+        ),
+        SLDCanvasAnnotation(
+            block_id="other-identity", node_id="node-2", x=500.0, y=100.0,
+            text="ID: BUS-1", visible=True, priority=0,
+        ),
+    )
+
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(), connections=(), annotations=annotations))
+
+    identity = renderer._items["annotation:identity"][0]
+    parameter = renderer._items["annotation:parameter"][0]
+    other_identity = renderer._items["annotation:other-identity"][0]
+    assert identity.isVisible()
+    assert other_identity.isVisible()
+    assert not parameter.isVisible()
+    assert parameter.scale() == pytest.approx(1.0)
+
+    # Decluttering is viewport-only and reversible when zoom crosses the
+    # existing annotation visibility threshold.
+    renderer.set_zoom_level(0.5)
+    assert not identity.isVisible()
+    renderer.set_zoom_level(1.0)
+    assert identity.isVisible()
+    assert other_identity.isVisible()
+    assert not parameter.isVisible()
+    renderer.dispose()
+
+
+def test_annotation_layout_shrinks_labels_before_hiding_them(qapp):
+    from ui.canvas.sld_canvas_projection import SLDCanvasAnnotation
+
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    renderer = SLDCanvasRenderSystem(scene, factory, realization)
+    annotations = (
+        SLDCanvasAnnotation(
+            block_id="primary", node_id="node-1", x=100.0, y=100.0,
+            text="Primary equipment identity", visible=True, priority=0,
+        ),
+        SLDCanvasAnnotation(
+            block_id="secondary", node_id="node-2", x=100.0, y=70.0,
+            text="Secondary\nlabel", visible=True, priority=20,
+        ),
+    )
+
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(), connections=(), annotations=annotations))
+
+    primary = renderer._items["annotation:primary"][0]
+    secondary = renderer._items["annotation:secondary"][0]
+    assert primary.isVisible()
+    assert secondary.isVisible()
+    assert secondary.scale() < 1.0
+    assert secondary.scale() >= 0.6
+    assert not primary.sceneBoundingRect().intersects(secondary.sceneBoundingRect())
+
+    renderer.dispose()
+
+
+def test_annotation_projection_priority_prefers_identity_then_type_then_secondary_fields():
+    from ui.canvas.sld_canvas_projection import SLDCanvasProjection
+
+    assert SLDCanvasProjection._annotation_priority(("parameter:voltage", "identity")) == 0
+    assert SLDCanvasProjection._annotation_priority(("attribute:rating", "type")) == 10
+    assert SLDCanvasProjection._annotation_priority(("parameter:voltage",)) == 40
+    assert SLDCanvasProjection._annotation_priority(("attribute:rating",)) == 30
+    assert SLDCanvasProjection._annotation_priority(("label:name",)) == 20

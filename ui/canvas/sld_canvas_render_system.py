@@ -99,6 +99,7 @@ class SLDCanvasRenderSystem:
         self._annotations_zoom_visible = self._zoom_level >= self._annotation_min_zoom
         self._navigation_controller: Any = None
         self._annotation_base_visibility: dict[str, bool] = {}
+        self._annotation_priorities: dict[str, int] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
@@ -173,11 +174,7 @@ class SLDCanvasRenderSystem:
         if annotations_visible_at_zoom == self._annotations_zoom_visible:
             return
         self._annotations_zoom_visible = annotations_visible_at_zoom
-        for render_id, base_visible in tuple(self._annotation_base_visibility.items()):
-            items = self._items.get(render_id, ())
-            for item in items:
-                if item is not None:
-                    item.setVisible(base_visible and annotations_visible_at_zoom)
+        self._reflow_annotation_layout()
 
     def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
         """Bind an optional application/UI diagnostic consumer."""
@@ -792,6 +789,10 @@ class SLDCanvasRenderSystem:
 
         # Annotation graphics are transient and derived from projected
         # Application read-model values plus persisted SLD presentation config.
+        self._annotation_priorities = {
+            self._annotation_render_id(annotation.block_id): int(annotation.priority)
+            for annotation in committed.annotations
+        }
         for annotation in committed.annotations:
             render_id = self._annotation_render_id(annotation.block_id)
             signature = self._annotation_signature(annotation)
@@ -810,9 +811,44 @@ class SLDCanvasRenderSystem:
             self._attach_realized_item(item)
             if previous_item is not None:
                 self._remove_realized(render_id)
+            self._annotation_priorities[render_id] = int(annotation.priority)
             self._annotation_base_visibility[render_id] = bool(annotation.visible) and bool(annotation.layer_visible)
             self._items[render_id] = (item,)
             self._render_signatures[render_id] = signature
+
+        self._reflow_annotation_layout()
+
+    def _reflow_annotation_layout(self) -> None:
+        """Resolve label collisions using rendered scene bounds and transient scaling."""
+        occupied = []
+        candidates = sorted(
+            self._annotation_priorities,
+            key=lambda render_id: (self._annotation_priorities[render_id], render_id),
+        )
+        for render_id in candidates:
+            items = self._items.get(render_id, ())
+            if not items:
+                continue
+            item = items[0]
+            if item is None:
+                continue
+            base_visible = self._annotation_base_visibility.get(render_id, False)
+            if not base_visible or self._zoom_level < self._annotation_min_zoom:
+                item.setScale(1.0)
+                item.setVisible(False)
+                continue
+            item.setVisible(True)
+            placed = False
+            for scale in (1.0, 0.9, 0.8, 0.7, 0.6):
+                item.setScale(scale)
+                bounds = item.sceneBoundingRect().adjusted(-4.0, -3.0, 4.0, 3.0)
+                if not any(bounds.intersects(other) for other in occupied):
+                    occupied.append(bounds)
+                    placed = True
+                    break
+            if not placed:
+                item.setScale(1.0)
+                item.setVisible(False)
 
     @staticmethod
     def _annotation_render_id(block_id: str) -> str:
@@ -824,7 +860,7 @@ class SLDCanvasRenderSystem:
             annotation.block_id, annotation.node_id, annotation.x, annotation.y,
             annotation.text, annotation.visible, annotation.layer_id,
             annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
-            annotation.layer_locked,
+            annotation.layer_locked, annotation.priority,
         ))
 
     @staticmethod
@@ -1121,6 +1157,7 @@ class SLDCanvasRenderSystem:
         finally:
             self._render_signatures.pop(item_id, None)
             self._annotation_base_visibility.pop(item_id, None)
+            self._annotation_priorities.pop(item_id, None)
             self._degraded_diagnostics.pop(item_id, None)
             self._clear_reported_diagnostic(item_id)
             self._degraded_node_ids.discard(item_id)
@@ -1136,6 +1173,7 @@ class SLDCanvasRenderSystem:
                 _LOGGER.exception("Failed to clear SLD snap candidates")
         self._render_signatures.clear()
         self._annotation_base_visibility.clear()
+        self._annotation_priorities.clear()
         self._degraded_node_ids.clear()
         self._degraded_diagnostics.clear()
         self._reported_diagnostics.clear()
