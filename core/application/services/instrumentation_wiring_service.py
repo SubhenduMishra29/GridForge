@@ -12,7 +12,10 @@ from core.application.commands.instrumentation_wiring_commands import (
 )
 from core.application.results import ApplicationResult
 from core.application.transaction import Transaction
-from core.model.instrument_wiring import InstrumentationWiringInventory
+from core.model.instrument_wiring import (
+    CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
+    SignalCarrierBinding, SignalDefinition,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +125,60 @@ class InstrumentationWiringService:
         )
         return tag, replace(self._inventory, tag_policy=updated_policy)
 
+    @staticmethod
+    def _record_collection(record_or_type: Any) -> str:
+        record_type = record_or_type if isinstance(record_or_type, type) else type(record_or_type)
+        collections = {
+            CableAssembly: "cables",
+            CableCore: "cores",
+            PanelWire: "panel_wires",
+            SignalDefinition: "signals",
+            SignalCarrierBinding: "signal_bindings",
+        }
+        try:
+            return collections[record_type]
+        except KeyError as exc:
+            raise TypeError(f"Unsupported instrumentation wiring record type: {record_type!r}.") from exc
+
+    def _tag_policy_candidate(self, candidate: InstrumentationWiringInventory | None) -> InstrumentationWiringInventory:
+        if candidate is None:
+            return self._inventory
+        if not isinstance(candidate, InstrumentationWiringInventory):
+            raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
+        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings"):
+            if getattr(candidate, field) != getattr(self._inventory, field):
+                raise ValueError("Tag allocation candidate cannot contain record mutations.")
+        return candidate
+
+    def create_add_record_command(self, record: Any, *, tag_policy_inventory: InstrumentationWiringInventory | None = None) -> SetInstrumentationWiringInventoryCommand:
+        """Prepare a typed record addition; aggregate checks reject dangling dependencies."""
+        field = self._record_collection(record)
+        base = self._tag_policy_candidate(tag_policy_inventory)
+        records = getattr(base, field)
+        if any(item.id == record.id for item in records):
+            raise ValueError(f"Instrumentation wiring record ID {record.id!r} already exists.")
+        return self.create_replace_command(replace(base, **{field: records + (record,)}))
+
+    def create_update_record_command(self, record: Any) -> SetInstrumentationWiringInventoryCommand:
+        """Prepare a record update without permitting stable identity replacement."""
+        field = self._record_collection(record)
+        records = list(getattr(self._inventory, field))
+        matches = [index for index, item in enumerate(records) if item.id == record.id]
+        if len(matches) != 1:
+            raise KeyError(f"Instrumentation wiring record {record.id!r} does not exist uniquely.")
+        records[matches[0]] = record
+        return self.create_replace_command(replace(self._inventory, **{field: tuple(records)}))
+
+    def create_remove_record_command(self, record_type: type, record_id: str) -> SetInstrumentationWiringInventoryCommand:
+        """Prepare a removal; dependent records must be removed before their owner."""
+        field = self._record_collection(record_type)
+        if not isinstance(record_id, str) or not record_id.strip() or record_id != record_id.strip():
+            raise ValueError("record_id must be a canonical non-empty string.")
+        records = getattr(self._inventory, field)
+        remaining = tuple(item for item in records if item.id != record_id)
+        if len(remaining) == len(records):
+            raise KeyError(f"Instrumentation wiring record {record_id!r} does not exist.")
+        return self.create_replace_command(replace(self._inventory, **{field: remaining}))
     def create_replace_command(
         self, replacement: InstrumentationWiringInventory
     ) -> SetInstrumentationWiringInventoryCommand:
