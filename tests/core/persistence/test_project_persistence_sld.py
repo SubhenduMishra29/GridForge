@@ -108,43 +108,43 @@ def test_project_round_trip_preserves_symbol_transforms_terminal_identity_and_en
         project_id="PROJECT-001",
     )
     source_symbol = SymbolBase(
-        "symbol-breaker-001",
-        "breaker",
+        "symbol-bus-001",
+        "busbar",
         scale=1.25,
         rotation=90.0,
         properties={"mirror_x": True, "mirror_y": False},
-        symbol_family_id="circuit_breaker",
+        symbol_family_id="busbar",
         standard_id="unspecified",
         variant_id="default",
     )
     target_symbol = SymbolBase(
-        "symbol-transformer-001",
-        "transformer",
+        "symbol-bus-002",
+        "busbar",
         scale=0.9,
         rotation=270.0,
         properties={"mirror_x": False, "mirror_y": True},
-        symbol_family_id="power_transformer",
+        symbol_family_id="busbar",
         standard_id="unspecified",
         variant_id="default",
     )
     document.model.create_node(
-        "SLD-BREAKER-001", "BREAKER-001", 125.0, 240.0,
+        "SLD-BREAKER-001", "BUS-001", 125.0, 240.0,
         presentation=source_symbol,
     )
     document.model.create_node(
-        "SLD-TRANSFORMER-001", "TRANSFORMER-001", 620.0, 410.0,
+        "SLD-TRANSFORMER-001", "BUS-002", 620.0, 410.0,
         presentation=target_symbol,
     )
     source_endpoint = SLDEndpoint(
         kind=SLDEndpointKind.EQUIPMENT,
         node_id="SLD-BREAKER-001",
-        equipment_id="BREAKER-001",
+        equipment_id="BUS-001",
         terminal_role="LINE",
     )
     target_endpoint = SLDEndpoint(
         kind=SLDEndpointKind.EQUIPMENT,
         node_id="SLD-TRANSFORMER-001",
-        equipment_id="TRANSFORMER-001",
+        equipment_id="BUS-002",
         terminal_role="HV",
     )
     authored_bends = ((260.0, 240.0), (260.0, 360.0), (540.0, 360.0))
