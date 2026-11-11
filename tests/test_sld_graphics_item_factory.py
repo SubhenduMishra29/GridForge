@@ -198,3 +198,30 @@ def test_instrumentation_wiring_item_can_request_reset_to_automatic_route():
     assert requests[0]["carrier_id"] == "wire-1"
     assert requests[0]["segment_index"] == 1
     assert requests[0]["points"] == ()
+
+def test_instrumentation_wiring_bend_can_be_inserted_at_scene_position():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:CABLE_CORE:core-1:1",
+        source_node_id="ct-node",
+        target_node_id="tb-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "CABLE_CORE", "carrier_id": "core-1",
+            "segment_index": 1, "carrier_tag": "IC-001/1",
+        },
+    )
+    item = factory.create_connection(connection, QPointF(0.0, 0.0), QPointF(100.0, 0.0))
+    requests = []
+    item.route_edit_requested.connect(requests.append)
+
+    proposed = item.insert_instrumentation_bend_at(QPointF(50.0, 20.0))
+
+    assert proposed == ((50.0, 20.0),)
+    assert requests[0]["instrumentation_wiring"] is True
+    assert requests[0]["points"] == ((50.0, 20.0),)
