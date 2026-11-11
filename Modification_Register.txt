@@ -2722,3 +2722,41 @@ UI audit closure — #757 Equipment Placement Tool State Leak:
 - Implementation mirror madhuri196mishra-cpu/GridForge #168 remains open for
   synchronized closure because the current connection is read-only there.
 - Source inspection only; no runtime or test execution.
+
+
+GridForge V2 — Viewport drag-and-drop insertion corridor correction
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+Issue: #822 — Viewport Drag-and-Drop Drop-Zone Ambiguity
+
+Correction:
+- Added viewport-scaled insertion tolerance metadata to CanvasMouseEvent.
+- GraphicsView converts a 15-viewport-pixel radius into scene-space tolerance
+  using the active viewport transform; the corridor therefore tracks zoom.
+- Palette drag now probes eligible Simple Wire routes automatically without
+  requiring Shift. The nearest route is resolved from its routed polyline.
+- ElectricalInsertionTool searches the corridor bounds, applies exact
+  point-to-polyline distance filtering, and retains fail-closed handling for
+  equidistant distinct connection identities.
+- Insertion preview uses the existing insertion-owned preview layer, including
+  the proposed symbol, terminal anchors, split route legs, and highlighted
+  target wire.
+- The release path carries the same viewport tolerance and revalidates the
+  current target before submitting the canonical insertion command.
+- Ordinary position-first DraftNetwork placement remains the fallback when no
+  eligible wire is inside the corridor. Ambiguous wire crossings cancel the
+  drop instead of silently placing overlapping equipment.
+- Modified:
+  ui/canvas/mouse_event_adapter.py
+  ui/canvas/graphics_view.py
+  ui/tools/electrical_insertion_tool.py
+
+Verification:
+- Fetched back all three changed files from authoritative main and confirmed
+  the new corridor metadata, automatic insertion path, ambiguity handling,
+  and release-time target validation are present.
+- Source inspection only. Qt GUI interaction and automated tests were not run.
+- Implementation mirror issue #133 remains separate; authoritative issue #822
+  is closed as completed against the integrated source.
+======================================================================
