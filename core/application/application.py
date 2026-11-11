@@ -4649,17 +4649,8 @@ class Application:
             raise ValueError("Engineering update batch requires distinct non-empty equipment identities.")
         if any(str(getattr(intent, "identity_kind", "element")).strip().lower() != "element" for intent in values):
             raise ValueError("Engineering update batch supports committed equipment only.")
-        commands = []
-        for intent in values:
-            element_type = str(getattr(intent, "element_type", "")).strip().lower()
-            element_id = str(getattr(intent, "element_id", "")).strip()
-            try:
-                commands.append(EngineeringUpdatePreparer.prepare(intent))
-            except Exception as exc:
-                raise ValueError(
-                    f"Engineering batch validation failed for {element_type} {element_id}: {exc}"
-                ) from exc
-        return EngineeringUpdateBatchCommand(commands=tuple(commands))
+        commands = EngineeringUpdatePreparer.prepare_batch(values)
+        return EngineeringUpdateBatchCommand(commands=commands)
 
     def prepare_draft_engineering_update(self, intent: Any) -> Command:
         """Prepare an immutable DraftNetwork engineering-data update command."""
