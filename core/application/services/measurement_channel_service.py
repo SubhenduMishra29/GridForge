@@ -248,6 +248,20 @@ class MeasurementChannelService:
                 channel = self._provision_definition(context, network, definition)
                 if channel.id in next_channels:
                     raise ValueError(f"Duplicate measurement channel ID: {channel.id}")
+                if isinstance(channel.source, CurrentTransformer):
+                    reference = channel.source_terminal
+                    if any(
+                        isinstance(existing.source, CurrentTransformer)
+                        and getattr(existing.source, "id", None) == channel.source.id
+                        and isinstance(existing.source_terminal, EndpointReference)
+                        and isinstance(reference, EndpointReference)
+                        and existing.source_terminal.terminal_role == reference.terminal_role
+                        for existing in next_channels.values()
+                    ):
+                        raise ValueError(
+                            f"CT secondary terminal {channel.source.id}:{reference.terminal_role} "
+                            "has more than one persisted measurement channel."
+                        )
                 # Bind immutable producer identity before sealing the channel.
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
                 channel._bind_sample_update_authority(self._sample_update_authority)
@@ -495,6 +509,11 @@ class MeasurementChannelService:
         source = network.get_by_identity(source_id)
         if getattr(source, "id", None) != source_id:
             raise ValueError(f"Measurement source '{source_id}' could not be resolved.")
+        if isinstance(source, CurrentTransformer) and (
+            getattr(reference.equipment_type, "value", None) != "current_transformer"
+            or reference.terminal_role not in {"S1", "S2"}
+        ):
+            raise ValueError("CT measurement channels must resolve to the physical S1 or S2 secondary terminal.")
         signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
         phase = self._enum_value(MeasurementPhase, definition.get("phase", MeasurementPhase.NONE.value), "phase")
         terminal = resolve_terminal_reference(context, reference)
