@@ -16,7 +16,7 @@ from ..command import Command
 from ..errors import ValidationError
 from ..results import ApplicationResult
 from ..transaction import Transaction
-from ui.sld.sld_model import SLDEndpoint
+from ui.sld.sld_model import SLDEndpoint, SLDPresentationLayer
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,10 @@ class SLDService:
         "sld.set_connection_route",
         "sld.set_node_properties",
         "sld.set_annotation_blocks",
+        "sld.create_layer",
+        "sld.update_layer",
+        "sld.delete_layer",
+        "sld.reorder_layers",
     })
 
     def __init__(
@@ -552,6 +556,56 @@ class SLDService:
     def supports(self, command: Command) -> bool:
         return command.command_type in self.COMMAND_TYPES
 
+    def _preflight_layer_locks(self, command: Command) -> None:
+        """Reject mutations that would alter content on a locked SLD layer."""
+        document = self.document
+        locked_ids = {layer.layer_id for layer in document.layers if layer.locked}
+        if not locked_ids:
+            return
+        p = command.payload
+        node_ids: set[str] = set()
+        connection_ids: set[str] = set()
+        if command.command_type == "sld.set_node_position":
+            node_ids.add(str(p["node_id"]))
+        elif command.command_type == "sld.set_node_positions":
+            node_ids.update(str(item["node_id"]) for item in p["positions"])
+        elif command.command_type == "sld.set_node_transforms":
+            node_ids.update(str(item["node_id"]) for item in p["transforms"])
+        elif command.command_type in {"sld.set_node_presentation", "sld.set_node_properties", "sld.remove_node"}:
+            node_ids.add(str(p["node_id"]))
+        elif command.command_type == "sld.delete_selection":
+            node_ids.update(str(value) for value in p["node_ids"])
+            connection_ids.update(str(value) for value in p["connection_ids"])
+        elif command.command_type in {"sld.set_connection_route", "sld.remove_connection"}:
+            connection_ids.add(str(p["connection_id"]))
+
+        for node_id in node_ids:
+            node = document.model.get_node(node_id)
+            if node.layer_id in locked_ids:
+                raise ValueError("Cannot modify an object on locked SLD layer: " + node.layer_id)
+            if command.command_type in {"sld.remove_node", "sld.delete_selection"}:
+                for connection in document.model.connections:
+                    if connection.source_node_id == node_id or connection.target_node_id == node_id:
+                        if connection.layer_id in locked_ids:
+                            raise ValueError("Cannot remove a node connected by a wire on locked SLD layer: " + connection.layer_id)
+                for block in document.annotation_blocks:
+                    if block.node_id == node_id and block.layer_id in locked_ids:
+                        raise ValueError("Cannot remove a node with an annotation on locked SLD layer: " + block.layer_id)
+        for connection_id in connection_ids:
+            connection = document.model.get_connection(connection_id)
+            if connection.layer_id in locked_ids:
+                raise ValueError("Cannot modify an object on locked SLD layer: " + connection.layer_id)
+
+        if command.command_type == "sld.set_annotation_blocks":
+            old = {block.block_id: block.to_dict() for block in document.annotation_blocks}
+            new = {str(item["block_id"]): dict(item) for item in p["annotation_blocks"]}
+            for block_id, previous in old.items():
+                if previous != new.get(block_id) and previous["layer_id"] in locked_ids:
+                    raise ValueError("Cannot modify an annotation on locked SLD layer: " + previous["layer_id"])
+            for item in new.values():
+                if item.get("layer_id", "default") in locked_ids and old.get(str(item["block_id"])) != item:
+                    raise ValueError("Cannot add or modify an annotation on a locked SLD layer.")
+
     def execute(
         self,
         command: Command,
@@ -571,6 +625,7 @@ class SLDService:
             raise TypeError("transaction must be a Transaction")
         if not self.supports(command):
             raise ValueError(f"Unsupported SLD command: {command.command_type}")
+        self._preflight_layer_locks(command)
         handler = {
             "sld.set_node_position": self._set_node_position,
             "sld.set_node_positions": self._set_node_positions,
@@ -586,6 +641,10 @@ class SLDService:
             "sld.set_connection_route": self._set_connection_route,
             "sld.set_node_properties": self._set_node_properties,
             "sld.set_annotation_blocks": self._set_annotation_blocks,
+            "sld.create_layer": self._mutate_layer_state,
+            "sld.update_layer": self._mutate_layer_state,
+            "sld.delete_layer": self._mutate_layer_state,
+            "sld.reorder_layers": self._mutate_layer_state,
         }[command.command_type]
         document = self.document
         was_modified = bool(document.modified)
@@ -876,6 +935,12 @@ class SLDService:
         authoritative_value: Any = None,
     ) -> ApplicationResult:
         p = command.payload
+        layer_id = p.get("layer_id", self.document.default_layer_id)
+        target_layer = next((layer for layer in self.document.layers if layer.layer_id == layer_id), None)
+        if target_layer is None:
+            raise ValueError("Unknown SLD presentation layer: " + str(layer_id))
+        if target_layer.locked:
+            raise ValueError("Cannot add an SLD object to a locked presentation layer.")
         equipment_id = p.get("equipment_id")
         if equipment_id is not None:
             self._validate_equipment_reference(
@@ -959,6 +1024,7 @@ class SLDService:
                 float(node.y),
                 deepcopy(dict(node.properties)),
                 deepcopy(node_presentation),
+                node.layer_id,
             )
 
         # Capture the created object and its state after successful insertion.
@@ -1006,6 +1072,7 @@ class SLDService:
                     or float(current.y) != y
                     or dict(current.properties) != properties
                     or current_presentation != expected_presentation
+                    or current.layer_id != layer_id
                 ):
                     raise ValueError(
                         f"Cannot compensate failed SLD node creation; identity collision: {node_id!r}."
@@ -1022,6 +1089,7 @@ class SLDService:
                 y=y,
                 presentation=presentation,
                 properties=properties,
+                layer_id=layer_id,
             )
             created_node = self.document.model.get_node_optional(node_id)
             if created_node is not None:
@@ -2565,6 +2633,12 @@ class SLDService:
 
     def _add_connection(self, command: Command, transaction: Transaction) -> ApplicationResult:
         p = command.payload
+        layer_id = p.get("layer_id", self.document.default_layer_id)
+        target_layer = next((layer for layer in self.document.layers if layer.layer_id == layer_id), None)
+        if target_layer is None:
+            raise ValueError("Unknown SLD presentation layer: " + str(layer_id))
+        if target_layer.locked:
+            raise ValueError("Cannot add an SLD object to a locked presentation layer.")
         source_endpoint = p.get("source_endpoint")
         target_endpoint = p.get("target_endpoint")
         route = p.get("route")
@@ -2645,6 +2719,7 @@ class SLDService:
                 or endpoint_signature(current.target_endpoint) != endpoint_signature(target_endpoint)
                 or current.route.to_dict() != expected_route
                 or dict(current.properties) != properties
+                or current.layer_id != layer_id
             ):
                 raise ValueError(
                     "Cannot undo added SLD connection; its structure or ownership "
@@ -2664,12 +2739,117 @@ class SLDService:
             target_endpoint=target_endpoint,
             route=route,
             properties=properties,
+            layer_id=layer_id,
         )
         created_connection = self.document.model.get_connection_optional(connection_id)
         self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
+        )
+
+    def _mutate_layer_state(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        """Apply a complete layer-registry/membership transition atomically."""
+        before = self.document.layer_state_snapshot()
+        layers = [dict(item) for item in before["layers"]]
+        node_membership = dict(before["node_layer_ids"])
+        connection_membership = dict(before["connection_layer_ids"])
+        annotations = [dict(item) for item in before["annotation_blocks"]]
+        layer_by_id = {item["layer_id"]: item for item in layers}
+        operation = command.command_type
+
+        if operation == "sld.create_layer":
+            p = command.payload
+            if p["layer_id"] in layer_by_id:
+                raise ValueError("SLD presentation layer already exists: " + str(p["layer_id"]))
+            layers.append(SLDPresentationLayer(
+                layer_id=p["layer_id"], name=p["name"], visible=p["visible"],
+                locked=p["locked"], opacity=p["opacity"], order=len(layers),
+            ).to_dict())
+
+        elif operation == "sld.update_layer":
+            p = command.payload
+            layer = layer_by_id.get(p["layer_id"])
+            if layer is None:
+                raise ValueError("Unknown SLD presentation layer: " + str(p["layer_id"]))
+            updates = dict(p["updates"])
+            if layer["locked"] and updates.get("locked") is not False:
+                raise ValueError("Unlock the SLD layer before changing its properties.")
+            layer.update(updates)
+            normalized = SLDPresentationLayer.from_dict(layer)
+            layer.clear()
+            layer.update(normalized.to_dict())
+
+        elif operation == "sld.delete_layer":
+            p = command.payload
+            layer_id, target_id = p["layer_id"], p["reassign_to"]
+            layer = layer_by_id.get(layer_id)
+            target = layer_by_id.get(target_id)
+            if layer is None or target is None:
+                raise ValueError("Both the deleted and reassignment SLD layers must exist.")
+            if layer_id == "default":
+                raise ValueError("The default SLD layer cannot be deleted.")
+            if layer["locked"]:
+                raise ValueError("Unlock the SLD layer before deleting it.")
+            if target["locked"]:
+                raise ValueError("Cannot reassign content to a locked SLD layer.")
+            node_membership = {key: target_id if value == layer_id else value for key, value in node_membership.items()}
+            connection_membership = {key: target_id if value == layer_id else value for key, value in connection_membership.items()}
+            for block in annotations:
+                if block["layer_id"] == layer_id:
+                    block["layer_id"] = target_id
+            layers = [item for item in layers if item["layer_id"] != layer_id]
+            for index, item in enumerate(sorted(layers, key=lambda value: value["order"])):
+                item["order"] = index
+
+        elif operation == "sld.reorder_layers":
+            ids = tuple(command.payload["layer_ids"])
+            if set(ids) != set(layer_by_id) or len(ids) != len(layers):
+                raise ValueError("Reorder must provide every current SLD layer exactly once.")
+            layer_by_id = {item["layer_id"]: item for item in layers}
+            layers = []
+            for index, layer_id in enumerate(ids):
+                item = dict(layer_by_id[layer_id])
+                item["order"] = index
+                layers.append(item)
+        else:
+            raise ValueError("Unsupported SLD layer operation: " + operation)
+
+        after = {
+            "layers": layers,
+            "node_layer_ids": node_membership,
+            "connection_layer_ids": connection_membership,
+            "annotation_blocks": annotations,
+        }
+        if after == before:
+            return ApplicationResult.success_result(
+                message="SLD presentation layers are unchanged.",
+                metadata={"presentation_operation": operation.rsplit(".", 1)[-1]},
+            )
+
+        installed_state = None
+
+        def restore_layer_state() -> None:
+            current = self.document.layer_state_snapshot()
+            if current == before:
+                return
+            if installed_state is None or current != installed_state:
+                raise ValueError(
+                    "Cannot undo SLD layer operation; live layer registry or "
+                    "membership changed after this command."
+                )
+            self.document.replace_layer_state(**before)
+
+        # The inverse is registered before the atomic document replacement.
+        transaction.record_undo(restore_layer_state)
+        self.document.replace_layer_state(**after)
+        installed_state = self.document.layer_state_snapshot()
+        return ApplicationResult.success_result(
+            message="SLD presentation layers updated.",
+            metadata={
+                "presentation_operation": operation.rsplit(".", 1)[-1],
+                "layer_ids": tuple(layer["layer_id"] for layer in self.document.layers),
+            },
         )
 
     def _set_annotation_blocks(self, command: Command, transaction: Transaction) -> ApplicationResult:

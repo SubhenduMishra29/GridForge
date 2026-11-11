@@ -243,3 +243,90 @@ def test_batch26_renderer_removes_deleted_node_and_recreates_same_identity_witho
     assert restored_items[0].scene() is scene
     renderer.dispose()
     assert scene.items() == []
+
+
+
+class _RecordingSnapSystem:
+    def __init__(self, scene):
+        self._scene = scene
+        self.registered = []
+
+    def get_scene(self):
+        return self._scene
+
+    def register_item(self, item):
+        self.registered.append(item)
+
+    def unregister_item(self, item):
+        if item in self.registered:
+            self.registered.remove(item)
+
+
+def test_batch26_hidden_layer_keeps_snap_registration_and_applies_opacity_and_order(qapp) -> None:
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    snap_system = _RecordingSnapSystem(scene)
+    renderer = SLDCanvasRenderSystem(scene, factory, realization, snap_system=snap_system)
+    node = SLDCanvasNode(
+        node_id="sld-hidden-layer-breaker",
+        equipment_id="breaker-1",
+        x=120.0,
+        y=160.0,
+        properties={"element_type": "BREAKER"},
+        layer_id="physical",
+        layer_visible=False,
+        layer_opacity=0.35,
+        layer_order=2,
+    )
+
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(node,), connections=()))
+
+    items = tuple(item for item in scene.items() if isinstance(item, EquipmentItem))
+    assert len(items) == 1
+    item = items[0]
+    assert not item.isVisible()
+    assert item.opacity() == pytest.approx(0.35)
+    assert item.zValue() == pytest.approx(220.0)
+    # Visibility is a paint/hit-test policy. Canonical snap anchors remain registered.
+    assert snap_system.registered == [item]
+    assert item.snap_points()
+    renderer.dispose()
+    assert snap_system.registered == []
+
+
+def test_batch26_layer_metadata_change_invalidates_node_render_signature(qapp) -> None:
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    renderer = SLDCanvasRenderSystem(scene, factory, realization)
+    hidden = SLDCanvasNode(
+        node_id="sld-layer-signature-breaker",
+        equipment_id="breaker-1",
+        x=120.0,
+        y=160.0,
+        properties={"element_type": "BREAKER"},
+        layer_id="protection",
+        layer_visible=False,
+        layer_opacity=0.5,
+        layer_order=1,
+    )
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(hidden,), connections=()))
+    first = next(item for item in scene.items() if isinstance(item, EquipmentItem))
+
+    visible = SLDCanvasNode(
+        node_id="sld-layer-signature-breaker",
+        equipment_id="breaker-1",
+        x=120.0,
+        y=160.0,
+        properties={"element_type": "BREAKER"},
+        layer_id="protection",
+        layer_visible=True,
+        layer_opacity=0.8,
+        layer_order=3,
+    )
+    renderer.synchronize(SLDCanvasSnapshot(nodes=(visible,), connections=()))
+    current = next(item for item in scene.items() if isinstance(item, EquipmentItem))
+    assert current is not first
+    assert current.isVisible()
+    assert current.opacity() == pytest.approx(0.8)
+    assert current.zValue() == pytest.approx(320.0)
+    renderer.dispose()

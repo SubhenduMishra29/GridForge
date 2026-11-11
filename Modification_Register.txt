@@ -2022,3 +2022,387 @@ Verification:
 - Source inspection confirmed one primary SLD Fit presentation (View menu), one local Zoom +/- pair, and no global-toolbar navigation duplicates.
 - Updated canvas surface and toolbar files committed to main; fetch-back verification pending at register entry creation.
 - No Qt runtime or GUI interaction performed.
+
+
+======================================================================
+GridForge V2 — Workspace command/tool redundancy audit (batch 2)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit findings:
+- The global toolbar still repeated the SLD Select, Bus and Wire tool actions already present in the editor-owned ToolShelf. The menu Tools hierarchy remains the secondary discoverability/access path; the ToolShelf remains the primary editor tool inventory.
+- The legacy ControlToolbar included Undo and Redo even though history is already available in the global command toolbar and Edit menu. This history group was a third duplicate surface in the Control workspace.
+- ControlToolbar remains contextual for rung editing, transient tool cancellation and Control-cycle execution; those commands are not duplicates of the global command toolbar.
+
+Corrections:
+- Removed tool.sld.select, tool.sld.bus and tool.sld.wire from the global toolbar. ToolShelf remains the authoritative visible tool inventory; toolbar no longer creates a second tool-selection presentation.
+- Removed Undo and Redo from ControlToolbar. Global toolbar and Edit menu remain the canonical history affordances.
+- Retained Control-specific Add/Remove/Move/Enable rung, Cancel transient tool and Execute Cycle actions.
+- No workspace/panel architecture or application command ownership changed.
+
+Verification:
+- Source changes committed to main and fetch-back verification pending at register entry creation.
+- No Qt runtime/GUI acceptance claimed.
+
+
+======================================================================
+GridForge V2 — Canonical workspace panel ownership and duplicate-presentation audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit findings:
+- The canonical visible workspace is hosted in the MainWindow central surface through ControlSurfaceHost → EngineeringEditorHost → editor Regions. WorkspaceRealizer activates the canonical editor host; its dock bindings are explicitly compatibility-only and are not read from WorkspaceDefinition or WorkspaceLayout.
+- PanelsPlugin initially creates one widget instance per utility panel. The composition root then detaches project, equipment, properties, element-list, messages and study-case widgets from their legacy dock wrappers before mounting them into canonical editor Regions. The detached wrappers are removed and their widgets are reparented; the same panel widget is not left visible in a second dock.
+- Project Explorer, Equipment Browser and Element List are separate tabs within the single SLD Explorer Region. Properties is mounted once in the SLD Inspector Region; Messages is mounted once in the SLD Diagnostics Region; Study Cases is mounted once in the Study Editor Explorer Region.
+- ControlWorkspace retains hidden historical palette and toolbar widgets. The visible Control ToolShelf is constructed by ControlEditor through ControlSurfaceHost. The hidden palette remains a compatibility/data source for ControlWorkspace tool descriptors and activation; the hidden toolbar is not mounted in the visible editor. These are latent duplicate widget allocations, not duplicate visible panel surfaces. Removing them safely requires separating ControlWorkspace tool metadata/lifecycle from its historical widget wrappers; this audit does not delete them or alter control-tool behavior.
+- ControlWorkspace's inspector widget is injected by identity into the canonical Control Editor Inspector Region. It is not a second inspector instance. ProtectionWorkspace similarly supplies its own explorer and inspector widgets to Protection Editor Regions.
+- The SLD editor's local panel buttons control Region visibility; the legacy dock wrappers are already detached. They do not expose a second visible dock presentation.
+
+Disposition:
+- No proven duplicate visible Project Explorer, Equipment Browser, Inspector, Messages or Study Cases panel was found in the current composition path. Do not remove or merge distinct Explorer tabs or discipline-specific inspectors.
+- Retain the legacy dock compatibility API and hidden ControlWorkspace palette/toolbar until their remaining non-visual responsibilities can be extracted without changing tool behavior. This is a bounded cleanup item, not evidence of a visible GUI duplication defect.
+
+Verification:
+- Fetched current main and inspected WorkspaceRealizer, WorkspaceDefinition defaults, PanelsPlugin, default panel factories, MainWindow, ControlSurfaceHost, SLDEditor, ControlEditor, ControlWorkspace and the application composition root.
+- Source tracing confirmed each utility panel widget is detached from its dock and mounted into one canonical Region/tab. No source changes to widget composition were justified by this audit.
+- No Qt runtime, visible-window inspection, panel-toggle interaction, or desktop GUI acceptance was performed.
+
+
+======================================================================
+GridForge V2 — Control workspace hidden widget de-allocation
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- ControlWorkspace constructed a hidden ControlToolPalette and ControlToolbar even though ControlEditor/ControlSurfaceHost owns the visible canonical ToolShelf and Control-specific editor Regions.
+- The hidden palette's only remaining workspace responsibilities were providing the capability-filtered ControlToolDescriptor registry and resolving tool IDs for activation.
+- The hidden toolbar was not mounted in the canonical Control editor. Its callbacks only drove the hidden Add/Remove/Move/Enable Rung, Cancel and Execute Cycle controls; retaining the QWidget added no visible functionality.
+
+Correction:
+- ControlWorkspace now owns a ControlToolRegistry directly, not a second palette widget. It exposes the registry's ToolDefinitions through tool_definitions and resolves activate_tool_id() against the same descriptor registry.
+- main.py now obtains Control tool definitions from the ControlWorkspace instance and passes those definitions to ControlSurfaceHost. The former second ControlToolRegistry construction in the composition root is removed.
+- Removed the hidden ControlToolbar allocation, its hidden-widget sizing/visibility setup, and its unreachable toolbar-only callback methods. The visible canonical Control ToolShelf remains the sole Control tool-selection surface and continues to route activation through the existing workspace tool_activator.
+- Removed obsolete uuid4 and splitter remnants from ControlWorkspace. Control canvas, inspector, status, LadderInteraction, selection projection, update coordinator and event subscriptions remain intact.
+
+Scope and behavior:
+- No Core, Application command, Control read-model, LadderInteraction, ToolDefinition, ActionRouter or ControlEditor behavior was changed.
+- The registry still filters descriptors against the same Application command/component capabilities. The same definitions now feed both ControlWorkspace activation lookup and the visible Control ToolShelf, avoiding duplicate registry construction.
+- Control-specific rung operations and cycle execution were only wired to the hidden toolbar in this composition. This cleanup does not claim those actions are newly available in the visible editor; a dedicated canonical Control command surface remains a separate UX task if those operations are required there.
+
+Verification:
+- Changes committed to main and fetched back.
+- Static source checks confirmed: one ControlToolRegistry construction in ControlWorkspace; main composition reuses workspace.tool_definitions; canonical ToolShelf receives those definitions and uses the existing Control tool activator; no ControlToolPalette/ControlToolbar widget instances, hidden-widget callbacks, stale splitter or uuid4 references remain in ControlWorkspace.
+- No tests, CI, Python import/startup, Qt runtime or desktop GUI acceptance were executed.
+
+
+======================================================================
+GridForge V2 — Control editor legacy palette/toolbar allocation verification
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit:
+- Re-fetched current main after the workspace panel ownership audit. ControlWorkspace no longer constructs or stores a ControlToolPalette or ControlToolbar; its layout contains only the Control ladder view.
+- ControlWorkspace retains ControlToolRegistry metadata and activate_tool_id(), which are consumed by main.py to provide Control ToolDefinitions and the Control activation callback to the canonical ToolShelf/ControlEditor composition.
+- ControlEditor constructs the visible ToolShelf when its Region is realized. The same ControlWorkspace instance supplies its canvas, inspector and status widgets to canonical Control Regions; no second inspector or status widget is created by ControlEditor.
+- The ControlToolbar class remains in its module as a legacy/compatibility type, but current main.py does not construct it. The ControlToolPalette type remains available as a legacy standalone widget; ControlWorkspace does not instantiate it. No evidence justified deleting these module-level compatibility types as part of this focused task.
+
+Disposition:
+- The requested hidden ControlWorkspace palette/toolbar widget allocations are already absent from current main. No further code change is required. Preserve the registry/activation bridge and canonical ToolShelf ownership.
+- Do not remove ControlToolbar or ControlToolPalette classes without a separate public-API/import-graph audit; their mere presence does not allocate visible or hidden widgets in the running composition.
+
+Verification:
+- Fetched current main branch (branch commit observed: 4cba62c892dae588fc0e58e792346e3110ae7f7e) and inspected ControlWorkspace, ControlEditor, ControlToolPalette, ControlToolbar, ControlToolRegistry and main.py construction/activation wiring.
+- Confirmed ControlWorkspace contains no ControlToolPalette/ControlToolbar imports, constructors, fields or hidden setVisible calls; main.py derives Control tool definitions from control_workspace.tool_definitions and routes activation through activate_tool_id.
+- No code/test change was made because the target allocation had already been removed in the current source. No Qt runtime, visible-window, tool-selection interaction or desktop GUI acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — Tool Settings and Inspector ownership audit across editors
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Audited SLD, Control, Protection and Study editor composition, ToolSettingsPanel ownership, Inspector Region replacement, workspace Region defaults, and the canonical ControlSurfaceHost registration path.
+
+Findings:
+- Each editor realizes exactly one Tool Settings Region and one Inspector Region. The shared ToolSettingsPanel class is instantiated once per editor, not mounted twice within an editor.
+- ToolSettingsPanel is a passive presentation widget: set_context() rebuilds labels from the immutable EditorContext snapshot. It does not subscribe to signals, own timers, retain project services, or create background work. Hidden instances therefore do not retain unnecessary subscriptions or active runtime state.
+- The four editors are registered once in the canonical EngineeringEditorHost. Their Region widgets remain allocated while their editor is retained in the stack; this is deliberate workspace-state retention, not duplicate visible presentation.
+- Inspector widgets are discipline-specific: SLD receives the canonical Properties panel; Control receives ControlWorkspace.editor_inspector; Protection receives ProtectionWorkspace.editor_inspector; Study receives the study dashboard/results inspector. Only the active editor is presented, and these are not duplicate instances of one shared Inspector.
+- ControlSurfaceHost.set_region_widgets() replaces the editor's placeholder Region child with the supplied canonical widget. It does not create a second Region or second visible Inspector. Tool Settings remains the editor-local context presentation because no external tool-settings widget is injected in the current composition.
+- SLD's Tool Settings visibility is context-driven and additionally participates in user Region visibility state; Control, Protection and Study hide it when the current context has no tool-setting values. Initial hidden state is explicit in each editor constructor.
+
+Decision:
+- No source correction is justified. The hidden Tool Settings panels have no subscriptions or external ownership to release, and the per-discipline Inspector widgets are distinct authoritative views rather than duplicate ownership. Lazy construction or shared cross-editor Tool Settings would complicate editor-context ownership without a demonstrated runtime or memory defect.
+- Preserve current per-editor Region identity and retained editor state. Revisit only if runtime profiling demonstrates material idle cost or if editor teardown/lifecycle evidence identifies retained resources.
+
+Verification:
+- Fetched and inspected current main source for SLDEditor, ControlEditor, ProtectionEditor, StudyEditor, ToolShelf/ToolSettingsPanel, EditorRegionFrame, workspace defaults, ControlSurfaceHost and EngineeringEditorHost.
+- Confirmed ToolSettingsPanel contains no signal connections/subscriptions or service references; its only state is title/form presentation rebuilt by set_context().
+- Confirmed one Tool Settings Region and one Inspector Region per editor, with one canonical editor registration per discipline and injected inspector identity at composition.
+- No source files changed. Modification Register updated and fetched back from main.
+- No Python import/syntax execution, memory profiling, Qt GUI visibility check, or workspace-switch runtime acceptance was performed.
+
+
+======================================================================
+GridForge V2 — SLD annotation density and presentation-layer model audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Reconciled issue #820's fixed-pixel annotation collision report and missing non-destructive visual-layer requirement against the current symbol renderer, annotation projection, SLD document schema, and canvas render lifecycle.
+
+Findings — annotation scaling and density:
+- The reported fixed-pixel font implementation in SLDGraphicsItemFactory is not present in current main. The factory resolves semantic descriptors and constructs equipment presentation; it does not assign a fixed screen-space font to engineering labels.
+- Equipment symbol text primitives are painted by EquipmentItem in symbol-local coordinates using the engineering presentation font. The item's scale/rotation/reflection transform therefore applies to the text with the symbol; no ItemIgnoresTransformations/fixed-screen-font behavior was found in this path.
+- Data annotations are separate transient QGraphicsTextItem objects projected from SLDAnnotationBlock/Application read models. They use scene coordinates and a deterministic annotation Z value, so their text scales with the canvas transform rather than remaining fixed in screen pixels.
+- SLDCanvasRenderSystem already has a configurable annotation_min_zoom (default 0.65) and a NavigationController zoom listener. It hides data annotations below that threshold without modifying persisted visibility. This is a coarse zoom-level density gate, not collision detection: no viewport-space overlap test, label prioritization, or intermediate-zoom decluttering was found.
+- Annotation placement currently supports four fixed quadrants or a custom offset. This is useful manual placement but does not solve automatic collisions between neighboring labels.
+
+Findings — non-destructive visual layers:
+- SLDDocument persists annotation_blocks as a flat ordered collection. SLDAnnotationBlock has block/node identity, fields, visibility, offsets and quadrant, but no layer identity, grouping, opacity, display mode, or layer visibility state.
+- SymbolBase persists per-symbol visibility and presentation properties, but no canonical named layer membership or independent layer presentation configuration was found in the inspected model.
+- SLDCanvasRenderSystem has fixed technical Z bands for connections, equipment and annotations. These are renderer ordering constants, not engineer-controlled non-destructive layers.
+- The current project/SLD presentation schema therefore does not provide the requested Protection/Control, thermal-loading, or physical-layout presentation-layer isolation. Encoding this in ad-hoc node properties or renderer-only flags would create split authority and is not an acceptable correction.
+
+Decision / next design boundary:
+- Do not change font sizing based on the issue's stated fixed-pixel mechanism; that mechanism is not present in current main.
+- The verified gap is collision-aware decluttering above the existing 0.65 zoom cutoff and a persisted, renderer-neutral presentation-layer model. These require explicit product semantics: layer identity and ordering, visibility/opacity, default layer, annotation/symbol membership, backward-compatible serialization, command/undo semantics, and interaction with selection, snapping, connectivity and study overlays.
+- Keep all such state in the SLD presentation document/application command path; it must not alter Core equipment, terminal identity, topology or study results. Avoid treating renderer Z values as layer authority.
+- No implementation was made in this audit because the layer contract and migration semantics are not yet defined; a speculative renderer-only patch would risk persistence and multi-view inconsistencies.
+
+Verification:
+- Inspected SLDGraphicsItemFactory, EquipmentItem, SLDCanvasRenderSystem, SLDCanvasProjection, SLDAnnotationBlock/SLDModel, SLDDocument and SymbolBase on current main.
+- Source inspection confirms scene-scaled text, existing coarse zoom suppression, absence of collision-aware decluttering, and absence of canonical named presentation layers in the inspected SLD schema.
+- Modification Register updated and fetched back. No source files changed.
+- No Python import/syntax execution, Qt zoom/overlap visual acceptance, large-network profiling, or save/reopen migration test was performed.
+
+
+======================================================================
+GridForge V2 — Presentation-layer implementation contract and sequencing
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Purpose:
+- Define the safe implementation boundary for issue #820's non-destructive SLD presentation layers before changing canonical persistence or renderer behavior.
+
+Current contract constraints confirmed from source:
+- Canonical SLD schema is version 3. SLDDocument serialization and strict validation are coupled through core/persistence/migration.py (SLD_DOCUMENT_FIELDS, SLD_NODE_FIELDS, SLD_CONNECTION_FIELDS, SLD_ANNOTATION_BLOCK_FIELDS and validate_canonical_sld).
+- Existing schema 2-to-3 migration adds annotation_blocks. A layer model therefore requires an explicit 3-to-4 migration and updated strict validation; silently adding unknown fields to schema 3 is invalid.
+- SLD mutations use immutable Commands routed through SLDCommandHandlers into SLDService and Transaction undo journals. A layer visibility/reorder/membership change must use this path, not mutate Qt items directly.
+- Projection currently emits separate node, connection and annotation collections. Render reconciliation creates items from these collections and uses fixed technical Z values. Layer state must reach all three collections and participate in render signatures, otherwise stale visible items can survive a layer change.
+- Core topology, endpoint resolution, snap registration, connection projection and study results must remain independent of layer visibility. Hiding a visual layer must not delete a node/connection from the snapshot, remove snap anchors, alter semantic connectivity, or suppress electrical calculations.
+
+Canonical design contract for implementation:
+1. Persist ordered SLDPresentationLayer records in SLDDocument, each with stable layer_id, name, visible, locked, opacity, and explicit order. Require at least one default layer; prevent deletion of the default layer and prevent deleting a non-empty layer unless membership is reassigned atomically.
+2. Store layer_id as an explicit presentation field on SLDNode, SLDConnection and SLDAnnotationBlock (not in free-form properties). New objects default to the default layer. Validate every reference against the document's layer registry. For legacy schema 3, migration creates one default layer and assigns every existing node, connection and annotation to it.
+3. Keep layer visibility/locking/opacity/order in the SLD document only. Do not add a Core equipment/connection layer concept. Layer locking blocks SLD editing gestures for assigned visual objects but does not change Core authority or prevent electrical operations through Application services.
+4. Keep visibility as a rendering/interaction policy only: hidden items are omitted or made non-visible in the graphics projection, but their semantic node/connection records and snap/topology source remain intact. Explicitly test connection endpoint/snap behavior when the owning layer is hidden; never infer disconnected topology from a hidden wire.
+5. Add immutable Application commands for layer create/update/delete/reorder and bulk membership reassignment. Route through SLDCommandHandlers/SLDService with atomic preflight, rollback, and undo/redo. Reject unknown layer IDs and invalid delete/membership combinations before mutation.
+6. Project layer metadata into renderer-neutral snapshot records. Include layer ID, visibility, opacity and order in node/connection/annotation render signatures. Keep technical Z bands as within-layer ordering only; derive effective Z from layer order plus the existing per-kind band, with deterministic bounds and no collisions between adjacent layer bands.
+7. Keep transient study-result overlays on an explicit transient/default layer policy; do not persist them as authored annotation blocks. Hidden authored layers must not mutate or stale StudyResultReadModel data.
+8. Add layer controls in the SLD workspace (layer list, visibility, lock, opacity, reorder, active layer) only after command and projection semantics are complete. Palette placement uses the active unlocked layer. Default active layer is restored per SLD document.
+9. Update SLD schema validator, migration registry, package round-trip, undo/redo, multi-document isolation, selection, snap, connection route, study overlay and renderer reconciliation coverage. Existing schema-3 payloads must load into a single default layer with no visible behavior change.
+
+Implementation sequencing:
+- Phase A: schema-4 model + schema-3 migration + strict validation + document serialization and round-trip coverage.
+- Phase B: transactional commands/service/undo-redo for layer lifecycle and membership.
+- Phase C: renderer-neutral projection and visibility/opacity/order integration, preserving hidden topology/snap semantics.
+- Phase D: Layer Manager UI, active-layer placement, lock behavior, and annotation density integration.
+- Phase E: collision-aware annotation decluttering (independent of persisted layer visibility), with priority/scale rules and manual overrides.
+
+Decision for this batch:
+- No production code changed. The current strict schema-3 validator and multi-collection renderer make a one-file or renderer-only implementation unsafe. The contract and phase gates are now recorded before the first schema change.
+
+Verification:
+- Inspected current SLD schema constants, schema-3 strict validator, schema 2-to-3 migration, SLDDocument serializer, SLDNode/SLDConnection/SLDAnnotationBlock, SLDService command dispatch, SLDCommandHandlers, SLDCanvasProjection and SLDCanvasRenderSystem.
+- Modification Register updated and fetched back. No Python import/syntax execution, migration execution, command undo/redo execution, Qt GUI, or project round-trip runtime verification was performed.
+
+
+======================================================================
+GridForge V2 — SLD schema 4 persisted presentation-layer model (Phase A)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Implement Phase A of the issue #820 presentation-layer contract: canonical SLD schema 4, schema 3 migration, renderer-neutral layer records, explicit membership, strict validation, and serialization round-trip coverage.
+
+Implementation:
+- Bumped SLD_SCHEMA_VERSION from 3 to 4. Project and presentation collection schema versions remain unchanged.
+- Added immutable SLDPresentationLayer records with stable layer_id, name, visible, locked, opacity, and explicit order.
+- SLDDocument now owns a non-empty ordered layer registry with exactly one stable "default" layer identity, validates unique IDs and contiguous unique order values, and validates node/connection/annotation membership against the registry.
+- Added explicit layer_id presentation fields to SLDNode, SLDConnection, and SLDAnnotationBlock. Constructors and model creation APIs default new objects to "default"; serialization preserves membership.
+- Added deterministic schema 3-to-4 migration. It creates a visible, unlocked, fully opaque default layer and assigns every legacy node, connection, and annotation block to that layer.
+- Updated canonical schema field allowlists and strict validation for layer records, finite opacity in [0, 1], boolean visibility/locking, non-negative contiguous ordering, unique layer IDs/orders, and valid membership references.
+- Updated SLDDocument.to_dict()/from_dict() to persist and restore the ordered layer registry.
+- Added source regression coverage for schema-3 migration of nodes/connections/annotations and schema-4 layer membership/document round-trip.
+
+Architecture boundaries:
+- Layer metadata and membership remain in the SLD presentation document/model. No Core equipment, terminal, connection, topology, or study model was changed.
+- No command lifecycle, transactional layer mutations, undo/redo, renderer filtering/opacity/Z integration, active-layer UI, locking gestures, or annotation decluttering was introduced; those remain Phases B-E.
+
+Verification:
+- Fetched current main before editing and updated files sequentially using their current blob SHAs.
+- Source changes committed to main and fetched back for migration, package schema, model, document, and persistence test files.
+- Static source inspection confirmed the schema-4 validator requires layer membership on all three authored collections and validates all references against the document layer registry.
+- Added tests but did not execute tests, CI, imports, project package runtime, or Qt GUI acceptance. No runtime save/reopen or rendering behavior is claimed.
+
+
+Phase A follow-up:
+- Exported SLDPresentationLayer through the lazy ui.sld package API so callers can use the new document model without importing its implementation module directly.
+- Kept SLDAnnotationBlock.from_dict() backward-friendly for programmatic mapping construction by defaulting an omitted layer_id to "default". Canonical schema-4 persistence remains strict: validate_canonical_sld() still requires the explicit layer_id field before document restoration.
+- These refinements do not expand Phase A into command, renderer, or UI behavior.
+
+
+Phase A validation/API hardening:
+- Legacy schema-3 migration now rejects layer registries or layer_id fields that do not belong to schema 3 instead of silently overwriting them.
+- Added strict-validator regression coverage for unknown node layer references and out-of-range opacity.
+- Exported SLDPresentationLayer from ui.sld and retained the default-layer fallback for programmatic SLDAnnotationBlock mappings. Canonical persisted schema-4 validation still requires explicit membership.
+
+
+======================================================================
+GridForge V2 — SLD presentation-layer transactional commands (Phase B)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Implement Phase B of issue #820: Application command/service/transaction support for creating, updating, deleting, and reordering SLD presentation layers, with undo/redo and layer lock enforcement.
+
+Implementation:
+- Added typed immutable commands: CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand, and ReorderSLDLayersCommand, with stable command type constants and public exports through core.application.commands.
+- Registered all four commands in SLDCommandHandlers and SLDService's canonical command dispatch/allowlist.
+- Added SLDDocument.layer_state_snapshot() and replace_layer_state(). The replacement preflights the complete layer registry, exact node/connection membership maps, annotation identities/node references, and all target layer references before applying any in-memory mutation.
+- Added one transactional service operation that snapshots the complete before/after layer state, records a conflict-aware inverse before mutation, and restores the complete registry and all memberships atomically on rollback/undo. Redo re-executes the original typed command.
+- Layer creation validates identity and appends at the end. Layer updates validate name/visibility/lock/opacity; locked layers must be explicitly unlocked before other property changes. Layer reordering requires an exact permutation of every layer.
+- Default layer deletion is prohibited. Deleting a non-default unlocked layer requires a distinct existing unlocked destination and atomically reassigns all nodes, connections, and annotation blocks before removing/compacting the layer order.
+- AddSLDNodeCommand and AddSLDConnectionCommand now accept explicit layer_id, defaulting to "default". Application service validates target existence and lock state; object creation records layer membership as part of its undo conflict signature.
+- Application service preflight prevents node/connection geometry, presentation, property, route, and deletion mutations on locked layers. Node deletion also checks attached connections and annotations so it cannot cascade-delete content on a locked layer. Annotation collection changes are checked against locked-layer ownership.
+- All operations remain SLD presentation-only. No Core equipment, terminal, connectivity, topology, study, or calculation state is mutated by layer operations. Hiding a layer remains a future renderer projection concern (Phase C).
+
+Regression coverage added:
+- Layer creation/update/reorder/delete, atomic reassignment of populated node/connection/annotation content, undo and redo.
+- Default-layer deletion and locked-layer deletion rejection without state/history mutation.
+- Explicit layer placement for newly created SLD nodes/connections and locked-layer edit/add rejection.
+
+Verification:
+- Fetched latest main before each source update and fetched back updated command, service, handler, document, package export, and test sources.
+- Tests and CI were not executed. No Qt runtime or GUI acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — SLD presentation-layer projection and renderer integration (Phase C)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Implement Phase C of issue #820: carry persisted presentation-layer metadata through the renderer-neutral canvas projection and apply visibility, opacity, and order in the transient Qt renderer.
+
+Implementation:
+- Extended renderer-neutral SLD node, connection, and annotation snapshots with explicit layer identity, visibility, opacity, order, and lock metadata. Defaults preserve existing callers and schema-4 default-layer behavior.
+- SLDCanvasProjection now resolves each authored object against the document's canonical layer registry and rejects missing layer references. It retains all nodes and connections in the snapshot regardless of visibility; it does not remove semantic records or rewrite endpoint identity.
+- Updated canonical CanvasComposition document presentation paths, including the read-only comparison viewport, to pass SLDDocument.layers into projection. Layer changes therefore arrive through the normal complete-snapshot reconciliation path.
+- Applied layer visibility to node, connection, and annotation graphics; opacity to their rendered graphics; and deterministic layer Z bands composed with the existing connection/equipment/annotation technical bands. The technical order remains intact within each layer.
+- Hidden equipment remains realized and registered with the canonical SnapSystem. Its item is invisible and therefore not pointer-hit-testable, while its snap anchors and endpoint geometry remain available to routing and connection resolution.
+- Added layer metadata to node, connection, and annotation render signatures so visibility, opacity, membership, or order changes invalidate stale graphics. Annotation zoom-threshold refresh now preserves the owning layer's hidden state.
+- Study-result annotations remain transient and are projected on the default visible layer; they are not persisted as authored annotation blocks.
+- No Core equipment, terminal, connectivity, topology, calculation, or study state was changed. Layer locking remains an Application interaction policy from Phase B and is not interpreted as electrical state by the renderer.
+
+Regression coverage added:
+- Hidden equipment remains in the renderer and SnapSystem while invisible to canvas hit-testing.
+- Layer opacity and deterministic layer/technical Z composition are applied.
+- Layer visibility/opacity/order changes invalidate node rendering signatures and refresh graphics.
+
+Verification:
+- Updated and fetched back projection, renderer, and CanvasComposition sources on current main. Regression tests were added but not executed; CI was not run.
+- Source inspection confirms all three document projection paths pass the persisted layer registry, and the render signatures include layer metadata for nodes, connections, and annotations.
+- No Qt GUI acceptance, manual snapping gesture, pointer hit-test runtime, multi-layer visual ordering, save/reopen runtime, or large-network performance acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — SLD Layer Manager UI (Phase D1)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Correction:
+- Added SLDLayerManagerWidget as a tab in the existing canonical SLD Explorer Region; no additional dock, panel host, or parallel layer state was introduced.
+- The manager lists document layers in persisted order and exposes active-layer selection, visibility, lock, opacity, rename, create, delete, and reorder controls.
+- Default layer deletion is blocked in the UI; non-default deletion reassigns its contents to Default through the existing Application command.
+- Added SLDController layer-command methods for create/update/delete/reorder and transient active-layer selection. Locked or missing layers cannot become active.
+- SLDController.add_node() and add_connection() now route default-layer placements through the active layer and reject missing/locked target layers. Explicit non-default node/connection layer assignments remain respected.
+- Layer controls use the existing typed Application commands, preserving the established transaction and undo/redo boundary. The manager refreshes when its Explorer tab is shown.
+
+Scope and remaining work:
+- This is Phase D1 (manager presentation and controller integration), not completion of all Phase D requirements.
+- DraftNetwork equipment placement and its later commit-to-SLD projection still require explicit active-layer propagation. Do not treat the active-layer selector as fully integrated with draft placement until that path is corrected.
+- Qt GUI interaction, visual layout, undo/redo runtime, and Python import/syntax execution were not performed. Source-only implementation; no tests or CI were run.
+
+
+Phase D1 follow-up:
+- Active authoring-layer selection is stored by SLD document ID, not in one controller-global slot, so switching between open SLD documents does not leak the active layer selection.
+- Hidden or locked layers are rejected as active authoring layers. Hiding or locking the currently active layer returns that document's active selection to its Default layer.
+- The Layer Manager refreshes on tab display, including after a document switch while the Layers tab is not visible.
+
+
+======================================================================
+GridForge V2 — Draft placement layer propagation (Phase D2a)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Begin Phase D2 by carrying active SLD presentation-layer identity from the placement interaction through Application-owned DraftNetwork state and the draft canvas projection.
+
+Implementation:
+- DraftEquipment now has an explicit presentation-only layer_id (default "default"), strict non-empty identity validation, serialization/deserialization support, and update_equipment support. Existing draft payloads without layer_id remain backward-compatible and restore to Default.
+- ModelPlacementTool captures the active layer at the placement commit point. It resolves the canonical SLDController through the public Controller.get_sld_controller() capability, rather than reaching into controller private state. Later layer selection changes do not move already placed draft equipment.
+- DraftSLDCanvasNode carries layer_id. DraftSLDCanvasSnapshot carries the current SLD layer registry from CanvasComposition.
+- Draft rendering now resolves each draft equipment object's layer against the active document registry and applies layer ordering, opacity and visibility to both normal symbol previews and degraded fallback items. The full draft object remains in DraftNetwork and the hidden preview remains registered in SnapSystem where symbol realization supports snap registration.
+- Layer metadata participates in draft node render signatures so layer visibility/opacity/order changes reconcile existing draft graphics.
+- Added source regression coverage for DraftEquipment layer serialization, mutation and DraftNetwork round-trip.
+
+Architecture:
+- layer_id is stored only on Application-owned DraftEquipment and UI presentation snapshots. No Core equipment, terminal, connectivity, topology or study model receives SLD layer metadata.
+- Existing schema payloads are compatible through the "default" fallback.
+- This is D2a, not complete D2. DraftConnection layer ownership and all draft-wire/connection authoring routes still require explicit active-layer propagation and rendering. Draft annotation placement also remains to be reconciled where applicable.
+
+Verification:
+- Source files and the new regression test were committed and fetched back from current main.
+- No tests, CI, Python import/syntax execution, Qt GUI interaction, snap gesture, project save/reopen, or DraftNetwork-to-Core commit runtime was executed. No runtime acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — Draft connection / wire presentation-layer propagation (Phase D2b)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Complete Phase D2b of issue #820 by retaining the SLD layer selected when a draft wire is authored and applying the owning layer's presentation state to its canvas projection.
+
+Implementation:
+- Added presentation-only layer_id to Application-owned DraftConnection, appended to preserve positional constructor compatibility. Legacy serialized draft connections without the field restore to "default"; invalid empty layer identities are rejected.
+- DraftConnection serialization/deserialization and DraftNetwork round-trips preserve layer membership. Draft route edits preserve the original layer instead of silently reverting to Default; the Application handler's preflight replacement follows the same rule.
+- WireTool captures the canonical SLDController.active_layer_id when the first endpoint is acquired and includes that captured identity in the CreateDraftConnectionCommand. The second endpoint and later active-layer changes cannot silently relocate the in-progress wire.
+- DraftSLDCanvasConnection projects layer_id from the Application draft read model with a legacy Default fallback.
+- Draft wire rendering resolves the connection's layer against the active document layer registry, fails closed for unknown layer identities, and applies layer visibility, opacity, and deterministic layer Z order. Layer state and membership participate in the render signature, so edits invalidate an existing wire realization.
+- Commit metadata now carries the draft connection layer identity alongside endpoint and route metadata for downstream presentation reconciliation.
+- No Core equipment, terminal, endpoint, topology, connectivity, or electrical model receives SLD layer metadata. Layer identity remains Application draft / UI presentation metadata only.
+
+Regression coverage:
+- Added a DraftConnection serialization and legacy-default regression, including DraftNetwork round-trip and route-edit preservation.
+
+Verification:
+- Fetched back all changed source, test, and register files from current main. Source-level checks confirm serialization, compatibility fallback, first-endpoint capture, command payload propagation, route-edit preservation, projection, renderer state application, signature invalidation, and commit metadata propagation.
+- Tests and CI were not run. No Python import/syntax execution, Qt runtime, manual wire gesture, multi-layer visibility/opacity/order interaction, project save/reopen, or post-commit SLD presentation acceptance is claimed.
+- Phase D2b source work is complete. Phase D2c (draft annotation ownership) and D2d (undo/redo, document switching, save/reopen reconciliation) remain open.

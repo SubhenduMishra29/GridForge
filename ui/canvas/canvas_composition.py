@@ -315,7 +315,7 @@ class ReadOnlySLDViewport(QWidget):
         """Render committed presentation data without tools, selection, or snapping."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._projection.project(document.model, document.annotation_blocks)
+        snapshot = self._projection.project(document.model, document.annotation_blocks, document.layers)
         horizontal = self._view.horizontalScrollBar()
         vertical = self._view.verticalScrollBar()
         horizontal_blocked = horizontal.blockSignals(True)
@@ -536,7 +536,7 @@ class SLDCanvasSurface(QWidget):
         """Present the Application-authoritative SLD document on this surface."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks)
+        snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
         self._sld_canvas_render_system.synchronize(snapshot)
         self._document_id = document.document_id
         self._sld_canvas_snapshot = snapshot
@@ -564,8 +564,13 @@ class SLDCanvasSurface(QWidget):
             else:
                 self._navigation_controller.set_transform(saved_transform)
 
-        committed = self._sld_canvas_projection.project(document.model, document.annotation_blocks)
-        composite = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
+        committed = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
+        layered_draft = DraftSLDCanvasSnapshot(
+            nodes=draft_snapshot.nodes,
+            connections=draft_snapshot.connections,
+            layers=document.layers,
+        )
+        composite = CompositeSLDCanvasSnapshot(committed=committed, draft=layered_draft)
         self._sld_canvas_render_system.synchronize(composite)
         self._document_id = document.document_id
         self._sld_canvas_snapshot = committed

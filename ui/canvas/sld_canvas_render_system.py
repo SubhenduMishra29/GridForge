@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import math
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from ui.core.qt import QGraphicsScene, QPointF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
@@ -55,6 +56,12 @@ class SLDCanvasRenderSystem:
     CONNECTION_Z_VALUE = 10.0
     EQUIPMENT_Z_VALUE = 20.0
     ANNOTATION_Z_VALUE = 30.0
+    LAYER_Z_STRIDE = 100.0
+
+    @classmethod
+    def _layer_z(cls, layer_order: int, technical_band: float) -> float:
+        """Compose document layer order with the stable within-layer technical Z band."""
+        return float(layer_order) * cls.LAYER_Z_STRIDE + float(technical_band)
 
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
                  semantic_realization: SemanticPresentationRealization, snap_system: Any = None,
@@ -327,6 +334,7 @@ class SLDCanvasRenderSystem:
             raise TypeError("snapshot must be an SLDCanvasSnapshot or CompositeSLDCanvasSnapshot")
         if not isinstance(draft, DraftSLDCanvasSnapshot):
             raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
+        draft_layers = {layer.layer_id: layer for layer in draft.layers}
 
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
@@ -440,7 +448,9 @@ class SLDCanvasRenderSystem:
                     continue
                 if degraded is None:
                     degraded = self._create_degraded_realization(node, message, code)
-                    degraded.setZValue(self.EQUIPMENT_Z_VALUE)
+                    degraded.setZValue(self._layer_z(node.layer_order, self.EQUIPMENT_Z_VALUE))
+                    degraded.setOpacity(float(node.layer_opacity))
+                    degraded.setVisible(bool(node.layer_visible))
                     self._scene.addItem(degraded)
                     self._items[node.node_id] = (degraded,)
                 else:
@@ -453,7 +463,9 @@ class SLDCanvasRenderSystem:
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
-            item.setZValue(self.EQUIPMENT_Z_VALUE)
+            item.setZValue(self._layer_z(node.layer_order, self.EQUIPMENT_Z_VALUE))
+            item.setOpacity(float(node.layer_opacity))
+            item.setVisible(bool(node.layer_visible))
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
             self._attach_realized_item(item, register_snap=True)
@@ -471,7 +483,14 @@ class SLDCanvasRenderSystem:
         # connection set, so one shared scene/registry can resolve mixed endpoints.
         for node in draft.nodes:
             render_id = self._draft_render_id(node.draft_id)
-            signature = self._draft_node_signature(node)
+            layer = draft_layers.get(node.layer_id)
+            if layer is None and not draft.layers and node.layer_id == "default":
+                # Compatibility for direct renderer callers predating the
+                # document-layer registry on DraftSLDCanvasSnapshot.
+                layer = SimpleNamespace(layer_id="default", visible=True, opacity=1.0, order=0, locked=False)
+            if layer is None:
+                raise ValueError(f"Draft equipment {node.draft_id!r} references unknown SLD layer {node.layer_id!r}.")
+            signature = self._draft_node_signature(node, layer)
             if (
                 self._render_signatures.get(render_id) == signature
                 and render_id in self._items
@@ -489,7 +508,9 @@ class SLDCanvasRenderSystem:
                 self._remove_realized(render_id)
             try:
                 item = self._draft_presentation_factory.create_node(node)
-                item.setZValue(self.EQUIPMENT_Z_VALUE)
+                item.setZValue(self._layer_z(layer.order, self.EQUIPMENT_Z_VALUE))
+                item.setOpacity(float(layer.opacity))
+                item.setVisible(bool(layer.visible))
                 self._attach_realized_item(item, register_snap=True)
                 if previous_degraded is not None:
                     self._remove_realized(render_id)
@@ -542,7 +563,9 @@ class SLDCanvasRenderSystem:
                     fallback.draft_id = node.draft_id
                     fallback.is_draft_presentation = True
                     fallback.setPos(float(node.x), float(node.y))
-                    fallback.setZValue(self.EQUIPMENT_Z_VALUE)
+                    fallback.setZValue(self._layer_z(layer.order, self.EQUIPMENT_Z_VALUE))
+                    fallback.setOpacity(float(layer.opacity))
+                    fallback.setVisible(bool(layer.visible))
                     label = QGraphicsTextItem(
                         f"Symbol unavailable\n{node.display_name}", fallback
                     )
@@ -553,6 +576,9 @@ class SLDCanvasRenderSystem:
                     fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
                     self._scene.addItem(fallback)
                     self._items[render_id] = (fallback,)
+                fallback.setZValue(self._layer_z(layer.order, self.EQUIPMENT_Z_VALUE))
+                fallback.setOpacity(float(layer.opacity))
+                fallback.setVisible(bool(layer.visible))
                 fallback.setToolTip(
                     f"Draft symbol unavailable [{code}]\n"
                     f"draft={node.draft_id} type={node.equipment_type}\n{message}"
@@ -685,7 +711,9 @@ class SLDCanvasRenderSystem:
                         source, target, route_points
                     )
                 item = self._item_factory.create_connection(connection, source, target)
-                item.setZValue(self.CONNECTION_Z_VALUE)
+                item.setZValue(self._layer_z(connection.layer_order, self.CONNECTION_Z_VALUE))
+                item.setOpacity(float(connection.layer_opacity))
+                item.setVisible(bool(connection.layer_visible))
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
                 self._bind_route_edit_item(item)
                 if callable(getattr(item, "set_visual_state", None)):
@@ -712,12 +740,19 @@ class SLDCanvasRenderSystem:
                 # draft node can move while the wire's endpoint identities stay
                 # unchanged; geometry must therefore participate in the
                 # reconciliation decision or the visible wire remains stale.
+                layer = draft_layers.get(connection.layer_id)
+                if layer is None and not draft.layers and connection.layer_id == "default":
+                    # Preserve compatibility for legacy direct renderer callers.
+                    layer = SimpleNamespace(layer_id="default", visible=True, unlocked=True, opacity=1.0, order=0, locked=False)
+                if layer is None:
+                    raise ValueError(f"Draft connection {connection.connection_id!r} references unknown SLD layer {connection.layer_id!r}.")
                 source, source_id = self._resolve_draft_endpoint(connection.source, realized)
                 target, target_id = self._resolve_draft_endpoint(connection.target, realized)
                 signature = self._draft_connection_signature(
                     connection,
                     source_position=(source.x(), source.y()),
                     target_position=(target.x(), target.y()),
+                    layer=layer,
                 )
                 if (
                     self._render_signatures.get(render_id) == signature
@@ -733,7 +768,9 @@ class SLDCanvasRenderSystem:
                     source_object_id=source_id,
                     target_object_id=target_id,
                 )
-                item.setZValue(self.CONNECTION_Z_VALUE)
+                item.setZValue(self._layer_z(layer.order, self.CONNECTION_Z_VALUE))
+                item.setOpacity(float(layer.opacity))
+                item.setVisible(bool(layer.visible))
                 if callable(getattr(item, "set_visual_state", None)):
                     # Draft wires are authoring previews, not committed Core
                     # connectivity. Keep them visibly distinct until commit.
@@ -767,12 +804,13 @@ class SLDCanvasRenderSystem:
             # connection, or placement gestures intended for underlying SLD items.
             item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
-            item.setVisible(bool(annotation.visible) and self._zoom_level >= self._annotation_min_zoom)
-            item.setZValue(self.ANNOTATION_Z_VALUE)
+            item.setOpacity(float(annotation.layer_opacity))
+            item.setVisible(bool(annotation.visible) and bool(annotation.layer_visible) and self._zoom_level >= self._annotation_min_zoom)
+            item.setZValue(self._layer_z(annotation.layer_order, self.ANNOTATION_Z_VALUE))
             self._attach_realized_item(item)
             if previous_item is not None:
                 self._remove_realized(render_id)
-            self._annotation_base_visibility[render_id] = bool(annotation.visible)
+            self._annotation_base_visibility[render_id] = bool(annotation.visible) and bool(annotation.layer_visible)
             self._items[render_id] = (item,)
             self._render_signatures[render_id] = signature
 
@@ -784,7 +822,9 @@ class SLDCanvasRenderSystem:
     def _annotation_signature(annotation: SLDCanvasAnnotation) -> str:
         return repr((
             annotation.block_id, annotation.node_id, annotation.x, annotation.y,
-            annotation.text, annotation.visible,
+            annotation.text, annotation.visible, annotation.layer_id,
+            annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
+            annotation.layer_locked,
         ))
 
     @staticmethod
@@ -792,9 +832,13 @@ class SLDCanvasRenderSystem:
         return f"draft:{identity}"
 
     @staticmethod
-    def _draft_node_signature(node: DraftSLDCanvasNode) -> str:
+    def _draft_node_signature(node: DraftSLDCanvasNode, layer: Any | None = None) -> str:
+        layer_signature = None if layer is None else (
+            layer.layer_id, layer.visible, layer.opacity, layer.order, layer.locked
+        )
         return repr((node.draft_id, node.equipment_type, node.display_name, node.x, node.y,
-                     node.rotation, node.terminal_roles, node.presentation, node.validation_state))
+                     node.rotation, node.terminal_roles, node.presentation, node.validation_state,
+                     node.layer_id, layer_signature))
 
     @staticmethod
     def _draft_connection_signature(
@@ -802,7 +846,11 @@ class SLDCanvasRenderSystem:
         *,
         source_position: tuple[float, float],
         target_position: tuple[float, float],
+        layer: Any | None = None,
     ) -> str:
+        layer_signature = None if layer is None else (
+            layer.layer_id, layer.visible, layer.opacity, layer.order, layer.locked
+        )
         return repr((
             connection.connection_id,
             connection.source,
@@ -812,6 +860,8 @@ class SLDCanvasRenderSystem:
             connection.connection_kind,
             connection.route,
             connection.validation_state,
+            connection.layer_id,
+            layer_signature,
         ))
 
     def _resolve_draft_endpoint(self, endpoint: Any, realized: dict[str, Any]) -> tuple[QPointF, str]:
@@ -953,6 +1003,7 @@ class SLDCanvasRenderSystem:
         return repr((
             node.node_id, node.equipment_id, node.x, node.y,
             presentation, properties, read_model_signature,
+            node.layer_id, node.layer_visible, node.layer_opacity, node.layer_order, node.layer_locked,
         ))
 
     @staticmethod
@@ -1019,6 +1070,8 @@ class SLDCanvasRenderSystem:
             connection.source_endpoint, connection.target_endpoint,
             connection.connection_kind, connection.presentation_owner,
             connection.projection_source, route, properties,
+            connection.layer_id, connection.layer_visible, connection.layer_opacity,
+            connection.layer_order, connection.layer_locked,
         ))
 
     def _attach_realized_item(self, item: Any, *, register_snap: bool = False) -> None:

@@ -23,6 +23,7 @@ _EXPORTS = {
     "SLDNode": ("ui.sld.sld_model", "SLDNode"),
     "SLDConnection": ("ui.sld.sld_model", "SLDConnection"),
     "SLDAnnotationBlock": ("ui.sld.sld_model", "SLDAnnotationBlock"),
+    "SLDPresentationLayer": ("ui.sld.sld_model", "SLDPresentationLayer"),
     "SLDDocument": ("ui.sld.sld_document", "SLDDocument"),
     "SLDState": ("ui.sld.sld_state", "SLDState"),
     "SLDController": ("ui.sld.sld_controller", "SLDController"),

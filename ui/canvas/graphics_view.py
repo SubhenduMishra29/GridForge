@@ -316,7 +316,7 @@ class GraphicsView(QGraphicsView):
         self._annotation_quadrant_button.setVisible(not group_mode)
 
         if group_mode:
-            selected = select_tool._selected_transform_nodes()
+            selected = select_tool.selected_transform_nodes()
             active_model = getattr(document, "model", None)
             application = getattr(self.controller, "application", None)
             presentation = getattr(application, "presentation", None)

@@ -537,3 +537,60 @@ def test_empty_draft_commit_is_rejected_and_retained():
     assert not app.read_network().elements
     assert not draft.equipment
     assert not draft.connections
+
+
+def test_draft_equipment_persists_presentation_layer_without_changing_core_contract():
+    equipment = _bus("layered-bus")
+    layered = DraftEquipment.from_dict({**equipment.to_dict(), "layer_id": "protection"})
+    restored = DraftEquipment.from_dict(layered.to_dict())
+    assert restored.layer_id == "protection"
+
+    draft = DraftNetwork("project-layered", 1)
+    draft.add_equipment(restored)
+    updated = draft.update_equipment("layered-bus", layer_id="control")
+    assert updated.layer_id == "control"
+    assert DraftNetwork.from_dict(
+        draft.to_dict(),
+        project_id="project-layered",
+        activation_generation=1,
+    ).require_equipment("layered-bus").layer_id == "control"
+
+
+def test_draft_connection_presentation_layer_round_trips_and_survives_route_update():
+    source = DraftEndpointReference.terminal(
+        draft_id="layered-source",
+        equipment_type="breaker",
+        terminal_role="from",
+    )
+    target = DraftEndpointReference.terminal(
+        draft_id="layered-target",
+        equipment_type="breaker",
+        terminal_role="to",
+    )
+    connection = DraftConnection(
+        connection_id="layered-wire",
+        source=source,
+        target=target,
+        route={"points": [(10.0, 20.0)]},
+        layer_id="protection",
+    )
+
+    legacy_payload = connection.to_dict()
+    restored = DraftConnection.from_dict(legacy_payload)
+    assert restored.layer_id == "protection"
+    assert DraftConnection.from_dict({
+        key: value for key, value in legacy_payload.items() if key != "layer_id"
+    }).layer_id == "default"
+
+    draft = DraftNetwork("project-layer-wire", 1)
+    draft.add_connection(restored)
+    updated = draft.update_connection_route(
+        "layered-wire",
+        {"points": [(30.0, 40.0)]},
+    )
+    assert updated.layer_id == "protection"
+    assert DraftNetwork.from_dict(
+        draft.to_dict(),
+        project_id="project-layer-wire",
+        activation_generation=1,
+    ).connections[0].layer_id == "protection"

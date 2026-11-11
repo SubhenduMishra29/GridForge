@@ -7,7 +7,10 @@ from core.model.bus import Bus
 from core.model.line import Line
 from core.network import Network
 from core.persistence.project_persistence import LoadedProject, ProjectPersistenceError, ProjectPersistenceService
+from core.persistence.migration import ProjectPersistenceMigration, SLDMigrationError, validate_canonical_sld
 from ui.sld.sld_document import SLDDocument
+from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind, SLDRoute, SLDAnnotationBlock, SLDPresentationLayer
+from ui.equipment.symbol.symbol_base import SymbolBase
 
 
 def _network() -> Network:
@@ -93,3 +96,162 @@ def test_failed_presentation_serialization_leaves_existing_package_untouched(tmp
 
     restored = SLDDocument.from_dict(service.load(path).presentation)
     assert restored.model.get_node("SLD-NODE-001").position == (100.0, 200.0)
+
+
+
+def test_project_round_trip_preserves_symbol_transforms_terminal_identity_and_engineer_route(tmp_path):
+    service = ProjectPersistenceService()
+    context = ProjectContext("PROJECT-001", "Presentation Transform Round Trip", None)
+    path = tmp_path / "transformed.gridforge"
+    document = SLDDocument(
+        document_id="SLD-TRANSFORM-001",
+        name="Transformed SLD",
+        project_id="PROJECT-001",
+    )
+    source_symbol = SymbolBase(
+        "symbol-bus-001",
+        "busbar",
+        scale=1.25,
+        rotation=90.0,
+        properties={"mirror_x": True, "mirror_y": False},
+        symbol_family_id="busbar",
+        standard_id="unspecified",
+        variant_id="default",
+    )
+    target_symbol = SymbolBase(
+        "symbol-bus-002",
+        "busbar",
+        scale=0.9,
+        rotation=270.0,
+        properties={"mirror_x": False, "mirror_y": True},
+        symbol_family_id="busbar",
+        standard_id="unspecified",
+        variant_id="default",
+    )
+    document.model.create_node(
+        "SLD-BREAKER-001", "BUS-001", 125.0, 240.0,
+        presentation=source_symbol,
+    )
+    document.model.create_node(
+        "SLD-TRANSFORMER-001", "BUS-002", 620.0, 410.0,
+        presentation=target_symbol,
+    )
+    source_endpoint = SLDEndpoint(
+        kind=SLDEndpointKind.EQUIPMENT,
+        node_id="SLD-BREAKER-001",
+        equipment_id="BUS-001",
+        terminal_role="LINE",
+    )
+    target_endpoint = SLDEndpoint(
+        kind=SLDEndpointKind.EQUIPMENT,
+        node_id="SLD-TRANSFORMER-001",
+        equipment_id="BUS-002",
+        terminal_role="HV",
+    )
+    authored_bends = ((260.0, 240.0), (260.0, 360.0), (540.0, 360.0))
+    document.model.create_connection(
+        "SLD-CONN-TRANSFORMED-001",
+        "SLD-BREAKER-001",
+        "SLD-TRANSFORMER-001",
+        source_endpoint=source_endpoint,
+        target_endpoint=target_endpoint,
+        route=SLDRoute(
+            routing_mode="orthogonal",
+            ownership="engineer",
+            points=authored_bends,
+        ),
+    )
+
+    service.save(context, _network(), document.to_dict(), path)
+    first_load = SLDDocument.from_dict(service.load(path).presentation)
+    first_source = first_load.model.get_node("SLD-BREAKER-001")
+    first_target = first_load.model.get_node("SLD-TRANSFORMER-001")
+    first_connection = first_load.model.get_connection("SLD-CONN-TRANSFORMED-001")
+
+    assert first_source.position == (125.0, 240.0)
+    assert first_target.position == (620.0, 410.0)
+    assert first_source.presentation.to_dict() == source_symbol.to_dict()
+    assert first_target.presentation.to_dict() == target_symbol.to_dict()
+    assert first_connection.source_endpoint == source_endpoint
+    assert first_connection.target_endpoint == target_endpoint
+    assert first_connection.route.ownership == "engineer"
+    assert first_connection.route.routing_mode == "orthogonal"
+    assert first_connection.route.points == authored_bends
+
+    # Exercise a second package cycle so the assertions cover persisted state,
+    # not only a one-time in-memory reconstruction.
+    service.save(context, _network(), first_load.to_dict(), path)
+    second_load = SLDDocument.from_dict(service.load(path).presentation)
+    second_connection = second_load.model.get_connection("SLD-CONN-TRANSFORMED-001")
+    assert second_load.model.get_node("SLD-BREAKER-001").presentation.to_dict() == source_symbol.to_dict()
+    assert second_load.model.get_node("SLD-TRANSFORMER-001").presentation.to_dict() == target_symbol.to_dict()
+    assert second_connection.source_endpoint == source_endpoint
+    assert second_connection.target_endpoint == target_endpoint
+    assert second_connection.route.points == authored_bends
+
+
+def test_sld_schema4_layer_membership_round_trips_with_document():
+    document = SLDDocument(
+        document_id="SLD-LAYERS-001",
+        name="Layered SLD",
+        project_id="PROJECT-001",
+        layers=[
+            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer("protection", "Protection", visible=False, locked=True, opacity=0.6, order=1),
+        ],
+    )
+    document.model.create_node("NODE-001", "BUS-001", 10.0, 20.0, layer_id="protection")
+    document.model.create_node("NODE-002", "BUS-002", 30.0, 40.0)
+    document.model.create_connection("CONN-001", "NODE-001", "NODE-002", layer_id="protection")
+    document.add_annotation_block(SLDAnnotationBlock(
+        block_id="ANN-001", node_id="NODE-001", fields=("identity",), layer_id="protection",
+    ))
+
+    restored = SLDDocument.from_dict(document.to_dict())
+    assert [layer.to_dict() for layer in restored.layers] == [layer.to_dict() for layer in document.layers]
+    assert restored.model.get_node("NODE-001").layer_id == "protection"
+    assert restored.model.get_connection("CONN-001").layer_id == "protection"
+    assert restored.annotation_blocks[0].layer_id == "protection"
+
+
+def test_sld_schema3_migration_assigns_all_legacy_content_to_default_layer():
+    document = _sld()
+    document.add_annotation_block(SLDAnnotationBlock(
+        block_id="ANN-LEGACY-001", node_id="SLD-NODE-001", fields=("identity",),
+    ))
+    legacy = document.to_dict()
+    legacy["schema"] = 3
+    legacy.pop("layers")
+    for node in legacy["model"]["nodes"]:
+        node.pop("layer_id")
+    for connection in legacy["model"]["connections"]:
+        connection.pop("layer_id")
+    for block in legacy["annotation_blocks"]:
+        block.pop("layer_id")
+
+    migrated = ProjectPersistenceMigration()._migrate_sld(
+        legacy,
+        project_id="PROJECT-001",
+        document_index=0,
+        existing_document_ids=set(),
+    )
+    assert migrated["schema"] == 4
+    assert migrated["layers"] == [{
+        "layer_id": "default", "name": "Default", "visible": True,
+        "locked": False, "opacity": 1.0, "order": 0,
+    }]
+    assert all(node["layer_id"] == "default" for node in migrated["model"]["nodes"])
+    assert all(connection["layer_id"] == "default" for connection in migrated["model"]["connections"])
+    assert all(block["layer_id"] == "default" for block in migrated["annotation_blocks"])
+
+
+def test_sld_schema4_validator_rejects_unknown_layer_membership():
+    payload = _sld().to_dict()
+    payload["model"]["nodes"][0]["layer_id"] = "missing-layer"
+    with pytest.raises(SLDMigrationError, match="unknown presentation layer"):
+        validate_canonical_sld(payload)
+
+    payload = _sld().to_dict()
+    payload["layers"][0]["opacity"] = 1.5
+    with pytest.raises(SLDMigrationError, match="opacity"):
+        validate_canonical_sld(payload)

@@ -122,6 +122,7 @@ class DraftCommandHandlers:
             connection_kind=current.connection_kind,
             route=_thaw_payload(payload["route"]),
             validation_state=dict(current.validation_state),
+            layer_id=current.layer_id,
         )
         draft.validate_connection_candidate(
             replacement,
@@ -519,6 +520,7 @@ class CommitNetworkHandler:
                 "endpoint_b": dict(target.to_mapping()),
                 "connection_kind": connection.connection_kind,
                 "route": dict(connection.route),
+                "layer_id": connection.layer_id,
             })
 
         # Draft authoring state is a transaction participant. It is cleared

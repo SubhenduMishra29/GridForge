@@ -23,6 +23,10 @@ from .commands.sld_commands import (
     SET_SLD_NODE_PRESENTATION,
     SET_SLD_CONNECTION_ROUTE,
     SET_SLD_NODE_PROPERTIES,
+    CREATE_SLD_LAYER,
+    UPDATE_SLD_LAYER,
+    DELETE_SLD_LAYER,
+    REORDER_SLD_LAYERS,
 )
 from .results import ApplicationResult
 from .services.sld_service import SLDService
@@ -50,6 +54,10 @@ class SLDCommandHandlers:
             DELETE_SLD_SELECTION: self.delete_selection,
             ADD_SLD_CONNECTION: self.add_connection,
             REMOVE_SLD_CONNECTION: self.remove_connection,
+            CREATE_SLD_LAYER: self.mutate_layer_state,
+            UPDATE_SLD_LAYER: self.mutate_layer_state,
+            DELETE_SLD_LAYER: self.mutate_layer_state,
+            REORDER_SLD_LAYERS: self.mutate_layer_state,
         }
 
     def _execute(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
@@ -86,6 +94,9 @@ class SLDCommandHandlers:
         return self._execute(command, context, transaction)
 
     def remove_connection(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
+        return self._execute(command, context, transaction)
+
+    def mutate_layer_state(self, command: Command, context: Any, transaction: Transaction) -> ApplicationResult:
         return self._execute(command, context, transaction)
 
 

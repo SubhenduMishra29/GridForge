@@ -20,7 +20,7 @@ from typing import Any, Callable, Mapping
 from core.application.read_models import ElementReadModel, StudyResultReadModel
 
 from ui.equipment.symbol.symbol_base import SymbolBase
-from ui.sld.sld_model import SLDAnnotationBlock, SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute
+from ui.sld.sld_model import SLDAnnotationBlock, SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute, SLDPresentationLayer
 from ui.canvas.draft_sld_projection import DraftSLDCanvasSnapshot
 
 
@@ -46,6 +46,11 @@ class SLDCanvasNode:
     properties: Mapping[str, Any]
     presentation: SymbolBase | None = None
     read_model: ElementReadModel | None = None
+    layer_id: str = "default"
+    layer_visible: bool = True
+    layer_opacity: float = 1.0
+    layer_order: int = 0
+    layer_locked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +67,11 @@ class SLDCanvasConnection:
     presentation_owner: str | None
     projection_source: str | None
     properties: Mapping[str, Any]
+    layer_id: str = "default"
+    layer_visible: bool = True
+    layer_opacity: float = 1.0
+    layer_order: int = 0
+    layer_locked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +84,11 @@ class SLDCanvasAnnotation:
     y: float
     text: str
     visible: bool
+    layer_id: str = "default"
+    layer_visible: bool = True
+    layer_opacity: float = 1.0
+    layer_order: int = 0
+    layer_locked: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,21 +145,33 @@ class SLDCanvasProjection:
         self,
         model: SLDModel,
         annotation_blocks: tuple[SLDAnnotationBlock, ...] | list[SLDAnnotationBlock] = (),
+        layers: tuple[SLDPresentationLayer, ...] | list[SLDPresentationLayer] = (),
     ) -> SLDCanvasSnapshot:
         """Project SLD structure and resolve annotation values from Application read models."""
         if not isinstance(model, SLDModel):
             raise TypeError("model must be an SLDModel.")
-        nodes = tuple(self._project_node(node) for node in model.nodes)
-        connections = tuple(self._project_connection(connection) for connection in model.connections)
+        layer_by_id = {layer.layer_id: layer for layer in layers}
+        if not layer_by_id:
+            layer_by_id = {"default": SLDPresentationLayer("default", "Default")}
+        nodes = tuple(self._project_node(node, self._require_layer(layer_by_id, node.layer_id)) for node in model.nodes)
+        connections = tuple(self._project_connection(connection, self._require_layer(layer_by_id, connection.layer_id)) for connection in model.connections)
         nodes_by_id = {node.node_id: node for node in nodes}
-        annotations = tuple(self._project_annotation(block, nodes_by_id) for block in annotation_blocks)
+        annotations = tuple(self._project_annotation(block, nodes_by_id, self._require_layer(layer_by_id, block.layer_id)) for block in annotation_blocks)
         annotations += self._project_study_result_annotations(nodes, self._study_result)
         return SLDCanvasSnapshot(nodes=nodes, connections=connections, annotations=annotations)
+
+    @staticmethod
+    def _require_layer(layers: Mapping[str, SLDPresentationLayer], layer_id: str) -> SLDPresentationLayer:
+        try:
+            return layers[layer_id]
+        except KeyError as exc:
+            raise ValueError("SLD projection references an unknown presentation layer: " + str(layer_id)) from exc
 
     @staticmethod
     def _project_annotation(
         block: SLDAnnotationBlock,
         nodes_by_id: Mapping[str, SLDCanvasNode],
+        layer: SLDPresentationLayer,
     ) -> SLDCanvasAnnotation:
         if not isinstance(block, SLDAnnotationBlock):
             raise TypeError("annotation_blocks must contain SLDAnnotationBlock values.")
@@ -185,6 +212,8 @@ class SLDCanvasProjection:
             y=node.y + block.offset_y,
             text="\n".join(lines),
             visible=block.visible and bool(lines),
+            layer_id=layer.layer_id, layer_visible=layer.visible, layer_opacity=layer.opacity,
+            layer_order=layer.order, layer_locked=layer.locked,
         )
 
     @staticmethod
@@ -251,11 +280,12 @@ class SLDCanvasProjection:
                     y=node.y + 20.0,
                     text=f"Study V: {magnitude_value:.5f} pu\nAngle: {angle_value:.3f} deg",
                     visible=True,
+                    layer_id="default", layer_visible=True, layer_opacity=1.0, layer_order=0, layer_locked=False,
                 )
             )
         return tuple(overlays)
 
-    def _project_node(self, node: SLDNode) -> SLDCanvasNode:
+    def _project_node(self, node: SLDNode, layer: SLDPresentationLayer) -> SLDCanvasNode:
         read_model = None
         projection_errors: dict[str, str] = {}
         if self._read_model_provider is not None and node.equipment_id:
@@ -304,10 +334,12 @@ class SLDCanvasProjection:
             presentation=presentation,
             properties=_freeze_projection_value(properties),
             read_model=read_model,
+            layer_id=layer.layer_id, layer_visible=layer.visible, layer_opacity=layer.opacity,
+            layer_order=layer.order, layer_locked=layer.locked,
         )
 
     @staticmethod
-    def _project_connection(connection: SLDConnection) -> SLDCanvasConnection:
+    def _project_connection(connection: SLDConnection, layer: SLDPresentationLayer) -> SLDCanvasConnection:
         """Preserve the complete semantic/presentation connection descriptor."""
         properties = dict(connection.properties)
         return SLDCanvasConnection(
@@ -321,6 +353,8 @@ class SLDCanvasProjection:
             presentation_owner=SLDCanvasProjection._property_value(properties, "presentation_owner", "owner"),
             projection_source=SLDCanvasProjection._property_value(properties, "projection_source", "source"),
             properties=_freeze_projection_value(properties),
+            layer_id=layer.layer_id, layer_visible=layer.visible, layer_opacity=layer.opacity,
+            layer_order=layer.order, layer_locked=layer.locked,
         )
 
     @staticmethod

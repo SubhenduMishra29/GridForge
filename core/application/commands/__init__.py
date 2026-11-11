@@ -70,6 +70,9 @@ from .sld_commands import (
     SET_SLD_ANNOTATION_BLOCKS, SetSLDNodePresentationCommand,
     SetSLDConnectionRouteCommand, SetSLDNodePropertiesCommand,
     SetSLDAnnotationBlocksCommand,
+    CREATE_SLD_LAYER, UPDATE_SLD_LAYER, DELETE_SLD_LAYER, REORDER_SLD_LAYERS,
+    CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand,
+    ReorderSLDLayersCommand,
 )
 from .placement_commands import PLACE_BUS, PlaceBusCommand
 from .relay_commands import (

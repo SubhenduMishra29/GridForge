@@ -132,10 +132,13 @@ class DraftEquipment:
     parameter_contract: tuple[Mapping[str, Any], ...] = ()
     conditional_requirements: tuple[Mapping[str, Any], ...] = ()
     command_field_dispositions: Mapping[str, Mapping[str, str]] = field(default_factory=dict)
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         if not self.draft_id.strip() or not self.equipment_type.strip(): raise ValueError("Draft equipment identity is required.")
         if not self.command_type.strip() or not self.id_field.strip(): raise ValueError("DraftEquipment requires its canonical command contract.")
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip(): raise ValueError("DraftEquipment requires a non-empty presentation layer_id.")
+        object.__setattr__(self, "layer_id", self.layer_id.strip())
         object.__setattr__(self, "terminal_contract", tuple(str(x) for x in self.terminal_contract))
         if self.placement is not None:
             if (
@@ -208,7 +211,7 @@ class DraftEquipment:
                 "required_connection_terminals": list(self.required_connection_terminals),
                 "parameter_contract": [dict(x) for x in self.parameter_contract],
                 "conditional_requirements": [dict(x) for x in self.conditional_requirements],
-                "command_field_dispositions": {k: dict(v) for k, v in self.command_field_dispositions.items()}}
+                "command_field_dispositions": {k: dict(v) for k, v in self.command_field_dispositions.items()}, "layer_id": self.layer_id}
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DraftEquipment":
@@ -222,7 +225,8 @@ class DraftEquipment:
                     tuple(str(x) for x in data.get("required_connection_terminals", ())),
                     tuple(dict(x) for x in data.get("parameter_contract", ())),
                     tuple(dict(x) for x in data.get("conditional_requirements", ())),
-                    {str(k): dict(v) for k, v in dict(data.get("command_field_dispositions", {})).items()})
+                    {str(k): dict(v) for k, v in dict(data.get("command_field_dispositions", {})).items()},
+                    str(data.get("layer_id", "default")))
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +238,7 @@ class DraftConnection:
     connection_kind: str = "simple_wire"
     route: Mapping[str, Any] = field(default_factory=dict)
     validation_state: Mapping[str, Any] = field(default_factory=dict)
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         if not isinstance(self.connection_id, str) or not self.connection_id.strip(): raise ValueError("Draft connection_id is required.")
@@ -241,6 +246,9 @@ class DraftConnection:
         object.__setattr__(self, "target", DraftEndpointReference.from_value(self.target))
         if self.source == self.target: raise ValueError("Draft connection endpoints must be distinct.")
         object.__setattr__(self, "connection_id", self.connection_id.strip())
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("DraftConnection requires a non-empty presentation layer_id.")
+        object.__setattr__(self, "layer_id", self.layer_id.strip())
         object.__setattr__(self, "connection_kind", str(self.connection_kind).strip().lower())
 
         # Route coordinates are presentation metadata, never electrical
@@ -302,6 +310,7 @@ class DraftConnection:
             "connection_kind": self.connection_kind,
             "route": canonical_value(self.route),
             "validation_state": canonical_value(self.validation_state),
+            "layer_id": self.layer_id,
         }
 
     @classmethod
@@ -311,7 +320,8 @@ class DraftConnection:
         if "source" not in data or "target" not in data:
             raise ValueError("DraftConnection requires canonical source and target DraftEndpointReference values.")
         return cls(str(data["connection_id"]), DraftEndpointReference.from_value(data["source"]), DraftEndpointReference.from_value(data["target"]),
-                    str(data.get("connection_kind", "simple_wire")), dict(data.get("route", {})), dict(data.get("validation_state", {})))
+                    str(data.get("connection_kind", "simple_wire")), dict(data.get("route", {})), dict(data.get("validation_state", {})),
+                    str(data.get("layer_id", "default")))
 
 
 class DraftNetwork:
@@ -332,10 +342,10 @@ class DraftNetwork:
         self._equipment[equipment.draft_id] = equipment; self.validation_state = {}
 
     def update_equipment(self, draft_id: str, **changes: Any) -> DraftEquipment:
-        current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state"}
+        current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state","layer_id"}
         unknown = set(changes) - allowed
         if unknown: raise ValueError(f"Unsupported DraftEquipment fields: {sorted(unknown)!r}")
-        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals","parameter_contract","conditional_requirements","command_field_dispositions")}
+        values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals","parameter_contract","conditional_requirements","command_field_dispositions","layer_id")}
         values.update(changes); updated = DraftEquipment(**values); self._equipment[draft_id] = updated; self.validation_state = {}; return updated
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
@@ -507,6 +517,7 @@ class DraftNetwork:
             connection_kind=current.connection_kind,
             route=dict(route),
             validation_state=dict(current.validation_state),
+            layer_id=current.layer_id,
         )
         self.validate_connection_candidate(
             updated,

@@ -30,6 +30,10 @@ from core.application.commands.sld_commands import (
     SetSLDNodePropertiesCommand,
     SetSLDAnnotationBlocksCommand,
     SetSLDConnectionRouteCommand,
+    CreateSLDLayerCommand,
+    UpdateSLDLayerCommand,
+    DeleteSLDLayerCommand,
+    ReorderSLDLayersCommand,
 )
 
 from .sld_document import SLDDocument
@@ -59,6 +63,7 @@ class SLDController:
         self._application = application
         self._workspace_lifecycle = workspace_lifecycle
         self._document_activation_handler = None
+        self._active_layer_by_document: dict[str, str] = {}
         if self._application is not None:
             self._application.event_bus.subscribe(ProjectLoaded, self._on_project_loaded)
             self._application.event_bus.subscribe(ProjectClosed, self._on_project_closed)
@@ -239,10 +244,58 @@ class SLDController:
         manager = self.document_manager
         return len(manager) if manager is not None else 0
 
-    def add_node(self, node: SLDNode) -> None:
+    @property
+    def active_layer_id(self) -> str:
+        """Transient authoring layer for the active SLD document."""
+        document = self._require_active_document()
+        active = self._active_layer_by_document.get(document.document_id, document.default_layer_id)
+        if not any(layer.layer_id == active and layer.visible and not layer.locked for layer in document.layers):
+            active = document.default_layer_id
+            self._active_layer_by_document[document.document_id] = active
+        return active
+
+    def set_active_layer(self, layer_id: str) -> None:
+        document = self._require_active_document()
+        layer = next((item for item in document.layers if item.layer_id == layer_id), None)
+        if layer is None:
+            raise KeyError(f"Unknown SLD layer: {layer_id}")
+        if layer.locked or not layer.visible:
+            raise ValueError("An SLD authoring layer must be visible and unlocked.")
+        self._active_layer_by_document[document.document_id] = layer_id
+
+    def _execute_layer_command(self, command: Any) -> None:
         self._require_active_document()
+        result = self.application.execute(command)
+        if not result.success:
+            raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
+    def create_layer(self, *, layer_id: str, name: str, opacity: float = 1.0) -> None:
+        self._execute_layer_command(CreateSLDLayerCommand(layer_id=layer_id, name=name, opacity=opacity))
+        self._active_layer_by_document[self._require_active_document().document_id] = layer_id
+
+    def update_layer(self, layer_id: str, **changes: Any) -> None:
+        self._execute_layer_command(UpdateSLDLayerCommand(layer_id=layer_id, **changes))
+        document = self._require_active_document()
+        if (changes.get("locked") is True or changes.get("visible") is False) and self._active_layer_by_document.get(document.document_id) == layer_id:
+            self._active_layer_by_document[document.document_id] = document.default_layer_id
+
+    def delete_layer(self, layer_id: str, *, reassign_to: str = "default") -> None:
+        self._execute_layer_command(DeleteSLDLayerCommand(layer_id=layer_id, reassign_to=reassign_to))
+        document = self._require_active_document()
+        if self._active_layer_by_document.get(document.document_id) == layer_id:
+            self._active_layer_by_document[document.document_id] = reassign_to
+
+    def reorder_layers(self, layer_ids: list[str] | tuple[str, ...]) -> None:
+        self._execute_layer_command(ReorderSLDLayersCommand(layer_ids=layer_ids))
+
+    def add_node(self, node: SLDNode) -> None:
+        document = self._require_active_document()
+        layer_id = node.layer_id if node.layer_id != "default" else self.active_layer_id
+        if not any(layer.layer_id == layer_id and not layer.locked for layer in document.layers):
+            raise ValueError("The target SLD layer is missing or locked.")
         result = self.application.execute(AddSLDNodeCommand(
-            node_id=node.node_id, equipment_id=node.equipment_id, x=node.x, y=node.y,
+            node_id=node.node_id, equipment_id=node.equipment_id, x=node.x, y=node.y, layer_id=layer_id,
         ))
         if not result.success:
             raise RuntimeError(result.message)
@@ -358,6 +411,10 @@ class SLDController:
 
     def add_connection(self, connection: SLDConnection) -> None:
         self._require_active_document()
+        document = self._require_active_document()
+        layer_id = connection.layer_id if connection.layer_id != "default" else self.active_layer_id
+        if not any(layer.layer_id == layer_id and not layer.locked for layer in document.layers):
+            raise ValueError("The target SLD layer is missing or locked.")
         result = self.application.execute(AddSLDConnectionCommand(
             connection_id=connection.connection_id,
             source_node_id=connection.source_node_id,
@@ -365,6 +422,7 @@ class SLDController:
             source_endpoint=None if connection.source_endpoint is None else connection.source_endpoint.to_dict(),
             target_endpoint=None if connection.target_endpoint is None else connection.target_endpoint.to_dict(),
             route=connection.route.to_dict(),
+            layer_id=layer_id,
         ))
         if not result.success:
             raise RuntimeError(result.message)

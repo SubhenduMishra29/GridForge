@@ -38,8 +38,47 @@ from ui.equipment.symbol.symbol_base import SymbolBase
 
 
 # ============================================================
-# SLD Data Annotation Block
+# SLD Presentation Layer and Data Annotation Block
 # ============================================================
+
+
+@dataclass(frozen=True, slots=True)
+class SLDPresentationLayer:
+    """Renderer-neutral, document-owned visual layer configuration."""
+
+    layer_id: str
+    name: str
+    visible: bool = True
+    locked: bool = False
+    opacity: float = 1.0
+    order: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("layer_id must be a non-empty string")
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("layer name must be a non-empty string")
+        if not isinstance(self.visible, bool) or not isinstance(self.locked, bool):
+            raise TypeError("layer visible and locked must be boolean")
+        if isinstance(self.opacity, bool) or not isinstance(self.opacity, (int, float)) or not math.isfinite(float(self.opacity)) or not 0.0 <= float(self.opacity) <= 1.0:
+            raise ValueError("layer opacity must be finite and between 0 and 1")
+        if isinstance(self.order, bool) or not isinstance(self.order, int) or self.order < 0:
+            raise ValueError("layer order must be a non-negative integer")
+        object.__setattr__(self, "opacity", float(self.opacity))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"layer_id": self.layer_id, "name": self.name, "visible": self.visible, "locked": self.locked, "opacity": self.opacity, "order": self.order}
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "SLDPresentationLayer":
+        if not isinstance(data, Mapping):
+            raise TypeError("SLD presentation layer payload must be a mapping")
+        allowed = {"layer_id", "name", "visible", "locked", "opacity", "order"}
+        unknown = sorted(set(data) - allowed)
+        missing = sorted(allowed - set(data))
+        if unknown or missing:
+            raise ValueError("Invalid SLD presentation layer fields; unknown=" + ", ".join(unknown) + "; missing=" + ", ".join(missing))
+        return cls(**{key: data[key] for key in allowed})
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +92,7 @@ class SLDAnnotationBlock:
     offset_x: float = 70.0
     offset_y: float = -20.0
     quadrant: str = "custom"
+    layer_id: str = "default"
 
     QUADRANT_OFFSETS: ClassVar[dict[str, tuple[float, float]]] = {
         "top_right": (70.0, -20.0),
@@ -67,6 +107,8 @@ class SLDAnnotationBlock:
             raise ValueError("block_id must be a non-empty string")
         if not isinstance(self.node_id, str) or not self.node_id.strip():
             raise ValueError("node_id must be a non-empty string")
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("layer_id must be a non-empty string")
         if not isinstance(self.fields, (tuple, list)) or not self.fields:
             raise ValueError("annotation fields must be a non-empty sequence")
         if any(not isinstance(field, str) or not field.strip() for field in self.fields):
@@ -106,14 +148,15 @@ class SLDAnnotationBlock:
             "offset_x": self.offset_x,
             "offset_y": self.offset_y,
             "quadrant": self.quadrant,
+            "layer_id": self.layer_id,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDAnnotationBlock":
         if not isinstance(data, Mapping):
             raise TypeError("SLD annotation block payload must be a mapping")
-        allowed = {"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant"}
-        required = allowed - {"quadrant"}
+        allowed = {"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant", "layer_id"}
+        required = allowed - {"quadrant", "layer_id"}
         unknown = sorted(set(data) - allowed)
         missing = sorted(required - set(data))
         if unknown:
@@ -128,6 +171,7 @@ class SLDAnnotationBlock:
             offset_x=data["offset_x"],
             offset_y=data["offset_y"],
             quadrant=data.get("quadrant", "custom"),
+            layer_id=data.get("layer_id", "default"),
         )
 
 
@@ -151,6 +195,7 @@ class SLDNode:
     y: float = 0.0
     presentation: SymbolBase | Mapping[str, Any] | None = None
     properties: Dict[str, Any] = field(default_factory=dict)
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         if not isinstance(self.node_id, str) or not self.node_id:
@@ -163,6 +208,8 @@ class SLDNode:
             raise TypeError("y must be numeric")
 
         self.node_id = str(self.node_id)
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("layer_id must be a non-empty string")
 
         if self.equipment_id is not None:
             self.equipment_id = str(self.equipment_id)
@@ -222,6 +269,7 @@ class SLDNode:
                 else self.presentation.to_dict()
             ),
             "properties": dict(self.properties),
+            "layer_id": self.layer_id,
         }
 
     @classmethod
@@ -229,7 +277,7 @@ class SLDNode:
         """Deserialize a canonical SLD node without silently dropping fields."""
         if not isinstance(data, Mapping):
             raise TypeError("SLD node payload must be a mapping.")
-        allowed = {"node_id", "equipment_id", "x", "y", "presentation", "properties"}
+        allowed = {"node_id", "equipment_id", "x", "y", "presentation", "properties", "layer_id"}
         unknown = sorted(set(data) - allowed)
         if unknown:
             raise ValueError("Unknown canonical SLD node fields: " + ", ".join(unknown))
@@ -247,6 +295,7 @@ class SLDNode:
             y=data.get("y", 0.0),
             presentation=data.get("presentation"),
             properties=dict(data.get("properties", {})),
+            layer_id=data["layer_id"],
         )
 
 
@@ -395,6 +444,7 @@ class SLDConnection:
     source_endpoint: SLDEndpoint | None = None
     target_endpoint: SLDEndpoint | None = None
     route: SLDRoute = field(default_factory=SLDRoute)
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         if not isinstance(self.connection_id, str) or not self.connection_id:
@@ -403,6 +453,8 @@ class SLDConnection:
             raise ValueError("source_node_id must be a non-empty string")
         if not isinstance(self.target_node_id, str) or not self.target_node_id:
             raise ValueError("target_node_id must be a non-empty string")
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("layer_id must be a non-empty string")
         self.connection_id = str(self.connection_id)
         self.source_node_id = str(self.source_node_id)
         self.target_node_id = str(self.target_node_id)
@@ -437,13 +489,14 @@ class SLDConnection:
             "target_endpoint": None if self.target_endpoint is None else self.target_endpoint.to_dict(),
             "route": self.route.to_dict(),
             "properties": dict(self.properties),
+            "layer_id": self.layer_id,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDConnection":
         if not isinstance(data, Mapping):
             raise TypeError("SLD connection payload must be a mapping.")
-        allowed = {"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"}
+        allowed = {"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties", "layer_id"}
         unknown = sorted(set(data) - allowed)
         if unknown:
             raise ValueError("Unknown canonical SLD connection fields: " + ", ".join(unknown))
@@ -458,6 +511,7 @@ class SLDConnection:
             target_endpoint=(None if data.get("target_endpoint") is None else SLDEndpoint.from_dict(data["target_endpoint"])),
             route=SLDRoute.from_dict(data.get("route")),
             properties=dict(data.get("properties", {})),
+            layer_id=data["layer_id"],
         )
 
 
@@ -521,6 +575,7 @@ class SLDModel:
         y: float = 0.0,
         properties: Optional[Mapping[str, Any]] = None,
         presentation: SymbolBase | Mapping[str, Any] | None = None,
+        layer_id: str = "default",
     ) -> SLDNode:
         """Create and add an SLD node."""
         node = SLDNode(
@@ -530,6 +585,7 @@ class SLDModel:
             y=y,
             presentation=presentation,
             properties=dict(properties or {}),
+            layer_id=layer_id,
         )
         return self.add_node(node)
 
@@ -665,6 +721,7 @@ class SLDModel:
         target_endpoint: SLDEndpoint | Mapping[str, Any] | None = None,
         route: SLDRoute | Mapping[str, Any] | None = None,
         properties: Optional[Mapping[str, Any]] = None,
+        layer_id: str = "default",
     ) -> SLDConnection:
         """Create and add one complete canonical SLD connection state."""
         connection = SLDConnection(
@@ -675,6 +732,7 @@ class SLDModel:
             target_endpoint=target_endpoint,
             route=SLDRoute.from_dict(route) if isinstance(route, Mapping) else (route or SLDRoute()),
             properties=dict(properties or {}),
+            layer_id=layer_id,
         )
         return self.add_connection(connection)
 
