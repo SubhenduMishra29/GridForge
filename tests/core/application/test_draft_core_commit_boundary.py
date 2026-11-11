@@ -541,9 +541,7 @@ def test_empty_draft_commit_is_rejected_and_retained():
 
 def test_draft_equipment_persists_presentation_layer_without_changing_core_contract():
     equipment = _bus("layered-bus")
-    layered = DraftEquipment(
-        **{**equipment.__dict__, "layer_id": "protection"}
-    )
+    layered = DraftEquipment.from_dict({**equipment.to_dict(), "layer_id": "protection"})
     restored = DraftEquipment.from_dict(layered.to_dict())
     assert restored.layer_id == "protection"
 
