@@ -41,6 +41,7 @@ class DraftSLDCanvasNode:
     terminal_roles: tuple[str, ...]
     presentation: Mapping[str, Any]
     validation_state: Mapping[str, Any]
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "terminal_roles", tuple(str(v) for v in self.terminal_roles))
@@ -132,6 +133,7 @@ class DraftSLDProjection:
                     terminal_roles=tuple(str(v) for v in item.get("terminal_contract", ())),
                     presentation=presentation,
                     validation_state=dict(item.get("validation_state", {})),
+                    layer_id=str(item.get("layer_id", "default")),
                 )
             )
 
