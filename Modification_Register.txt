@@ -2346,3 +2346,9 @@ Scope and remaining work:
 - This is Phase D1 (manager presentation and controller integration), not completion of all Phase D requirements.
 - DraftNetwork equipment placement and its later commit-to-SLD projection still require explicit active-layer propagation. Do not treat the active-layer selector as fully integrated with draft placement until that path is corrected.
 - Qt GUI interaction, visual layout, undo/redo runtime, and Python import/syntax execution were not performed. Source-only implementation; no tests or CI were run.
+
+
+Phase D1 follow-up:
+- Active authoring-layer selection is stored by SLD document ID, not in one controller-global slot, so switching between open SLD documents does not leak the active layer selection.
+- Hidden or locked layers are rejected as active authoring layers. Hiding or locking the currently active layer returns that document's active selection to its Default layer.
+- The Layer Manager refreshes on tab display, including after a document switch while the Layers tab is not visible.
