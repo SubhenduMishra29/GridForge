@@ -37,8 +37,11 @@ def _composition(application):
     projection = SLDCanvasProjection()
     render_system = SLDCanvasRenderSystem(scene, factory, realization)
     class _Surface:
-        def present_composite_document(self, document, draft_snapshot):
-            committed = projection.project(document.model, document.annotation_blocks)
+        def present_composite_document(self, document, draft_snapshot, *, instrumentation_wiring=None):
+            committed = projection.project(
+                document.model, document.annotation_blocks,
+                instrumentation_wiring=instrumentation_wiring,
+            )
             snapshot = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
             render_system.synchronize(snapshot)
             return snapshot
@@ -52,6 +55,9 @@ def _composition(application):
         draft_sld_projection=SimpleNamespace(project=lambda: DraftSLDCanvasSnapshot(nodes=(), connections=())),
         sld_canvas_projection=projection,
         sld_canvas_render_system=render_system,
+        sld_controller=SimpleNamespace(
+            read_instrumentation_wiring_projection=lambda: None,
+        ),
     )
 
 
