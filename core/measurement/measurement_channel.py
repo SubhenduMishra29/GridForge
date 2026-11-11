@@ -171,6 +171,7 @@ from __future__ import annotations
 
 from enum import Enum
 from math import isfinite
+from numbers import Real
 from typing import Any, Optional
 
 from core.model import EndpointReference
@@ -732,14 +733,13 @@ class MeasurementChannel:
         if value is None:
             return None
 
-        value = float(
-            value
-        )
+        if isinstance(value, bool) or not isinstance(value, Real):
+            raise TypeError(
+                "stale_after must be a real numeric value or None; bool is not valid."
+            )
 
-        if (
-            not isfinite(value)
-            or value < 0.0
-        ):
+        value = float(value)
+        if not isfinite(value) or value < 0.0:
             raise ValueError(
                 "stale_after must be finite and >= 0."
             )
@@ -939,16 +939,12 @@ class MeasurementChannel:
             and self.timestamp is not None
         ):
 
-            current_time = float(
-                current_time
-            )
+            if isinstance(current_time, bool) or not isinstance(current_time, Real):
+                raise TypeError("current_time must be a real numeric value; bool is not valid.")
 
-            if not isfinite(
-                current_time
-            ):
-                raise ValueError(
-                    "current_time must be finite."
-                )
+            current_time = float(current_time)
+            if not isfinite(current_time):
+                raise ValueError("current_time must be finite.")
 
             age = (
                 current_time
