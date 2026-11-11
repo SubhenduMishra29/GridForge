@@ -142,9 +142,11 @@ class ModelPlacementTool(ToolBase):
     def _active_sld_layer_id(self) -> str:
         """Resolve the active presentation layer from the canonical SLD controller."""
         controller = self.controller
-        layer_id = getattr(controller, "active_layer_id", None)
-        if layer_id is None:
-            layer_id = getattr(getattr(controller, "sld_controller", None), "active_layer_id", None)
+        layer_controller = controller
+        getter = getattr(controller, "get_sld_controller", None)
+        if callable(getter):
+            layer_controller = getter() or controller
+        layer_id = getattr(layer_controller, "active_layer_id", None)
         if callable(layer_id):
             layer_id = layer_id()
         if layer_id is None:
