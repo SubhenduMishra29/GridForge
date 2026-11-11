@@ -255,3 +255,28 @@ def test_delete_selection_fails_closed_for_unsupported_core_equipment_type():
         controller.delete_selection()
 
     assert controller._application.commands == []
+
+
+def test_delete_selection_batches_core_equipment_with_all_incident_simple_wires():
+    from core.application.commands.selection_commands import DeleteSelectionBatchCommand
+
+    document = _document()
+    document.model.add_node(SLDNode("bus-symbol", equipment_id="bus-1"))
+    controller = _controller(document)
+    controller._state.selected_node_ids = {"bus-symbol"}
+    controller._application.read_network = lambda: SimpleNamespace(
+        elements=(SimpleNamespace(object_id="bus-1", element_type="BUS"),),
+        simple_wires=(SimpleNamespace(
+            connection_id="wire-1",
+            endpoint_a={"kind": "bus", "endpoint": {"object_id": "bus-1"}},
+            endpoint_b={"kind": "terminal", "endpoint": {"object_id": "other-equipment"}},
+        ),),
+    )
+
+    assert controller.delete_selection() is True
+
+    batch = controller._application.commands[0]
+    assert isinstance(batch, DeleteSelectionBatchCommand)
+    assert {command.command_type for command in batch.payload["commands"]} == {
+        "model.delete_bus", "connectivity.remove_simple_wire",
+    }
