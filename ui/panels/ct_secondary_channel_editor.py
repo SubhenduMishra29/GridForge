@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import uuid4
 
+from core.application.errors import ExecutionError
 from core.application.commands.measurement_commands import (
     CreateMeasurementChannelCommand,
     DeleteMeasurementChannelCommand,
@@ -183,8 +184,13 @@ class CTSecondaryChannelEditor(QGroupBox):
 
     def _refresh_channels(self) -> None:
         if self._application is None or self._target_id is None:
+            self._channels_by_id = {}
             self._set_enabled(False)
-            self._channel_selector.clear()
+            self._refreshing = True
+            try:
+                self._channel_selector.clear()
+            finally:
+                self._refreshing = False
             return
         try:
             channels = tuple(
@@ -330,7 +336,7 @@ class CTSecondaryChannelEditor(QGroupBox):
             result = self._application.execute(command)
             if not getattr(result, "success", False):
                 raise ValueError(getattr(result, "message", None) or "Application rejected the channel command.")
-        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+        except (ExecutionError, KeyError, RuntimeError, TypeError, ValueError) as exc:
             self._status.setText(f"Channel change rejected: {exc}")
             return
         self._status.setText(success_message)
