@@ -296,7 +296,6 @@ class GraphicsView(QGraphicsView):
         if document is None:
             self._contextual_strip.hide()
             return
-        selection_manager = getattr(self.tool_manager, "selection_manager", None)
         select_tool = (
             self.tool_manager.get_tool("select")
             if self.tool_manager is not None
@@ -318,8 +317,13 @@ class GraphicsView(QGraphicsView):
         if group_mode:
             selected = select_tool._selected_transform_nodes()
             active_model = getattr(document, "model", None)
+            application = getattr(self.controller, "application", None)
+            presentation = getattr(application, "presentation", None)
+            if active_model is None or getattr(presentation, "model", None) is not active_model:
+                self._contextual_strip.hide()
+                return
             active_nodes = getattr(active_model, "nodes", None)
-            if not selected or active_model is None:
+            if not selected:
                 self._contextual_strip.hide()
                 return
             scene_bounds_list = []
