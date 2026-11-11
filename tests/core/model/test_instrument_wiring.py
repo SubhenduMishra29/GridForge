@@ -7,7 +7,7 @@ from core.model import (
     InstrumentationWiringInventory,
     CableCore,
     CarrierKind,
-    ConductorRole,
+    WiringConductorRole,
     PanelWire,
     SignalCarrierBinding,
     SignalDefinition,
@@ -33,7 +33,7 @@ def test_cable_and_core_keep_physical_identity_separate_from_signal():
         id="core-id-1",
         cable_id=cable.id,
         core_number=1,
-        role=ConductorRole.SIGNAL,
+        role=WiringConductorRole.SIGNAL,
         terminal_path=(
             terminal("CT-101", "ct-s1", "S1"),
             terminal("TB-101", "tb-01", "1"),
@@ -80,7 +80,7 @@ def test_core_requires_unique_terminal_path_and_valid_role():
             id="core-1",
             cable_id="cable-1",
             core_number=1,
-            role=ConductorRole.SIGNAL,
+            role=WiringConductorRole.SIGNAL,
             terminal_path=(a, a),
         )
     with pytest.raises(TypeError):
@@ -90,9 +90,9 @@ def test_core_requires_unique_terminal_path_and_valid_role():
 def test_panel_wire_requires_two_distinct_terminals():
     a = terminal("TB-1", "1", "1")
     with pytest.raises(ValueError):
-        PanelWire(id="wire-1", tag="W-1", role=ConductorRole.RETURN, terminal_path=(a,))
+        PanelWire(id="wire-1", tag="W-1", role=WiringConductorRole.RETURN, terminal_path=(a,))
     with pytest.raises(ValueError):
-        PanelWire(id="wire-1", tag="W-1", role=ConductorRole.RETURN, terminal_path=(a, a))
+        PanelWire(id="wire-1", tag="W-1", role=WiringConductorRole.RETURN, terminal_path=(a, a))
 
 
 def test_signal_binding_validates_carrier_and_direction():
@@ -106,11 +106,11 @@ def test_signal_binding_validates_carrier_and_direction():
 
 def test_inventory_enforces_cable_core_ownership_and_numbering():
     cable = CableAssembly(id="c1", tag="C-1", service="instrument", core_count=1)
-    core = CableCore(id="cc1", cable_id="c1", core_number=1, role=ConductorRole.SIGNAL)
+    core = CableCore(id="cc1", cable_id="c1", core_number=1, role=WiringConductorRole.SIGNAL)
     inventory = InstrumentationWiringInventory(cables=(cable,), cores=(core,))
     assert inventory.cores == (core,)
 
-    invalid = CableCore(id="cc2", cable_id="c1", core_number=2, role=ConductorRole.RETURN)
+    invalid = CableCore(id="cc2", cable_id="c1", core_number=2, role=WiringConductorRole.RETURN)
     with pytest.raises(ValueError, match="exceeds cable"):
         InstrumentationWiringInventory(cables=(cable,), cores=(invalid,))
 
