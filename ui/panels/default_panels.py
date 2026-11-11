@@ -372,6 +372,7 @@ class PropertiesPanelWidget(QWidget):
         self._batch_status_label: QLabel | None = None
         self._batch_targets: tuple[ProjectionState, ...] = ()
         self._batch_parameters: tuple[EngineeringParameterState, ...] = ()
+        self._batch_apply_button: QPushButton | None = None
         self._commit_future_completed.connect(self._on_commit_future_completed)
         self._build_controls()
 
@@ -420,8 +421,13 @@ class PropertiesPanelWidget(QWidget):
         self._batch_table.setObjectName("EngineeringBatchEditor")
         self._batch_table.setAlternatingRowColors(True)
         root.addWidget(self._batch_table)
+        self._batch_apply_button = QPushButton("Apply Batch", self)
+        self._batch_apply_button.setProperty("role", "primaryAction")
+        self._batch_apply_button.clicked.connect(self._apply_batch_changes)
+        root.addWidget(self._batch_apply_button)
         self._batch_status_label.hide()
         self._batch_table.hide()
+        self._batch_apply_button.hide()
 
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._application = application
@@ -860,6 +866,8 @@ class PropertiesPanelWidget(QWidget):
             self._batch_table.hide()
         if self._batch_status_label is not None:
             self._batch_status_label.hide()
+        if self._batch_apply_button is not None:
+            self._batch_apply_button.hide()
         if self._single_target_container is not None:
             self._single_target_container.show()
         self.logical_panel.set_target(target)
@@ -920,9 +928,9 @@ class PropertiesPanelWidget(QWidget):
                 )
                 table.setItem(row, column, item)
         table.show()
-        if self._apply_button is not None:
-            self._apply_button.setText("Apply Batch")
-            self._apply_button.setEnabled(bool(self._batch_parameters))
+        if self._batch_apply_button is not None:
+            self._batch_apply_button.setEnabled(bool(self._batch_parameters))
+            self._batch_apply_button.show()
 
     @staticmethod
     def _parameter_value_for(target: ProjectionState, parameter_id: str) -> Any:
@@ -996,8 +1004,8 @@ class PropertiesPanelWidget(QWidget):
             self._batch_status_label.setText(
                 f"Accepted: {len(self._batch_targets)} equipment updates committed atomically."
             )
-        if self._apply_button is not None:
-            self._apply_button.setEnabled(False)
+        if self._batch_apply_button is not None:
+            self._batch_apply_button.setEnabled(False)
 
     def set_creation_draft(self, draft: CreationDraft | None) -> None:
         if draft is None:
