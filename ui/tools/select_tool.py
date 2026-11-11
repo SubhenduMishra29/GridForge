@@ -348,9 +348,13 @@ class SelectTool(ToolBase):
             return []
         return nodes
 
+    def selected_transform_nodes(self) -> tuple[Any, ...]:
+        """Expose the fully preflighted selected node/symbol snapshots to canvas UI."""
+        return tuple(self._selected_transform_nodes())
+
     def selected_transform_count(self) -> int:
         """Return the number of fully resolvable selected SLD nodes."""
-        return len(self._selected_transform_nodes())
+        return len(self.selected_transform_nodes())
 
     def apply_group_transform(
         self,
@@ -360,8 +364,13 @@ class SelectTool(ToolBase):
         mirror_y: bool = False,
     ) -> bool:
         """Public selection-tool entry point for contextual group transforms."""
+        if len(self.selected_transform_nodes()) < 2:
+            self.controller.show_status_message(
+                "Select at least two resolvable equipment symbols for a group transform."
+            )
+            return False
         try:
-            self._commit_group_transform(
+            committed = self._commit_group_transform(
                 rotation_degrees=rotation_degrees,
                 mirror_x=mirror_x,
                 mirror_y=mirror_y,
@@ -371,7 +380,7 @@ class SelectTool(ToolBase):
                 f"Group symbol transform rejected: {exc}"
             )
             return False
-        return True
+        return bool(committed)
 
     def _commit_group_transform(
         self,
@@ -382,10 +391,10 @@ class SelectTool(ToolBase):
         delta_y: float = 0.0,
         mirror_x: bool = False,
         mirror_y: bool = False,
-    ) -> None:
+    ) -> bool:
         selected = self._selected_transform_nodes()
-        if not selected:
-            return
+        if len(selected) < 2:
+            return False
         values = (rotation_degrees, scale_factor, delta_x, delta_y)
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values):
             raise TypeError("group transform values must be numeric")
@@ -471,6 +480,7 @@ class SelectTool(ToolBase):
         result = self.application.execute(SetSLDNodeTransformsCommand(transforms=transforms))
         if not getattr(result, "success", False):
             raise RuntimeError(getattr(result, "message", "Failed to transform selected SLD nodes."))
+        return True
 
     def _box_select(self, start: Tuple[float, float], end: Tuple[float, float], modifiers: int) -> None:
         scene = self._scene()
