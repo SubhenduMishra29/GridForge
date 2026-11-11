@@ -3104,3 +3104,33 @@ Verification boundary:
   implementation issue #133 and root issue #827 open until this visual-shadow
   contribution is independently reviewed and integrated.
 ======================================================================
+
+
+======================================================================
+GRIDFORGE V2 — UI AUDIT / PANEL VISIBILITY MENU STATE (#1193)
+Date: 11 November 2026
+Repository: madhuri196mishra-cpu/GridForge
+Upstream issue: SubhenduMishra29/GridForge#1193
+
+- Declared Explorer, Inspector, Messages and Tool Settings surface actions
+  checkable in the canonical ActionDefinition catalogue.
+- Extended UIActionRouter with a read-only checked-state provider. It stores
+  no panel visibility; the composition root reads the owning editor's current
+  effective region visibility.
+- MenuPlugin now projects canonical checkability and checked state to QAction,
+  refreshes the View -> Panels submenu immediately before display, and
+  refreshes again after routed menu actions.
+- Added ControlSurfaceHost.region_visibility() as a query over the existing
+  editor region state. SLDEditor reports pending restore visibility while
+  maximized, matching its header button projection.
+- Corrected ControlSurfaceHost.toggle_region() to invert effective region
+  visibility rather than QWidget.isVisible(), which is false for every region
+  while the SLD editor is maximized. Header and menu therefore use the same
+  effective visibility contract without a second state store.
+- Existing _action_enabled ownership checks continue to disable the actions
+  when the active editor does not own the requested region. Layers and
+  Equipment Browser remain show/navigation actions, not visibility toggles.
+- Workspace activation refreshes menu/toolbar projections after initial
+  region composition. User override and splitter-size paths remain unchanged.
+- Verification: static source inspection and GitHub fetch-back only. No GUI,
+  tests, pytest, CI, startup, or runtime experiments were run.

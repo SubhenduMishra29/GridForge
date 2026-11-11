@@ -294,6 +294,25 @@ class ControlSurfaceHost(QWidget):
             raise AttributeError(f"Editor {editor_id!r} does not expose contextual region visibility.")
         setter(region_id, bool(visible), user=True)
 
+    def region_visibility(self, editor_type: str, region_id: str) -> bool | None:
+        """Read the owning editor's effective region visibility without adding state."""
+        editor_id = {
+            "sld": "sld-editor",
+            "control": "control-editor",
+            "protection": "protection-editor",
+            "study": "study-editor",
+        }.get(editor_type, editor_type)
+        editor = self._host.widget(editor_id)
+        if editor is None:
+            return None
+        query = getattr(editor, "region_visibility", None)
+        if callable(query):
+            value = query(region_id)
+            if value is not None:
+                return bool(value)
+        widget = getattr(editor, "region_widget", lambda _id: None)(region_id)
+        return None if widget is None else not widget.isHidden()
+
     def toggle_region(self, editor_type: str, region_id: str) -> bool:
         editor_id = {
             "sld": "sld-editor",
@@ -304,10 +323,10 @@ class ControlSurfaceHost(QWidget):
         editor = self._host.widget(editor_id)
         if editor is None:
             raise KeyError(f"Unknown editor type: {editor_type!r}")
-        widget = getattr(editor, "region_widget", lambda _id: None)(region_id)
-        if widget is None:
+        visible = self.region_visibility(editor_type, region_id)
+        if visible is None:
             raise KeyError(f"Unknown editor region: {region_id!r}")
-        visible = not widget.isVisible()
+        visible = not visible
         self.set_region_visible(editor_type, region_id, visible)
         return visible
 

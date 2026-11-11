@@ -1450,7 +1450,32 @@ def _build_application_impl(
             return project_active and discipline == "sld" and active_tool in {None, "select"}
         return True
 
+    def _action_checked(action_id: str) -> bool:
+        region_by_action = {
+            "view.toggle_explorer": "explorer",
+            "view.toggle_inspector": "sidebar",
+            "view.toggle_messages": "diagnostics",
+            "view.toggle_tool_settings": "tool_settings",
+        }
+        region_id = region_by_action.get(action_id)
+        context = engineering_context.current
+        project_active = (
+            context.project_id is not None
+            and gridforge_application.project_lifecycle.context is not None
+        )
+        workspace_id = workspace_controller.active_workspace_id
+        if region_id is None or not project_active or workspace_id is None:
+            return False
+        if not _active_workspace_has_region(region_id):
+            return False
+        try:
+            visible = workspace_surface_host.region_visibility(workspace_id, region_id)
+        except (AttributeError, KeyError, RuntimeError, TypeError, ValueError):
+            return False
+        return bool(visible)
+
     action_router.set_enabled_provider(_action_enabled)
+    action_router.set_checked_provider(_action_checked)
 
     # The lifecycle service starts with an internal bootstrap context, but the
     # composition root must not materialize a presentation for that transient
@@ -1766,6 +1791,7 @@ def _build_application_impl(
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
     workspace_controller.activate_default()
+    _refresh_action_presentations(engineering_context.current)
     # Initial workspace activation may not publish a ProjectWorkspaceChanged
     # event; explicitly synchronize the annotation inspector after binding.
     active_sld_document = project_workspace_lifecycle.documents.active_document

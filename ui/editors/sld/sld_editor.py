@@ -279,6 +279,15 @@ class SLDEditor(QWidget):
     def region_widget(self, region_id: str) -> QWidget | None:
         return self._region_widgets.get(region_id)
 
+    def region_visibility(self, region_id: str) -> bool | None:
+        """Return effective user-visible region state, including maximized restore intent."""
+        frame = self._region_widgets.get(region_id)
+        if frame is None:
+            return None
+        if self._presentation_maximized:
+            return bool(self._restore_visibility.get(region_id, not frame.isHidden()))
+        return not frame.isHidden()
+
     def apply_editor_definition(self, definition: object) -> None:
         preferred: dict[str, int] = {}
         first_application = not self._editor_definition_applied
