@@ -1,3 +1,26 @@
+GridForge V2 — Selection-aware contextual group transform toolbar
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- The floating contextual canvas strip exposed rotation/mirror actions for exactly one selected symbol only.
+- Group rotate/mirror shortcuts existed in SelectTool, but there were no visible group actions for a multi-equipment selection.
+
+Correction:
+- Added contextual group buttons for rotate 90° counter-clockwise, rotate 90° clockwise, horizontal mirror, and vertical mirror.
+- The strip switches between single-symbol and group controls based on the number of fully resolvable selected NODE-domain SLD nodes.
+- Group buttons route through the SelectTool public apply_group_transform() entry point, preserving the canonical SetSLDNodeTransformsCommand/Application path and its atomic undo behavior.
+- The toolbar is anchored to the union of selected symbol scene bounds; off-screen groups remain hidden rather than pinning controls to an unrelated viewport edge.
+- Group toolbar presentation fails closed unless the active SLD document model is the exact model currently exposed by the Application presentation and every selected node has a matching symbol-bearing scene item.
+- The single-symbol controls and annotation quadrant action remain available only for one selected node. The group toolbar is transient viewport UI and is not persisted into the SLD document.
+
+Verification:
+- GraphicsView, SelectTool, and Modification Register fetched back from main.
+- Source inspection confirms four group controls, single/group visibility switching, shared transform entry point, group-bound anchoring, active-model identity guard, and fail-closed handling for unresolved nodes/items.
+- No Python import/syntax execution, Qt GUI visibility/interaction acceptance, undo/redo runtime, connected-wire runtime, or save/reopen acceptance was performed.
+
+======================================================================
 GridForge V2 — Atomic group horizontal and vertical mirroring
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
