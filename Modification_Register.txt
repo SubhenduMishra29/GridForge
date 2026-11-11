@@ -3025,3 +3025,65 @@ Verification boundary:
   implementation issue #133 and root issue #827 open until this visual-shadow
   contribution is independently reviewed and integrated.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Batch 3: Tool Shelf, Equipment Library and Placement Audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Source audit:
+- Equipment Library is composed from the canonical EquipmentRegistry catalogue.
+  It exposes category filtering and search across display name, category,
+  equipment type and tool ID. Palette icons are rendered from canonical
+  SymbolDefinitions through PaletteSymbolAdapter; item tooltips expose the
+  catalogue identity and symbol metadata.
+- Palette drag payload carries only the stable equipment type. GraphicsView
+  resolves that type through EquipmentRegistry/ToolManager, adapts the canvas
+  drag event, displays the transient placement preview, and dispatches the
+  canonical interaction path. No independent palette-side tool lifecycle or
+  Core mutation was found.
+- ToolShelf is a separate compact contextual interaction rail. It consumes
+  ToolDefinitions and UIActionRouter, groups by canonical category ordering,
+  reflects the active ToolManager identity, and disables controls without an
+  authorized route. Missing icon artwork falls back to a tool-derived glyph
+  and warning rather than a blank or unrelated symbol.
+- ModelPlacementTool keeps placement and symbol preview transient, routes draft
+  creation through Application commands, supports R rotation in 90-degree
+  increments while a placement draft is active, and clears transient state on
+  cancellation/deactivation. Equipment engineering parameters remain in the
+  Properties/Creation workflow.
+- GraphicsView palette drop supports a 15-viewport-pixel wire corridor,
+  nearest routed-polyline target resolution, ambiguity rejection, explicit
+  Shift insertion, automatic insertion when a valid nearby target is found,
+  and release-time target revalidation. No separate duplicate insertion path
+  or alternate mutation authority was introduced.
+
+Correction integrated:
+- PR #1192 merged by squash as bb7e13bc8c392aaa56a01f7af5b715828c20680b.
+- The insertion-only equipment silhouette now uses a solid translucent fill
+  and strokes at 55% opacity; split route halves use dedicated translucent
+  solid pens; rotated input/output terminal-anchor markers are drawn above
+  the silhouette. Preview ownership and cleanup remain in ElectricalInsertionTool.
+- ui/core/qt.py exports all added Qt classes used by the correction.
+- Authoritative issue #827 closed as completed after merge. This supersedes the
+  earlier PR register note that said to keep #827 open pending integration.
+
+New finding:
+- ToolSettingsPanel.set_context() renders ToolSettings.values only as QLabel
+  pairs. It has no typed editable controls, validation, update signal or route
+  to publish immutable ToolSettings.with_updates() values back to the active
+  tool context. SLD editor correctly hides the region when no values exist.
+- Created issue #1195 for typed editable contextual interaction settings.
+  Scope explicitly excludes equipment engineering parameters, which remain
+  in the Properties/Creation workflow.
+
+Disposition:
+- No new defect found in canonical palette icons, category ordering, equipment
+  search/filter, activation routing, or standard placement lifecycle.
+- No duplicate menu/shelf lifecycle authority identified.
+- No Core/Application/SLD architecture changes made.
+- Static source/diff review only. No GUI interaction, drag/drop runtime,
+  preview rendering runtime, or import/syntax execution performed.
+======================================================================
