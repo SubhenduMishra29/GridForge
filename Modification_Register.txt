@@ -3684,3 +3684,10 @@ Verification:
 - Added codec round-trip, unknown-field rejection, schema migration detachment, project activation/rollback, and project-less activation tests.
 - Tests were authored but not executed. No Python import/syntax execution, project save/reopen runtime, GUI interaction, or CI execution is claimed.
 - Source review still required for strict per-record unknown-field rejection, terminal references against the authoritative terminal registry, and end-to-end persistence acceptance.
+
+Follow-up source correction:
+- The wiring codec now rejects unknown fields in each record category as well as unknown top-level inventory fields, preventing accidental silent loss of unsupported data.
+- The current project schema requires the instrumentation_wiring field; only the explicit 5-to-6 migration creates an empty inventory for historical projects. A schema-6 payload missing the field is rejected.
+- Boolean values are rejected as wiring schema versions even though Python treats bool as an int subclass.
+- Added regression test source for unknown per-record fields, boolean schema values, and global stable-ID collisions.
+- Remaining unresolved integration boundary: stable WiringTerminalReference.terminal_id values are not yet reconciled against a canonical Core terminal registry. This is intentionally left open rather than guessed from terminal role/designation or SLD projection.
