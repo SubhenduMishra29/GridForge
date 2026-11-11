@@ -13,7 +13,7 @@ from uuid import uuid4
 from core.application.commands.insertion_commands import InsertEquipmentIntoConnectionCommand
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
-from ui.core.qt import QGraphicsLineItem, QLineF, QPointF
+from ui.core.qt import QGraphicsLineItem, QLineF, QPointF, QRectF
 from .tool_base import ToolBase
 
 
@@ -156,9 +156,6 @@ class ElectricalInsertionTool(ToolBase):
         if explicit_item is not None:
             return self._target_for_item(explicit_item, position)
 
-        # Scene.items(point) is ordered by graphics stacking, not electrical
-        # intent. Inspect every hit Simple Wire and rank by geometric distance
-        # to its routed polyline instead of accepting the first overlapping item.
         scene = None
         get_scene = getattr(self.snap_system, "get_scene", None)
         if callable(get_scene):
@@ -170,41 +167,53 @@ class ElectricalInsertionTool(ToolBase):
         if scene is None:
             scene = getattr(self.controller, "scene", None)
 
-        candidates: list[tuple[float, Any, dict[str, Any]]] = []
+        try:
+            tolerance = max(0.0, float(getattr(event, "insertion_tolerance_scene", 0.0) or 0.0))
+        except (TypeError, ValueError):
+            tolerance = 0.0
         items_at = getattr(scene, "items", None)
-        if callable(items_at):
-            try:
+        if not callable(items_at):
+            return None
+        try:
+            if tolerance > 0.0:
+                query = QRectF(
+                    position[0] - tolerance,
+                    position[1] - tolerance,
+                    tolerance * 2.0,
+                    tolerance * 2.0,
+                )
+                hit_items = tuple(items_at(query))
+            else:
                 hit_items = tuple(items_at(QPointF(*position)))
-            except (TypeError, RuntimeError):
-                hit_items = ()
-            for candidate_item in hit_items:
-                target = self._target_for_item(candidate_item, position, set_target_item=False)
-                if target is None:
-                    continue
-                try:
-                    distance = float(target["distance"])
-                except (KeyError, TypeError, ValueError):
-                    continue
-                if math.isfinite(distance):
-                    candidates.append((distance, candidate_item, target))
+        except (TypeError, RuntimeError):
+            hit_items = ()
+
+        candidates: list[tuple[float, Any, dict[str, Any]]] = []
+        for candidate_item in hit_items:
+            target = self._target_for_item(candidate_item, position, set_target_item=False)
+            if target is None:
+                continue
+            try:
+                distance = float(target["distance"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not math.isfinite(distance) or (tolerance > 0.0 and distance > tolerance):
+                continue
+            candidates.append((distance, candidate_item, target))
 
         if candidates:
             candidates.sort(key=lambda candidate: candidate[0])
             nearest_distance = candidates[0][0]
             nearest = [
                 candidate for candidate in candidates
-                if abs(candidate[0] - nearest_distance) <= 1e-6
+                if abs(candidate[0] - nearest_distance) <= max(1e-6, tolerance * 1e-4)
             ]
-            # At a true crossing/overlap, geometry cannot identify which
-            # electrical relationship the engineer intended. Fail closed and
-            # require the user to move off the ambiguous intersection.
             nearest_connection_ids = {
-                str(candidate[2].get("connection_id"))
-                for candidate in nearest
+                str(candidate[2].get("connection_id")) for candidate in nearest
             }
             if len(nearest_connection_ids) > 1:
-                # Do not let mouse-release fallback reuse a previously hovered
-                # connection when the current pointer is ambiguous.
+                # Geometric ambiguity at a crossing is never resolved by
+                # graphics stacking order.
                 self._clear_target()
                 return None
             _, item, target = candidates[0]
@@ -212,8 +221,7 @@ class ElectricalInsertionTool(ToolBase):
             resolved["_graphics_item"] = item
             return resolved
 
-        # Compatibility path for older controller adapters that expose a
-        # single-item hit resolver but not a scene with point queries.
+        # Compatibility path for controller adapters without scene point queries.
         for name in ("connection_item_at", "sld_connection_item_at", "canvas_item_at"):
             resolver = getattr(self.controller, name, None)
             if callable(resolver):
