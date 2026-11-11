@@ -167,12 +167,21 @@ class SLDCanvasProjection:
                 raise ValueError("Physical instrumentation wiring requires the SLD default presentation layer.")
             physical_connections = []
             diagnostics = []
+            occupied_connection_ids = {item.connection_id for item in model.connections}
+            projected_connection_ids: set[str] = set()
             for record in instrumentation_wiring.records:
                 diagnostics.extend(
                     f"{record.carrier_kind} {record.carrier_tag}: {message}"
                     for message in record.diagnostics
                 )
                 for segment in record.segments:
+                    if segment.projection_id in occupied_connection_ids or segment.projection_id in projected_connection_ids:
+                        diagnostics.append(
+                            f"{record.carrier_kind} {record.carrier_tag}: transient projection identity "
+                            f"{segment.projection_id!r} collides with another SLD connection."
+                        )
+                        continue
+                    projected_connection_ids.add(segment.projection_id)
                     physical_connections.append(SLDCanvasConnection(
                         connection_id=segment.projection_id,
                         source_node_id=segment.source.node_id,
