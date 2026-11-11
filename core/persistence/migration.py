@@ -383,17 +383,58 @@ class _SLDSchema2To3(SLDMigration):
         return result
 
 
-SLD_DOCUMENT_FIELDS = frozenset({"schema", "document_id", "project_id", "document_type", "name", "metadata", "model", "annotation_blocks"})
+class _SLDSchema3To4(SLDMigration):
+    source_schema = 3
+    target_schema = 4
+
+    def migrate(self, data: Mapping[str, Any], *, project_id: str, document_index: int, existing_document_ids: set[str]) -> Mapping[str, Any]:
+        del project_id, document_index, existing_document_ids
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise SLDMigrationError("SLD schema 3-to-4 received a non-schema-3 payload.")
+        result["layers"] = [{"layer_id": "default", "name": "Default", "visible": True, "locked": False, "opacity": 1.0, "order": 0}]
+        model = result.get("model")
+        if not isinstance(model, Mapping):
+            raise SLDMigrationError("SLD model must be an object during schema 3-to-4 migration.")
+        model_copy = deepcopy(dict(model))
+        for collection_name in ("nodes", "connections"):
+            collection = model_copy.get(collection_name)
+            if not isinstance(collection, list):
+                raise SLDMigrationError("SLD model " + collection_name + " must be an array during schema 3-to-4 migration.")
+            for index, item in enumerate(collection):
+                if not isinstance(item, Mapping):
+                    raise SLDMigrationError("SLD " + collection_name + "[" + str(index) + "] must be an object during schema 3-to-4 migration.")
+                item_copy = deepcopy(dict(item))
+                item_copy["layer_id"] = "default"
+                collection[index] = item_copy
+        result["model"] = model_copy
+        annotations = result.get("annotation_blocks", [])
+        if not isinstance(annotations, list):
+            raise SLDMigrationError("SLD annotation_blocks must be an array during schema 3-to-4 migration.")
+        migrated_annotations = []
+        for index, block in enumerate(annotations):
+            if not isinstance(block, Mapping):
+                raise SLDMigrationError("SLD annotation_blocks[" + str(index) + "] must be an object during schema 3-to-4 migration.")
+            block_copy = deepcopy(dict(block))
+            block_copy["layer_id"] = "default"
+            migrated_annotations.append(block_copy)
+        result["annotation_blocks"] = migrated_annotations
+        result["schema"] = self.target_schema
+        return result
+
+
+SLD_DOCUMENT_FIELDS = frozenset({"schema", "document_id", "project_id", "document_type", "name", "metadata", "model", "annotation_blocks", "layers"})
 SLD_MODEL_FIELDS = frozenset({"nodes", "connections"})
-SLD_NODE_FIELDS = frozenset({"node_id", "equipment_id", "x", "y", "presentation", "properties"})
-SLD_CONNECTION_FIELDS = frozenset({"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"})
+SLD_LAYER_FIELDS = frozenset({"layer_id", "name", "visible", "locked", "opacity", "order"})
+SLD_NODE_FIELDS = frozenset({"node_id", "equipment_id", "x", "y", "presentation", "properties", "layer_id"})
+SLD_CONNECTION_FIELDS = frozenset({"connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties", "layer_id"})
 SLD_ENDPOINT_FIELDS = frozenset({"kind", "node_id", "equipment_id", "terminal_role", "bus_id", "attachment_id"})
 SLD_ROUTE_FIELDS = frozenset({"routing_mode", "ownership", "points"})
 SLD_SYMBOL_FIELDS = frozenset({"symbol_id", "definition_id", "symbol_family_id", "standard_id", "variant_id", "standard_reference_id", "representation_id", "scale", "rotation", "visible", "properties"})
 SLD_ENDPOINT_KINDS = frozenset({"equipment", "bus"})
 SLD_ROUTING_MODES = frozenset({"direct", "orthogonal", "manual"})
 SLD_ROUTE_OWNERSHIP = frozenset({"auto", "engineer"})
-SLD_ANNOTATION_BLOCK_FIELDS = frozenset({"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant"})
+SLD_ANNOTATION_BLOCK_FIELDS = frozenset({"block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "quadrant", "layer_id"})
 
 
 def _sld_unknown(value: Mapping[str, Any], allowed: frozenset[str], context: str) -> None:
@@ -418,7 +459,7 @@ def _sld_number(value: Any, field: str, context: str) -> None:
 
 
 def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = None) -> None:
-    """Validate canonical schema-3 SLD structure without constructing runtime state."""
+    """Validate canonical schema-4 SLD structure without constructing runtime state."""
     if not isinstance(data, Mapping):
         raise SLDMigrationError("SLD document must be an object.")
     _sld_unknown(data, SLD_DOCUMENT_FIELDS, "document")
@@ -433,6 +474,40 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
     _sld_string(data.get("name"), "name", "document")
     if not isinstance(data.get("metadata"), Mapping):
         raise SLDMigrationError("SLD document metadata must be an object.")
+    layers = data.get("layers")
+    if not isinstance(layers, list) or not layers:
+        raise SLDMigrationError("SLD layers must be a non-empty array.")
+    layer_ids: set[str] = set()
+    layer_orders: set[int] = set()
+    for index, layer in enumerate(layers):
+        context = "layer[" + str(index) + "]"
+        if not isinstance(layer, Mapping):
+            raise SLDMigrationError("SLD " + context + " must be an object.")
+        _sld_unknown(layer, SLD_LAYER_FIELDS, context)
+        for field in ("layer_id", "name", "visible", "locked", "opacity", "order"):
+            if field not in layer:
+                raise SLDMigrationError("Missing SLD layer field " + field + " in " + context + ".")
+        _sld_string(layer["layer_id"], "layer_id", context)
+        _sld_string(layer["name"], "name", context)
+        if layer["layer_id"] in layer_ids:
+            raise SLDMigrationError("Duplicate SLD layer_id " + repr(layer["layer_id"]) + ".")
+        layer_ids.add(layer["layer_id"])
+        if not isinstance(layer["visible"], bool) or not isinstance(layer["locked"], bool):
+            raise SLDMigrationError("SLD layer visible and locked fields must be boolean in " + context + ".")
+        _sld_number(layer["opacity"], "opacity", context)
+        if not 0.0 <= float(layer["opacity"]) <= 1.0:
+            raise SLDMigrationError("SLD layer opacity must be between 0 and 1 in " + context + ".")
+        order = layer["order"]
+        if isinstance(order, bool) or not isinstance(order, int) or order < 0:
+            raise SLDMigrationError("SLD layer order must be a non-negative integer in " + context + ".")
+        if order in layer_orders:
+            raise SLDMigrationError("Duplicate SLD layer order " + str(order) + ".")
+        layer_orders.add(order)
+    if "default" not in layer_ids:
+        raise SLDMigrationError("SLD document must contain the default layer.")
+    if layer_orders != set(range(len(layers))):
+        raise SLDMigrationError("SLD layer order values must be contiguous from zero.")
+
     model = data.get("model")
     if not isinstance(model, Mapping):
         raise SLDMigrationError("SLD model must be an object.")
@@ -446,10 +521,13 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
         if not isinstance(node, Mapping):
             raise SLDMigrationError("SLD " + context + " must be an object.")
         _sld_unknown(node, SLD_NODE_FIELDS, context)
-        for field in ("node_id", "x", "y", "presentation", "properties", "equipment_id"):
+        for field in ("node_id", "x", "y", "presentation", "properties", "equipment_id", "layer_id"):
             if field not in node:
                 raise SLDMigrationError("Missing canonical SLD node field " + field + " in " + context + ".")
         _sld_string(node["node_id"], "node_id", context)
+        _sld_string(node["layer_id"], "layer_id", context)
+        if node["layer_id"] not in layer_ids:
+            raise SLDMigrationError("SLD " + context + " references an unknown presentation layer.")
         if node["node_id"] in node_ids:
             raise SLDMigrationError("Duplicate SLD node_id " + repr(node["node_id"]) + ".")
         node_ids.add(node["node_id"])
@@ -490,7 +568,7 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
         if not isinstance(block, Mapping):
             raise SLDMigrationError("SLD " + context + " must be an object.")
         _sld_unknown(block, SLD_ANNOTATION_BLOCK_FIELDS, context)
-        for field in ("block_id", "node_id", "visible", "fields", "offset_x", "offset_y"):
+        for field in ("block_id", "node_id", "visible", "fields", "offset_x", "offset_y", "layer_id"):
             if field not in block:
                 raise SLDMigrationError("Missing annotation block field " + field + " in " + context + ".")
         _sld_string(block["block_id"], "block_id", context)
@@ -498,6 +576,9 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
             raise SLDMigrationError("Duplicate SLD annotation block ID " + repr(block["block_id"]) + ".")
         block_ids.add(block["block_id"])
         _sld_string(block["node_id"], "node_id", context)
+        _sld_string(block["layer_id"], "layer_id", context)
+        if block["layer_id"] not in layer_ids:
+            raise SLDMigrationError("SLD " + context + " references an unknown presentation layer.")
         if block["node_id"] not in node_ids:
             raise SLDMigrationError("SLD " + context + " references a missing node.")
         if not isinstance(block["visible"], bool):
@@ -529,10 +610,13 @@ def validate_canonical_sld(data: Mapping[str, Any], *, project_id: str | None = 
         if not isinstance(connection, Mapping):
             raise SLDMigrationError("SLD " + context + " must be an object.")
         _sld_unknown(connection, SLD_CONNECTION_FIELDS, context)
-        for field in ("connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties"):
+        for field in ("connection_id", "source_node_id", "target_node_id", "source_endpoint", "target_endpoint", "route", "properties", "layer_id"):
             if field not in connection:
                 raise SLDMigrationError("Missing canonical SLD connection field " + field + " in " + context + ".")
         _sld_string(connection["connection_id"], "connection_id", context)
+        _sld_string(connection["layer_id"], "layer_id", context)
+        if connection["layer_id"] not in layer_ids:
+            raise SLDMigrationError("SLD " + context + " references an unknown presentation layer.")
         if connection["connection_id"] in connection_ids:
             raise SLDMigrationError("Duplicate SLD connection_id " + repr(connection["connection_id"]) + ".")
         connection_ids.add(connection["connection_id"])
@@ -606,7 +690,7 @@ class ProjectPersistenceMigration:
         3: _ProjectSchema3To4(),
         4: _ProjectSchema4To5(),
     }
-    _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3()}
+    _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3(), 3: _SLDSchema3To4()}
 
     def migrate_project(self, data: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(data, Mapping):
