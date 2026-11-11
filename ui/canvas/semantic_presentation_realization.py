@@ -128,6 +128,15 @@ class SemanticPresentationRealization:
                     f"SLD symbol definition identity mismatch: "
                     f"{persisted.definition_id!r} != {persisted.symbol_id!r}"
                 )
+            if symbol_definition.symbol_id != default_definition.symbol_id:
+                approved = self._equipment_registry.approved_symbol_variants(
+                    equipment_type, self._symbol_registry
+                )
+                if not any(item.symbol_id == symbol_definition.symbol_id for item in approved):
+                    raise ValueError(
+                        f"Persisted non-default symbol variant {symbol_definition.symbol_id!r} "
+                        "is not approved and terminal-contract compatible."
+                    )
             if symbol_definition.symbol_family_id != default_definition.symbol_family_id:
                 raise ValueError(
                     f"SLD symbol family mismatch for {equipment_type!r}: "
