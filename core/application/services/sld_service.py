@@ -622,15 +622,6 @@ class SLDService:
                 "previous_position": tuple(node.position),
                 "previous_presentation": None if node.presentation is None else node.presentation.to_dict(),
                 "previous_properties": deepcopy(node.properties),
-                # Track the exact state installed by this command. These
-                # expectations advance after each individual mutation so a
-                # transaction rollback can safely recover even if a later
-                # setter fails part-way through one node's update.
-                "expected_position": tuple(node.position),
-                "expected_presentation": (
-                    None if node.presentation is None else node.presentation.to_dict()
-                ),
-                "expected_properties": deepcopy(node.properties),
                 "equipment_id": node.equipment_id,
                 "identity": {
                     key: deepcopy(node.properties.get(key))
@@ -656,25 +647,9 @@ class SLDService:
                     key: deepcopy(target.properties.get(key))
                     for key in snapshot["identity"]
                 }
-                if (
-                    target is not snapshot["node"]
-                    or target.equipment_id != snapshot["equipment_id"]
-                    or target_identity != snapshot["identity"]
-                ):
+                if target.equipment_id != snapshot["equipment_id"] or target_identity != snapshot["identity"]:
                     raise ValueError(
                         "Cannot undo SLD group transform; logical node identity changed for "
-                        f"{snapshot['node_id']!r}."
-                    )
-                current_presentation = (
-                    None if target.presentation is None else target.presentation.to_dict()
-                )
-                if (
-                    tuple(target.position) != snapshot["expected_position"]
-                    or current_presentation != snapshot["expected_presentation"]
-                    or target.properties != snapshot["expected_properties"]
-                ):
-                    raise ValueError(
-                        "Cannot undo SLD group transform; live presentation state changed for "
                         f"{snapshot['node_id']!r}."
                     )
                 targets.append((snapshot, target))
@@ -697,15 +672,9 @@ class SLDService:
             self.document.set_node_position(
                 snapshot["node_id"], snapshot["x"], snapshot["y"]
             )
-            snapshot["expected_position"] = (snapshot["x"], snapshot["y"])
             snapshot["node"].set_presentation(snapshot["presentation"])
-            snapshot["expected_presentation"] = (
-                None if snapshot["node"].presentation is None
-                else snapshot["node"].presentation.to_dict()
-            )
             snapshot["node"].properties["position_owner"] = "engineer"
             snapshot["node"].properties["symbol_owner"] = "engineer"
-            snapshot["expected_properties"] = deepcopy(snapshot["node"].properties)
         self.document.mark_modified()
         return ApplicationResult.success_result(
             message="SLD group transform updated atomically.",
