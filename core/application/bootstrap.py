@@ -788,6 +788,7 @@ def create_application(
             instrumentation_wiring_service.activate(
                 context,
                 loaded.instrumentation_wiring if context is not None and loaded is not None else None,
+                network=network if context is not None else None,
                 generation=generation,
             )
             measurement_channel_service.activate(
