@@ -16,6 +16,11 @@ from core.persistence.instrument_wiring_serializer import (
 from core.persistence.migration import _ProjectSchema5To6
 
 
+class FakeNetwork:
+    def get_by_identity(self, equipment_id):
+        raise KeyError(equipment_id)
+
+
 def sample_inventory():
     cable = CableAssembly(
         id="cable-id", tag="C-CT101", service="CT secondary", core_count=2,
@@ -71,7 +76,7 @@ def test_wiring_service_activation_and_rollback_are_project_scoped():
     initial = service.snapshot_state()
     context = ProjectContext(project_id="project-1", name="Test", path=None)
     inventory = sample_inventory()
-    service.activate(context, inventory, generation=4)
+    service.activate(context, inventory, network=FakeNetwork(), generation=4)
     assert service.project_id == "project-1"
     assert service.activation_generation == 4
     assert service.inventory == inventory
@@ -96,3 +101,24 @@ def test_wiring_inventory_codec_rejects_boolean_schema_version():
     payload["schema"] = True
     with pytest.raises(InstrumentationWiringSerializationError, match="schema"):
         deserialize_instrumentation_wiring(payload)
+
+
+def test_wiring_service_rejects_terminal_not_in_active_network():
+    from core.model.instrument_wiring import WiringTerminalReference
+
+    inventory = InstrumentationWiringInventory(
+        cables=(CableAssembly(id="c", tag="C-1", service="instrument", core_count=1),),
+        cores=(CableCore(
+            id="cc", cable_id="c", core_number=1,
+            role=WiringConductorRole.SIGNAL,
+            terminal_path=(
+                WiringTerminalReference("missing", "S1", "S1"),
+                WiringTerminalReference("other", "1", "1"),
+            ),
+        ),),
+    )
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    with pytest.raises(ValueError, match="not registered"):
+        InstrumentationWiringService().activate(
+            context, inventory, network=FakeNetwork(), generation=1
+        )
