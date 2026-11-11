@@ -149,8 +149,10 @@ class EngineeringParameterEditor:
             if any(editable[key].topology_impact for key in changes):
                 raise ValueError("Batch editing does not permit topology-impacting parameters.")
             commands.append(self._application.prepare_engineering_update(intent))
-        if len(commands) < 2:
-            raise ValueError("At least two selected equipment items must contain valid changes.")
+        if not commands:
+            raise ValueError("No selected equipment item contains a valid change.")
+        if len(commands) == 1:
+            return self._application.execute(commands[0])
         return self._application.execute(EngineeringUpdateBatchCommand(commands=tuple(commands)))
 
     @staticmethod
