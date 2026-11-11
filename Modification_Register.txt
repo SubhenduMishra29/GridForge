@@ -3629,3 +3629,36 @@ Disposition:
   project-specific adoption of editions and tag conventions remains a design
   decision to be documented before implementation.
 ======================================================================
+
+======================================================================
+GridForge V2 — Instrument Wiring Implementation Slice 1
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+
+Implemented:
+- Added immutable Core records for WiringTerminalReference, CableAssembly,
+  CableCore, PanelWire, SignalDefinition and SignalCarrierBinding.
+- Added explicit conductor roles, signal kinds and carrier kinds.
+- Kept physical cable/core/wire identities separate from logical signal identity
+  and from the existing power-network Cable branch and MeasurementChannel.
+- Added InstrumentationWiringInventory cross-record validation for stable-ID
+  uniqueness, cable/core ownership, core-number range/uniqueness, tag uniqueness
+  and signal-to-carrier references.
+- Exported the new records through core.model.
+- Added focused unit-test source for record immutability, invalid values,
+  terminal paths, cable/core inventory invariants and dangling signal bindings.
+
+Limitations / next implementation slice:
+- This is the Core record foundation only. Application commands/services,
+  project persistence and migration, tag allocation policy, terminal registry
+  integration, canvas projections/navigation, schedules and commissioning
+  lifecycle are not yet implemented.
+- No runtime, pytest, GUI or CI execution was performed in this environment;
+  the test file was authored but not executed.
+
+Disposition:
+- Implementation is on feature/instrument-wiring-domain-foundation for review.
+- Issue #1203 remains OPEN until the complete cross-layer acceptance scope is
+  implemented and reconciled.
+======================================================================
