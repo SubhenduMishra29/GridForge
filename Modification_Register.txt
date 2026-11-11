@@ -1220,3 +1220,30 @@ Verification boundary:
   reconciliation against a real approved candidate, and project save/reopen
   remain unverified.
 - No tests/CI were treated as acceptance gates.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-011 — EQUIPMENT-COMPATIBLE VARIANT RESOLUTION
+======================================================================
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Changes:
+- EquipmentRegistry.approved_symbol_variants() now returns only explicitly
+  approved family variants whose terminal-role/creation contract reconciles
+  without errors for the requested equipment type.
+- SemanticPresentationRealization now rejects a persisted non-default
+  symbol variant unless it is present in that equipment-specific approved
+  and contract-compatible result. Canonical default symbols remain
+  compatible with existing projects even while catalogue review is pending.
+- Variant resolution remains renderer-neutral and presentation-only; no
+  Core equipment, terminal, or electrical connection identity is changed.
+
+Verification boundary:
+- Both source files and this register entry were committed to main and
+  fetched back for inspection.
+- No reviewed non-default variant currently exists in the built-in catalogue;
+  therefore no variant was made selectable and no selector widget was added.
+- GUI selection, connected-wire preservation, undo/redo, and project
+  save/reopen remain unverified. No tests/CI were treated as acceptance gates.
