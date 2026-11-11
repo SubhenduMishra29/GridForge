@@ -565,7 +565,12 @@ class SLDCanvasSurface(QWidget):
                 self._navigation_controller.set_transform(saved_transform)
 
         committed = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
-        composite = CompositeSLDCanvasSnapshot(committed=committed, draft=draft_snapshot)
+        layered_draft = DraftSLDCanvasSnapshot(
+            nodes=draft_snapshot.nodes,
+            connections=draft_snapshot.connections,
+            layers=document.layers,
+        )
+        composite = CompositeSLDCanvasSnapshot(committed=committed, draft=layered_draft)
         self._sld_canvas_render_system.synchronize(composite)
         self._document_id = document.document_id
         self._sld_canvas_snapshot = committed
