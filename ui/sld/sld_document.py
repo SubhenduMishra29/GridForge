@@ -157,6 +157,78 @@ class SLDDocument(Document):
                 return removed
         raise KeyError("Unknown SLD annotation block: " + str(block_id))
 
+    def layer_state_snapshot(self) -> Dict[str, Any]:
+        """Return a detached snapshot of the complete SLD layer registry and memberships."""
+        return {
+            "layers": [layer.to_dict() for layer in self.layers],
+            "node_layer_ids": {node.node_id: node.layer_id for node in self._model.nodes},
+            "connection_layer_ids": {connection.connection_id: connection.layer_id for connection in self._model.connections},
+            "annotation_blocks": [block.to_dict() for block in self._annotation_blocks],
+        }
+
+    def replace_layer_state(
+        self,
+        *,
+        layers: list[SLDPresentationLayer | Mapping[str, Any]],
+        node_layer_ids: Mapping[str, str],
+        connection_layer_ids: Mapping[str, str],
+        annotation_blocks: list[SLDAnnotationBlock | Mapping[str, Any]],
+        mark_modified: bool = True,
+    ) -> None:
+        """Atomically replace layer metadata and every membership reference.
+
+        All proposed records and references are validated before any live
+        object is changed. This is the document-side primitive used by
+        Application transactions and their inverse journals.
+        """
+        if not isinstance(layers, list) or not isinstance(node_layer_ids, Mapping) or not isinstance(connection_layer_ids, Mapping) or not isinstance(annotation_blocks, list):
+            raise TypeError("Invalid SLD layer-state replacement payload.")
+        normalized_layers = [
+            layer if isinstance(layer, SLDPresentationLayer) else SLDPresentationLayer.from_dict(layer)
+            for layer in layers
+        ]
+        if not normalized_layers:
+            raise ValueError("An SLD document must retain at least one presentation layer.")
+        layer_ids = [layer.layer_id for layer in normalized_layers]
+        orders = [layer.order for layer in normalized_layers]
+        if len(set(layer_ids)) != len(layer_ids) or "default" not in layer_ids:
+            raise ValueError("SLD layer IDs must be unique and include the default layer.")
+        if len(set(orders)) != len(orders) or set(orders) != set(range(len(orders))):
+            raise ValueError("SLD layer order must be unique and contiguous from zero.")
+        valid_layer_ids = set(layer_ids)
+        expected_nodes = {node.node_id for node in self._model.nodes}
+        expected_connections = {connection.connection_id for connection in self._model.connections}
+        if set(node_layer_ids) != expected_nodes:
+            raise ValueError("Layer-state replacement must assign every current SLD node exactly once.")
+        if set(connection_layer_ids) != expected_connections:
+            raise ValueError("Layer-state replacement must assign every current SLD connection exactly once.")
+        for object_id, layer_id in (*node_layer_ids.items(), *connection_layer_ids.items()):
+            if not isinstance(layer_id, str) or layer_id not in valid_layer_ids:
+                raise ValueError("SLD object " + str(object_id) + " references an unknown replacement layer.")
+        normalized_annotations = [
+            block if isinstance(block, SLDAnnotationBlock) else SLDAnnotationBlock.from_dict(block)
+            for block in annotation_blocks
+        ]
+        annotation_ids = [block.block_id for block in normalized_annotations]
+        if len(set(annotation_ids)) != len(annotation_ids):
+            raise ValueError("SLD annotation block IDs must be unique.")
+        for block in normalized_annotations:
+            if self._model.get_node_optional(block.node_id) is None:
+                raise ValueError("Annotation block references unknown SLD node: " + block.node_id)
+            if block.layer_id not in valid_layer_ids:
+                raise ValueError("SLD annotation block references an unknown replacement layer.")
+
+        # All preflight checks passed. The assignments below are in-memory
+        # dataclass/list swaps and cannot alter Core or connectivity state.
+        for node in self._model.nodes:
+            node.layer_id = node_layer_ids[node.node_id]
+        for connection in self._model.connections:
+            connection.layer_id = connection_layer_ids[connection.connection_id]
+        self._layers = sorted(normalized_layers, key=lambda layer: layer.order)
+        self._annotation_blocks = normalized_annotations
+        if mark_modified:
+            self.mark_modified()
+
     def materialize_missing_symbol_presentations(self) -> None:
         """Materialize defaults only for nodes that have no authored presentation state."""
         factory = self._default_symbol_presentation_factory
