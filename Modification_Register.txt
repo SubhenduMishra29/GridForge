@@ -2542,3 +2542,31 @@ Verification:
 - Fetched back all changed source/test/register files and verified the corrected priority mapping and active-layer recovery code are present.
 - This is a source integration audit. Tests/CI and Qt GUI/runtime acceptance were not executed. Real populated-drawing visual review, event ordering under live Qt interaction, and actual save/reopen acceptance remain pending.
 - Issue #820 remains open pending runtime visual acceptance.
+
+
+======================================================================
+GridForge V2 — Atomic semantic SLD selection deletion audit (#1180)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit findings:
+- A shared-transaction batch command and Application bootstrap handler already exist: DeleteSelectionBatchCommand / sld.delete_selection_batch. The handler uses CommandManager.execute_in_transaction, so children share one transaction, one outer history record, and one pre-commit pass.
+- Batch preflight already validates active document identity, supported command types, duplicate command identities, selected Core/DraftNetwork/SLD-only identities, bus dependency closure, incident Simple Wire closure, and attached DraftNetwork connection closure. It orders Simple Wire and DraftNetwork connection removals before supported equipment and SLD-only nodes.
+- The batch handler currently supports only BUS, TRANSFORMER, and BREAKER Core equipment types. Other semantic equipment types remain fail-closed, as required.
+- The canonical SLDController.delete_selection() is not integrated with this batch path. It rejects mixed node+connection selection, rejects a multi-selection containing Simple Wires, and invokes the legacy typed DeleteSLDSelectionCommand for homogeneous presentation-only selections. Thus the existence of the Application batch handler does not yet enable the user-facing multi-object Cut/Delete workflow.
+- The current batch handler does not accept sld.remove_connection as a child command, so mixed batches containing engineer-owned SLD-only wires need explicit support and preflight before UI routing can be enabled.
+- No multi-object Cut/clipboard entry point was found in the current SLDController/SelectTool path inspected in this audit. Do not enable Cut until the controller uses the atomic batch boundary and clipboard cancellation/commit semantics are wired.
+
+Required next implementation:
+1. Integrate SLDController selection resolution with the Application batch command for supported semantic nodes, Core Simple Wires, and engineer-owned SLD-only nodes/connections.
+2. Add sld.remove_connection to the batch child allowlist, preflight, and dependency ordering with engineer ownership/layer checks.
+3. Include all incident Simple Wires before deleting selected Core equipment, or fail closed with a precise dependency diagnostic; preserve bus/junction topology ownership.
+4. Include DraftNetwork selection resolution using the active document-scoped DraftNetwork and exact DraftEquipment/DraftConnection identities.
+5. Enable multi-object Cut only after selection-to-batch mapping, clipboard behavior, one-event publication, rollback/undo/redo, and save/reopen paths are source-integrated.
+6. Add tests for mixed selection, duplicate/unknown/cross-document identities, locked layers, junction-connected wires, partial child failure rollback, undo/redo, and unsupported equipment.
+
+Verification:
+- Fetched current main, issue #1180, batch command, Application bootstrap handler, SLDService, SLDController, selection state, and relevant command/service contracts.
+- This is a source audit only. No source files were changed for #1180 in this pass; no tests/CI or GUI verification were run.
+- Issue #1180 remains open. Do not close or advertise multi-object Cut as enabled.
