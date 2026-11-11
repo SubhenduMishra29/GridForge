@@ -1776,7 +1776,6 @@ def _build_application_impl(
 
     canvas_composer.bind_selection_projection(composition=canvas_composition, properties_panel=properties_panel); selection_projection = canvas_composition.selection_projection
     if selection_projection is None: raise RuntimeError("CanvasComposer did not create the canonical SelectionProjectionCoordinator.")
-    properties_panel.bind_sld_annotation_runtime(controller=sld_controller, selection_manager=canvas_composition.selection_manager)
     workspace_controller.activate_default()
     # Initial workspace activation may not publish a ProjectWorkspaceChanged
     # event; explicitly synchronize the annotation inspector after binding.
