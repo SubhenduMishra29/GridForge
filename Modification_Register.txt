@@ -1391,3 +1391,21 @@ Boundary:
 
 Verification:
 - Source fetch-back verification only. No Qt GUI inspection or runtime acceptance performed. No tests/CI gate was run or required.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-018 — APPROVAL-ACCURATE REFERENCE LABEL
+======================================================================
+Date: 2026-11-11 | Issue: #823
+
+Correction:
+- The inspector now labels a standard reference as "Approved standard reference" only when review_status is exactly approved.
+- Definitions in unreviewed, in_review, or rejected states are labeled "Unapproved standard reference".
+- This closes a wording edge case introduced by the previous candidate-label correction: unreviewed/rejected entries must never appear approved.
+
+Boundary:
+- No catalogue metadata, geometry, terminal anchors, Core topology, or persistence behavior changed.
+- No candidate is promoted or made selectable.
+
+Verification:
+- Source fetch-back verification only. No Qt GUI inspection or runtime acceptance performed. No tests/CI gate was run or required.
