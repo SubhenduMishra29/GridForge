@@ -24,6 +24,60 @@ REMOVE_SLD_CONNECTION = "sld.remove_connection"
 SET_SLD_CONNECTION_ROUTE = "sld.set_connection_route"
 SET_SLD_NODE_PROPERTIES = "sld.set_node_properties"
 SET_SLD_ANNOTATION_BLOCKS = "sld.set_annotation_blocks"
+CREATE_SLD_LAYER = "sld.create_layer"
+UPDATE_SLD_LAYER = "sld.update_layer"
+DELETE_SLD_LAYER = "sld.delete_layer"
+REORDER_SLD_LAYERS = "sld.reorder_layers"
+
+
+class CreateSLDLayerCommand(Command):
+    def __init__(self, *, layer_id: str, name: str, visible: bool = True, locked: bool = False, opacity: float = 1.0, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if not isinstance(layer_id, str) or not layer_id.strip() or not isinstance(name, str) or not name.strip():
+            raise ValueError("layer_id and name must be non-empty strings.")
+        if not isinstance(visible, bool) or not isinstance(locked, bool):
+            raise TypeError("visible and locked must be boolean.")
+        if isinstance(opacity, bool) or not isinstance(opacity, (int, float)) or not math.isfinite(float(opacity)) or not 0.0 <= float(opacity) <= 1.0:
+            raise ValueError("opacity must be finite and between 0 and 1.")
+        super().__init__(command_type=CREATE_SLD_LAYER, payload={"layer_id": layer_id, "name": name, "visible": visible, "locked": locked, "opacity": float(opacity)}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
+class UpdateSLDLayerCommand(Command):
+    def __init__(self, *, layer_id: str, name: str | None = None, visible: bool | None = None, locked: bool | None = None, opacity: float | None = None, command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if not isinstance(layer_id, str) or not layer_id.strip():
+            raise ValueError("layer_id must be a non-empty string.")
+        updates = {key: value for key, value in {"name": name, "visible": visible, "locked": locked, "opacity": opacity}.items() if value is not None}
+        if not updates:
+            raise ValueError("At least one layer field must be updated.")
+        if "name" in updates and (not isinstance(name, str) or not name.strip()):
+            raise ValueError("name must be a non-empty string.")
+        if "visible" in updates and not isinstance(visible, bool):
+            raise TypeError("visible must be boolean.")
+        if "locked" in updates and not isinstance(locked, bool):
+            raise TypeError("locked must be boolean.")
+        if "opacity" in updates and (isinstance(opacity, bool) or not isinstance(opacity, (int, float)) or not math.isfinite(float(opacity)) or not 0.0 <= float(opacity) <= 1.0):
+            raise ValueError("opacity must be finite and between 0 and 1.")
+        super().__init__(command_type=UPDATE_SLD_LAYER, payload={"layer_id": layer_id, "updates": updates}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
+class DeleteSLDLayerCommand(Command):
+    def __init__(self, *, layer_id: str, reassign_to: str = "default", command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        if not isinstance(layer_id, str) or not layer_id.strip() or not isinstance(reassign_to, str) or not reassign_to.strip():
+            raise ValueError("layer_id and reassign_to must be non-empty strings.")
+        if layer_id == "default":
+            raise ValueError("The default SLD layer cannot be deleted.")
+        if layer_id == reassign_to:
+            raise ValueError("Deleted layer contents must be reassigned to a different layer.")
+        super().__init__(command_type=DELETE_SLD_LAYER, payload={"layer_id": layer_id, "reassign_to": reassign_to}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
+class ReorderSLDLayersCommand(Command):
+    def __init__(self, *, layer_ids: list[str] | tuple[str, ...], command_id: UUID | None = None, correlation_id: UUID | None = None, causation_id: UUID | None = None) -> None:
+        ids = tuple(layer_ids)
+        if not ids or any(not isinstance(value, str) or not value.strip() for value in ids) or len(set(ids)) != len(ids):
+            raise ValueError("layer_ids must be a non-empty sequence of unique non-empty strings.")
+        super().__init__(command_type=REORDER_SLD_LAYERS, payload={"layer_ids": ids}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
+
+
 
 
 class SetSLDNodePositionCommand(Command):
@@ -308,7 +362,7 @@ class RemoveSLDConnectionCommand(Command):
 
 __all__ = [
     "SET_SLD_NODE_POSITION", "SET_SLD_NODE_POSITIONS", "SET_SLD_NODE_TRANSFORMS", "ADD_SLD_NODE", "REMOVE_SLD_NODE", "SET_SLD_NODE_PRESENTATION",
-    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS", "DELETE_SLD_SELECTION",
+    "ADD_SLD_CONNECTION", "REMOVE_SLD_CONNECTION", "SET_SLD_CONNECTION_ROUTE", "SET_SLD_NODE_PROPERTIES", "SET_SLD_ANNOTATION_BLOCKS", "DELETE_SLD_SELECTION", "CREATE_SLD_LAYER", "UPDATE_SLD_LAYER", "DELETE_SLD_LAYER", "REORDER_SLD_LAYERS",
     "SetSLDNodePositionCommand", "SetSLDNodePositionsCommand", "SetSLDNodeTransformsCommand", "AddSLDNodeCommand", "SetSLDNodePresentationCommand", "RemoveSLDNodeCommand",
-    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand", "DeleteSLDSelectionCommand",
+    "AddSLDConnectionCommand", "SetSLDConnectionRouteCommand", "SetSLDNodePropertiesCommand", "RemoveSLDConnectionCommand", "SetSLDAnnotationBlocksCommand", "DeleteSLDSelectionCommand", "CreateSLDLayerCommand", "UpdateSLDLayerCommand", "DeleteSLDLayerCommand", "ReorderSLDLayersCommand",
 ]
