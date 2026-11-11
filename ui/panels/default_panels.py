@@ -540,6 +540,8 @@ class PropertiesPanelWidget(QWidget):
                 f"Review status: {definition.review_status}",
                 f"Geometry reviewed: {'Yes' if definition.geometry_reviewed else 'No'}",
                 f"Terminal anchors reviewed: {'Yes' if definition.terminal_anchors_reviewed else 'No'}",
+                f"Geometry review evidence: {definition.geometry_review_reference_id or 'Not recorded'}",
+                f"Terminal-anchor review evidence: {definition.terminal_anchor_review_reference_id or 'Not recorded'}",
                 f"Equipment terminal contract: {'Compatible' if compatible else 'INCOMPATIBLE'}",
                 f"Selectable: {'Yes' if is_approved else 'No — approval gate not satisfied'}",
                 "Terminal-anchor comparison (local symbol coordinates):",
