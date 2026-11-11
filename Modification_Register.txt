@@ -1295,3 +1295,28 @@ Commits:
 Fetch-back checks: inspector bind/unbind, initial selected-ID hydration, composition ownership/disposal, canonical late handoff, and removal of the duplicate startup bind all passed.
 
 Verification boundary: source-level only. No Python import/syntax execution, Qt GUI selection test, signal lifecycle runtime, undo/redo, or project save/reopen test is claimed. Symbol variant editor controls are not yet implemented; no unapproved variant is exposed.
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-014 — SYMBOL FAMILY REVIEW INSPECTOR
+======================================================================
+Date: 2026-11-11 | Issue: #823
+
+Implementation:
+- PropertiesPanelWidget now contains a Symbol Standard / Variant Review section alongside the existing selected-node SLD inspector.
+- PanelsPlugin binds the panel to the exact context-owned SymbolRegistry and EquipmentRegistry; no registry clone or second catalogue was introduced.
+- For the one selected SLD equipment node, the panel resolves the canonical equipment definition and symbol family, then lists every registered family candidate deterministically.
+- Candidate detail displays symbol/family identity, standard ID, variant ID, standard reference, review status, geometry-review flag, terminal-anchor-review flag, equipment terminal-contract compatibility, and approval/selectability state.
+- The inspector compares each candidate's local terminal-anchor names and coordinates against the canonical family symbol, including missing anchors on either side. This is a review aid, not a claim that geometry has been certified against IEC artwork.
+- The Apply Approved Variant action is enabled only for a non-current candidate returned by EquipmentRegistry.approved_symbol_variants(), which already enforces explicit approval, standard reference, geometry/anchor review, and equipment-specific terminal-contract compatibility.
+- On apply, the panel re-resolves the selected node and candidate, repeats all approval/family checks, creates a renderer-neutral SymbolBase using the existing scale, rotation, visibility, representation ID, and properties, and submits through SLDController.set_node_presentation(). The operation therefore remains presentation-only and uses the Application command/history path.
+- The review section refreshes with SLD selection/document changes and clears when the annotation inspector is cleared. No approval-editing controls were added; catalogue review metadata remains a controlled definition-authoring responsibility.
+
+Files / commits:
+- ui/panels/default_panels.py — review inspector and guarded apply: fe46a91185fa0ac83530b9b7ef2a6c2851ef5f22; approved-variant application and transform preservation: 86f602b55055eafc2f1e2b992b5781dc2e46e01c.
+- ui/plugins/panels_plugin.py — canonical registry binding: c5814db35bf744211cc62d45d1fb456fbcf4b487.
+
+Fetch-back checks passed for review section, family enumeration, anchor comparison, compatibility gate, command-routed apply, presentation transform preservation, disabled-unless-approved behavior, refresh/clear behavior, and canonical registry binding.
+
+Current catalogue boundary: no built-in non-default variant has been established as approved. Therefore the apply action remains disabled for non-default candidates until a real candidate satisfies every gate.
+
+Verification boundary: source-level only. No Qt GUI inspection, candidate visual preview, interactive selection, actual approved-variant apply, undo/redo, connected-wire endpoint movement, or project save/reopen runtime acceptance is claimed. No test/CI gate was run or required for this source correction.
