@@ -169,3 +169,32 @@ def test_instrumentation_wiring_route_bend_emits_carrier_identity_not_core_ident
     assert requests[0]["segment_index"] == 1
     assert requests[0]["core_connection_id"] is None
     assert item.route_points() == ((20.0, 30.0),)
+
+def test_instrumentation_wiring_item_can_request_reset_to_automatic_route():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:PANEL_WIRE:wire-1:1",
+        source_node_id="tb-node",
+        target_node_id="relay-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(routing_mode="manual", ownership="engineer", points=((20.0, 30.0),)),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "PANEL_WIRE", "carrier_id": "wire-1",
+            "segment_index": 1, "carrier_tag": "W-001",
+        },
+    )
+    item = factory.create_connection(connection, QPointF(0.0, 0.0), QPointF(50.0, 0.0))
+    requests = []
+    item.route_edit_requested.connect(requests.append)
+
+    item.reset_instrumentation_route()
+
+    assert requests[0]["clear_route"] is True
+    assert requests[0]["carrier_kind"] == "PANEL_WIRE"
+    assert requests[0]["carrier_id"] == "wire-1"
+    assert requests[0]["segment_index"] == 1
+    assert requests[0]["points"] == ()
