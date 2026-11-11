@@ -16,7 +16,7 @@ from ..command import Command
 from ..errors import ValidationError
 from ..results import ApplicationResult
 from ..transaction import Transaction
-from ui.sld.sld_model import SLDEndpoint
+from ui.sld.sld_model import SLDEndpoint, SLDPresentationLayer
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +49,10 @@ class SLDService:
         "sld.set_connection_route",
         "sld.set_node_properties",
         "sld.set_annotation_blocks",
+        "sld.create_layer",
+        "sld.update_layer",
+        "sld.delete_layer",
+        "sld.reorder_layers",
     })
 
     def __init__(
@@ -586,6 +590,10 @@ class SLDService:
             "sld.set_connection_route": self._set_connection_route,
             "sld.set_node_properties": self._set_node_properties,
             "sld.set_annotation_blocks": self._set_annotation_blocks,
+            "sld.create_layer": self._mutate_layer_state,
+            "sld.update_layer": self._mutate_layer_state,
+            "sld.delete_layer": self._mutate_layer_state,
+            "sld.reorder_layers": self._mutate_layer_state,
         }[command.command_type]
         document = self.document
         was_modified = bool(document.modified)
@@ -2670,6 +2678,110 @@ class SLDService:
         return ApplicationResult.success_result(
             message="SLD connection added.",
             metadata={"presentation_operation": "add_connection", "connection_id": p["connection_id"]},
+        )
+
+    def _mutate_layer_state(self, command: Command, transaction: Transaction) -> ApplicationResult:
+        """Apply a complete layer-registry/membership transition atomically."""
+        before = self.document.layer_state_snapshot()
+        layers = [dict(item) for item in before["layers"]]
+        node_membership = dict(before["node_layer_ids"])
+        connection_membership = dict(before["connection_layer_ids"])
+        annotations = [dict(item) for item in before["annotation_blocks"]]
+        layer_by_id = {item["layer_id"]: item for item in layers}
+        operation = command.command_type
+
+        if operation == "sld.create_layer":
+            p = command.payload
+            if p["layer_id"] in layer_by_id:
+                raise ValueError("SLD presentation layer already exists: " + str(p["layer_id"]))
+            layers.append(SLDPresentationLayer(
+                layer_id=p["layer_id"], name=p["name"], visible=p["visible"],
+                locked=p["locked"], opacity=p["opacity"], order=len(layers),
+            ).to_dict())
+
+        elif operation == "sld.update_layer":
+            p = command.payload
+            layer = layer_by_id.get(p["layer_id"])
+            if layer is None:
+                raise ValueError("Unknown SLD presentation layer: " + str(p["layer_id"]))
+            updates = dict(p["updates"])
+            if layer["locked"] and updates.get("locked") is not False:
+                raise ValueError("Unlock the SLD layer before changing its properties.")
+            layer.update(updates)
+            normalized = SLDPresentationLayer.from_dict(layer)
+            layer.clear()
+            layer.update(normalized.to_dict())
+
+        elif operation == "sld.delete_layer":
+            p = command.payload
+            layer_id, target_id = p["layer_id"], p["reassign_to"]
+            layer = layer_by_id.get(layer_id)
+            target = layer_by_id.get(target_id)
+            if layer is None or target is None:
+                raise ValueError("Both the deleted and reassignment SLD layers must exist.")
+            if layer_id == "default":
+                raise ValueError("The default SLD layer cannot be deleted.")
+            if layer["locked"]:
+                raise ValueError("Unlock the SLD layer before deleting it.")
+            if target["locked"]:
+                raise ValueError("Cannot reassign content to a locked SLD layer.")
+            node_membership = {key: target_id if value == layer_id else value for key, value in node_membership.items()}
+            connection_membership = {key: target_id if value == layer_id else value for key, value in connection_membership.items()}
+            for block in annotations:
+                if block["layer_id"] == layer_id:
+                    block["layer_id"] = target_id
+            layers = [item for item in layers if item["layer_id"] != layer_id]
+            for index, item in enumerate(sorted(layers, key=lambda value: value["order"])):
+                item["order"] = index
+
+        elif operation == "sld.reorder_layers":
+            ids = tuple(command.payload["layer_ids"])
+            if set(ids) != set(layer_by_id) or len(ids) != len(layers):
+                raise ValueError("Reorder must provide every current SLD layer exactly once.")
+            layer_by_id = {item["layer_id"]: item for item in layers}
+            layers = []
+            for index, layer_id in enumerate(ids):
+                item = dict(layer_by_id[layer_id])
+                item["order"] = index
+                layers.append(item)
+        else:
+            raise ValueError("Unsupported SLD layer operation: " + operation)
+
+        after = {
+            "layers": layers,
+            "node_layer_ids": node_membership,
+            "connection_layer_ids": connection_membership,
+            "annotation_blocks": annotations,
+        }
+        if after == before:
+            return ApplicationResult.success_result(
+                message="SLD presentation layers are unchanged.",
+                metadata={"presentation_operation": operation.rsplit(".", 1)[-1]},
+            )
+
+        installed_state = None
+
+        def restore_layer_state() -> None:
+            current = self.document.layer_state_snapshot()
+            if current == before:
+                return
+            if installed_state is None or current != installed_state:
+                raise ValueError(
+                    "Cannot undo SLD layer operation; live layer registry or "
+                    "membership changed after this command."
+                )
+            self.document.replace_layer_state(**before)
+
+        # The inverse is registered before the atomic document replacement.
+        transaction.record_undo(restore_layer_state)
+        self.document.replace_layer_state(**after)
+        installed_state = self.document.layer_state_snapshot()
+        return ApplicationResult.success_result(
+            message="SLD presentation layers updated.",
+            metadata={
+                "presentation_operation": operation.rsplit(".", 1)[-1],
+                "layer_ids": tuple(layer["layer_id"] for layer in self.document.layers),
+            },
         )
 
     def _set_annotation_blocks(self, command: Command, transaction: Transaction) -> ApplicationResult:
