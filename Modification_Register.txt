@@ -3753,3 +3753,11 @@ Transient projection identity collision protection:
 - Namespaced derived physical wiring render IDs under the GridForge instrumentation-wiring projection namespace.
 - Before adding transient render inputs, SLDCanvasProjection checks each derived ID against persisted SLD connection IDs and other IDs already emitted in the same snapshot. A collision is reported as a physical wiring diagnostic and the derived connection is omitted; authored presentation connections are never replaced.
 - Added regression test source for an authored SLD connection that deliberately occupies a derived projection ID.
+
+Automatic active-canvas composition binding for physical wiring:
+- CanvasPlugin.synchronize_sld() now obtains the current physical wiring projection from the canonical CanvasComposition.sld_controller.read_instrumentation_wiring_projection() API on every active-document synchronization.
+- The plugin passes that detached snapshot into SLDCanvasSurface.present_composite_document(), which forwards it into SLDCanvasProjection.project(..., instrumentation_wiring=...).
+- This binds the read model to the actual CanvasPlugin → CanvasComposition → SLDCanvasSurface → SLDCanvasProjection → SLDCanvasRenderSystem lifecycle. Refreshes and document activations therefore rebuild transient wiring segments from the current Application inventory instead of relying on a one-time projection.
+- Project-closed handling remains unchanged and produces an empty committed snapshot; the next active-project synchronization reads the newly activated project's inventory.
+- Updated CanvasPlugin active-document test doubles for the new keyword-only contract and added a regression asserting that the active wiring projection is forwarded into the surface.
+- Test source only; no runtime, Qt, import or CI execution claimed.
