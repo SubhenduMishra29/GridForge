@@ -349,6 +349,8 @@ class SLDDocument(Document):
         """Clear presentation structure without touching Core."""
         self._model.clear()
         self._annotation_blocks.clear()
+        if self.instrumentation_wiring_routes():
+            self.set_metadata(self.INSTRUMENTATION_WIRING_ROUTES_KEY, {})
         self.mark_modified()
 
     def __repr__(self) -> str:
