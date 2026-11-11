@@ -265,19 +265,35 @@ class GraphicsView(QGraphicsView):
             self._contextual_strip.hide()
             return
         document = getattr(self.sld_controller, "active_document", None)
+        if document is None:
+            self._contextual_strip.hide()
+            return
+        document_model = getattr(document, "model", None)
+        nodes = getattr(document_model, "nodes", None)
+        if nodes is not None and node.node_id not in nodes:
+            self._contextual_strip.hide()
+            return
         annotation_blocks = tuple(
             block for block in getattr(document, "annotation_blocks", ())
             if block.node_id == node.node_id
         )
         self._annotation_quadrant_button.setEnabled(bool(annotation_blocks))
         self._annotation_quadrant_button.setText("Label ↻")
-        bounds = item.mapRectToScene(item.boundingRect())
-        anchor = self.mapFromScene(bounds.topRight())
+
+        # Keep the overlay attached only while the selected symbol is actually
+        # visible. Clamping an off-screen symbol to a viewport edge creates a
+        # misleading toolbar that appears to belong to unrelated canvas content.
+        scene_bounds = item.mapRectToScene(item.boundingRect())
+        viewport_bounds = self.mapFromScene(scene_bounds).boundingRect()
+        viewport_rect = self.viewport().rect()
+        if not viewport_bounds.intersects(viewport_rect):
+            self._contextual_strip.hide()
+            return
+        anchor_x = viewport_bounds.right()
+        anchor_y = viewport_bounds.top()
         self._contextual_strip.adjustSize()
         width = self._contextual_strip.sizeHint().width()
         height = self._contextual_strip.sizeHint().height()
-        x = min(max(4, anchor.x() + 8), max(4, self.viewport().width() - width - 4))
-        y = min(max(4, anchor.y() - height - 8), max(4, self.viewport().height() - height - 4))
         self._contextual_strip.move(x, y)
         self._contextual_strip.show()
         self._contextual_strip.raise_()
