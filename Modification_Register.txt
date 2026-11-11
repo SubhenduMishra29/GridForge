@@ -1,3 +1,17 @@
+GridForge V2 — Contextual group toolbar initial visibility guard
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Correction:
+- Group contextual buttons are explicitly hidden at construction and become visible only after the selection-aware refresh confirms a fully resolvable multi-node selection in the active document.
+- This prevents transient or uninitialized group controls appearing before selection state is hydrated.
+
+Verification:
+- GraphicsView and Modification Register fetched back from main; initial hide and selection-driven visibility switching confirmed by source inspection.
+- No Qt GUI runtime acceptance was performed.
+
+======================================================================
 GridForge V2 — Selection-aware contextual group transform toolbar
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
