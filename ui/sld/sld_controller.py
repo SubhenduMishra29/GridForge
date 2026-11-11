@@ -624,6 +624,19 @@ class SLDController:
         self._state.clear_selection()
         self._state.mark_dirty()
         return True
+    def read_instrumentation_wiring_projection(self):
+        """Project canonical physical wiring onto the active SLD document nodes.
+
+        The returned value is a detached presentation snapshot. This method
+        does not add SLDConnection records, mutate Core topology, or persist
+        duplicate cable/wire identity in the document.
+        """
+        document = self._require_active_document()
+        from .instrumentation_wiring_projection import SLDInstrumentationWiringAdapter
+
+        read_model = self.application.read_instrumentation_wiring()
+        return SLDInstrumentationWiringAdapter().project(read_model, document.model)
+
     def add_connection(self, connection: SLDConnection) -> None:
         self._require_active_document()
         document = self._require_active_document()
