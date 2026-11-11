@@ -546,6 +546,8 @@ class SLDCanvasSurface(QWidget):
         self,
         document: SLDDocument,
         draft_snapshot: DraftSLDCanvasSnapshot,
+        *,
+        instrumentation_wiring: Any | None = None,
     ) -> CompositeSLDCanvasSnapshot:
         """Present committed and DraftNetwork state as one complete canvas snapshot."""
         if not isinstance(document, SLDDocument):
@@ -564,7 +566,12 @@ class SLDCanvasSurface(QWidget):
             else:
                 self._navigation_controller.set_transform(saved_transform)
 
-        committed = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
+        committed = self._sld_canvas_projection.project(
+            document.model,
+            document.annotation_blocks,
+            document.layers,
+            instrumentation_wiring=instrumentation_wiring,
+        )
         layered_draft = DraftSLDCanvasSnapshot(
             nodes=draft_snapshot.nodes,
             connections=draft_snapshot.connections,
