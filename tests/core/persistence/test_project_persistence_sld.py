@@ -7,8 +7,9 @@ from core.model.bus import Bus
 from core.model.line import Line
 from core.network import Network
 from core.persistence.project_persistence import LoadedProject, ProjectPersistenceError, ProjectPersistenceService
+from core.persistence.migration import ProjectPersistenceMigration
 from ui.sld.sld_document import SLDDocument
-from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind, SLDRoute
+from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind, SLDRoute, SLDAnnotationBlock, SLDPresentationLayer
 from ui.equipment.symbol.symbol_base import SymbolBase
 
 
@@ -187,3 +188,58 @@ def test_project_round_trip_preserves_symbol_transforms_terminal_identity_and_en
     assert second_connection.source_endpoint == source_endpoint
     assert second_connection.target_endpoint == target_endpoint
     assert second_connection.route.points == authored_bends
+
+
+def test_sld_schema4_layer_membership_round_trips_with_document():
+    document = SLDDocument(
+        document_id="SLD-LAYERS-001",
+        name="Layered SLD",
+        project_id="PROJECT-001",
+        layers=[
+            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer("protection", "Protection", visible=False, locked=True, opacity=0.6, order=1),
+        ],
+    )
+    document.model.create_node("NODE-001", "BUS-001", 10.0, 20.0, layer_id="protection")
+    document.model.create_node("NODE-002", "BUS-002", 30.0, 40.0)
+    document.model.create_connection("CONN-001", "NODE-001", "NODE-002", layer_id="protection")
+    document.add_annotation_block(SLDAnnotationBlock(
+        block_id="ANN-001", node_id="NODE-001", fields=("identity",), layer_id="protection",
+    ))
+
+    restored = SLDDocument.from_dict(document.to_dict())
+    assert [layer.to_dict() for layer in restored.layers] == [layer.to_dict() for layer in document.layers]
+    assert restored.model.get_node("NODE-001").layer_id == "protection"
+    assert restored.model.get_connection("CONN-001").layer_id == "protection"
+    assert restored.annotation_blocks[0].layer_id == "protection"
+
+
+def test_sld_schema3_migration_assigns_all_legacy_content_to_default_layer():
+    document = _sld()
+    document.add_annotation_block(SLDAnnotationBlock(
+        block_id="ANN-LEGACY-001", node_id="SLD-NODE-001", fields=("identity",),
+    ))
+    legacy = document.to_dict()
+    legacy["schema"] = 3
+    legacy.pop("layers")
+    for node in legacy["model"]["nodes"]:
+        node.pop("layer_id")
+    for connection in legacy["model"]["connections"]:
+        connection.pop("layer_id")
+    for block in legacy["annotation_blocks"]:
+        block.pop("layer_id")
+
+    migrated = ProjectPersistenceMigration()._migrate_sld(
+        legacy,
+        project_id="PROJECT-001",
+        document_index=0,
+        existing_document_ids=set(),
+    )
+    assert migrated["schema"] == 4
+    assert migrated["layers"] == [{
+        "layer_id": "default", "name": "Default", "visible": True,
+        "locked": False, "opacity": 1.0, "order": 0,
+    }]
+    assert all(node["layer_id"] == "default" for node in migrated["model"]["nodes"])
+    assert all(connection["layer_id"] == "default" for connection in migrated["model"]["connections"])
+    assert all(block["layer_id"] == "default" for block in migrated["annotation_blocks"])
