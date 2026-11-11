@@ -108,3 +108,33 @@ def test_factory_keeps_missing_core_connection_identity_non_selectable() -> None
     assert item.presentation_id == "line-orphan"
     assert item.core_connection_id is None
     assert item.object_id is None
+
+def test_instrumentation_wiring_item_exposes_cable_core_and_signal_tags_on_hover():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:CABLE_CORE:core-1:1",
+        source_node_id="ct-node",
+        target_node_id="tb-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "CABLE_CORE",
+            "carrier_tag": "IC-001/1",
+            "conductor_role": "SIGNAL",
+            "segment_index": 1,
+            "cable_tag": "IC-001",
+            "core_number": 1,
+            "signal_tags": ("IA_A", "IA_B"),
+        },
+    )
+    item = factory.create_connection(connection, QPointF(10.0, 20.0), QPointF(40.0, 50.0))
+
+    assert item.projection_source == "instrumentation_wiring"
+    assert "CABLE_CORE: IC-001/1" in item.toolTip()
+    assert "Cable: IC-001" in item.toolTip()
+    assert "Core: 1" in item.toolTip()
+    assert "Signals: IA_A, IA_B" in item.toolTip()
