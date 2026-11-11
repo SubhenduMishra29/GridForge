@@ -95,3 +95,26 @@ def test_clearing_sld_document_also_clears_physical_route_overrides():
     document.clear()
 
     assert document.instrumentation_wiring_routes() == {}
+
+def test_physical_route_edit_refreshes_the_active_canvas_after_persistence():
+    class Controller:
+        def set_connection_route(self, *args, **kwargs):
+            raise AssertionError("Physical route edits must not use Core connection commands.")
+
+        def set_instrumentation_wiring_route(self, *args):
+            self.calls = args
+
+    controller = Controller()
+    refreshed = []
+    editor = SLDRouteEditController(controller, refresh_callback=lambda: refreshed.append(True))
+    editor.handle_route_edit_request({
+        "instrumentation_wiring": True,
+        "carrier_kind": "CABLE_CORE",
+        "carrier_id": "core-1",
+        "segment_index": 1,
+        "core_connection_id": None,
+        "points": ((10.0, 20.0),),
+    })
+
+    assert controller.calls == ("CABLE_CORE", "core-1", 1, ((10.0, 20.0),))
+    assert refreshed == [True]
