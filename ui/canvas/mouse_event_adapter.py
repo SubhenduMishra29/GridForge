@@ -34,6 +34,7 @@ class CanvasMouseEvent:
     event_type: Optional[int] = None
     timestamp: Optional[int] = None
     insertion_intent: bool = False
+    insertion_tolerance_scene: float = 0.0
 
     @property
     def hit_target(self) -> CanvasHitTarget:
