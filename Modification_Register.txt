@@ -3748,3 +3748,8 @@ Renderer realization contract for transient instrumentation segments:
 - Projected wiring connections are read-only: SLDCanvasRenderSystem does not bind them to the persisted SLD route-edit controller. Their route is regenerated from canonical terminal path and auto-routing; authored SLD connection route state is not created or overwritten.
 - The canvas snapshot exposes unresolved carrier diagnostics separately and contributes no graphics connection for incomplete paths.
 - Added renderer-input test source for segment metadata and diagnostics. Runtime Qt rendering and composition-root automatic provider binding are still outstanding; current SLDController projection API and SLDCanvasProjection input contract are available for that integration.
+
+Transient projection identity collision protection:
+- Namespaced derived physical wiring render IDs under the GridForge instrumentation-wiring projection namespace.
+- Before adding transient render inputs, SLDCanvasProjection checks each derived ID against persisted SLD connection IDs and other IDs already emitted in the same snapshot. A collision is reported as a physical wiring diagnostic and the derived connection is omitted; authored presentation connections are never replaced.
+- Added regression test source for an authored SLD connection that deliberately occupies a derived projection ID.
