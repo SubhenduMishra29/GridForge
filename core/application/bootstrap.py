@@ -118,9 +118,6 @@ def create_application(
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
         measurement_channel_provider=lambda: measurement_channel_service.channels,
     )
-    measurement_channel_service.bind_channel_usage_validator(
-        protection_configuration_service.references_measurement_channel
-    )
 
     def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
         """Merge one handler family into the single Application registry.
@@ -592,6 +589,23 @@ def create_application(
         protection_execution_audit_store=protection_execution_audit_store,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
+
+    def measurement_channel_is_referenced(channel_id: str) -> bool:
+        if protection_configuration_service.references_measurement_channel(channel_id):
+            return True
+        mapping = application.control_signal_mapping
+        return bool(
+            mapping is not None
+            and any(
+                binding.source.domain == "measurement"
+                and binding.source.object_id == channel_id
+                for binding in mapping.bindings
+            )
+        )
+
+    measurement_channel_service.bind_channel_usage_validator(
+        measurement_channel_is_referenced
+    )
     # Study outputs are durable execution artifacts, stored outside the
     # canonical project package so ordinary project saves cannot discard them.
     study_result_archive = StudyResultArchive(Path.home() / ".gridforge" / "study-results")
