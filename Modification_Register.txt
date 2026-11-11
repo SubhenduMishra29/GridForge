@@ -2260,3 +2260,9 @@ Phase A follow-up:
 - Exported SLDPresentationLayer through the lazy ui.sld package API so callers can use the new document model without importing its implementation module directly.
 - Kept SLDAnnotationBlock.from_dict() backward-friendly for programmatic mapping construction by defaulting an omitted layer_id to "default". Canonical schema-4 persistence remains strict: validate_canonical_sld() still requires the explicit layer_id field before document restoration.
 - These refinements do not expand Phase A into command, renderer, or UI behavior.
+
+
+Phase A validation/API hardening:
+- Legacy schema-3 migration now rejects layer registries or layer_id fields that do not belong to schema 3 instead of silently overwriting them.
+- Added strict-validator regression coverage for unknown node layer references and out-of-range opacity.
+- Exported SLDPresentationLayer from ui.sld and retained the default-layer fallback for programmatic SLDAnnotationBlock mappings. Canonical persisted schema-4 validation still requires explicit membership.
