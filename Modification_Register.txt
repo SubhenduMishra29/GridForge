@@ -3706,3 +3706,11 @@ Application mutation command slice:
 - The inventory replacement is atomic and records a stale-state-safe undo closure. Undo rejects if project identity, activation generation, Network identity, or installed inventory object has changed. Redo re-executes the original command through CommandManager.
 - This is the aggregate mutation boundary; user-facing typed create/update/delete builders and project-scoped tag allocation policy are still outstanding.
 - Added test source for transactional replacement, undo journal restoration and stale expected-snapshot rejection. Tests remain unexecuted.
+
+Project-scoped identification and tag allocation:
+- Added immutable WiringTagSeries and WiringTagPolicy Core value objects. Each series explicitly defines record category, prefix, separator, minimum digit width and next sequence number.
+- No IEC, ISA, plant or vendor tag syntax is assumed. A project must configure its own series before automatic allocation is available.
+- Allocation is pure: it skips tags already present in the corresponding inventory category and returns the next tag plus an advanced policy snapshot. The counter is not consumed until the resulting inventory is committed through the reversible Application command.
+- Persisted the policy inside instrumentation_wiring schema 2 and advanced project schema 6 to 7. The 6-to-7 migration adds an empty policy only; it does not create tag conventions or renumber existing records.
+- Added test source for explicit separator/prefix formatting, collision skipping, migration, and transactional policy-counter consumption. Tests remain unexecuted.
+- Typed record-level CRUD builders remain outstanding; the aggregate reversible command is currently the only mutation endpoint.
