@@ -55,6 +55,12 @@ class SLDCanvasRenderSystem:
     CONNECTION_Z_VALUE = 10.0
     EQUIPMENT_Z_VALUE = 20.0
     ANNOTATION_Z_VALUE = 30.0
+    LAYER_Z_STRIDE = 100.0
+
+    @classmethod
+    def _layer_z(cls, layer_order: int, technical_band: float) -> float:
+        """Compose document layer order with the stable within-layer technical Z band."""
+        return float(layer_order) * cls.LAYER_Z_STRIDE + float(technical_band)
 
     def __init__(self, scene: QGraphicsScene, item_factory: SLDGraphicsItemFactory,
                  semantic_realization: SemanticPresentationRealization, snap_system: Any = None,
@@ -440,7 +446,9 @@ class SLDCanvasRenderSystem:
                     continue
                 if degraded is None:
                     degraded = self._create_degraded_realization(node, message, code)
-                    degraded.setZValue(self.EQUIPMENT_Z_VALUE)
+                    degraded.setZValue(self._layer_z(node.layer_order, self.EQUIPMENT_Z_VALUE))
+                    degraded.setOpacity(float(node.layer_opacity))
+                    degraded.setVisible(bool(node.layer_visible))
                     self._scene.addItem(degraded)
                     self._items[node.node_id] = (degraded,)
                 else:
@@ -453,7 +461,9 @@ class SLDCanvasRenderSystem:
                 realized[node.node_id] = degraded
                 self._restore_node_selection(node, degraded)
                 continue
-            item.setZValue(self.EQUIPMENT_Z_VALUE)
+            item.setZValue(self._layer_z(node.layer_order, self.EQUIPMENT_Z_VALUE))
+            item.setOpacity(float(node.layer_opacity))
+            item.setVisible(bool(node.layer_visible))
             if callable(getattr(item, "set_visual_state", None)):
                 item.set_visual_state(VisualState.NORMAL)
             self._attach_realized_item(item, register_snap=True)
@@ -685,7 +695,9 @@ class SLDCanvasRenderSystem:
                         source, target, route_points
                     )
                 item = self._item_factory.create_connection(connection, source, target)
-                item.setZValue(self.CONNECTION_Z_VALUE)
+                item.setZValue(self._layer_z(connection.layer_order, self.CONNECTION_Z_VALUE))
+                item.setOpacity(float(connection.layer_opacity))
+                item.setVisible(bool(connection.layer_visible))
                 item.set_visual_route(source, target, route_points, ownership=connection.route.ownership)
                 self._bind_route_edit_item(item)
                 if callable(getattr(item, "set_visual_state", None)):
@@ -767,8 +779,9 @@ class SLDCanvasRenderSystem:
             # connection, or placement gestures intended for underlying SLD items.
             item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
-            item.setVisible(bool(annotation.visible) and self._zoom_level >= self._annotation_min_zoom)
-            item.setZValue(self.ANNOTATION_Z_VALUE)
+            item.setOpacity(float(annotation.layer_opacity))
+            item.setVisible(bool(annotation.visible) and bool(annotation.layer_visible) and self._zoom_level >= self._annotation_min_zoom)
+            item.setZValue(self._layer_z(annotation.layer_order, self.ANNOTATION_Z_VALUE))
             self._attach_realized_item(item)
             if previous_item is not None:
                 self._remove_realized(render_id)
@@ -784,7 +797,9 @@ class SLDCanvasRenderSystem:
     def _annotation_signature(annotation: SLDCanvasAnnotation) -> str:
         return repr((
             annotation.block_id, annotation.node_id, annotation.x, annotation.y,
-            annotation.text, annotation.visible,
+            annotation.text, annotation.visible, annotation.layer_id,
+            annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
+            annotation.layer_locked,
         ))
 
     @staticmethod
@@ -953,6 +968,7 @@ class SLDCanvasRenderSystem:
         return repr((
             node.node_id, node.equipment_id, node.x, node.y,
             presentation, properties, read_model_signature,
+            node.layer_id, node.layer_visible, node.layer_opacity, node.layer_order, node.layer_locked,
         ))
 
     @staticmethod
@@ -1019,6 +1035,8 @@ class SLDCanvasRenderSystem:
             connection.source_endpoint, connection.target_endpoint,
             connection.connection_kind, connection.presentation_owner,
             connection.projection_source, route, properties,
+            connection.layer_id, connection.layer_visible, connection.layer_opacity,
+            connection.layer_order, connection.layer_locked,
         ))
 
     def _attach_realized_item(self, item: Any, *, register_snap: bool = False) -> None:
