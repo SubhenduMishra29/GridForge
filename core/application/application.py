@@ -29,6 +29,7 @@ from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
 from .commands.sld_commands import AddSLDNodeCommand, AddSLDConnectionCommand, RemoveSLDNodeCommand, RemoveSLDConnectionCommand
 from .commands.draft_commands import CommitNetworkCommand, UpdateDraftEquipmentCommand
+from .commands.selection_commands import EngineeringUpdateBatchCommand
 from .draft.network import DraftNetwork
 from .draft.collection import DraftNetworkCollection
 from .commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
@@ -4628,6 +4629,14 @@ class Application:
     def prepare_engineering_update(self, intent: Any) -> Command:
         """Translate typed engineering intent into the authoritative update command."""
         return EngineeringUpdatePreparer.prepare(intent)
+
+    def prepare_engineering_update_batch(self, intents: Any) -> Command:
+        """Prepare every canonical child update before creating one aggregate command."""
+        values = tuple(intents)
+        if len(values) < 2:
+            raise ValueError("Engineering update batch requires at least two typed intents.")
+        commands = tuple(EngineeringUpdatePreparer.prepare(intent) for intent in values)
+        return EngineeringUpdateBatchCommand(commands=commands)
 
     def prepare_draft_engineering_update(self, intent: Any) -> Command:
         """Prepare an immutable DraftNetwork engineering-data update command."""
