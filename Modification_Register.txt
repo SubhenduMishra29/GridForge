@@ -1,3 +1,32 @@
+GridForge V2 — Canvas-axis mirroring for rotated symbols
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- Group and single-symbol flip actions toggled the local mirror_x/mirror_y flag but retained the existing symbol rotation.
+- EquipmentItem composes the local reflection with its QGraphicsItem rotation. For a symbol already rotated away from 0°, toggling only the local reflection does not represent a reflection about the canvas horizontal/vertical axis.
+
+Correction:
+- Group horizontal and vertical mirror operations now negate each symbol's rotation (normalized to 0–359°) while toggling the requested local mirror flag. The node centre is reflected about the group pivot as before.
+- Single-symbol contextual Flip H/Flip V use the same composition rule.
+- The operation remains presentation-only. Equipment IDs, terminal IDs/names, Core connections and electrical topology are unchanged.
+- Repeating the same mirror operation restores the original rotation and mirror flag.
+
+Connected-wire source audit:
+- EquipmentItem.snap_points() maps canonical terminal anchors through mapToScene(), so anchor geometry follows the item's transform.
+- SLDCanvasRenderSystem realizes changed nodes before connections; node signatures include position and complete SymbolBase presentation.
+- Core connection endpoints are resolved from the current realized symbol anchors before connection signature comparison. Resolved endpoint coordinates participate in the signature, so a rotation/mirror-induced anchor change invalidates the old wire realization.
+- Automatic routes are recalculated against the current endpoint coordinates and current obstacle bounds.
+- Engineer-owned orthogonal routes retain authored intermediate bends; only presentation endpoint elbows are synthesized when the transformed endpoints no longer align with the first/last authored bends.
+- SLDConnectionItem rebuilds the visible path from the newly resolved endpoints and route points.
+
+Verification:
+- SelectTool, GraphicsView, renderer, EquipmentItem, connection item, and Modification Register source were inspected.
+- SelectTool, GraphicsView, and Modification Register fetched back from main after changes.
+- No Python import/syntax execution, Qt GUI visual acceptance, rotated terminal-anchor runtime, wire endpoint runtime, undo/redo, or save/reopen acceptance was performed. Algebraic transform composition is source-reviewed only.
+
+======================================================================
 GridForge V2 — Group transform API fail-closed correction
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
