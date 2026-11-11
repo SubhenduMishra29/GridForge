@@ -74,7 +74,6 @@ from ui.tools.tool_mode import ToolMode
 from ui.tools.tool_settings import ToolSettings
 from ui.editors.study.study_tool_runtime import StudyToolRuntime
 from ui.editors.common.tool_icon_adapter import ToolIconAdapter
-from ui.control.control_tool_palette import ControlToolRegistry
 from ui.protection.protection_tools import ProtectionInteractionController
 from core.application.commands.sld_commands import AddSLDNodeCommand, RemoveSLDNodeCommand, SetSLDNodePresentationCommand
 from core.application.commands.model_commands import CREATE_BUS, CreateBusCommand, DeleteBusCommand, CreateTransformerCommand, DeleteTransformerCommand
@@ -310,9 +309,7 @@ def _build_application_impl(
         tool_manager.get_tool_ids(),
         editor_type="sld",
     )
-    control_tool_definitions = ControlToolRegistry.create_default(
-        application=gridforge_application,
-    ).definitions()
+    control_tool_definitions = control_workspace.tool_definitions
     protection_tool_definitions = ProtectionInteractionController.TOOL_DEFINITIONS
     study_tool_runtime = StudyToolRuntime(application=gridforge_application)
     study_tool_definitions = study_tool_runtime.definitions
