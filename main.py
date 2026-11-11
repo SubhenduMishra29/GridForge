@@ -790,6 +790,17 @@ def _build_application_impl(
                             continue
                         return False
             node = _find_sld_node(selected_id)
+            if node is not None and getattr(node, "equipment_id", None) is not None:
+                element = _find_network_element(node.equipment_id)
+                if element is None or str(element.element_type).strip().lower() not in {"bus", "transformer", "breaker"}:
+                    return False
+                if operation == "copy" and str(element.element_type).strip().lower() == "transformer":
+                    read_model = gridforge_application.read_element(
+                        str(element.element_type), str(element.object_id)
+                    )
+                    if not bool(getattr(read_model, "attributes", {}).get("in_service", True)):
+                        return False
+                continue
             if node is not None and getattr(node, "equipment_id", None) is None:
                 if operation == "copy":
                     return False
@@ -807,6 +818,8 @@ def _build_application_impl(
         for selected_id in selected_ids:
             element = _find_network_element(selected_id)
             node = _find_sld_node(selected_id)
+            if element is None and node is not None and getattr(node, "equipment_id", None):
+                element = _find_network_element(node.equipment_id)
             if element is None or node is None:
                 continue
             read_model = gridforge_application.read_element(
