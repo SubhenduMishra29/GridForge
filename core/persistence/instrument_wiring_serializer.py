@@ -114,7 +114,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             "Instrumentation wiring payload fields are not canonical: "
             + ", ".join(sorted(str(key) for key in set(data) ^ expected))
         )
-    if data.get("schema") != WIRING_SCHEMA_VERSION:
+    if isinstance(data.get("schema"), bool) or data.get("schema") != WIRING_SCHEMA_VERSION:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {data.get('schema')!r}."
         )
