@@ -48,6 +48,25 @@ class SelectionManager(QObject):
     def selected_ids(self) -> tuple[Any, ...]:
         return self.get_selected_ids()
 
+    def snapshot_selection(self) -> dict[str, tuple[Any, ...]]:
+        """Return a detached snapshot of every transient selection domain."""
+        return {domain: tuple(ids) for domain, ids in self._selected_ids_by_domain.items()}
+
+    def restore_selection(self, snapshot: dict[str, tuple[Any, ...]]) -> None:
+        """Restore a previously captured selection without losing domain ownership."""
+        if not isinstance(snapshot, dict):
+            raise TypeError("selection snapshot must be a dict.")
+        restored: dict[str, list[Any]] = {}
+        for domain, ids in snapshot.items():
+            self._require_domain(domain)
+            values = tuple(ids)
+            if any(value is None for value in values) or len(set(values)) != len(values):
+                raise ValueError("selection snapshot contains invalid or duplicate identities.")
+            restored[domain] = list(values)
+        previous = self.get_selected_ids()
+        self._selected_ids_by_domain = restored or {"default": []}
+        self._emit_if_changed(previous)
+
     def has_selection(self, domain: Optional[str] = None) -> bool:
         return bool(self.get_selected_ids(domain=domain))
 
