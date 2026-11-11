@@ -2068,3 +2068,31 @@ Verification:
 - Fetched current main and inspected WorkspaceRealizer, WorkspaceDefinition defaults, PanelsPlugin, default panel factories, MainWindow, ControlSurfaceHost, SLDEditor, ControlEditor, ControlWorkspace and the application composition root.
 - Source tracing confirmed each utility panel widget is detached from its dock and mounted into one canonical Region/tab. No source changes to widget composition were justified by this audit.
 - No Qt runtime, visible-window inspection, panel-toggle interaction, or desktop GUI acceptance was performed.
+
+
+======================================================================
+GridForge V2 — Control workspace hidden widget de-allocation
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- ControlWorkspace constructed a hidden ControlToolPalette and ControlToolbar even though ControlEditor/ControlSurfaceHost owns the visible canonical ToolShelf and Control-specific editor Regions.
+- The hidden palette's only remaining workspace responsibilities were providing the capability-filtered ControlToolDescriptor registry and resolving tool IDs for activation.
+- The hidden toolbar was not mounted in the canonical Control editor. Its callbacks only drove the hidden Add/Remove/Move/Enable Rung, Cancel and Execute Cycle controls; retaining the QWidget added no visible functionality.
+
+Correction:
+- ControlWorkspace now owns a ControlToolRegistry directly, not a second palette widget. It exposes the registry's ToolDefinitions through tool_definitions and resolves activate_tool_id() against the same descriptor registry.
+- main.py now obtains Control tool definitions from the ControlWorkspace instance and passes those definitions to ControlSurfaceHost. The former second ControlToolRegistry construction in the composition root is removed.
+- Removed the hidden ControlToolbar allocation, its hidden-widget sizing/visibility setup, and its unreachable toolbar-only callback methods. The visible canonical Control ToolShelf remains the sole Control tool-selection surface and continues to route activation through the existing workspace tool_activator.
+- Removed obsolete uuid4 and splitter remnants from ControlWorkspace. Control canvas, inspector, status, LadderInteraction, selection projection, update coordinator and event subscriptions remain intact.
+
+Scope and behavior:
+- No Core, Application command, Control read-model, LadderInteraction, ToolDefinition, ActionRouter or ControlEditor behavior was changed.
+- The registry still filters descriptors against the same Application command/component capabilities. The same definitions now feed both ControlWorkspace activation lookup and the visible Control ToolShelf, avoiding duplicate registry construction.
+- Control-specific rung operations and cycle execution were only wired to the hidden toolbar in this composition. This cleanup does not claim those actions are newly available in the visible editor; a dedicated canonical Control command surface remains a separate UX task if those operations are required there.
+
+Verification:
+- Changes committed to main and fetched back.
+- Static source checks confirmed: one ControlToolRegistry construction in ControlWorkspace; main composition reuses workspace.tool_definitions; canonical ToolShelf receives those definitions and uses the existing Control tool activator; no ControlToolPalette/ControlToolbar widget instances, hidden-widget callbacks, stale splitter or uuid4 references remain in ControlWorkspace.
+- No tests, CI, Python import/startup, Qt runtime or desktop GUI acceptance were executed.
