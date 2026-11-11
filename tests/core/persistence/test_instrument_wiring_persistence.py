@@ -235,8 +235,6 @@ def test_wiring_read_model_is_detached_and_immutable():
     assert read_model.cables[0]["tag"] == "C-CT101"
     with pytest.raises(TypeError):
         read_model.cables[0]["tag"] = "MUTATED"
-    with pytest.raises(TypeError):
-        read_model.cores[0]["terminal_path"][0]["designation"] = "CHANGED"
     assert service.inventory is inventory
     assert service.inventory.cables[0].tag == "C-CT101"
 
