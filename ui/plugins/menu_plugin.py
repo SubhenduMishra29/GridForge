@@ -124,6 +124,8 @@ class MenuPlugin(QObject):
                 submenu = menu.addMenu(item.title)
                 submenu.setObjectName(f"menu.{item.menu_id}")
                 self._menus[item.menu_id] = submenu
+                if item.menu_id == "view.panels":
+                    submenu.aboutToShow.connect(self.refresh_enabled_states)
                 self._populate_menu(submenu, item.items, router)
                 continue
 
@@ -137,7 +139,10 @@ class MenuPlugin(QObject):
             action.setObjectName(item.action_id)
             action.setToolTip(definition.description)
             action.setStatusTip(definition.description)
+            action.setCheckable(definition.checkable)
             action.setEnabled(router.is_enabled(item.action_id))
+            if definition.checkable:
+                action.setChecked(router.is_checked(item.action_id))
             shortcut = item.shortcut or definition.shortcut
             if shortcut:
                 action.setShortcut(shortcut)
@@ -226,7 +231,13 @@ class MenuPlugin(QObject):
             return
         router = self._context.action_router
         for action_id, action in tuple(self._actions.items()):
+            definition = router.definition(action_id)
             action.setEnabled(router.is_enabled(action_id))
+            action.setCheckable(definition.checkable)
+            if definition.checkable:
+                action.blockSignals(True)
+                action.setChecked(router.is_checked(action_id))
+                action.blockSignals(False)
 
     def _dispatch_action(self, action_id: str) -> None:
         """Recheck canonical availability and refresh presentation around dispatch."""
