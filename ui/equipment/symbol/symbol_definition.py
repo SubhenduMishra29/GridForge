@@ -84,6 +84,7 @@ class SymbolDefinition:
     source_document_title: str = ""
     source_document_revision: str = ""
     source_use_status: str = "unverified"
+    source_use_scope: str = "unverified"
 
     def __post_init__(self) -> None:
         """Validate and defensively freeze nested state."""
@@ -150,6 +151,21 @@ class SymbolDefinition:
         if source_use_status not in {"unverified", "licensed", "permission_granted", "public_domain", "prohibited"}:
             raise ValueError("source_use_status must be unverified, licensed, permission_granted, public_domain, or prohibited.")
         object.__setattr__(self, "source_use_status", source_use_status)
+        source_use_scope = self.source_use_scope.strip().lower() if isinstance(self.source_use_scope, str) else ""
+        if source_use_scope not in {
+            "unverified",
+            "reference_only",
+            "internal_use",
+            "equipment_application",
+            "software_distribution",
+            "public_domain",
+            "prohibited",
+        }:
+            raise ValueError(
+                "source_use_scope must be unverified, reference_only, internal_use, "
+                "equipment_application, software_distribution, public_domain, or prohibited."
+            )
+        object.__setattr__(self, "source_use_scope", source_use_scope)
         if review_status == "approved" and (
             not self.standard_reference_id
             or self.standard_id.strip().lower() == "unspecified"
@@ -160,6 +176,8 @@ class SymbolDefinition:
             or not self.source_document_title
             or not self.source_document_revision
             or self.source_use_status not in {"licensed", "permission_granted", "public_domain"}
+            or self.source_use_scope not in {"software_distribution", "public_domain"}
+            or (self.source_use_scope == "public_domain" and self.source_use_status != "public_domain")
         ):
             raise ValueError("Approved symbols require a specific standard reference and reviewed geometry and terminal anchors.")
         object.__setattr__(self, "review_status", review_status)
@@ -310,6 +328,7 @@ class SymbolDefinition:
             "source_document_title": self.source_document_title,
             "source_document_revision": self.source_document_revision,
             "source_use_status": self.source_use_status,
+            "source_use_scope": self.source_use_scope,
         }
 
     # --------------------------------------------------------
@@ -359,6 +378,7 @@ class SymbolDefinition:
             source_document_title=data.get("source_document_title", ""),
             source_document_revision=data.get("source_document_revision", ""),
             source_use_status=data.get("source_use_status", "unverified"),
+            source_use_scope=data.get("source_use_scope", "unverified"),
         )
 
 
