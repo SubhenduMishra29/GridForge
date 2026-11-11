@@ -3527,6 +3527,64 @@ Disposition:
 - Static source inspection only; no GUI/runtime/tests/CI execution.
 ======================================================================
 
+======================================================================
+GridForge V2 — Batch 9: Measurement Generation and Heterogeneous Simulation
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Source audit:
+- MeasurementGeneration is the explicit conversion boundary from numerical
+  solver values to physical primary quantities and then CT/PT/CVT secondary
+  channels. It validates physical source identity, primary terminal role,
+  secondary channel terminal role and CT polarity. CT branch/conductor/
+  terminal current conversion additionally requires explicit resolved CT
+  association, matching topology revision and complete short-circuit
+  contribution provenance.
+- MeasurementChannel remains a logical signal contract. Its engineering
+  conversion is raw_value * scale * polarity. Physical CT/PT/CVT ratios and
+  instrument effects are not applied again by the channel.
+- No RTD, thermocouple, BTD, OTD, WTD, vibration, generic analog/digital
+  acquisition, communication adapter, calibration or signal-conditioning
+  implementation was found under core/measurement. Thermal overload relay
+  modelling is not physical temperature instrumentation.
+- Created issue #1200 for sensor families, industrial acquisition adapters,
+  calibration/linearization/filtering, typed units and quality propagation.
+  BTD/OTD/WTD sensing element must be explicitly configured; they are not
+  assumed to be RTDs. Trusted MeasurementChannelService ingress remains
+  mandatory.
+- Motor Dynamics plugin provides a CPU/NumPy reference RK4 solver and optional
+  Numba-CUDA batch execution. CUDA path is capability/workload-aware, requires
+  at least eight independent motors and constant scalar dq voltages; failures
+  can fall back to CPU with dispatch diagnostics. This is not a universal
+  GPU execution promise.
+- Motor model outputs include stator/rotor currents, torque, rotor speed,
+  slip and one lumped winding-temperature state. Model documentation
+  explicitly excludes saturation, skin effect, unbalance, converter switching
+  and separate stator/rotor thermal nodes.
+- Motor simulation publishes into its own MotorSimulationReadModelStore.
+  The inspected path does not publish virtual CT/PT/RTD channels through
+  MeasurementGeneration/MeasurementChannelService or connect simulated
+  actuation/auxiliary feedback into the canonical device lifecycle.
+- ONNX Runtime adapter recognizes supported NPU/GPU/CPU providers and has
+  CPU fallback, but is an AI inference path, not a deterministic physics
+  backend. Provider presence does not prove every graph node executes on an
+  accelerator. NPU must not replace deterministic protection calculations.
+- Created issue #1201 for virtual instrument publication, producer provenance,
+  simulated actuator/feedback integration and closed-loop signal lifecycle.
+- Existing architecture amendment
+  docs/architecture/SIGNAL_INFRASTRUCTURE_AND_HETEROGENEOUS_SIMULATION_AMENDMENT_2026-11-03.md
+  already establishes the shared signal infrastructure and CPU/GPU/NPU
+  direction; this batch records implementation gaps rather than reopening
+  architecture.
+
+Disposition:
+- #1200 and #1201 OPEN. No issues closed and no PRs merged in Batch 9.
+- No source code or architecture documents changed.
+- Static source/tree inspection only. No hardware, runtime, GPU/NPU, HIL,
+  numerical equivalence, tests or CI executed.
+======================================================================
+
 GRIDFORGE V2 — UI ROTATION COMMAND UNIFICATION (#1190)
 Date: 11 November 2026
 Implementation: madhuri196mishra-cpu/GridForge
