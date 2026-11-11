@@ -157,11 +157,21 @@ class SelectionProjectionCoordinator:
                         self.selection_manager.select_single(draft_id)
                         return
 
-        selected_ids = tuple(self.selection_manager.get_selected_ids())
+        selected_ids = tuple(dict.fromkeys(self.selection_manager.get_selected_ids()))
         if self._batch_projection_active and len(selected_ids) > 1:
             return
         if not selected_ids or self.application is None:
             self.clear_projection()
+            return
+
+        removed_id = self._selected_event_id(event) if isinstance(
+            event, (ElementRemoved, SimpleWireConnectionRemoved)
+        ) else None
+        if removed_id is not None and any(str(value) == str(removed_id) for value in selected_ids):
+            self.selection_manager.clear()
+            self.clear_projection()
+            return
+        if isinstance(event, ElementUpdated) and self._selected_event_id(event) not in selected_ids:
             return
 
         if len(selected_ids) > 1 and self.properties_panel is not None:
@@ -192,9 +202,6 @@ class SelectionProjectionCoordinator:
                 return
 
         object_id = selected_ids[0]
-        removed_id = self._selected_event_id(event) if isinstance(
-            event, (ElementRemoved, SimpleWireConnectionRemoved)
-        ) else None
         if removed_id is not None and any(
             str(selected_id) == str(removed_id) for selected_id in selected_ids
         ):
