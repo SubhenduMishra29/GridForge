@@ -3721,7 +3721,9 @@ Verification boundary:
 - Static source inspection only; no tests, CI, imports, startup, GUI, or
   project save/reopen runtime was executed.
 - No Qt/UI change or package export change is required.
-- PR integration and issue #1047 closure remain pending.
+- PR #1205 merged; authoritative merge commit:
+  50c34c4c93f6607758dc620d58692c6165aabd73.
+- Issue #1047 closed as completed after integration.
 
 Disposition:
 - This is the final Core validation hardening for the channel-level
