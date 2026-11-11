@@ -807,7 +807,7 @@ class GraphicsView(QGraphicsView):
         menu = QMenu(self)
         manage_layers = menu.addAction("Manage SLD Layers…")
         selected = menu.exec(event.globalPos())
-        if selected is manage_layers:
+        if selected == manage_layers:
             self.layers_requested.emit()
         event.accept()
 
