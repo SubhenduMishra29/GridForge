@@ -2640,3 +2640,47 @@ Verification boundary:
 - Static source and composition-path review only. No tests, CI, application startup, GUI interaction, or runtime experiments were run.
 - Manual acceptance still required for CT selection/visibility, authoring S1 and S2 separately, update/delete with bound and unbound channels, save/reopen, undo/redo, and trusted sample ingress.
 - PT/CVT channel authoring and broader inline replacement acceptance remain outside this CT-only editor slice. Madhuri #156 and upstream #774 remain open pending full issue scope and acceptance.
+
+
+======================================================================
+GridForge V2 — CT Secondary Measurement-Channel Application Lifecycle
+Date: 2026-11-11
+Implementation repository: madhuri196mishra-cpu/GridForge
+Authoritative audit repository: SubhenduMishra29/GridForge
+Upstream contribution: PR #1189 (DRAFT)
+Related issues: Madhuri #156 / upstream #774
+
+Application implementation:
+- Added immutable create/update/delete MeasurementChannel commands and dedicated Application handlers.
+- Extended the existing MeasurementChannelService as the sole project-scoped channel authority; no duplicate registry was introduced.
+- CT authoring requires a canonical CurrentTransformer source, explicit S1/S2 EndpointReference, CURRENT signal, explicit phase, A unit, positive nominal secondary value, positive scale, polarity (+1/-1), producer identity, timestamp domain, and positive staleness duration.
+- Duplicate channel identities and duplicate CT secondary terminal assignments are rejected both on authoring and persisted project activation. CT P1/P2 inline insertion remains unchanged.
+- Authored/restored channels start unavailable with UNKNOWN quality. Only trusted sample ingress can publish live values; no sample, producer, or timestamp is fabricated.
+- Mutations participate in the existing Application transaction journal, rollback, undo/redo, instrumentation revision tracking, and ProtectionRuntime recomposition.
+- Update/delete fail closed while Protection input bindings, ANSI 25 configuration, active ControlSignalMapping, or project-scoped dynamic ControlSignalMapping reference the channel.
+- Existing project package measurement.channels serialization/load path remains authoritative.
+
+UI implementation:
+- The engineer-facing CTSecondaryChannelEditor is integrated into PropertiesPanelWidget and operates only on a committed CurrentTransformer projection.
+- The UI reads detached MeasurementChannelReadModel values and submits immutable commands through Application.execute(). It supports separate S1/S2 authoring and existing-channel update/delete.
+- The read model exposes source equipment/terminal identity and definition fields without exposing Core MeasurementChannel objects to the UI.
+- The editor explicitly captures producer and timestamp identity and reports unavailable/UNKNOWN channels until trusted sample ingress.
+
+Changed files:
+- core/application/commands/measurement_commands.py
+- core/application/commands/__init__.py
+- core/application/protection_configuration_handlers.py
+- core/application/services/measurement_channel_service.py
+- core/application/services/protection_configuration_service.py
+- core/application/revision_service.py
+- core/application/application.py
+- core/application/bootstrap.py
+- core/application/read_models.py
+- core/application/read_service.py
+- ui/panels/ct_secondary_channel_editor.py
+- ui/panels/default_panels.py
+
+Verification boundary:
+- Static source and composition-path review plus GitHub fetch-back only. No tests, CI, application startup, GUI interaction, or runtime experiments were run.
+- Manual acceptance remains required for channel create/update/delete, S1 and S2 separation, binding guards, undo/redo, save/reopen, CT selection/visibility, and trusted sample ingress.
+- PT/CVT channel authoring and broader inline replacement mechanics remain outside this CT-only implementation. Madhuri #156 and upstream #774 remain open pending their full scope and acceptance.
