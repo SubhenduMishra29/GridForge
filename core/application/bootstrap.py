@@ -642,6 +642,7 @@ def create_application(
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
         protection_execution_audit_store=protection_execution_audit_store,
+        instrumentation_wiring_service=instrumentation_wiring_service,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
     # Study outputs are durable execution artifacts, stored outside the
