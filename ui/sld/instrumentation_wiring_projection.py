@@ -114,6 +114,7 @@ class SLDInstrumentationWiringAdapter:
                 cable_tag=str(cable["tag"]),
                 core_id=str(core["id"]),
                 core_number=int(core["core_number"]),
+                route_overrides=route_overrides,
             ))
 
         for wire in read_model.panel_wires:
@@ -125,6 +126,7 @@ class SLDInstrumentationWiringAdapter:
                 terminal_path=wire["terminal_path"],
                 nodes_by_equipment=nodes_by_equipment,
                 signal_tags=tuple(sorted(signal_tags.get(("PANEL_WIRE", str(wire["id"])), ()))),
+                route_overrides=route_overrides,
             ))
 
         return SLDInstrumentationWiringProjection(
