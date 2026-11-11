@@ -571,6 +571,9 @@ class SLDCanvasRenderSystem:
                     fallback.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
                     self._scene.addItem(fallback)
                     self._items[render_id] = (fallback,)
+                fallback.setZValue(self._layer_z(layer.order, self.EQUIPMENT_Z_VALUE))
+                fallback.setOpacity(float(layer.opacity))
+                fallback.setVisible(bool(layer.visible))
                 fallback.setToolTip(
                     f"Draft symbol unavailable [{code}]\n"
                     f"draft={node.draft_id} type={node.equipment_type}\n{message}"
