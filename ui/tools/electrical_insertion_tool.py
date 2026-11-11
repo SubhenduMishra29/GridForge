@@ -13,7 +13,8 @@ from uuid import uuid4
 from core.application.commands.insertion_commands import InsertEquipmentIntoConnectionCommand
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
 from ui.canvas.symbol_preview_item import SymbolPreviewItem
-from ui.core.qt import QGraphicsLineItem, QLineF, QPointF, QRectF
+from ui.styling.presentation_style import VisualState, visual_pen
+from ui.core.qt import QBrush, QGraphicsEllipseItem, QGraphicsLineItem, QLineF, QPointF, QRectF, Qt
 from .tool_base import ToolBase
 
 
@@ -303,7 +304,32 @@ class ElectricalInsertionTool(ToolBase):
         items = []
         for points in (first, second):
             for a, b in zip(points, points[1:]):
-                items.append(QGraphicsLineItem(QLineF(QPointF(*a), QPointF(*b))))
+                line = QGraphicsLineItem(QLineF(QPointF(*a), QPointF(*b)))
+                pen = visual_pen("connection", VisualState.PREVIEW, width=2.6)
+                pen.setStyle(Qt.PenStyle.SolidLine)
+                line.setPen(pen)
+                line.setOpacity(0.62)
+                items.append(line)
+
+        # Mark the exact symbol terminal anchors so the engineer can see
+        # where the existing route will reconnect on either side.
+        anchor_pen = visual_pen("terminal", VisualState.PREVIEW, width=1.25)
+        anchor_pen.setStyle(Qt.PenStyle.SolidLine)
+        anchor_brush = QBrush(anchor_pen.color())
+        for anchor in (input_anchor, output_anchor):
+            radius = 2.8
+            marker = QGraphicsEllipseItem(QRectF(
+                float(anchor[0]) - radius,
+                float(anchor[1]) - radius,
+                radius * 2.0,
+                radius * 2.0,
+            ))
+            marker.setPen(anchor_pen)
+            marker.setBrush(anchor_brush)
+            marker.setOpacity(0.78)
+            marker.setZValue(1.0)
+            items.append(marker)
+
         definition = self._symbol_definition()
         if definition is not None:
             items.append(SymbolPreviewItem(
@@ -312,6 +338,7 @@ class ElectricalInsertionTool(ToolBase):
                 rotation=self._orientation,
                 terminal_names=mapping,
                 element_type=self._equipment_type,
+                preview_opacity=0.55,
             ))
         add_owned = getattr(self._preview_layer, "add_items_for_owner", None)
         if callable(add_owned):
