@@ -670,7 +670,8 @@ class GraphicsView(QGraphicsView):
                 event.acceptProposedAction()
                 return
         elif self._palette_drag_insertion_started:
-            self.interaction_manager.mouse_move(event)
+            semantic = self._adapt_palette_event(event)
+            self.interaction_manager.mouse_move(semantic if semantic is not None else event)
         elif not insertion_requested:
             self.interaction_manager.mouse_move(self._palette_event_without_hit(event))
         event.acceptProposedAction()
@@ -717,11 +718,16 @@ class GraphicsView(QGraphicsView):
                 candidate = insertion_tool.insertion_target(semantic)
             except (KeyError, TypeError, ValueError, RuntimeError):
                 candidate = None
-            if candidate is None or str(candidate.get("connection_id", "")) != hit.core_connection_id:
+            hit_connection_id = getattr(hit, "core_connection_id", None)
+            if candidate is None or (
+                getattr(getattr(hit, "kind", None), "value", None) == "simple_wire_segment"
+                and hit_connection_id
+                and str(candidate.get("connection_id", "")) != str(hit_connection_id)
+            ):
                 self._finish_palette_drag(restore_previous_tool=True)
                 event.ignore()
                 return
-            handled = self.interaction_manager.mouse_release(event)
+            handled = self.interaction_manager.mouse_release(semantic)
         else:
             if self._palette_drag_insertion_started:
                 self._finish_palette_drag(restore_previous_tool=True)
