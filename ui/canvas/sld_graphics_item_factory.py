@@ -157,6 +157,11 @@ class SLDGraphicsItemFactory:
             presentation_owner=connection.presentation_owner,
             projection_source=connection.projection_source,
             core_connection_id=connection.properties.get("core_connection_id"),
+            instrumentation_route_identity=(
+                str(connection.properties["carrier_kind"]),
+                str(connection.properties["carrier_id"]),
+                int(connection.properties["segment_index"]),
+            ) if connection.projection_source == "instrumentation_wiring" else None,
         )
         route = connection.route
         item.set_visual_route(source, target, route.points, ownership=route.ownership)
