@@ -7,10 +7,10 @@
 # ============================================================
 """Controller for the presentation-owned SLD workflow.
 
-The controller coordinates document structure and interaction state. Persistent
-SLD mutations are submitted to the Application command boundary; the
-controller never mutates the SLD document directly or composes Application
-services.
+The controller coordinates SLD document structure, presentation geometry and
+interaction state. Electrical/domain mutations cross the Application command
+boundary; document-owned presentation metadata is persisted by SLDDocument.
+The controller never composes Application services.
 """
 
 from __future__ import annotations
