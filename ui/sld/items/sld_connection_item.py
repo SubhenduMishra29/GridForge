@@ -305,8 +305,9 @@ class SLDConnectionItem(QGraphicsPathItem):
         Application command decides whether the persistent SLD route changes.
         """
         is_draft = self._projection_source == "draft_network"
-        if self._core_connection_id is None and not is_draft:
-            raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
+        is_instrumentation = self._projection_source == "instrumentation_wiring" and self._instrumentation_route_identity is not None
+        if self._core_connection_id is None and not is_draft and not is_instrumentation:
+            raise RuntimeError("Cannot edit route without an explicit Core, DraftNetwork or physical carrier identity.")
         if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= len(self._route_points):
             raise IndexError(index)
         if any(
@@ -328,6 +329,9 @@ class SLDConnectionItem(QGraphicsPathItem):
             "core_connection_id": self._core_connection_id,
             "points": proposed_route,
         }
+        if is_instrumentation:
+            kind, carrier_id, segment_index = self._instrumentation_route_identity
+            request.update({"instrumentation_wiring": True, "carrier_kind": kind, "carrier_id": carrier_id, "segment_index": segment_index})
         if is_draft:
             request["draft_connection_id"] = self._presentation_id
         self.route_edit_requested.emit(request)
