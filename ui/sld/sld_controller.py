@@ -255,15 +255,33 @@ class SLDController:
         manager = self.document_manager
         return len(manager) if manager is not None else 0
 
+    def _repair_active_layer_selection(self, document: SLDDocument) -> str | None:
+        """Choose the first authorable layer, or clear transient selection if none exists."""
+        candidates = sorted(
+            (layer for layer in document.layers if layer.visible and not layer.locked),
+            key=lambda layer: (layer.order, layer.layer_id),
+        )
+        if not candidates:
+            self._active_layer_by_document.pop(document.document_id, None)
+            return None
+        layer_id = candidates[0].layer_id
+        self._active_layer_by_document[document.document_id] = layer_id
+        return layer_id
+
     @property
     def active_layer_id(self) -> str:
         """Transient authoring layer for the active SLD document."""
         document = self._require_active_document()
-        active = self._active_layer_by_document.get(document.document_id, document.default_layer_id)
-        if not any(layer.layer_id == active and layer.visible and not layer.locked for layer in document.layers):
-            active = document.default_layer_id
-            self._active_layer_by_document[document.document_id] = active
-        return active
+        active = self._active_layer_by_document.get(document.document_id)
+        if active is not None and any(
+            layer.layer_id == active and layer.visible and not layer.locked
+            for layer in document.layers
+        ):
+            return active
+        repaired = self._repair_active_layer_selection(document)
+        if repaired is None:
+            raise RuntimeError("No visible, unlocked SLD layer is available for authoring.")
+        return repaired
 
     def set_active_layer(self, layer_id: str) -> None:
         document = self._require_active_document()
@@ -288,14 +306,19 @@ class SLDController:
     def update_layer(self, layer_id: str, **changes: Any) -> None:
         self._execute_layer_command(UpdateSLDLayerCommand(layer_id=layer_id, **changes))
         document = self._require_active_document()
-        if (changes.get("locked") is True or changes.get("visible") is False) and self._active_layer_by_document.get(document.document_id) == layer_id:
-            self._active_layer_by_document[document.document_id] = document.default_layer_id
+        selected = self._active_layer_by_document.get(document.document_id)
+        if selected == layer_id:
+            self._repair_active_layer_selection(document)
 
     def delete_layer(self, layer_id: str, *, reassign_to: str = "default") -> None:
         self._execute_layer_command(DeleteSLDLayerCommand(layer_id=layer_id, reassign_to=reassign_to))
         document = self._require_active_document()
         if self._active_layer_by_document.get(document.document_id) == layer_id:
-            self._active_layer_by_document[document.document_id] = reassign_to
+            target = next((layer for layer in document.layers if layer.layer_id == reassign_to), None)
+            if target is not None and target.visible and not target.locked:
+                self._active_layer_by_document[document.document_id] = reassign_to
+            else:
+                self._repair_active_layer_selection(document)
 
     def reorder_layers(self, layer_ids: list[str] | tuple[str, ...]) -> None:
         self._execute_layer_command(ReorderSLDLayersCommand(layer_ids=layer_ids))
