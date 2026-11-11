@@ -226,9 +226,9 @@ class SLDCanvasProjection:
             "type": 10,
         }
         values = [
-            priorities.get(field, 20 if field.startswith("label:") else
-                           30 if field.startswith("attribute:") else
-                           40 if field.startswith("parameter:") else 50)
+            priorities.get(field, 20 if field.startswith("parameter:") else
+                           30 if field.startswith("label:") else
+                           40 if field.startswith("attribute:") else 50)
             for field in fields
         ]
         return min(values, default=100)
