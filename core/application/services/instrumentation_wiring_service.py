@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
+from enum import Enum
 from typing import Any
 
 from core.application.command import Command
@@ -11,6 +12,7 @@ from core.application.commands.instrumentation_wiring_commands import (
     SetInstrumentationWiringInventoryCommand,
 )
 from core.application.results import ApplicationResult
+from core.application.read_models import InstrumentationWiringReadModel
 from core.application.transaction import Transaction
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
@@ -102,6 +104,42 @@ class InstrumentationWiringService:
                 continue
             seen.add(reference.identity)
             cls._validate_terminal_reference(network, reference)
+
+    @staticmethod
+    def _read_value(value: Any) -> Any:
+        if isinstance(value, Enum):
+            return value.value
+        if is_dataclass(value) and not isinstance(value, type):
+            return {
+                item.name: InstrumentationWiringService._read_value(getattr(value, item.name))
+                for item in fields(value)
+            }
+        if isinstance(value, tuple):
+            return tuple(InstrumentationWiringService._read_value(item) for item in value)
+        if isinstance(value, list):
+            return tuple(InstrumentationWiringService._read_value(item) for item in value)
+        if isinstance(value, dict):
+            return {
+                key: InstrumentationWiringService._read_value(item)
+                for key, item in value.items()
+            }
+        return value
+
+    def read_model(self) -> InstrumentationWiringReadModel:
+        """Return a detached, immutable read model for the active project only."""
+        if self._project_id is None or self._activation_generation < 1:
+            raise RuntimeError("No active project instrumentation wiring inventory.")
+        inventory = self._inventory
+        return InstrumentationWiringReadModel(
+            project_id=self._project_id,
+            activation_generation=self._activation_generation,
+            cables=tuple(self._read_value(item) for item in inventory.cables),
+            cores=tuple(self._read_value(item) for item in inventory.cores),
+            panel_wires=tuple(self._read_value(item) for item in inventory.panel_wires),
+            signals=tuple(self._read_value(item) for item in inventory.signals),
+            signal_bindings=tuple(self._read_value(item) for item in inventory.signal_bindings),
+            tag_policy=tuple(self._read_value(item) for item in inventory.tag_policy.series),
+        )
 
     def allocate_tag(
         self, record_kind: str
