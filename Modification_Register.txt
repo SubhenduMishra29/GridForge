@@ -1,3 +1,28 @@
+GridForge V2 — Group transform stale-state-safe undo and rollback
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- SetSLDNodeTransformsCommand is already a single Application command with one inverse journal entry for the complete selected-node group.
+- Its inverse previously validated node existence and logical identity, but did not require the same live SLDNode object or compare the current position, symbol presentation, and complete properties with the state installed by the group command.
+- A stale undo could therefore overwrite a later out-of-band edit to one member of the group. The inverse also needed to remain valid for transaction rollback if a setter failed part-way through a node mutation.
+
+Correction:
+- Capture exact pre-command node object, position, presentation, complete properties, equipment identity, and logical identity for every member before mutation.
+- Track expected post-command position, presentation, and properties independently for each member.
+- Advance each expected component immediately after its corresponding mutation, so rollback can validate and restore a partially applied node if a later setter fails.
+- Before restoring any member, validate the entire inverse set: node still exists, exact original SLDNode object is live, equipment/logical identity is unchanged, and current position/presentation/properties exactly match the state installed by this command.
+- If any member is stale or changed, fail closed before restoring any member; no partial group undo is performed.
+- Restore the complete group only after all members pass validation.
+- Core equipment, terminal identities, electrical connectivity, and wire topology remain untouched; this is SLD presentation state only.
+
+Verification:
+- Updated service and register fetched back from main.
+- Source-level checks cover same-object identity, full expected-state comparison, per-component expected-state advancement, and validate-all-before-restore ordering.
+- No Python import/syntax execution, command-history runtime, Qt GUI, or undo/redo runtime acceptance was performed.
+
+======================================================================
 GridForge V2 — Contextual transform single-selection active-document isolation
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
