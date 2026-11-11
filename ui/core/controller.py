@@ -83,6 +83,11 @@ class Controller(QObject):
             raise RuntimeError("Controller is already bound to a different SLDController.")
         self._sld_controller = sld_controller
 
+    def get_sld_controller(self) -> Any | None:
+        """Return the bound canonical SLD presentation controller."""
+        self._ensure_active()
+        return self._sld_controller
+
     def delete_selection(self) -> bool:
         """Dispatch the active canvas selection to the canonical SLD controller."""
         self._ensure_active()
