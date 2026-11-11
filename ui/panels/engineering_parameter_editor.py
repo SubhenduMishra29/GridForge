@@ -109,12 +109,20 @@ class EngineeringParameterEditor:
         projections: tuple[ProjectionState, ...] | list[ProjectionState],
         changes: Mapping[str, Any],
     ) -> Any:
-        """Prepare all target-specific updates before one atomic Application execution."""
+        """Apply one common set of values to all compatible selected equipment."""
         targets = tuple(projections)
-        if len(targets) < 2:
-            raise ValueError("Batch editing requires at least two selected equipment items.")
-        if not changes:
-            raise ValueError("At least one common engineering parameter change is required.")
+        return self.submit_batch_per_target(targets, tuple(dict(changes) for _ in targets))
+
+    def submit_batch_per_target(
+        self,
+        projections: tuple[ProjectionState, ...] | list[ProjectionState],
+        changes_by_target: tuple[Mapping[str, Any], ...] | list[Mapping[str, Any]],
+    ) -> Any:
+        """Prepare every target-specific update before one atomic Application execution."""
+        targets = tuple(projections)
+        per_target = tuple(dict(values) for values in changes_by_target)
+        if len(targets) < 2 or len(per_target) != len(targets):
+            raise ValueError("Batch editing requires matching changes for at least two selected equipment items.")
         if any(not isinstance(target, ProjectionState) for target in targets):
             raise TypeError("Every batch target must be a ProjectionState.")
         if len({(target.identity_kind, target.object_id) for target in targets}) != len(targets):
@@ -123,19 +131,26 @@ class EngineeringParameterEditor:
             raise ValueError("Batch engineering updates support committed equipment only.")
         if len({target.display_type.strip().lower() for target in targets}) != 1:
             raise ValueError("Batch engineering updates require compatible equipment types.")
+        if not any(per_target):
+            raise ValueError("At least one engineering parameter change is required.")
 
         # Prepare and validate every target before dispatch. No Core mutation
         # occurs if any target rejects a field, paired value or typed conversion.
         commands = []
-        for target in targets:
+        for target, changes in zip(targets, per_target):
+            if not changes:
+                continue
             intent = self.intent_from_projection(target, changes)
-            if any(
-                parameter.topology_impact
-                for parameter in target.engineering_parameters
-                if parameter.parameter_id in changes
-            ):
+            editable = {
+                item.parameter_id: item
+                for item in target.engineering_parameters
+                if item.editable and not item.derived
+            }
+            if any(editable[key].topology_impact for key in changes):
                 raise ValueError("Batch editing does not permit topology-impacting parameters.")
             commands.append(self._application.prepare_engineering_update(intent))
+        if len(commands) < 2:
+            raise ValueError("At least two selected equipment items must contain valid changes.")
         return self._application.execute(EngineeringUpdateBatchCommand(commands=tuple(commands)))
 
     @staticmethod
