@@ -635,7 +635,10 @@ class SLDController:
         from .instrumentation_wiring_projection import SLDInstrumentationWiringAdapter
 
         read_model = self.application.read_instrumentation_wiring()
-        return SLDInstrumentationWiringAdapter().project(read_model, document.model)
+        return SLDInstrumentationWiringAdapter().project(
+            read_model, document.model,
+            route_overrides=document.instrumentation_wiring_routes(),
+        )
 
     def add_connection(self, connection: SLDConnection) -> None:
         self._require_active_document()
@@ -654,6 +657,29 @@ class SLDController:
         ))
         if not result.success:
             raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
+    def set_instrumentation_wiring_route(
+        self,
+        carrier_kind: str,
+        carrier_id: str,
+        segment_index: int,
+        points: tuple[tuple[float, float], ...] | list[tuple[float, float]],
+    ) -> None:
+        """Persist SLD-only physical route geometry for a canonical carrier segment."""
+        document = self._require_active_document()
+        # Re-read the Application inventory and resolve the requested carrier
+        # identity before accepting presentation geometry.
+        projection = self.read_instrumentation_wiring_projection()
+        match = next((
+            segment for segment in projection.segments
+            if segment.carrier_kind == carrier_kind
+            and segment.carrier_id == carrier_id
+            and segment.segment_index == segment_index
+        ), None)
+        if match is None:
+            raise ValueError("Physical wiring route target is not present in the active Application projection.")
+        document.set_instrumentation_wiring_route(carrier_kind, carrier_id, segment_index, points)
         self._state.mark_dirty()
 
     def set_connection_route(
