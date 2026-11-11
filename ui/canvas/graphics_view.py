@@ -80,6 +80,7 @@ class GraphicsView(QGraphicsView):
         self._palette_drag_equipment_type: str | None = None
         self._palette_drag_previous_tool_id: str | None = None
         self._palette_drag_insertion_started = False
+        self._palette_drag_insertion_ambiguous = False
         self._palette_drag_preview_started = False
         self._space_pan_active = False
         self._navigation_pan_button: int | None = None
@@ -619,6 +620,7 @@ class GraphicsView(QGraphicsView):
             self._palette_drag_equipment_type = None
             self._palette_drag_previous_tool_id = None
             self._palette_drag_insertion_started = False
+            self._palette_drag_insertion_ambiguous = False
             self._palette_drag_preview_started = False
 
     def dragEnterEvent(self, event: Any) -> None:
@@ -646,8 +648,19 @@ class GraphicsView(QGraphicsView):
             self._palette_drag_preview_started = True
         if not self._palette_drag_insertion_started:
             insertion_started = self._begin_palette_insertion(event)
+            insertion_tool = self.tool_manager.get_tool("electrical-insertion")
+            self._palette_drag_insertion_ambiguous = bool(
+                not insertion_started
+                and getattr(insertion_tool, "last_resolution_ambiguous", False)
+            )
             if insertion_started:
                 self._palette_drag_insertion_started = True
+            elif self._palette_drag_insertion_ambiguous:
+                self.controller.show_status_message(
+                    "Insertion target is ambiguous. Move away from the crossing or cancel the drop."
+                )
+                event.acceptProposedAction()
+                return
             elif insertion_requested:
                 # Explicit Shift insertion remains fail-closed when no
                 # eligible wire target can be resolved.
@@ -674,6 +687,18 @@ class GraphicsView(QGraphicsView):
         if not insertion_requested:
             insertion_requested = self._begin_palette_insertion(event)
             self._palette_drag_insertion_started = insertion_requested
+            insertion_tool = self.tool_manager.get_tool("electrical-insertion")
+            self._palette_drag_insertion_ambiguous = bool(
+                not insertion_requested
+                and getattr(insertion_tool, "last_resolution_ambiguous", False)
+            )
+        if self._palette_drag_insertion_ambiguous:
+            self.controller.show_status_message(
+                "Insertion target is ambiguous. Drop cancelled; move away from the crossing."
+            )
+            self._finish_palette_drag(restore_previous_tool=True)
+            event.ignore()
+            return
         if insertion_requested:
             if not self._palette_drag_insertion_started:
                 if not self._begin_palette_insertion(event):
