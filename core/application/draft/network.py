@@ -238,6 +238,7 @@ class DraftConnection:
     connection_kind: str = "simple_wire"
     route: Mapping[str, Any] = field(default_factory=dict)
     validation_state: Mapping[str, Any] = field(default_factory=dict)
+    layer_id: str = "default"
 
     def __post_init__(self) -> None:
         if not isinstance(self.connection_id, str) or not self.connection_id.strip(): raise ValueError("Draft connection_id is required.")
@@ -245,6 +246,9 @@ class DraftConnection:
         object.__setattr__(self, "target", DraftEndpointReference.from_value(self.target))
         if self.source == self.target: raise ValueError("Draft connection endpoints must be distinct.")
         object.__setattr__(self, "connection_id", self.connection_id.strip())
+        if not isinstance(self.layer_id, str) or not self.layer_id.strip():
+            raise ValueError("DraftConnection requires a non-empty presentation layer_id.")
+        object.__setattr__(self, "layer_id", self.layer_id.strip())
         object.__setattr__(self, "connection_kind", str(self.connection_kind).strip().lower())
 
         # Route coordinates are presentation metadata, never electrical
@@ -306,6 +310,7 @@ class DraftConnection:
             "connection_kind": self.connection_kind,
             "route": canonical_value(self.route),
             "validation_state": canonical_value(self.validation_state),
+            "layer_id": self.layer_id,
         }
 
     @classmethod
@@ -315,7 +320,8 @@ class DraftConnection:
         if "source" not in data or "target" not in data:
             raise ValueError("DraftConnection requires canonical source and target DraftEndpointReference values.")
         return cls(str(data["connection_id"]), DraftEndpointReference.from_value(data["source"]), DraftEndpointReference.from_value(data["target"]),
-                    str(data.get("connection_kind", "simple_wire")), dict(data.get("route", {})), dict(data.get("validation_state", {})))
+                    str(data.get("connection_kind", "simple_wire")), dict(data.get("route", {})), dict(data.get("validation_state", {})),
+                    str(data.get("layer_id", "default")))
 
 
 class DraftNetwork:
@@ -511,6 +517,7 @@ class DraftNetwork:
             connection_kind=current.connection_kind,
             route=dict(route),
             validation_state=dict(current.validation_state),
+            layer_id=current.layer_id,
         )
         self.validate_connection_candidate(
             updated,
