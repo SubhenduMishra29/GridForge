@@ -1009,7 +1009,10 @@ class PropertiesPanelWidget(QWidget):
             )
         except (ExecutionError, RuntimeError, TypeError, ValueError, KeyError, OverflowError) as exc:
             if self._batch_status_label is not None:
-                self._batch_status_label.setText(f"Batch update rejected; no changes committed: {exc}")
+                detail = getattr(exc, "cause", None) or getattr(exc, "__cause__", None) or exc
+                self._batch_status_label.setText(
+                    f"Batch update rejected; no changes committed: {detail}"
+                )
             return
         if not getattr(result, "success", False):
             message = getattr(result, "message", None) or "Batch engineering update was rejected."
