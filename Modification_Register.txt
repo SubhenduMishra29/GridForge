@@ -3722,3 +3722,13 @@ Typed record operations and detached read boundary:
 - Added InstrumentationWiringReadModel as a detached immutable Application DTO. Nested record data is recursively frozen; Core dataclass instances and canvas geometry are not exposed.
 - Added Application.read_instrumentation_wiring(), guarded by active project lifecycle state, and injected the project-scoped wiring service through the composition root.
 - Added test source for typed add/update/remove, duplicate identity/tag rejection, dangling dependency prevention, dependency-ordered removal, detached read model immutability and projectless read rejection. Tests remain unexecuted.
+
+SLD physical instrumentation wiring projection:
+- Added a renderer-neutral SLD adapter that consumes only the detached Application InstrumentationWiringReadModel and the active SLDDocument model.
+- Each CableCore terminal path becomes ordered presentation segments, one segment per consecutive terminal hop. Every segment retains carrier/core identity, cable assembly identity/tag, core number, conductor role and associated signal tags.
+- PanelWire terminal paths use the same projection contract while retaining their distinct carrier identity.
+- Terminal endpoints resolve only through an exact unique SLD node equipment_id match and preserve the canonical terminal_role. Missing or duplicate equipment nodes produce an explicit unresolved record with diagnostics; the adapter never guesses a node or emits partial segments for an incomplete carrier.
+- Empty/unassigned terminal paths remain visible as unresolved projection records and are not drawn as if connected.
+- Projection is read-only: it does not add SLDConnection document records, mutate Core topology, allocate IDs, or duplicate physical cable/core identity in SLD persistence.
+- Added SLDController.read_instrumentation_wiring_projection() as the active-document integration boundary and lazy exports for the presentation DTOs/adapter.
+- Added regression test source for multi-hop core projection, signal provenance, absent/ambiguous node handling, unassigned paths, and non-mutation of SLDModel. Tests remain unexecuted; no Qt canvas realization or GUI drawing is claimed in this slice.
