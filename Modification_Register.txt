@@ -3338,3 +3338,26 @@ Issue #821 implementation follow-up — final source reconciliation:
 - Fetched-back source inspection remains the verification boundary. No Python
   compile/import execution, automated tests, CI, or live Qt GUI acceptance
   has been performed. Issue #821 remains OPEN until runtime acceptance.
+
+
+Issue #821 final source-audit refinement:
+- Confirmed CreationParameterDefinition does not own topology_impact metadata.
+  Removed the invalid creation-schema assumption and moved the authoritative
+  batch eligibility check to Application.prepare_engineering_update_batch(),
+  which reads each committed target through Application.read_element() and
+  checks EngineeringParameterReadModel.editable, derived and topology_impact.
+- Batch preparation now validates all target read models before constructing
+  the aggregate command; target-specific canonical command preparation follows
+  before any mutation.
+- The batch UI displays equipment labels with stable IDs, sizes columns to
+  content, and reports the underlying target-specific failure cause from
+  Application ExecutionError after transaction rollback.
+- Final refinement commits:
+  Application read-model eligibility: 57eb5a6
+  engineering preparer correction: 329ca71bf8cd48079a3124c9993a0bb87bcacb52
+  Application batch preparation after schema correction: 97fdcda1e852b92c60886ebb887c51ca950254f6
+  equipment labels/column sizing: 21967a4a6d5cc07b0e8a10c65e3b02071e887664
+  target-specific error presentation: 0b8de253388036df9523ce86a72f8ff2ded453f1
+- Issue #821 remains OPEN. All changes have been fetched back from main and
+  source markers reconciled. Runtime GUI acceptance and undo/redo/rollback
+  interaction remain unverified.
