@@ -2457,3 +2457,27 @@ Verification:
 - Fetched back the controller, controller tests, project persistence tests, existing Application undo/redo tests, SLD service/document source, and register. Source-level checks confirm transient-state cleanup, per-document selection behavior, atomic conflict-aware layer undo, full document serialization, and package round-trip regression coverage.
 - Tests/CI and Qt GUI lifecycle interaction were not run. No runtime save/reopen or multi-document GUI acceptance is claimed.
 - Phase D2a, D2b, D2c, and D2d source work is complete. Phase D overall still requires menu/contextual layer integration review and final UI acceptance; Phase E annotation collision-aware decluttering remains outstanding.
+
+
+======================================================================
+GridForge V2 — SLD Layer Manager integration audit (Phase D3)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit findings:
+- The Layer Manager already has one canonical owner: SLDLayerManagerWidget mounted as the Layers tab in the SLD Explorer Region. No duplicate dock or separate layer state is introduced.
+- Existing widget supports layer creation, rename, deletion/reassignment to Default, reorder, visibility, lock, opacity, and active-layer selection through SLDController/Application commands.
+- Before this correction, the Layer Manager had no explicit View-menu entry or canvas context-menu entry. Its list could also remain stale after an external layer command or project lifecycle event if the tab stayed open.
+
+Corrections:
+- Added View > Panels > SLD Layers, routed through UIActionRouter to reveal the existing SLD Explorer Region and select the existing Layers tab.
+- Added a canvas context-menu command, “Manage SLD Layers…”, routed by a typed Qt signal to that same existing Layer Manager. It does not create a second widget or alter layer state directly.
+- Subscribed the Layer Manager to SLDPresentationChanged, ProjectLoaded, and ProjectClosed so it refreshes after command and project lifecycle changes; subscriptions are released when the widget is destroyed.
+- Added a menu taxonomy regression test confirming the SLD Layers action is present in View > Panels.
+
+Verification:
+- Fetched back menu taxonomy, composition root, GraphicsView, Qt boundary, Layer Manager widget, test, and register.
+- Source-level checks confirm the menu action, UIActionRouter handler, canvas context-menu signal, and single canonical Explorer-tab destination. QMenu is already exported through ui/core/qt.py.
+- Tests/CI and Qt runtime interactions were not run. Actual menu selection, right-click context menu behavior, event-driven widget refresh, and multi-document GUI acceptance remain runtime checks.
+- Phase D3 source integration is complete. Phase D still needs final Qt UI acceptance; Phase E collision-aware annotation decluttering remains outstanding.
