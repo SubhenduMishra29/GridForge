@@ -5,6 +5,12 @@ from __future__ import annotations
 
 from typing import Mapping
 
+from .commands.measurement_commands import (
+    CREATE_MEASUREMENT_CHANNEL,
+    UPDATE_MEASUREMENT_CHANNEL,
+    DELETE_MEASUREMENT_CHANNEL,
+)
+
 from .commands.protection_configuration_commands import (
     CREATE_PROTECTION_CONFIGURATION,
     UPDATE_PROTECTION_CONFIGURATION,
@@ -98,4 +104,36 @@ class ProtectionConfigurationHandlers:
     def delete_differential_scheme(self, command, context, transaction):
         return self._service.delete_differential_scheme(transaction=transaction, **command.payload)
 
-__all__ = ["ProtectionConfigurationHandlers"]
+
+class MeasurementChannelCommandHandlers:
+    """Route logical CT secondary-channel commands to the canonical Application service."""
+
+    def __init__(self, service) -> None:
+        if service is None:
+            raise ValueError("measurement channel service is required.")
+        self._service = service
+
+    def handlers(self) -> Mapping[str, object]:
+        return {
+            CREATE_MEASUREMENT_CHANNEL: self.create_channel,
+            UPDATE_MEASUREMENT_CHANNEL: self.update_channel,
+            DELETE_MEASUREMENT_CHANNEL: self.delete_channel,
+        }
+
+    def create_channel(self, command, context, transaction):
+        return self._service.create_channel(
+            transaction=transaction, **command.payload
+        )
+
+    def update_channel(self, command, context, transaction):
+        return self._service.update_channel(
+            transaction=transaction, **command.payload
+        )
+
+    def delete_channel(self, command, context, transaction):
+        return self._service.delete_channel(
+            transaction=transaction, **command.payload
+        )
+
+
+__all__ = ["ProtectionConfigurationHandlers", "MeasurementChannelCommandHandlers"]

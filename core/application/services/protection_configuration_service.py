@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import Any
 from dataclasses import replace
 from hashlib import sha256
 import json
@@ -53,6 +54,35 @@ class ProtectionConfigurationService:
     def _require_configuration(self) -> ProtectionProjectConfiguration:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")
         return self._configuration
+
+    def references_measurement_channel(self, channel_id: str) -> bool:
+        """Return whether an active Protection consumer still owns this channel identity."""
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            raise ValueError("channel_id must be a non-empty string.")
+        normalized = channel_id.strip()
+        active = self._configuration
+        if active is None:
+            return False
+        for element in active.elements:
+            if normalized in getattr(element, "input_channel_ids", {}).values():
+                return True
+        for binding in getattr(active, "measurement_bindings", ()):
+            if getattr(binding, "channel_id", None) == normalized:
+                return True
+
+        # ANSI 25 policies retain channel identities in their typed
+        # project-configuration payload. Walk only that configuration tree;
+        # a conservative match prevents deleting a channel still in use.
+        def contains_identity(value: Any) -> bool:
+            if value == normalized:
+                return True
+            if isinstance(value, Mapping):
+                return any(contains_identity(item) for item in value.values())
+            if isinstance(value, (tuple, list, set, frozenset)):
+                return any(contains_identity(item) for item in value)
+            return False
+
+        return contains_identity(getattr(active, "synchronism_check_configuration", None))
 
     @staticmethod
     def _ct_primary_component_fingerprint(component) -> str:

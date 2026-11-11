@@ -62,7 +62,7 @@ from .results import ApplicationResult
 from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
-from .protection_configuration_handlers import ProtectionConfigurationHandlers
+from .protection_configuration_handlers import ProtectionConfigurationHandlers, MeasurementChannelCommandHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
@@ -117,6 +117,9 @@ def create_application(
         ProtectionProjectConfiguration(initial_context.project_id),
         network_provider=lambda: lifecycle.network if lifecycle is not None else network,
         measurement_channel_provider=lambda: measurement_channel_service.channels,
+    )
+    measurement_channel_service.bind_channel_usage_validator(
+        protection_configuration_service.references_measurement_channel
     )
 
     def register_handlers(target: dict[str, Any], source: Any, family: str) -> None:
@@ -218,6 +221,11 @@ def create_application(
             handlers,
             ProtectionConfigurationHandlers(protection_configuration_service).handlers(),
             "protection configuration",
+        )
+        register_handlers(
+            handlers,
+            MeasurementChannelCommandHandlers(measurement_channel_service).handlers(),
+            "measurement channel",
         )
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.

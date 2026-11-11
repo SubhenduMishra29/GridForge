@@ -34,6 +34,8 @@ from .measurement_commands import (
     UpdateCapacitiveVoltageTransformerCommand, DeleteCapacitiveVoltageTransformerCommand,
     PutCapacitiveVoltageTransformerInServiceCommand,
     TakeCapacitiveVoltageTransformerOutOfServiceCommand,
+    CREATE_MEASUREMENT_CHANNEL, UPDATE_MEASUREMENT_CHANNEL, DELETE_MEASUREMENT_CHANNEL,
+    CreateMeasurementChannelCommand, UpdateMeasurementChannelCommand, DeleteMeasurementChannelCommand,
 )
 from .pt_commands import (
     CREATE_PT, UPDATE_PT, DELETE_PT, PUT_PT_IN_SERVICE, TAKE_PT_OUT_OF_SERVICE,

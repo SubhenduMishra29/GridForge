@@ -14,7 +14,9 @@ from threading import RLock
 from typing import Any, Callable
 
 from core.application.endpoint_resolver import resolve_terminal_reference
-from core.model import EndpointReference, EquipmentType
+from core.application.results import ApplicationResult
+from core.application.transaction import Transaction
+from core.model import CurrentTransformer, EndpointReference, EquipmentType
 from core.measurement.measurement_channel import (
     MeasurementChannel,
     MeasurementPhase,
@@ -89,7 +91,9 @@ class MeasurementChannelService:
         self._execution_lock = execution_lock if execution_lock is not None else RLock()
         self._sample_update_authority = object()
         self._project_id: str | None = None
+        self._context: Any | None = None
         self._activation_generation = 0
+        self._channel_usage_validator: Callable[[str], bool] | None = None
         self._network: Network | None = None
         self._channels: dict[str, MeasurementChannel] = {}
         self._sample_published_handler: Callable[[str, float, float, str], Any] | None = None
@@ -108,6 +112,12 @@ class MeasurementChannelService:
         if not callable(getattr(execution_lock, "__enter__", None)) or not callable(getattr(execution_lock, "__exit__", None)):
             raise TypeError("execution_lock must be a context-manager lock.")
         self._execution_lock = execution_lock
+
+    def bind_channel_usage_validator(self, validator: Callable[[str], bool] | None) -> None:
+        """Bind the existing Protection configuration authority's channel-reference check."""
+        if validator is not None and not callable(validator):
+            raise TypeError("channel usage validator must be callable or None.")
+        self._channel_usage_validator = validator
 
     @property
     def clock_domain(self) -> str | None:
@@ -245,6 +255,7 @@ class MeasurementChannelService:
 
         previous = self.snapshot_state()
         self._project_id = next_project_id
+        self._context = context
         self._activation_generation = generation if context is not None else 0
         self._network = network if context is not None else None
         self._channels = next_channels
@@ -254,7 +265,7 @@ class MeasurementChannelService:
 
         return rollback
 
-    def snapshot_state(self) -> tuple[str | None, int, Network | None, dict[str, MeasurementChannel]]:
+    def snapshot_state(self) -> tuple[Any | None, str | None, int, Network | None, dict[str, MeasurementChannel]]:
         """Capture the exact live channel authority for transactional compensation.
 
         The registry and channel objects are retained by reference. This is
@@ -263,6 +274,7 @@ class MeasurementChannelService:
         remain untouched and are restored together with project provenance.
         """
         return (
+            self._context,
             self._project_id,
             self._activation_generation,
             self._network,
@@ -271,12 +283,12 @@ class MeasurementChannelService:
 
     def restore_state(
         self,
-        snapshot: tuple[str | None, int, Network | None, dict[str, MeasurementChannel]],
+        snapshot: tuple[Any | None, str | None, int, Network | None, dict[str, MeasurementChannel]],
     ) -> None:
         """Restore an exact previously captured authority; safe to repeat."""
-        if not isinstance(snapshot, tuple) or len(snapshot) != 4:
-            raise TypeError("Measurement channel snapshot must be a four-item state tuple.")
-        project_id, generation, network, channels = snapshot
+        if not isinstance(snapshot, tuple) or len(snapshot) != 5:
+            raise TypeError("Measurement channel snapshot must be a five-item state tuple.")
+        context, project_id, generation, network, channels = snapshot
         if project_id is not None and not isinstance(project_id, str):
             raise TypeError("Measurement channel snapshot project identity is invalid.")
         if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
@@ -285,12 +297,14 @@ class MeasurementChannelService:
             raise TypeError("Measurement channel snapshot registry is invalid.")
         if project_id is not None and not isinstance(network, Network):
             raise TypeError("Active measurement channel snapshot requires its original Network.")
+        self._context = context
         self._project_id = project_id
         self._activation_generation = generation
         self._network = network
         self._channels = channels
 
     def deactivate(self) -> None:
+        self._context = None
         self._project_id = None
         self._activation_generation = 0
         self._network = None
@@ -298,7 +312,176 @@ class MeasurementChannelService:
 
     def serialize_definitions(self) -> list[dict[str, Any]]:
         """Return persistent configuration only; live sample state is excluded."""
-        return [self._serialize_channel(channel) for channel in self._channels.values()]
+        return [
+            self._serialize_channel(self._channels[channel_id])
+            for channel_id in sorted(self._channels)
+        ]
+
+    def create_channel(
+        self, *, definition: Mapping[str, Any], transaction: Transaction,
+    ) -> ApplicationResult[MeasurementChannel]:
+        """Author one CT secondary channel through the active Application transaction."""
+        self._require_transaction(transaction)
+        with self._execution_lock:
+            channel = self._build_ct_channel(definition)
+            if channel.id in self._channels:
+                raise ValueError(f"Measurement channel already exists: {channel.id}")
+            previous = self._channels
+            next_channels = dict(previous)
+            next_channels[channel.id] = channel
+            transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
+            self._channels = next_channels
+            return ApplicationResult.success_result(
+                value=channel,
+                message=f"CT secondary measurement channel created: {channel.id}",
+                metadata={"channel_id": channel.id, "source_id": channel.source_id,
+                          "terminal_role": channel.source_terminal.terminal_role},
+            )
+
+    def update_channel(
+        self, *, channel_id: str, definition: Mapping[str, Any], transaction: Transaction,
+    ) -> ApplicationResult[MeasurementChannel]:
+        """Replace an unbound CT channel definition without mutating a sealed channel."""
+        self._require_transaction(transaction)
+        normalized_id = self._normalize_id(channel_id)
+        with self._execution_lock:
+            previous_channel = self.require(normalized_id)
+            self._ensure_channel_unbound(normalized_id)
+            if not isinstance(definition, Mapping):
+                raise TypeError("Measurement channel definition must be a mapping.")
+            supplied_id = definition.get("channel_id", definition.get("id", normalized_id))
+            if supplied_id is not None and self._normalize_id(supplied_id) != normalized_id:
+                raise ValueError("Updating a measurement channel cannot change its identity.")
+            candidate_data = self._serialize_channel(previous_channel)
+            candidate_data.update(dict(definition))
+            candidate_data["channel_id"] = normalized_id
+            channel = self._build_ct_channel(candidate_data)
+            previous = self._channels
+            next_channels = dict(previous)
+            next_channels[normalized_id] = channel
+            transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
+            self._channels = next_channels
+            return ApplicationResult.success_result(
+                value=channel,
+                message=f"CT secondary measurement channel updated: {normalized_id}",
+                metadata={"channel_id": normalized_id},
+            )
+
+    def delete_channel(
+        self, *, channel_id: str, transaction: Transaction,
+    ) -> ApplicationResult[MeasurementChannel]:
+        """Delete an unbound CT channel; references must be explicitly unbound first."""
+        self._require_transaction(transaction)
+        normalized_id = self._normalize_id(channel_id)
+        with self._execution_lock:
+            channel = self.require(normalized_id)
+            self._ensure_channel_unbound(normalized_id)
+            previous = self._channels
+            next_channels = dict(previous)
+            del next_channels[normalized_id]
+            transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
+            self._channels = next_channels
+            return ApplicationResult.success_result(
+                value=channel,
+                message=f"CT secondary measurement channel deleted: {normalized_id}",
+                metadata={"channel_id": normalized_id},
+            )
+
+    @staticmethod
+    def _require_transaction(transaction: Transaction) -> None:
+        if not isinstance(transaction, Transaction) or not transaction.active:
+            raise TypeError("Measurement channel authoring requires an active Application Transaction.")
+
+    def _restore_channels(self, channels: dict[str, MeasurementChannel]) -> None:
+        with self._execution_lock:
+            self._channels = channels
+
+    def _ensure_channel_unbound(self, channel_id: str) -> None:
+        validator = self._channel_usage_validator
+        if validator is None:
+            raise RuntimeError(
+                "Protection channel-reference validation is not configured; editing or deleting a channel is denied."
+            )
+        if validator(channel_id):
+            raise ValueError(
+                f"Measurement channel {channel_id!r} is still referenced by Protection configuration; "
+                "unbind every consumer before editing or deleting it."
+            )
+
+    def _ensure_unique_ct_source(self, source_id: str, terminal_role: str, channel_id: str) -> None:
+        for existing_id, existing in self._channels.items():
+            if existing_id == channel_id:
+                continue
+            reference = existing.source_terminal
+            if (
+                getattr(existing.source, "id", None) == source_id
+                and isinstance(reference, EndpointReference)
+                and reference.terminal_role == terminal_role
+            ):
+                raise ValueError(
+                    f"CT secondary terminal {source_id}:{terminal_role} already has measurement channel {existing_id!r}."
+                )
+
+    def _build_ct_channel(self, definition: Mapping[str, Any]) -> MeasurementChannel:
+        if not isinstance(definition, Mapping):
+            raise TypeError("Measurement channel definition must be a mapping.")
+        if self._context is None or self._network is None or self._project_id != self._context.project_id:
+            raise RuntimeError("CT channel authoring requires an active project and Network.")
+        channel_id = self._normalize_id(definition.get("channel_id", definition.get("id")))
+        source_id = self._normalize_id(definition.get("source", definition.get("source_id")))
+        terminal_data = definition.get("source_terminal", definition.get("source_terminal_reference"))
+        if not isinstance(terminal_data, Mapping):
+            raise ValueError("CT channel authoring requires an explicit source_terminal mapping.")
+        reference = self._endpoint_reference(terminal_data)
+        if reference.terminal_role not in {"S1", "S2"}:
+            raise ValueError("CT measurement channels must originate from physical secondary terminal S1 or S2.")
+        if getattr(reference.equipment_type, "value", None) != "current_transformer":
+            raise ValueError("CT secondary measurement channels require a CURRENT_TRANSFORMER terminal reference.")
+        source = self._network.get_by_identity(source_id)
+        if not isinstance(source, CurrentTransformer):
+            raise ValueError(f"Measurement source {source_id!r} is not an authoritative CurrentTransformer.")
+        if reference.equipment_id != source_id:
+            raise ValueError("CT source equipment identity does not match source_terminal equipment identity.")
+        signal_type = self._enum_value(MeasurementSignalType, definition.get("signal_type"), "signal_type")
+        if signal_type is not MeasurementSignalType.CURRENT:
+            raise ValueError("CT secondary channels must expose a CURRENT signal.")
+        producer_id = self._normalize_optional_id(definition.get("producer_id"))
+        if producer_id is None:
+            raise ValueError("CT secondary channels require an explicit producer_id; no producer is inferred.")
+        timestamp_domain = definition.get("timestamp_domain")
+        if not isinstance(timestamp_domain, str) or not timestamp_domain.strip() or timestamp_domain != timestamp_domain.strip():
+            raise ValueError("CT secondary channels require an explicit canonical timestamp_domain.")
+        if self._clock_domain is not None and timestamp_domain != self._clock_domain:
+            raise ValueError("CT channel timestamp_domain must match the configured trusted Application clock domain.")
+        for field in ("phase", "scale", "polarity", "stale_after"):
+            if field not in definition:
+                raise ValueError(f"CT secondary channels require an explicit {field} setting.")
+        unit = definition.get("unit")
+        if not isinstance(unit, str) or unit.strip().upper() != "A":
+            raise ValueError("CT secondary current channel unit must be 'A'.")
+        try:
+            nominal_value = float(definition.get("nominal_value"))
+            scale = float(definition.get("scale", 1.0))
+            polarity = float(definition.get("polarity", 1.0))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("CT nominal_value, scale and polarity must be numeric.") from exc
+        if not math.isfinite(nominal_value) or nominal_value <= 0.0:
+            raise ValueError("CT secondary nominal_value must be finite and positive (normally 1 A or 5 A).")
+        if not math.isfinite(scale) or scale <= 0.0:
+            raise ValueError("CT channel scale must be finite and positive.")
+        if polarity not in (-1.0, 1.0):
+            raise ValueError("CT channel polarity must be +1.0 or -1.0.")
+        try:
+            stale_after = float(definition.get("stale_after"))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("CT channel stale_after must be a finite positive duration.") from exc
+        if not math.isfinite(stale_after) or stale_after <= 0.0:
+            raise ValueError("CT channel stale_after must be a finite positive duration.")
+        self._ensure_unique_ct_source(source_id, reference.terminal_role, channel_id)
+        channel = self._provision_definition(self._context, self._network, definition)
+        channel.producer_id = producer_id
+        channel._bind_sample_update_authority(self._sample_update_authority)
+        return channel
 
     def _provision_definition(self, context: Any, network: Network, definition: Mapping[str, Any]) -> MeasurementChannel:
         if not isinstance(definition, Mapping):
@@ -329,6 +512,8 @@ class MeasurementChannelService:
             polarity=float(definition.get("polarity", 1.0)),
             timestamp_domain=definition.get("timestamp_domain"),
             stale_after=definition.get("stale_after"),
+            available=False,
+            quality=MeasurementQuality.UNKNOWN,
         )
 
     @staticmethod
