@@ -2603,3 +2603,9 @@ Verification boundary:
 - Fetched back changed Application command, batch handler, SLDController, MainWindow composition, regression tests, and this register from main.
 - Source integration and command/event routing were inspected. Tests/CI and Qt GUI interaction were not run. Manual multi-selection Cut/Delete, cancellation/clipboard behavior, junction-connected selection behavior, undo/redo interaction, and project save/reopen still require interactive GUI acceptance.
 - Issue #1180 is closed at the user's request after source integration. Runtime GUI acceptance remains an explicit follow-up verification item; no GUI execution is claimed.
+
+
+Addendum after GUI action-path reconciliation:
+- MainWindow _delete_selection now delegates to the canonical SLDController batch path rather than rebuilding and executing per-object commands locally. The existing _cut_selection continues to copy semantic equipment first, then calls the same atomic delete path; if delete fails, the previous clipboard contents are restored.
+- Selection capability and copy normalization now resolve either an equipment identity or its SLD node identity. This keeps the Cut/Delete action enabled and correctly mapped when a symbol node_id differs from equipment_id.
+- Fetched back main.py and confirmed the Delete/Cut action path delegates to SLDController; no Qt runtime interaction was executed.
