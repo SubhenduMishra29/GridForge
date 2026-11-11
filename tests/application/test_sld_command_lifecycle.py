@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from core.application.bootstrap import create_application
+from core.application.command import Command
 from core.network.network import Network
 from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
@@ -410,7 +411,7 @@ def test_atomic_selection_batch_rejects_duplicate_and_unsupported_children():
     with pytest.raises(ExecutionError):
         application.execute(DeleteSelectionBatchCommand(
             document_id=document.document_id,
-            commands=(remove_a, RemoveSLDConnectionCommand(connection_id="unsupported-kind")),
+            commands=(remove_a, Command(command_type="connectivity.remove_junction", payload={"junction_id": "junction-1"})),
         ))
 
     assert document.model.has_node("duplicate-a")
