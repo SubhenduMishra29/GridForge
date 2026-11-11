@@ -90,3 +90,9 @@ def test_wiring_inventory_codec_rejects_unknown_record_fields():
     payload["cables"][0]["unmodeled_tag"] = "not-safe-to-drop"
     with pytest.raises(InstrumentationWiringSerializationError, match="unknown"):
         deserialize_instrumentation_wiring(payload)
+
+def test_wiring_inventory_codec_rejects_boolean_schema_version():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["schema"] = True
+    with pytest.raises(InstrumentationWiringSerializationError, match="schema"):
+        deserialize_instrumentation_wiring(payload)
