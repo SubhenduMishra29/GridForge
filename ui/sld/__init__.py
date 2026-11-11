@@ -32,6 +32,10 @@ _EXPORTS = {
     "SLDProjection": ("ui.sld.sld_projection", "SLDProjection"),
     "SLDProjectionManager": ("ui.sld.sld_projection_manager", "SLDProjectionManager"),
     "SLDReadSynchronizer": ("ui.sld.sld_read_synchronizer", "SLDReadSynchronizer"),
+    "SLDPhysicalWiringSegment": ("ui.sld.instrumentation_wiring_projection", "SLDPhysicalWiringSegment"),
+    "SLDPhysicalWiringRecord": ("ui.sld.instrumentation_wiring_projection", "SLDPhysicalWiringRecord"),
+    "SLDInstrumentationWiringProjection": ("ui.sld.instrumentation_wiring_projection", "SLDInstrumentationWiringProjection"),
+    "SLDInstrumentationWiringAdapter": ("ui.sld.instrumentation_wiring_projection", "SLDInstrumentationWiringAdapter"),
 }
 
 
