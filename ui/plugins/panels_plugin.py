@@ -98,6 +98,13 @@ class PanelsPlugin(QObject):
             if not callable(bind_equipment_runtime):
                 raise RuntimeError("Equipment Browser does not expose bind_equipment_runtime().")
             bind_equipment_runtime(context.equipment_registry, context.tool_manager, properties_panel, context.symbol_registry)
+            bind_symbol_review_runtime = getattr(properties_panel, "bind_symbol_review_runtime", None)
+            if not callable(bind_symbol_review_runtime):
+                raise RuntimeError("Properties Panel does not expose bind_symbol_review_runtime().")
+            bind_symbol_review_runtime(
+                symbol_registry=context.symbol_registry,
+                equipment_registry=context.equipment_registry,
+            )
             bind_configuration_runtime = getattr(properties_panel, "bind_configuration_runtime", None)
             if not callable(bind_configuration_runtime):
                 raise RuntimeError("Properties Panel does not expose bind_configuration_runtime().")
