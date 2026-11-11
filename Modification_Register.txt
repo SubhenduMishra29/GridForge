@@ -2788,3 +2788,18 @@ Verification boundary:
 - These closures are authoritative audit-repository state only. The open
   implementation mirrors are explicitly not represented as closed.
 ======================================================================
+
+UI audit closure — #757 Equipment Placement Tool State Leak:
+- ModelPlacementTool.on_cancel() and on_deactivate() clear transient state and
+  PreviewLayer preview graphics.
+- ToolManager.activate(cancel_active_creation=True) cancels the active creation
+  before changing tools; ToolManager.cancel() clears temporary interaction
+  ownership and CreationContext state.
+- Successful placement is separately persisted in Application DraftNetwork and
+  projected by DraftSLDProjection using stable draft identity; it is not an
+  untracked PreviewLayer ghost.
+- Closed authoritative audit issue #757 as completed against current source.
+- Implementation mirror madhuri196mishra-cpu/GridForge #168 remains open for
+  synchronized closure because the current connection is read-only there.
+- Source inspection only; no runtime or test execution.
+
