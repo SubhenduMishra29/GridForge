@@ -3148,3 +3148,67 @@ Disposition:
 - Static source and test-inventory review only. No GUI interaction or test
   execution performed.
 ======================================================================
+
+
+======================================================================
+GRIDFORGE V2 — ISSUE #821 MULTI-EQUIPMENT INSPECTOR IMPLEMENTATION
+Date: 2026-11-11
+Authoritative repository: SubhenduMishra29/GridForge (main)
+Issue: #821 — Menu and Input Navigation Barriers
+
+Implementation:
+- Added EngineeringUpdateBatchCommand using the canonical immutable
+  Application Command envelope. Its command type is model.update_batch so
+  the existing project revision/dirty-state pipeline records one model
+  revision transition for the aggregate operation.
+- Registered an Application composition-root handler that accepts only
+  supported canonical model update commands, checks target identities before
+  mutation, and executes all child commands through
+  CommandManager.execute_in_transaction(). The aggregate therefore owns one
+  transaction, one undo journal and one redo command.
+- Added Application.prepare_engineering_update_batch(); all typed intents are
+  checked for one equipment type, distinct committed equipment identities,
+  and individually prepared through EngineeringUpdatePreparer before the
+  aggregate command is created.
+- Extended EngineeringParameterEditor with per-target batch preparation.
+  Every selected row is converted and validated against its own canonical
+  parameter contract before Application execution. A one-row edit falls back
+  to the ordinary canonical update command.
+- Added domain-preserving SelectionManager snapshot/restore so the projection
+  coordinator can resolve each selected object without changing the user's
+  final selection.
+- SelectionProjectionCoordinator now gathers the complete selection and
+  exposes a batch target only when every selected identity resolves to a
+  committed equipment ProjectionState of the same equipment type.
+- PropertiesPanelWidget now provides a spreadsheet-style QTableWidget for
+  compatible multi-selection. Rows represent individual equipment; columns
+  represent common editable, inspectable, non-derived and non-topology
+  parameters. Per-row values remain distinct. A status line explicitly names
+  parameters whose values differ across the selection. Tab navigation is
+  enabled and focus begins at the first editable cell.
+- Apply Batch submits all changed rows as one Application aggregate. Invalid
+  conversion or canonical validation rejects the batch before execution.
+- Instrumentation CT/PT/CVT updates and topology-impacting parameters are
+  intentionally excluded from this first batch path; their specialised
+  runtime/topology lifecycle must not be bypassed.
+
+Files changed:
+- core/application/commands/selection_commands.py
+- core/application/bootstrap.py
+- core/application/application.py
+- ui/panels/engineering_parameter_editor.py
+- ui/core/selection_manager.py
+- ui/projection/selection_projection_coordinator.py
+- ui/panels/default_panels.py
+
+Verification:
+- Fetched back all changed files from authoritative main and confirmed the
+  aggregate command, handler registration, Application preparation API,
+  selection snapshot/restore, multi-selection projection, table editor and
+  per-target submission paths are present.
+- Source-level inspection only. No Python import/compile execution, automated
+  tests, CI, or live Qt GUI interaction was performed.
+- Issue #821 remains OPEN pending the final source reconciliation and live GUI
+  acceptance of multi-selection, Tab/Shift+Tab traversal, atomic rejection,
+  undo and redo. Do not represent these runtime behaviours as GUI-verified.
+======================================================================
