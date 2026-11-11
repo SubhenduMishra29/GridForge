@@ -387,7 +387,7 @@ def test_annotation_layout_shrinks_labels_before_hiding_them(qapp):
         ),
         SLDCanvasAnnotation(
             block_id="secondary", node_id="node-2", x=100.0, y=80.0,
-            text="Secondary\\nlabel", visible=True, priority=20,
+            text="Secondary\nlabel", visible=True, priority=20,
         ),
     )
 
