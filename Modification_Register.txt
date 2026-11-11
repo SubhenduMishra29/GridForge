@@ -1409,3 +1409,27 @@ Boundary:
 
 Verification:
 - Source fetch-back verification only. No Qt GUI inspection or runtime acceptance performed. No tests/CI gate was run or required.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-019 — SOURCE DOCUMENT / PERMITTED-USE PROVENANCE
+======================================================================
+Date: 2026-11-11 | Issue: #823
+
+Correction:
+- SymbolDefinition now records source_document_title, source_document_revision, and source_use_status.
+- source_use_status is constrained to unverified, licensed, permission_granted, public_domain, or prohibited.
+- An approved definition must identify its source document and revision, and its declared source-use status must be licensed, permission_granted, or public_domain. The existing standard reference, geometry/anchor review flags, and separate evidence references remain mandatory.
+- SymbolRegistry independently enforces the same source-document and permitted-use requirements.
+- The contextual inspector displays source document, revision, and source-use status.
+- Legacy definitions deserialize with empty source title/revision and source_use_status=unverified. They remain backward compatible and cannot gain approval merely by loading.
+
+Important limitation:
+- The status is an explicit catalogue declaration, not an automated legal determination. An engineer/catalogue maintainer must verify the actual licence or permission and record the supporting source/evidence references. No IEC drawing has been reviewed or copied by this change.
+- The five built-in IEC candidates remain in_review, with unverified source-use status and no geometry/anchor evidence; they remain non-selectable.
+
+Architecture:
+- Metadata remains in the renderer-neutral symbol catalogue. No Core electrical model, terminal identity, topology, or project persistence payload is changed.
+
+Verification:
+- Source update and fetch-back verification only. No Python import/syntax execution, Qt GUI runtime, approved-variant application, undo/redo, or save/reopen runtime was performed. No tests/CI gate was run or required.
