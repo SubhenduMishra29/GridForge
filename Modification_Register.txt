@@ -1,3 +1,27 @@
+GridForge V2 — Symbol catalogue software-distribution rights gate
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- IEC distinguishes access/reference, equipment application, and replication/distribution rights. A generic "licensed" status alone does not establish that GridForge may embed and distribute a symbol drawing with the application.
+- The previous approval gate could accept a licensed source without recording the permitted use scope.
+
+Correction:
+- Added source_use_scope to renderer-neutral SymbolDefinition catalogue metadata.
+- Valid scopes: unverified, reference_only, internal_use, equipment_application, software_distribution, public_domain, prohibited.
+- Approval now requires explicit software_distribution scope or public_domain status/scope, in addition to source document identity, review evidence, geometry/anchor review, and standard reference.
+- Public-domain scope must pair with public_domain status; contradictory declarations fail closed.
+- Symbol registry repeats the distribution-scope gate; inspector displays both source-use status and scope.
+- Legacy definitions default to unverified and remain non-approved. Existing SLD presentation persistence is unchanged because this is catalogue review metadata, not SymbolBase presentation state.
+
+Verification:
+- Source fetch-back required after each update.
+- No licence is inferred from IEC record identity or ordinary database access.
+- No IEC artwork was copied or generated.
+- Runtime GUI and licensed-source acceptance remain unverified.
+
+======================================================================
 GridForge V2 — Canvas symbol rotation interaction correction
 Date: 2026-11-10
 Repository: SubhenduMishra29/GridForge
