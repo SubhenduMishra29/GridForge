@@ -100,3 +100,21 @@ def test_adapter_rejects_wrong_boundary_types():
         SLDInstrumentationWiringAdapter().project({}, _sld_model())
     with pytest.raises(TypeError):
         SLDInstrumentationWiringAdapter().project(_read_model(), object())
+
+def test_panel_wire_projects_with_its_own_identity_and_carrier_kind():
+    panel_wire = {
+        "id": "wire-1", "tag": "W-001", "role": "RETURN",
+        "terminal_path": (
+            {"equipment_id": "TB-1", "terminal_role": "2", "designation": "X2:2"},
+            {"equipment_id": "RELAY-1", "terminal_role": "COM", "designation": "X3:2"},
+        ),
+    }
+    read_model = _read_model(panel_wires=(panel_wire,))
+    projection = SLDInstrumentationWiringAdapter().project(read_model, _sld_model())
+
+    wire_record = next(item for item in projection.records if item.carrier_kind == "PANEL_WIRE")
+    assert wire_record.complete is True
+    assert wire_record.carrier_id == "wire-1"
+    assert wire_record.segments[0].carrier_kind == "PANEL_WIRE"
+    assert wire_record.segments[0].carrier_tag == "W-001"
+    assert wire_record.segments[0].cable_id is None
