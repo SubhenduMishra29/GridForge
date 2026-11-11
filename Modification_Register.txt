@@ -3776,3 +3776,11 @@ Engineer-owned physical instrumentation route geometry:
 - Added reset-to-auto support. Clearing a route override returns the segment to automatic routing; clearing the SLD document also clears its physical route overrides.
 - Added test source for document save/reopen round-trip, automatic reset, route controller dispatch, projection override selection, bend identity and reset requests. Tests remain unexecuted; no Qt interaction, movement/rotation or save/reopen runtime is claimed.
 - Geometry policy: engineer bend coordinates are SLD scene coordinates. On equipment movement/rotation, endpoint anchors are re-resolved from stable equipment/terminal identities; engineer bend coordinates remain fixed, and the renderer joins the updated endpoints through those bends. Automatic routes are recalculated by the existing router.
+
+Physical route-edit interaction and immediate canvas refresh:
+- Added a path context menu on physical instrumentation wiring graphics with Add bend here and, for engineer-owned routes, Reset to automatic route.
+- Add bend uses the clicked scene coordinate and inserts it at the nearest route segment; bend changes are emitted as immutable requests keyed by carrier kind/ID/segment index. The graphics item does not optimistically mutate its accepted route.
+- Reset emits a distinct clear-route request. SLDRouteEditController validates the request shape and dispatches to SLDController's dedicated physical route set/clear methods.
+- CanvasComposition binds a refresh callback into the one canonical SLDRouteEditController. After a successful route edit/reset, the active document is reprojected with the latest DraftNetwork and physical wiring read model, then the existing render system reconciles the route immediately.
+- The SLD route geometry remains document metadata; Core electrical connectivity and the Application instrumentation inventory are unchanged.
+- Added test source for scene-position bend insertion, route reset, persistence, controller dispatch and refresh callback. Tests remain unexecuted; GUI context-menu operation and movement/rotation/reopen scenarios have not been runtime-verified.
