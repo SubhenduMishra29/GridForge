@@ -1,3 +1,24 @@
+GridForge V2 — Contextual transform single-selection active-document isolation
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- Contextual rotation and mirror actions require exactly one selected NODE-domain identity, but the resolver sourced its model from the UI presentation controller without proving it was the same model owned by the active SLDController document.
+- A stale or cross-document selection could therefore resolve a symbol against a presentation model that was not the active editable SLD document.
+
+Correction:
+- The contextual selection resolver now requires a live SLDController active_document.
+- It requires active_document.model to be the exact model exposed by the UI presentation controller.
+- It verifies the resolved node remains in the active model's node mapping when available.
+- Existing exactly-one NODE-domain selection rule remains: zero or multiple selected nodes expose no contextual transform target. Rotation/mirroring continue to operate on a copied SymbolBase and commit through SLDController.set_node_presentation().
+- No Core equipment, terminal identity, topology, or connection state is changed.
+
+Verification:
+- Source fetched back from main and checked for exact active-model identity, node membership, and single-selection gate.
+- No Python import/syntax execution or Qt GUI runtime acceptance was performed.
+
+======================================================================
 GridForge V2 — Contextual toolbar viewport visibility and document guard
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
