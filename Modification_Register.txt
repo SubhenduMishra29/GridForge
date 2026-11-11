@@ -2959,6 +2959,15 @@ Verification:
 ======================================================================
 
 
+Batch 2 follow-up — issue #1193:
+- Confirmed both the SLD header and View-menu toggles already converge on the
+  same workspace region state: header -> SLDEditor.set_region_visible();
+  menu -> main.py::_toggle_active_region() ->
+  WorkspaceSurfaceHost.toggle_region().
+- Defect is limited to missing menu QAction checked-state projection; do not
+  introduce a second visibility state store or duplicate toggle authority.
+
+
 ======================================================================
 GridForge V2 — Translucent Predictive Placement Shadow
 Date: 2026-11-11
