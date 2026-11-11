@@ -50,7 +50,7 @@ class WiringTerminalReference:
     """Stable reference to a physical terminal; designation is its visible label."""
 
     equipment_id: str
-    terminal_id: str
+    terminal_role: str
     designation: str
 
     def __post_init__(self) -> None:
@@ -60,7 +60,7 @@ class WiringTerminalReference:
 
     @property
     def identity(self) -> tuple[str, str]:
-        return self.equipment_id, self.terminal_id
+        return self.equipment_id, self.terminal_role
 
 
 class WiringConductorRole(str, Enum):
