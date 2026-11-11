@@ -754,7 +754,6 @@ class ProjectPersistenceMigration:
         current.setdefault("dynamic_models", [])
         current.setdefault("measurement", {"channels": []})
         current.setdefault("study_cases", [])
-        current.setdefault("instrumentation_wiring", {"schema": 1, "cables": [], "cores": [], "panel_wires": [], "signals": [], "signal_bindings": []})
         current = self._migrate_presentation_collection(current)
         current = self._migrate_network_connectivity(current)
         self._reject_legacy_project_aliases(current)
