@@ -2670,3 +2670,40 @@ UI audit follow-up — issue #1190:
   The same gesture therefore has two shortcut-dispatch registrations.
 - The issue acceptance contract now requires one authoritative dispatch route
   for menu, keyboard and contextual rotation controls.
+
+
+======================================================================
+GRIDFORGE V2 — UI AUDIT SOURCE-VERIFIED ISSUE CLOSURES
+Date: 2026-11-11
+Authoritative audit repository: SubhenduMishra29/GridForge (main)
+
+CLOSED #758 — Coordinate Precision Degradation under High Zoom Factors
+- Current SLDGraphicsItemFactory creates geometry with QPointF from Python
+  numeric values; the inspected rendering path contains no float32 cast.
+- CoordinateSystem.viewport_to_scene uses the inverse viewportTransform and
+  QPointF fractional coordinates for the real QGraphicsView path.
+- SLDConnectionItem retains route and endpoint coordinates as Python floats.
+- The original float32-cast finding is obsolete against current source.
+- Implementation mirror: madhuri196mishra-cpu/GridForge #167 remains OPEN
+  pending synchronized closure; this connection has read-only implementation
+  repository permissions.
+
+CLOSED #815 — High Click-Count Fatigue and Lack of Sticky Tools
+- ModelPlacementTool.on_mouse_release delegates successful placement to
+  place_creation_draft(); successful placement ends the current draft
+  interaction and clears transient placement state only.
+- ToolManager._dispatch_input does not deactivate the active equipment tool
+  after successful placement. The next pointer event starts a fresh
+  CreationDraft through _ensure_creation_session() for the same active tool.
+- Tool switching/cancellation remains under explicit ToolManager lifecycle
+  cleanup. Repeated placement therefore does not require returning to the
+  palette after each item.
+- Implementation mirror: madhuri196mishra-cpu/GridForge #146 remains OPEN
+  pending synchronized closure; this connection has read-only implementation
+  repository permissions.
+
+Verification boundary:
+- Source inspection only; no GUI, application launch, tests, pytest or CI.
+- These closures are authoritative audit-repository state only. The open
+  implementation mirrors are explicitly not represented as closed.
+======================================================================
