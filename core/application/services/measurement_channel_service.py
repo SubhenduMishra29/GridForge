@@ -455,7 +455,9 @@ class MeasurementChannelService:
         self._validate_ct_channel_definition(
             definition, channel, existing_channels=self._channels
         )
-
+        channel.producer_id = producer_id
+        channel._bind_sample_update_authority(self._sample_update_authority)
+        return channel
 
     def _validate_ct_channel_definition(
         self,
