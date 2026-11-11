@@ -763,6 +763,33 @@ def _build_application_impl(
                 if operation == "copy":
                     return False
                 continue
+            if operation == "delete":
+                presentation_model = getattr(gridforge_application.presentation, "model", None)
+                if presentation_model is not None:
+                    connection = presentation_model.get_connection_optional(str(selected_id))
+                    if connection is None:
+                        matches = tuple(
+                            item for item in presentation_model.connections
+                            if str(item.properties.get("core_connection_id") or "") == str(selected_id)
+                            or str(item.properties.get("draft_connection_id") or "") == str(selected_id)
+                        )
+                        connection = matches[0] if len(matches) == 1 else None
+                    if connection is not None:
+                        properties = connection.properties
+                        layer = next(
+                            (item for item in gridforge_application.presentation.layers if item.layer_id == connection.layer_id),
+                            None,
+                        )
+                        if (
+                            properties.get("presentation_owner") == "engineer"
+                            and properties.get("projection_source") is None
+                            and not properties.get("core_connection_id")
+                            and properties.get("connection_kind") != "SIMPLE_WIRE"
+                            and layer is not None
+                            and not layer.locked
+                        ):
+                            continue
+                        return False
             node = _find_sld_node(selected_id)
             if node is not None and getattr(node, "equipment_id", None) is None:
                 if operation == "copy":
