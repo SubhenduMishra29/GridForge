@@ -324,9 +324,37 @@ def create_application(
                         raise ValueError(
                             f"Selection delete preflight could not resolve an engineer-owned SLD-only node {identity!r}."
                         )
+                    node_properties = getattr(node, "properties", {})
+                    if (
+                        node_properties.get("projection_source") is not None
+                        or node_properties.get("presentation_owner") not in (None, "engineer")
+                    ):
+                        raise ValueError(f"SLD node {identity!r} is not engineer-owned.")
                     layer = next((item for item in sld_document.layers if item.layer_id == node.layer_id), None)
                     if layer is None or layer.locked:
                         raise ValueError(f"SLD node {identity!r} belongs to a missing or locked layer.")
+                    for attached in sld_document.model.connections:
+                        if attached.source_node_id != identity and attached.target_node_id != identity:
+                            continue
+                        attached_properties = attached.properties
+                        if (
+                            attached_properties.get("core_connection_id")
+                            or attached_properties.get("projection_source") is not None
+                            or attached_properties.get("connection_kind") == "SIMPLE_WIRE"
+                            or attached_properties.get("orphaned_from_core_connection_id")
+                            or attached_properties.get("presentation_owner") != "engineer"
+                        ):
+                            raise ValueError(
+                                f"SLD node {identity!r} has a Core-backed, projection-owned, orphaned, or non-engineer connection {attached.connection_id!r}."
+                            )
+                        attached_layer = next(
+                            (item for item in sld_document.layers if item.layer_id == attached.layer_id),
+                            None,
+                        )
+                        if attached_layer is None or attached_layer.locked:
+                            raise ValueError(
+                                f"Attached SLD connection {attached.connection_id!r} belongs to a missing or locked layer."
+                            )
                 elif child.command_type == "sld.remove_connection":
                     connection = sld_document.model.get_connection_optional(identity)
                     if connection is None:
