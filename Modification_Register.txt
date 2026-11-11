@@ -2760,3 +2760,29 @@ Verification:
 - Implementation mirror issue #133 remains separate; authoritative issue #822
   is closed as completed against the integrated source.
 ======================================================================
+
+
+======================================================================
+GRIDFORGE V2 — UI AUDIT / INSPECTOR CONTENT REACHABILITY
+Date: 2026-11-11
+New authoritative issue: #1191
+Related existing issue: #821 (batch editing / keyboard navigation)
+
+Finding:
+- PropertiesPanelWidget._build_controls() uses a plain root QVBoxLayout and
+  directly mounts the engineering form, transformer editor, CT secondary
+  channel editor, annotation form, symbol review form, status and actions.
+- _render_projection() adds parameter rows dynamically; annotation controls
+  add additional fields/actions per annotation block.
+- The inspector is hosted in a constrained SLD editor splitter region.
+- No QScrollArea wraps this content, despite QScrollArea being available through
+  ui.core.qt. Dense equipment forms can exceed available inspector height and
+  make lower controls inaccessible without sacrificing canvas area.
+
+New issue #1191 requires a scrollable content body and persistent action footer.
+Existing #821 remains open for batch editing / multi-selection navigation;
+the two scopes are explicitly separate.
+
+Verification:
+- Static source inspection only. No GUI or runtime measurement performed.
+======================================================================
