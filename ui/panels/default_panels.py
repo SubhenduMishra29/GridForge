@@ -374,6 +374,7 @@ class PropertiesPanelWidget(QWidget):
         root.addWidget(QLabel("SLD Data Annotations", self))
         root.addLayout(self._annotation_layout)
         self._sld_controller: Any | None = None
+        self._sld_selection_manager: Any | None = None
         self._sld_selection_ids: tuple[str, ...] = ()
         self._sld_annotations_cleared = False
         self._validation_label = QLabel("Select an element to inspect.", self)
@@ -409,17 +410,38 @@ class PropertiesPanelWidget(QWidget):
         self._refresh_commit_network_action()
 
     def bind_sld_annotation_runtime(self, *, controller: Any, selection_manager: Any) -> None:
-        """Bind annotation editing to canonical SLD selection and Application commands."""
+        """Bind annotation editing to the canonical SLD controller and selection authority."""
         if controller is None or not callable(getattr(controller, "set_annotation_blocks", None)):
             raise TypeError("controller must provide set_annotation_blocks().")
         if selection_manager is None or not callable(getattr(selection_manager, "select_single", None)):
             raise TypeError("selection_manager must be the canonical selection manager.")
-        self._sld_controller = controller
         signal = getattr(selection_manager, "selection_changed", None)
         connect = getattr(signal, "connect", None)
         if not callable(connect):
             raise TypeError("selection_manager must expose selection_changed.connect().")
+        if self._sld_controller is controller and self._sld_selection_manager is selection_manager:
+            self._refresh_sld_annotation_controls()
+            return
+        self.unbind_sld_annotation_runtime()
         connect(self._on_sld_selection_changed)
+        self._sld_controller = controller
+        self._sld_selection_manager = selection_manager
+        self._refresh_sld_annotation_controls()
+
+    def unbind_sld_annotation_runtime(self) -> None:
+        """Disconnect the selection observer before Canvas composition teardown."""
+        manager = self._sld_selection_manager
+        signal = getattr(manager, "selection_changed", None) if manager is not None else None
+        disconnect = getattr(signal, "disconnect", None)
+        if callable(disconnect):
+            try:
+                disconnect(self._on_sld_selection_changed)
+            except (RuntimeError, TypeError):
+                pass
+        self._sld_selection_manager = None
+        self._sld_controller = None
+        self._sld_selection_ids = ()
+        self._sld_annotations_cleared = False
         self._refresh_sld_annotation_controls()
 
     def _on_sld_selection_changed(self, ids: Any) -> None:
