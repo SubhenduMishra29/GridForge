@@ -27,12 +27,11 @@ class _Application:
 class _State:
     def __init__(self):
         self.dirty = False
+        self.selected_node_ids = set()
+        self.selected_connection_ids = set()
 
     def mark_dirty(self):
         self.dirty = True
-
-        self.selected_node_ids = set()
-        self.selected_connection_ids = set()
 
     def clear_selection(self):
         self.selected_node_ids.clear()
