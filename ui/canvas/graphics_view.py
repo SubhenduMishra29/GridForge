@@ -294,6 +294,8 @@ class GraphicsView(QGraphicsView):
         self._contextual_strip.adjustSize()
         width = self._contextual_strip.sizeHint().width()
         height = self._contextual_strip.sizeHint().height()
+        x = min(max(4, anchor_x + 8), max(4, viewport_rect.width() - width - 4))
+        y = min(max(4, anchor_y - height - 8), max(4, viewport_rect.height() - height - 4))
         self._contextual_strip.move(x, y)
         self._contextual_strip.show()
         self._contextual_strip.raise_()
