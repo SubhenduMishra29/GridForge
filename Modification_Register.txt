@@ -2379,3 +2379,30 @@ Architecture:
 Verification:
 - Source files and the new regression test were committed and fetched back from current main.
 - No tests, CI, Python import/syntax execution, Qt GUI interaction, snap gesture, project save/reopen, or DraftNetwork-to-Core commit runtime was executed. No runtime acceptance is claimed.
+
+
+======================================================================
+GridForge V2 — Draft connection / wire presentation-layer propagation (Phase D2b)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Complete Phase D2b of issue #820 by retaining the SLD layer selected when a draft wire is authored and applying the owning layer's presentation state to its canvas projection.
+
+Implementation:
+- Added presentation-only layer_id to Application-owned DraftConnection, appended to preserve positional constructor compatibility. Legacy serialized draft connections without the field restore to "default"; invalid empty layer identities are rejected.
+- DraftConnection serialization/deserialization and DraftNetwork round-trips preserve layer membership. Draft route edits preserve the original layer instead of silently reverting to Default; the Application handler's preflight replacement follows the same rule.
+- WireTool captures the canonical SLDController.active_layer_id when the first endpoint is acquired and includes that captured identity in the CreateDraftConnectionCommand. The second endpoint and later active-layer changes cannot silently relocate the in-progress wire.
+- DraftSLDCanvasConnection projects layer_id from the Application draft read model with a legacy Default fallback.
+- Draft wire rendering resolves the connection's layer against the active document layer registry, fails closed for unknown layer identities, and applies layer visibility, opacity, and deterministic layer Z order. Layer state and membership participate in the render signature, so edits invalidate an existing wire realization.
+- Commit metadata now carries the draft connection layer identity alongside endpoint and route metadata for downstream presentation reconciliation.
+- No Core equipment, terminal, endpoint, topology, connectivity, or electrical model receives SLD layer metadata. Layer identity remains Application draft / UI presentation metadata only.
+
+Regression coverage:
+- Added a DraftConnection serialization and legacy-default regression, including DraftNetwork round-trip and route-edit preservation.
+
+Verification:
+- Fetched back all changed source, test, and register files from current main. Source-level checks confirm serialization, compatibility fallback, first-endpoint capture, command payload propagation, route-edit preservation, projection, renderer state application, signature invalidation, and commit metadata propagation.
+- Tests and CI were not run. No Python import/syntax execution, Qt runtime, manual wire gesture, multi-layer visibility/opacity/order interaction, project save/reopen, or post-commit SLD presentation acceptance is claimed.
+- Phase D2b source work is complete. Phase D2c (draft annotation ownership) and D2d (undo/redo, document switching, save/reopen reconciliation) remain open.
