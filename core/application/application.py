@@ -4649,6 +4649,26 @@ class Application:
             raise ValueError("Engineering update batch requires distinct non-empty equipment identities.")
         if any(str(getattr(intent, "identity_kind", "element")).strip().lower() != "element" for intent in values):
             raise ValueError("Engineering update batch supports committed equipment only.")
+        for intent in values:
+            element_type = str(getattr(intent, "element_type", "")).strip().lower()
+            element_id = str(getattr(intent, "element_id", "")).strip()
+            read_model = self.read_element(element_type, element_id)
+            parameters = {
+                item.parameter_id: item
+                for item in getattr(read_model, "engineering_parameters", ())
+            }
+            for parameter_id in dict(getattr(intent, "values", {}) or {}):
+                parameter = parameters.get(parameter_id)
+                if parameter is None or not parameter.editable or parameter.derived:
+                    raise ValueError(
+                        f"Engineering batch parameter {parameter_id!r} is not editable "
+                        f"for {element_type} {element_id}."
+                    )
+                if parameter.topology_impact:
+                    raise ValueError(
+                        f"Engineering batch does not permit topology-impacting parameter "
+                        f"{parameter_id!r} on {element_type} {element_id}."
+                    )
         commands = EngineeringUpdatePreparer.prepare_batch(values)
         return EngineeringUpdateBatchCommand(commands=commands)
 
