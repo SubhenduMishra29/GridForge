@@ -33,9 +33,10 @@ Author:
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
-from ui.core.qt import QAction, QBrush, QGraphicsScene, QGraphicsView, QMenu, QPainter, QPointF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
+from ui.core.qt import QAction, QBrush, QGraphicsScene, QGraphicsView, QMenu, QPainter, QPointF, QRectF, Qt, Signal, QHBoxLayout, QToolButton, QWidget
 from ui.styling.presentation_style import token_color
 from ui.canvas.interaction_manager import InteractionManager
 from ui.canvas.navigation_controller import NavigationController
@@ -532,7 +533,35 @@ class GraphicsView(QGraphicsView):
         if adapter is None:
             return None
         try:
-            return adapter.adapt(event)
+            semantic = adapter.adapt(event)
+            # The insertion corridor is specified in viewport pixels, not
+            # scene units, so its physical hit width remains stable at every zoom.
+            viewport = semantic.position
+            x, y = float(viewport.x()), float(viewport.y())
+            center = semantic.scene_position
+            left = self.mapToScene(QPointF(x - 15.0, y).toPoint())
+            right = self.mapToScene(QPointF(x + 15.0, y).toPoint())
+            up = self.mapToScene(QPointF(x, y - 15.0).toPoint())
+            down = self.mapToScene(QPointF(x, y + 15.0).toPoint())
+            tolerance = max(
+                math.hypot(float(left.x()) - float(center.x()), float(left.y()) - float(center.y())),
+                math.hypot(float(right.x()) - float(center.x()), float(right.y()) - float(center.y())),
+                math.hypot(float(up.x()) - float(center.x()), float(up.y()) - float(center.y())),
+                math.hypot(float(down.x()) - float(center.x()), float(down.y()) - float(center.y())),
+            )
+            return CanvasMouseEvent(
+                position=semantic.position,
+                scene_position=semantic.scene_position,
+                object_id=semantic.object_id,
+                presentation_hit=semantic.presentation_hit,
+                button=semantic.button,
+                buttons=semantic.buttons,
+                modifiers=semantic.modifiers,
+                event_type=semantic.event_type,
+                timestamp=semantic.timestamp,
+                insertion_intent=semantic.insertion_intent,
+                insertion_tolerance_scene=tolerance,
+            )
         except (AttributeError, TypeError, ValueError, RuntimeError):
             return None
 
@@ -541,13 +570,9 @@ class GraphicsView(QGraphicsView):
         if semantic is None:
             return False
         hit = semantic.hit_target
-        if (
-            getattr(getattr(hit, "kind", None), "value", None) != "simple_wire_segment"
-            or not isinstance(hit.core_connection_id, str)
-            or not hit.core_connection_id
-            or hit.draft_connection_id is not None
-        ):
-            return False
+        # Resolve against the full 15-pixel viewport corridor. The semantic
+        # point hit may be empty when the pointer is close to, but not directly
+        # on, the routed wire.
         creation_context = self.tool_manager.creation_context
         if not creation_context.active:
             return False
@@ -562,9 +587,13 @@ class GraphicsView(QGraphicsView):
                 orientation=orientation,
             )
             candidate = insertion_tool.insertion_target(semantic)
+            if candidate is None:
+                return False
+            hit_connection_id = getattr(hit, "core_connection_id", None)
             if (
-                candidate is None
-                or str(candidate.get("connection_id", "")) != hit.core_connection_id
+                getattr(getattr(hit, "kind", None), "value", None) == "simple_wire_segment"
+                and hit_connection_id
+                and str(candidate.get("connection_id", "")) != str(hit_connection_id)
             ):
                 return False
             return bool(
@@ -615,18 +644,18 @@ class GraphicsView(QGraphicsView):
             preview_event = self._palette_event_without_hit(event)
             self.interaction_manager.mouse_move(preview_event)
             self._palette_drag_preview_started = True
-        if insertion_requested and not self._palette_drag_insertion_started:
-            if not self._begin_palette_insertion(event):
-                # Keep the ordinary placement preview tracking the cursor
-                # while Shift+insertion has no uniquely valid Core wire target.
-                # The failed insertion intent must not leave a stale preview
-                # at the previous drag position.
+        if not self._palette_drag_insertion_started:
+            insertion_started = self._begin_palette_insertion(event)
+            if insertion_started:
+                self._palette_drag_insertion_started = True
+            elif insertion_requested:
+                # Explicit Shift insertion remains fail-closed when no
+                # eligible wire target can be resolved.
                 self.interaction_manager.mouse_move(
                     self._palette_event_without_hit(event)
                 )
                 event.acceptProposedAction()
                 return
-            self._palette_drag_insertion_started = True
         elif self._palette_drag_insertion_started:
             self.interaction_manager.mouse_move(event)
         elif not insertion_requested:
@@ -638,10 +667,13 @@ class GraphicsView(QGraphicsView):
             event.ignore()
             return
         shift_mask = int(Qt.KeyboardModifier.ShiftModifier.value)
-        insertion_requested = bool(int(event.modifiers()) & shift_mask)
+        insertion_requested = bool(int(event.modifiers()) & shift_mask) or self._palette_drag_insertion_started
         if not self._palette_drag_preview_started:
             self.interaction_manager.mouse_move(self._palette_event_without_hit(event))
             self._palette_drag_preview_started = True
+        if not insertion_requested:
+            insertion_requested = self._begin_palette_insertion(event)
+            self._palette_drag_insertion_started = insertion_requested
         if insertion_requested:
             if not self._palette_drag_insertion_started:
                 if not self._begin_palette_insertion(event):
