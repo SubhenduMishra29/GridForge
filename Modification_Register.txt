@@ -3212,3 +3212,28 @@ Verification:
   acceptance of multi-selection, Tab/Shift+Tab traversal, atomic rejection,
   undo and redo. Do not represent these runtime behaviours as GUI-verified.
 ======================================================================
+
+
+Issue #821 implementation follow-up:
+- Added Application.prepare_engineering_update_batch() so aggregate command
+  construction and canonical child preparation remain Application-owned; the
+  UI adapter no longer constructs the aggregate command directly.
+- Changed the aggregate command identity to model.update_batch so the existing
+  RevisionService mutation contract records one model revision transition.
+  Topology-impacting parameter rows are excluded by the Inspector/editor.
+- Added Application semantic-event handling for model.update_batch. Execute,
+  undo and redo now publish an ElementUpdated event for each child equipment
+  identity plus one aggregate NetworkChanged event. Without this dispatch the
+  aggregate's outer command identity would not map to a single equipment ID,
+  leaving the multi-selection projection stale after commit/history operations.
+- Added early selection reconciliation for removed targets and unrelated
+  ElementUpdated events before attempting multi-selection projection.
+- Batch cell parsing now skips unchanged empty values and accepts typed complex
+  values without coercing empty or mixed states into numeric zero or false.
+- Latest follow-up commits:
+  Application batch preparation: 53ed04bd43f29dd4f4152176874e63c3fddadbc9
+  Batch semantic events: 31d3b76b2f0f949e3d69ef9726ab7efb84c66c7d
+  Selection event reconciliation: 326a354e666a400f83fa8642f4ddff3d9aa95ba9
+  Batch grid parsing/focus: 118a047cc2ab7fdf18f63381c38c5357e94ad1fa
+- Source-level review only; runtime Qt, undo/redo, rollback and GUI behaviour
+  remain unverified.
