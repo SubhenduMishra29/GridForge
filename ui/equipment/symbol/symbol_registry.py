@@ -194,6 +194,9 @@ class SymbolRegistry:
             and bool(item.standard_reference_id)
             and bool(item.geometry_review_reference_id)
             and bool(item.terminal_anchor_review_reference_id)
+            and bool(item.source_document_title)
+            and bool(item.source_document_revision)
+            and item.source_use_status in {"licensed", "permission_granted", "public_domain"}
         )
 
     def get_variant(
