@@ -13,13 +13,23 @@ from core.application.commands.draft_commands import UpdateDraftConnectionRouteC
 class SLDRouteEditController:
     """Collect bend edits and commit them through the existing SLDController."""
 
-    def __init__(self, sld_controller: Any) -> None:
+    def __init__(self, sld_controller: Any, refresh_callback: Any | None = None) -> None:
         if sld_controller is None or not callable(getattr(sld_controller, "set_connection_route", None)):
             raise TypeError("sld_controller must expose set_connection_route()")
         self._controller = sld_controller
+        self._refresh_callback = refresh_callback
         self._connection_id: str | None = None
         self._core_connection_id: str | None = None
         self._points: list[tuple[float, float]] = []
+
+    def bind_refresh_callback(self, callback: Any) -> None:
+        if not callable(callback):
+            raise TypeError("refresh callback must be callable.")
+        self._refresh_callback = callback
+
+    def _refresh_after_edit(self) -> None:
+        if self._refresh_callback is not None:
+            self._refresh_callback()
 
     def begin(
         self,
@@ -69,11 +79,13 @@ class SLDRouteEditController:
                 if not callable(clearer):
                     raise RuntimeError("SLDController does not expose physical wiring route reset.")
                 clearer(carrier_kind, carrier_id, segment_index)
+                self._refresh_after_edit()
                 return
             setter = getattr(self._controller, "set_instrumentation_wiring_route", None)
             if not callable(setter):
                 raise RuntimeError("SLDController does not expose physical wiring route persistence.")
             setter(carrier_kind, carrier_id, segment_index, tuple(points))
+            self._refresh_after_edit()
             return
         draft_connection_id = request.get("draft_connection_id")
         if isinstance(draft_connection_id, str) and draft_connection_id:
