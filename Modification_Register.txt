@@ -2693,3 +2693,54 @@ Verification boundary:
 - Generic non-CT measurement definitions retain their existing provisioning path. Project activation remains candidate-first and transactional; invalid CT definitions fail before the active registry is replaced, preserving the prior registry through existing activation compensation.
 - Existing transaction semantics remain unchanged: channel create/update/delete register inverse registry snapshots; undo applies those inverses; redo re-executes immutable commands; save serializes definitions only; reopen re-provisions against the candidate Network with live sample state reset to unavailable/UNKNOWN.
 - Verification: static source inspection and GitHub fetch-back only. No tests, CI, app startup, GUI interaction, or runtime experiments were run. Manual acceptance remains required for command rollback/undo/redo, save/reopen, and trusted sample ingress.
+
+======================================================================
+GRIDFORGE V2 — UI AUDIT RESTART / ROTATION ACTION RECONCILIATION
+Date: 2026-11-11
+Authoritative audit repository: SubhenduMishra29/GridForge (main)
+Implementation repository: madhuri196mishra-cpu/GridForge (main)
+New authoritative UI issue: #undefined
+
+Audit baseline:
+- Re-fetched both repository main branches and confirmed identical source blob
+  hashes for main.py, ui/canvas/graphics_view.py,
+  ui/canvas/canvas_composition.py, ui/core/action_catalog.py,
+  ui/plugins/menu_plugin.py, ui/editors/sld/sld_editor.py, and ui/core/qt.py.
+- The Modification_Register.txt files differ between repositories; this
+  authoritative audit entry is recorded only in SubhenduMishra29/GridForge.
+- Existing November 11 rotation/mirroring/group-transform corrections remain
+  prior work and are not recreated.
+
+New finding:
+- SelectTool.on_key_press handles R and Shift+R through the group transform
+  commit path.
+- GraphicsView.keyPressEvent handles Q/E through the single-symbol contextual
+  transform path.
+- Edit -> Rotate is routed by main.py directly to the single-symbol helper;
+  it has no R shortcut in the canonical action catalog or menu specification.
+- Consequently, keyboard R/Shift+R, Q/E, and the visible Edit-menu Rotate
+  action do not share one explicit selection-aware command contract. The menu
+  action does not rotate a multi-selection.
+- Recorded as authoritative issue #undefined; implementation tracking remains in
+  madhuri196mishra-cpu/GridForge.
+
+Fit-control reconciliation:
+- The only explicit QPushButton("Fit") found in the inspected canvas
+  composition is owned by ReadOnlySLDViewport and fits the comparison sheet.
+- SLDCanvasSurface, the primary editable SLD canvas, exposes zoom +/- controls;
+  its Fit SLD View action is in the View menu and routes to the primary
+  NavigationController.
+- These two Fit controls target different viewports and are not a confirmed
+  duplicate. Do not remove either on the basis of label similarity alone.
+- The primary canvas also has keyboard fit routes (F through the canonical
+  action and 0 through GraphicsView); reconcile shortcut duplication and
+  ownership in the broader navigation audit before changing them.
+
+Verification boundary:
+- Static source inspection only. No application launch, Qt GUI, tests, pytest,
+  CI, or runtime interaction was performed.
+- No existing issue was closed and no PR was merged in this initial scan.
+- Open PR #1189 in the audit repository and PR #19 in the implementation
+  repository are unrelated to this rotation finding and remain outside this
+  first UI correction batch.
+======================================================================
