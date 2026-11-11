@@ -2786,3 +2786,17 @@ the two scopes are explicitly separate.
 Verification:
 - Static source inspection only. No GUI or runtime measurement performed.
 ======================================================================
+
+
+PR UI audit note — #1189 (CT secondary measurement-channel authoring):
+- The PR root-relative diff adds ui/panels/ct_secondary_channel_editor.py and
+  integrates CTSecondaryChannelEditor into PropertiesPanelWidget.
+- The widget imports Qt only through ui.core.qt and submits immutable
+  measurement commands through Application.execute(); no direct Core mutation
+  is visible in the inspected widget.
+- The PR description says a dedicated UI editor is not included, contradicting
+  the actual diff. A review comment requests correction: CT S1/S2 editor is
+  included; PT/CVT authoring remains out of scope.
+- The new editor increases the Properties inspector's vertical content and is
+  covered by new issue #1191.
+- PR #1189 remains Draft; no merge was performed.
