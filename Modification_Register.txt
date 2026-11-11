@@ -2224,3 +2224,33 @@ Decision for this batch:
 Verification:
 - Inspected current SLD schema constants, schema-3 strict validator, schema 2-to-3 migration, SLDDocument serializer, SLDNode/SLDConnection/SLDAnnotationBlock, SLDService command dispatch, SLDCommandHandlers, SLDCanvasProjection and SLDCanvasRenderSystem.
 - Modification Register updated and fetched back. No Python import/syntax execution, migration execution, command undo/redo execution, Qt GUI, or project round-trip runtime verification was performed.
+
+
+======================================================================
+GridForge V2 — SLD schema 4 persisted presentation-layer model (Phase A)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Implement Phase A of the issue #820 presentation-layer contract: canonical SLD schema 4, schema 3 migration, renderer-neutral layer records, explicit membership, strict validation, and serialization round-trip coverage.
+
+Implementation:
+- Bumped SLD_SCHEMA_VERSION from 3 to 4. Project and presentation collection schema versions remain unchanged.
+- Added immutable SLDPresentationLayer records with stable layer_id, name, visible, locked, opacity, and explicit order.
+- SLDDocument now owns a non-empty ordered layer registry with exactly one stable "default" layer identity, validates unique IDs and contiguous unique order values, and validates node/connection/annotation membership against the registry.
+- Added explicit layer_id presentation fields to SLDNode, SLDConnection, and SLDAnnotationBlock. Constructors and model creation APIs default new objects to "default"; serialization preserves membership.
+- Added deterministic schema 3-to-4 migration. It creates a visible, unlocked, fully opaque default layer and assigns every legacy node, connection, and annotation block to that layer.
+- Updated canonical schema field allowlists and strict validation for layer records, finite opacity in [0, 1], boolean visibility/locking, non-negative contiguous ordering, unique layer IDs/orders, and valid membership references.
+- Updated SLDDocument.to_dict()/from_dict() to persist and restore the ordered layer registry.
+- Added source regression coverage for schema-3 migration of nodes/connections/annotations and schema-4 layer membership/document round-trip.
+
+Architecture boundaries:
+- Layer metadata and membership remain in the SLD presentation document/model. No Core equipment, terminal, connection, topology, or study model was changed.
+- No command lifecycle, transactional layer mutations, undo/redo, renderer filtering/opacity/Z integration, active-layer UI, locking gestures, or annotation decluttering was introduced; those remain Phases B-E.
+
+Verification:
+- Fetched current main before editing and updated files sequentially using their current blob SHAs.
+- Source changes committed to main and fetched back for migration, package schema, model, document, and persistence test files.
+- Static source inspection confirmed the schema-4 validator requires layer membership on all three authored collections and validates all references against the document layer registry.
+- Added tests but did not execute tests, CI, imports, project package runtime, or Qt GUI acceptance. No runtime save/reopen or rendering behavior is claimed.
