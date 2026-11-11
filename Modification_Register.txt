@@ -1473,3 +1473,33 @@ Verification boundary:
   back from GitHub after commit.
 - No tests, CI, GUI, startup, or runtime experiments were run.
 - Exact inverse and interactive acceptance remain open; #1180 stays OPEN.
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-007 — ROOT ISSUE #1180 DRAFT IDENTITY-SAFE INVERSE
+======================================================================
+Date: 2026-11-11
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Draft transaction inverses now capture the original immutable DraftEquipment
+  and DraftConnection objects, together with a detached validation-state copy.
+- Restore reinstates those same objects and stable IDs instead of rebuilding
+  replacement objects from serialized dictionaries.
+- Before changing either collection, restore preflights every currently
+  occupied identity. A different object at a captured ID, or an unexpected
+  object outside the captured snapshot, causes a fail-closed error rather than
+  silent replacement or data loss.
+- Serialized restore_snapshot/from_dict remains the persistence/reopen path;
+  transaction rollback/undo uses the identity-preserving in-memory snapshot.
+- No additional service, registry, or transaction authority introduced.
+
+Verification boundary:
+- Static source inspection confirms DraftEquipment and DraftConnection are
+  frozen dataclasses and that remove-equipment/remove-connection inverses use
+  the new exact-object snapshot/restore path.
+- Updated DraftNetwork, DraftCommandHandlers, and this register entry fetched
+  back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Core/SLD inverse acceptance and interactive #1180 acceptance remain open.
+
