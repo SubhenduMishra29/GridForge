@@ -192,7 +192,16 @@ class CanvasPlugin:
             present = getattr(surface, "present_composite_document", None)
             if not callable(present):
                 raise RuntimeError("Canonical SLDCanvasSurface cannot present a composite SLD document.")
-            snapshot = present(document, draft_snapshot)
+            sld_controller = getattr(self._composition, "sld_controller", None)
+            wiring_projection = None
+            wiring_reader = getattr(sld_controller, "read_instrumentation_wiring_projection", None)
+            if callable(wiring_reader):
+                wiring_projection = wiring_reader()
+            snapshot = present(
+                document,
+                draft_snapshot,
+                instrumentation_wiring=wiring_projection,
+            )
         self._sld_canvas_snapshot = snapshot
         return snapshot
 
