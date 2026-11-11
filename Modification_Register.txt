@@ -3657,3 +3657,32 @@ Disposition:
 - Commit: 52a0db3de38896da544ca43fa984f8c3077fcefe
 - Runtime startup verification remains pending in the user's local checkout.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical SLD Layers Menu Action Registration
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Observed startup failure:
+- MenuPlugin's View > Panels menu references action ID 'view.layers'.
+- main.py already supplies the runtime handler, but the canonical
+  ui/core/action_catalog.py omitted its ActionDefinition.
+- Menu construction correctly failed closed when the router could not
+  resolve canonical metadata; this prevented plugin initialization.
+
+Correction:
+- Added the missing canonical 'view.layers' ActionDefinition to the
+  single-source presentation action catalog.
+- Kept the existing SLD layer-manager handler and menu projection intact.
+
+Disposition:
+- Corrected ui/core/action_catalog.py.
+- Commit: 812e72b495dba018cd3b7a04c024f2c8b61d5686
+- Local startup verification remains pending.
+- The subsequent Properties panel cleanup error in the supplied traceback
+  is a secondary failure during teardown after plugin initialization aborts;
+  it is not the originating exception and will be audited separately if it
+  persists after this correction.
+======================================================================
