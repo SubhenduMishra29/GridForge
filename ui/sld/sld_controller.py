@@ -512,6 +512,23 @@ class SLDController:
         for node_id in node_ids:
             node = document.model.get_node_optional(node_id)
             if node is None:
+                by_equipment = getattr(document.model, "get_node_by_equipment_id_optional", None)
+                node = by_equipment(node_id) if callable(by_equipment) else None
+            if node is None:
+                if node_id in elements:
+                    element_type = str(elements[node_id].element_type).strip().upper()
+                    if element_type == "BUS":
+                        append(DeleteBusCommand(bus_id=node_id), node_id)
+                    elif element_type == "TRANSFORMER":
+                        append(DeleteTransformerCommand(transformer_id=node_id), node_id)
+                    elif element_type == "BREAKER":
+                        append(DeleteBreakerCommand(breaker_id=node_id), node_id)
+                    else:
+                        raise ValueError(
+                            f"Deletion of Core equipment type {element_type!r} is unsupported; selection was not changed."
+                        )
+                    selected_core_equipment.add(node_id)
+                    continue
                 if node_id in draft_equipment:
                     append(RemoveDraftEquipmentCommand(draft_id=node_id, document_id=document.document_id), node_id)
                     selected_draft_equipment.add(node_id)
