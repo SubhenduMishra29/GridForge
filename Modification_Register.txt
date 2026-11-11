@@ -2434,3 +2434,26 @@ Verification:
 - Fetched back the controller, regression test, projection, renderer, Application SLD service, and register. Source-level checks confirm authoring-layer capture, existing membership preservation, validation, controller and Application lock guards, and existing renderer layer behavior.
 - Tests/CI and Qt GUI interaction were not run. No runtime annotation editing, collision/decluttering acceptance, save/reopen, or visual review is claimed.
 - Phase D2c source work is complete. Phase D2d (undo/redo, document switching, and save/reopen reconciliation) remains open.
+
+
+======================================================================
+GridForge V2 — Layered SLD lifecycle reconciliation (Phase D2d)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit:
+- SLDDocument schema-4 serialization already persists the complete presentation layer registry, node membership, connection membership, and annotation-block membership. ProjectPersistenceService already serializes the canonical SLD document into the project package; schema migration and canonical validation preserve the schema-3 Default-layer compatibility path.
+- Application layer commands already use a complete before/after layer-state snapshot and an atomic document replacement. Their inverse journal checks the exact installed state before undo, preventing stale or externally modified layer membership from being overwritten. Existing command lifecycle regression coverage exercises layer create/update/reorder/delete and undo/redo with node, connection, and annotation membership.
+- SLDController already keys transient active-layer selection by document ID, so normal document switching retains independent selection per open document. The audit found a lifecycle leak: active-layer selection could survive project load/close, document unregister, or same-ID document replacement and be reused if IDs were recycled.
+
+Implementation:
+- Clear transient active-layer selections at ProjectLoaded and ProjectClosed boundaries; clear again on controller disposal.
+- Clear a document's transient layer selection when it is unregistered or replaced by a different SLDDocument instance with the same document ID. Ordinary activation between still-open documents continues to retain each document's own selection.
+- Added controller regression coverage for per-document selection isolation, project-load ID reuse protection, project close, and disposal.
+- Added a project-package save/load/save/load regression covering layer registry metadata and node, connection, and annotation membership across the actual .gridforge persistence boundary.
+
+Verification:
+- Fetched back the controller, controller tests, project persistence tests, existing Application undo/redo tests, SLD service/document source, and register. Source-level checks confirm transient-state cleanup, per-document selection behavior, atomic conflict-aware layer undo, full document serialization, and package round-trip regression coverage.
+- Tests/CI and Qt GUI lifecycle interaction were not run. No runtime save/reopen or multi-document GUI acceptance is claimed.
+- Phase D2a, D2b, D2c, and D2d source work is complete. Phase D overall still requires menu/contextual layer integration review and final UI acceptance; Phase E annotation collision-aware decluttering remains outstanding.
