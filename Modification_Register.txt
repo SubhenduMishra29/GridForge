@@ -3741,3 +3741,10 @@ SLD Canvas snapshot and render realization hand-off:
 - Prevented projected physical wiring items from binding to the authored SLD route-edit controller: their geometry is regenerated from canonical terminal paths and their projection IDs are not persisted SLD connection IDs.
 - The render snapshot path is still transient: no SLDDocument connection is added and no Core topology mutation is performed.
 - Added canvas projection test source for segment metadata, terminal identity, signal provenance, unresolved diagnostics and document non-mutation. Tests and Qt realization remain unexecuted.
+
+Renderer realization contract for transient instrumentation segments:
+- Canvas projection converts resolved physical conductor segments into renderer-neutral SLDCanvasConnection values in the committed canvas snapshot, while retaining their instrumentation_wiring projection source marker and stable carrier/segment identity.
+- Existing SLDCanvasRenderSystem then uses the canonical SLDEndpointResolver, ConnectionRouter and SLDGraphicsItemFactory path. Equipment rotation/mirroring therefore re-resolves terminal anchors through the existing realization mechanism.
+- Projected wiring connections are read-only: SLDCanvasRenderSystem does not bind them to the persisted SLD route-edit controller. Their route is regenerated from canonical terminal path and auto-routing; authored SLD connection route state is not created or overwritten.
+- The canvas snapshot exposes unresolved carrier diagnostics separately and contributes no graphics connection for incomplete paths.
+- Added renderer-input test source for segment metadata and diagnostics. Runtime Qt rendering and composition-root automatic provider binding are still outstanding; current SLDController projection API and SLDCanvasProjection input contract are available for that integration.
