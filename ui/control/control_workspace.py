@@ -10,7 +10,6 @@ commands.
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
 
 from ui.core.qt import QGraphicsView, QVBoxLayout, QWidget, Qt
 from ui.canvas.control_canvas import ControlCanvas
@@ -103,7 +102,6 @@ class ControlWorkspace(QWidget):
         root.addWidget(self._view, 1)
         # ControlEditor owns the visible ToolShelf; this workspace retains only
         # registry metadata and activation, not a second tool-presentation widget.
-        self._workspace_splitter = None
 
         self.refresh()
 
