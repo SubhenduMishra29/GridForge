@@ -188,7 +188,7 @@ class SLDCanvasProjection:
                         target_node_id=segment.target.node_id,
                         source_endpoint=segment.source,
                         target_endpoint=segment.target,
-                        route=SLDRoute(),
+                        route=segment.route,
                         connection_kind="instrumentation",
                         presentation_owner="application_projection",
                         projection_source="instrumentation_wiring",
