@@ -62,6 +62,7 @@ class SelectionProjectionCoordinator:
         self.application = None
         self.properties_panel = properties_panel
         self._disposed = False
+        self._batch_projection_active = False
 
         signal = getattr(selection_manager, "selection_changed", None)
         if signal is None or not callable(getattr(signal, "connect", None)):
@@ -157,9 +158,38 @@ class SelectionProjectionCoordinator:
                         return
 
         selected_ids = tuple(self.selection_manager.get_selected_ids())
+        if self._batch_projection_active and len(selected_ids) > 1:
+            return
         if not selected_ids or self.application is None:
             self.clear_projection()
             return
+
+        if len(selected_ids) > 1 and self.properties_panel is not None:
+            snapshotter = getattr(self.selection_manager, "snapshot_selection", None)
+            restorer = getattr(self.selection_manager, "restore_selection", None)
+            batch_setter = getattr(self.properties_panel, "set_batch_targets", None)
+            if callable(snapshotter) and callable(restorer) and callable(batch_setter):
+                selection_snapshot = snapshotter()
+                projected: list[ProjectionState] = []
+                self._batch_projection_active = True
+                try:
+                    for selected_id in selected_ids:
+                        self.selection_manager.select_single(selected_id)
+                        target = getattr(self.properties_panel, "target", None)
+                        if isinstance(target, ProjectionState):
+                            projected.append(target)
+                finally:
+                    restorer(selection_snapshot)
+                    self._batch_projection_active = False
+                if (
+                    len(projected) == len(selected_ids)
+                    and all(state.identity_kind == "element" for state in projected)
+                    and len({state.display_type.strip().lower() for state in projected}) == 1
+                ):
+                    batch_setter(tuple(projected))
+                else:
+                    self.clear_projection()
+                return
 
         object_id = selected_ids[0]
         removed_id = self._selected_event_id(event) if isinstance(
