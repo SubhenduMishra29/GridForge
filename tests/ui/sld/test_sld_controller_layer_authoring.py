@@ -92,3 +92,35 @@ def test_annotation_changes_on_locked_layer_are_rejected_before_command():
         ])
 
     assert controller._application.commands == []
+
+
+def test_project_load_clears_transient_layer_selection_even_when_ids_are_reused():
+    controller = object.__new__(SLDController)
+    controller._active_layer_by_document = {
+        "shared-sld-id": "engineering",
+        "another-sld-id": "protection",
+    }
+    reconciled = []
+    controller.reconcile_presentation = lambda: reconciled.append(True)
+
+    controller._on_project_loaded(None)
+
+    assert controller._active_layer_by_document == {}
+    assert reconciled == [True]
+
+
+def test_project_close_and_dispose_clear_transient_layer_selection():
+    controller = object.__new__(SLDController)
+    controller._active_layer_by_document = {"sld": "engineering"}
+    controller._state = _State()
+    controller._application = None
+    controller._document_activation_handler = object()
+
+    controller._on_project_closed(None)
+    assert controller._active_layer_by_document == {}
+    assert controller._state.active_document_id if hasattr(controller._state, "active_document_id") else True
+
+    controller._active_layer_by_document["sld"] = "protection"
+    controller.dispose()
+    assert controller._active_layer_by_document == {}
+    assert controller._document_activation_handler is None
