@@ -2096,3 +2096,25 @@ Verification:
 - Changes committed to main and fetched back.
 - Static source checks confirmed: one ControlToolRegistry construction in ControlWorkspace; main composition reuses workspace.tool_definitions; canonical ToolShelf receives those definitions and uses the existing Control tool activator; no ControlToolPalette/ControlToolbar widget instances, hidden-widget callbacks, stale splitter or uuid4 references remain in ControlWorkspace.
 - No tests, CI, Python import/startup, Qt runtime or desktop GUI acceptance were executed.
+
+
+======================================================================
+GridForge V2 — Control editor legacy palette/toolbar allocation verification
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit:
+- Re-fetched current main after the workspace panel ownership audit. ControlWorkspace no longer constructs or stores a ControlToolPalette or ControlToolbar; its layout contains only the Control ladder view.
+- ControlWorkspace retains ControlToolRegistry metadata and activate_tool_id(), which are consumed by main.py to provide Control ToolDefinitions and the Control activation callback to the canonical ToolShelf/ControlEditor composition.
+- ControlEditor constructs the visible ToolShelf when its Region is realized. The same ControlWorkspace instance supplies its canvas, inspector and status widgets to canonical Control Regions; no second inspector or status widget is created by ControlEditor.
+- The ControlToolbar class remains in its module as a legacy/compatibility type, but current main.py does not construct it. The ControlToolPalette type remains available as a legacy standalone widget; ControlWorkspace does not instantiate it. No evidence justified deleting these module-level compatibility types as part of this focused task.
+
+Disposition:
+- The requested hidden ControlWorkspace palette/toolbar widget allocations are already absent from current main. No further code change is required. Preserve the registry/activation bridge and canonical ToolShelf ownership.
+- Do not remove ControlToolbar or ControlToolPalette classes without a separate public-API/import-graph audit; their mere presence does not allocate visible or hidden widgets in the running composition.
+
+Verification:
+- Fetched current main branch (branch commit observed: 4cba62c892dae588fc0e58e792346e3110ae7f7e) and inspected ControlWorkspace, ControlEditor, ControlToolPalette, ControlToolbar, ControlToolRegistry and main.py construction/activation wiring.
+- Confirmed ControlWorkspace contains no ControlToolPalette/ControlToolbar imports, constructors, fields or hidden setVisible calls; main.py derives Control tool definitions from control_workspace.tool_definitions and routes activation through activate_tool_id.
+- No code/test change was made because the target allocation had already been removed in the current source. No Qt runtime, visible-window, tool-selection interaction or desktop GUI acceptance is claimed.
