@@ -5,6 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from core.application.command import Command
+from core.application.commands.instrumentation_wiring_commands import (
+    SET_INSTRUMENTATION_WIRING_INVENTORY,
+    SetInstrumentationWiringInventoryCommand,
+)
+from core.application.results import ApplicationResult
+from core.application.transaction import Transaction
 from core.model.instrument_wiring import InstrumentationWiringInventory
 
 
@@ -17,12 +24,7 @@ class InstrumentationWiringServiceState:
 
 
 class InstrumentationWiringService:
-    """Activate and expose the canonical inventory for one project generation.
-
-    This service owns project lifecycle and read access. Controlled mutations
-    are added through Application commands in a subsequent implementation
-    slice; the immutable Core inventory cannot be edited in place.
-    """
+    """Project lifecycle, canonical terminal validation and controlled mutation."""
 
     def __init__(self) -> None:
         self._project_id: str | None = None
@@ -98,6 +100,72 @@ class InstrumentationWiringService:
             seen.add(reference.identity)
             cls._validate_terminal_reference(network, reference)
 
+    def create_replace_command(
+        self, replacement: InstrumentationWiringInventory
+    ) -> SetInstrumentationWiringInventoryCommand:
+        """Capture the current snapshot as a stale-state precondition."""
+        return SetInstrumentationWiringInventoryCommand(
+            expected_inventory=self._inventory,
+            replacement_inventory=replacement,
+        )
+
+    def supports(self, command: Command) -> bool:
+        return command.command_type == SET_INSTRUMENTATION_WIRING_INVENTORY
+
+    def execute(
+        self, command: Command, context: Any, transaction: Transaction
+    ) -> ApplicationResult:
+        """Apply one atomic inventory replacement with a stale-safe undo journal."""
+        if not isinstance(command, SetInstrumentationWiringInventoryCommand):
+            raise TypeError("command must be a SetInstrumentationWiringInventoryCommand.")
+        if not isinstance(transaction, Transaction) or not transaction.active:
+            raise ValueError("Instrumentation wiring mutations require an active transaction.")
+        network = getattr(context, "network", None)
+        if self._project_id is None or self._network is None or network is not self._network:
+            raise ValueError("Instrumentation wiring command does not target the active project Network.")
+        expected = command.payload["expected_inventory"]
+        replacement = command.payload["replacement_inventory"]
+        if self._inventory is not expected:
+            raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
+        self._validate_inventory_terminals(network, replacement)
+        previous = self._inventory
+        project_id = self._project_id
+        generation = self._activation_generation
+        self._inventory = replacement
+
+        def undo() -> None:
+            if (
+                self._project_id != project_id
+                or self._activation_generation != generation
+                or self._network is not network
+                or self._inventory is not replacement
+            ):
+                raise RuntimeError(
+                    "Stale instrumentation wiring undo rejected; active project or inventory changed."
+                )
+            self._inventory = previous
+
+        try:
+            transaction.record_undo(undo)
+        except Exception:
+            self._inventory = previous
+            raise
+        return ApplicationResult.success_result(
+            value=replacement,
+            message="Instrumentation wiring inventory updated.",
+            metadata={
+                "project_id": project_id,
+                "activation_generation": generation,
+                "cables": len(replacement.cables),
+                "cores": len(replacement.cores),
+                "panel_wires": len(replacement.panel_wires),
+                "signals": len(replacement.signals),
+            },
+        )
+
+    def handlers(self) -> dict[str, Any]:
+        return {SET_INSTRUMENTATION_WIRING_INVENTORY: self.execute}
+
     def activate(
         self,
         context: Any | None,
@@ -136,4 +204,20 @@ class InstrumentationWiringService:
         return previous
 
 
-__all__ = ["InstrumentationWiringService", "InstrumentationWiringServiceState"]
+class InstrumentationWiringCommandHandlers:
+    """Bind wiring inventory commands to the project-scoped Application service."""
+
+    def __init__(self, service: InstrumentationWiringService) -> None:
+        if not isinstance(service, InstrumentationWiringService):
+            raise TypeError("service must be an InstrumentationWiringService.")
+        self._service = service
+
+    def handlers(self) -> dict[str, Any]:
+        return self._service.handlers()
+
+
+__all__ = [
+    "InstrumentationWiringService",
+    "InstrumentationWiringServiceState",
+    "InstrumentationWiringCommandHandlers",
+]
