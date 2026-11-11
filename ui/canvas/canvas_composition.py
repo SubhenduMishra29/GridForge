@@ -657,6 +657,7 @@ class CanvasComposition:
     selection_projection: SelectionProjectionCoordinator
     interaction_contract: CanvasInteractionContract
     draft_sld_projection: DraftSLDProjection | None = None
+    sld_inspector: Any = None
     _disposed: bool = False
 
     def __post_init__(self) -> None:
@@ -716,6 +717,7 @@ class CanvasComposition:
                 failures,
             )
         steps = (
+            ("SLD inspector selection binding", getattr(self.sld_inspector, "unbind_sld_annotation_runtime", lambda: None)),
             ("renderer subscriptions and graphics", self.sld_canvas_render_system.dispose),
             ("read-only comparison renderer", self.surface.dispose_comparison_viewport),
             ("selection projection subscription", self.selection_projection.dispose),
@@ -959,6 +961,19 @@ class CanvasComposer:
         )
         _cleanup_stack.append(("selection projection subscription", selection_projection.dispose))
 
+        sld_inspector = None
+        bind_sld_annotation_runtime = getattr(properties_panel, "bind_sld_annotation_runtime", None)
+        if callable(bind_sld_annotation_runtime):
+            bind_sld_annotation_runtime(
+                controller=sld_controller,
+                selection_manager=selection_manager,
+            )
+            sld_inspector = properties_panel
+            _cleanup_stack.append((
+                "SLD inspector selection binding",
+                properties_panel.unbind_sld_annotation_runtime,
+            ))
+
         return CanvasComposition(
             view=view,
             surface=surface,
@@ -978,6 +993,7 @@ class CanvasComposer:
             draft_sld_projection=draft_sld_projection,
             selection_projection=selection_projection,
             interaction_contract=interaction_contract,
+            sld_inspector=sld_inspector,
         )
 
 
