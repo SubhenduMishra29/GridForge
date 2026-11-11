@@ -39,7 +39,7 @@ def _controller(document):
     return controller
 
 
-def _document(*, annotations=(), engineering_locked=False):
+def _document(*, annotations=(), engineering_locked=False, default_locked=False, default_visible=True):
     model = SLDModel()
     model.add_node(SLDNode("node-1"))
     return SLDDocument(
@@ -47,7 +47,7 @@ def _document(*, annotations=(), engineering_locked=False):
         model=model,
         annotation_blocks=list(annotations),
         layers=[
-            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer("default", "Default", visible=default_visible, locked=default_locked, order=0),
             SLDPresentationLayer(
                 "engineering", "Engineering",
                 locked=engineering_locked, order=1,
@@ -151,3 +151,27 @@ def test_active_layer_selection_is_scoped_to_each_document():
     assert controller.active_layer_id == "default"
     active[0] = first
     assert controller.active_layer_id == "engineering"
+
+
+def test_active_layer_recovers_to_visible_unlocked_layer_when_default_is_locked_or_hidden():
+    document = _document(default_locked=True)
+    controller = _controller(document)
+    controller._active_layer_by_document[document.document_id] = "default"
+
+    assert controller.active_layer_id == "engineering"
+
+    hidden_default = _document(default_visible=False)
+    controller = _controller(hidden_default)
+    controller._active_layer_by_document[hidden_default.document_id] = "default"
+    assert controller.active_layer_id == "engineering"
+
+
+def test_active_layer_fails_closed_when_every_layer_is_hidden_or_locked():
+    document = _document(default_locked=True, engineering_locked=True)
+    controller = _controller(document)
+    controller._active_layer_by_document[document.document_id] = "default"
+
+    with pytest.raises(RuntimeError, match="No visible, unlocked SLD layer"):
+        _ = controller.active_layer_id
+
+    assert document.document_id not in controller._active_layer_by_document
