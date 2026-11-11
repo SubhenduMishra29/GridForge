@@ -914,7 +914,8 @@ class PropertiesPanelWidget(QWidget):
         ]
         table.setHorizontalHeaderLabels(headers)
         for row, target in enumerate(values):
-            identity = QTableWidgetItem(f"{target.object_id} · {target.display_type}")
+            display_name = target.labels[0] if target.labels else target.object_id
+            identity = QTableWidgetItem(f"{display_name} · {target.object_id}")
             identity.setFlags(identity.flags() & ~Qt.ItemFlag.ItemIsEditable)
             table.setItem(row, 0, identity)
             parameters = {item.parameter_id: item for item in target.engineering_parameters}
@@ -929,6 +930,7 @@ class PropertiesPanelWidget(QWidget):
                     }) > 1 else "Tab / Shift+Tab traverses editable cells.")
                 )
                 table.setItem(row, column, item)
+        table.resizeColumnsToContents()
         table.show()
         if self._batch_parameters:
             table.setCurrentCell(0, 1)
