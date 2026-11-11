@@ -3662,3 +3662,25 @@ Disposition:
 - Issue #1203 remains OPEN until the complete cross-layer acceptance scope is
   implemented and reconciled.
 ======================================================================
+
+======================================================================
+GridForge V2 — Instrumentation wiring project persistence and activation
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+PR: #1204
+Issue: #1203
+
+Implementation slice:
+- Added a dedicated, schema-versioned JSON codec for the canonical instrumentation wiring inventory. It serializes cable assemblies, cable cores, panel wires, signal definitions, signal-carrier bindings, and stable terminal references; no Qt objects, SLD geometry, live samples, or inferred cable data are serialized.
+- Extended LoadedProject and ProjectPersistenceService to load/save the inventory under the canonical project.json instrumentation_wiring field.
+- Advanced project schema from 5 to 6. The 5-to-6 migration inserts an explicit empty inventory only; it does not infer physical wiring from existing SLD connections or instrument attributes.
+- Added a project-scoped InstrumentationWiringService with immutable inventory exposure, activation-generation identity, snapshot and rollback support.
+- Integrated service activation/rollback into the Application project-state activation transaction and included the active inventory in project saves.
+- Exported the Application service and persistence codec through their package APIs.
+- Strengthened the Core aggregate to enforce globally unique stable IDs across wiring record categories.
+
+Verification:
+- Added codec round-trip, unknown-field rejection, schema migration detachment, project activation/rollback, and project-less activation tests.
+- Tests were authored but not executed. No Python import/syntax execution, project save/reopen runtime, GUI interaction, or CI execution is claimed.
+- Source review still required for strict per-record unknown-field rejection, terminal references against the authoritative terminal registry, and end-to-end persistence acceptance.
