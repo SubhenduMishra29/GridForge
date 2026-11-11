@@ -2182,3 +2182,45 @@ Verification:
 - Source inspection confirms scene-scaled text, existing coarse zoom suppression, absence of collision-aware decluttering, and absence of canonical named presentation layers in the inspected SLD schema.
 - Modification Register updated and fetched back. No source files changed.
 - No Python import/syntax execution, Qt zoom/overlap visual acceptance, large-network profiling, or save/reopen migration test was performed.
+
+
+======================================================================
+GridForge V2 — Presentation-layer implementation contract and sequencing
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Purpose:
+- Define the safe implementation boundary for issue #820's non-destructive SLD presentation layers before changing canonical persistence or renderer behavior.
+
+Current contract constraints confirmed from source:
+- Canonical SLD schema is version 3. SLDDocument serialization and strict validation are coupled through core/persistence/migration.py (SLD_DOCUMENT_FIELDS, SLD_NODE_FIELDS, SLD_CONNECTION_FIELDS, SLD_ANNOTATION_BLOCK_FIELDS and validate_canonical_sld).
+- Existing schema 2-to-3 migration adds annotation_blocks. A layer model therefore requires an explicit 3-to-4 migration and updated strict validation; silently adding unknown fields to schema 3 is invalid.
+- SLD mutations use immutable Commands routed through SLDCommandHandlers into SLDService and Transaction undo journals. A layer visibility/reorder/membership change must use this path, not mutate Qt items directly.
+- Projection currently emits separate node, connection and annotation collections. Render reconciliation creates items from these collections and uses fixed technical Z values. Layer state must reach all three collections and participate in render signatures, otherwise stale visible items can survive a layer change.
+- Core topology, endpoint resolution, snap registration, connection projection and study results must remain independent of layer visibility. Hiding a visual layer must not delete a node/connection from the snapshot, remove snap anchors, alter semantic connectivity, or suppress electrical calculations.
+
+Canonical design contract for implementation:
+1. Persist ordered SLDPresentationLayer records in SLDDocument, each with stable layer_id, name, visible, locked, opacity, and explicit order. Require at least one default layer; prevent deletion of the default layer and prevent deleting a non-empty layer unless membership is reassigned atomically.
+2. Store layer_id as an explicit presentation field on SLDNode, SLDConnection and SLDAnnotationBlock (not in free-form properties). New objects default to the default layer. Validate every reference against the document's layer registry. For legacy schema 3, migration creates one default layer and assigns every existing node, connection and annotation to it.
+3. Keep layer visibility/locking/opacity/order in the SLD document only. Do not add a Core equipment/connection layer concept. Layer locking blocks SLD editing gestures for assigned visual objects but does not change Core authority or prevent electrical operations through Application services.
+4. Keep visibility as a rendering/interaction policy only: hidden items are omitted or made non-visible in the graphics projection, but their semantic node/connection records and snap/topology source remain intact. Explicitly test connection endpoint/snap behavior when the owning layer is hidden; never infer disconnected topology from a hidden wire.
+5. Add immutable Application commands for layer create/update/delete/reorder and bulk membership reassignment. Route through SLDCommandHandlers/SLDService with atomic preflight, rollback, and undo/redo. Reject unknown layer IDs and invalid delete/membership combinations before mutation.
+6. Project layer metadata into renderer-neutral snapshot records. Include layer ID, visibility, opacity and order in node/connection/annotation render signatures. Keep technical Z bands as within-layer ordering only; derive effective Z from layer order plus the existing per-kind band, with deterministic bounds and no collisions between adjacent layer bands.
+7. Keep transient study-result overlays on an explicit transient/default layer policy; do not persist them as authored annotation blocks. Hidden authored layers must not mutate or stale StudyResultReadModel data.
+8. Add layer controls in the SLD workspace (layer list, visibility, lock, opacity, reorder, active layer) only after command and projection semantics are complete. Palette placement uses the active unlocked layer. Default active layer is restored per SLD document.
+9. Update SLD schema validator, migration registry, package round-trip, undo/redo, multi-document isolation, selection, snap, connection route, study overlay and renderer reconciliation coverage. Existing schema-3 payloads must load into a single default layer with no visible behavior change.
+
+Implementation sequencing:
+- Phase A: schema-4 model + schema-3 migration + strict validation + document serialization and round-trip coverage.
+- Phase B: transactional commands/service/undo-redo for layer lifecycle and membership.
+- Phase C: renderer-neutral projection and visibility/opacity/order integration, preserving hidden topology/snap semantics.
+- Phase D: Layer Manager UI, active-layer placement, lock behavior, and annotation density integration.
+- Phase E: collision-aware annotation decluttering (independent of persisted layer visibility), with priority/scale rules and manual overrides.
+
+Decision for this batch:
+- No production code changed. The current strict schema-3 validator and multi-collection renderer make a one-file or renderer-only implementation unsafe. The contract and phase gates are now recorded before the first schema change.
+
+Verification:
+- Inspected current SLD schema constants, schema-3 strict validator, schema 2-to-3 migration, SLDDocument serializer, SLDNode/SLDConnection/SLDAnnotationBlock, SLDService command dispatch, SLDCommandHandlers, SLDCanvasProjection and SLDCanvasRenderSystem.
+- Modification Register updated and fetched back. No Python import/syntax execution, migration execution, command undo/redo execution, Qt GUI, or project round-trip runtime verification was performed.
