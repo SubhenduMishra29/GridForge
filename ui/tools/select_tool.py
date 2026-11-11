@@ -444,11 +444,17 @@ class SelectTool(ToolBase):
             dx, dy = float(node.x) - pivot[0], float(node.y) - pivot[1]
             if mirror_x:
                 dx = -dx
+                # The graphics item applies its local reflection before its
+                # rotation. Negating the symbol angle makes the resulting
+                # linear transform equal a reflection about the group axis in
+                # canvas coordinates, including already-rotated symbols.
+                symbol.rotation = (-float(symbol.rotation)) % 360.0
                 symbol.set_property(
                     "mirror_x", not bool(symbol.get_property("mirror_x", False))
                 )
             if mirror_y:
                 dy = -dy
+                symbol.rotation = (-float(symbol.rotation)) % 360.0
                 symbol.set_property(
                     "mirror_y", not bool(symbol.get_property("mirror_y", False))
                 )
