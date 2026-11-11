@@ -1946,3 +1946,25 @@ Verification:
 - Current root main was used as the rebased implementation branch base.
 - Static source inspection confirmed serialization and project-activation provisioning use the same MeasurementChannelService path. No tests, CI, startup, GUI, save/reopen runtime experiment or protection simulation was executed.
 - Root PR #1184 is superseded by this rebased integration PR; implementation #156 and root #774 remain OPEN for remaining measurement lifecycle scope.
+
+
+======================================================================
+GridForge V2 — SLD transform and route persistence regression coverage
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Finding:
+- Existing project persistence coverage verified SLD node positions and connection node IDs, but did not exercise persisted SymbolBase rotation, scale, mirror presentation properties, semantic terminal endpoint descriptors, or engineer-owned route bends.
+- The persistence implementation serializes SLDDocument -> SLDModel -> SLDNode/SymbolBase and SLDConnection/SLDEndpoint/SLDRoute. Source inspection showed those fields are represented in the canonical DTOs, but the critical transformed drawing round-trip was not covered by a focused regression test.
+
+Correction:
+- Added a project-package round-trip regression test with two transformed equipment symbols (90° and 270° rotation, non-default scale, opposite mirror flags).
+- The test persists and reloads equipment terminal endpoint descriptors, stable equipment/node/terminal-role identities, and an engineer-owned orthogonal route with three authored intermediate bends.
+- A second save/load cycle verifies that reconstruction does not normalize away or progressively alter the presentation transforms, endpoint identities, or authored route geometry.
+- This is presentation persistence only; it does not modify Core equipment, terminals, connectivity, or topology.
+
+Verification:
+- Inspected current SLDDocument, SLDNode, SymbolBase, SLDConnection, SLDEndpoint, SLDRoute, ProjectPersistenceService, migration validation, and existing persistence tests.
+- New test source committed and fetched back from main.
+- Tests were not executed; no Python syntax/import, Qt GUI, runtime terminal-anchor geometry, runtime wire path, undo/redo, or interactive save/close/reopen acceptance is claimed.
