@@ -39,4 +39,33 @@ class DeleteSelectionBatchCommand(Command):
         )
 
 
-__all__ = ["DELETE_SELECTION_BATCH", "DeleteSelectionBatchCommand"]
+
+ENGINEERING_UPDATE_BATCH = "engineering.update_batch"
+
+
+class EngineeringUpdateBatchCommand(Command):
+    """Apply canonical per-equipment update commands as one atomic operation."""
+
+    def __init__(
+        self,
+        *,
+        commands: Sequence[Command],
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        children = tuple(commands)
+        if len(children) < 2:
+            raise ValueError("An engineering update batch requires at least two equipment updates.")
+        if any(not isinstance(child, Command) for child in children):
+            raise TypeError("Engineering update batch children must be immutable Application commands.")
+        super().__init__(
+            command_type=ENGINEERING_UPDATE_BATCH,
+            payload={"commands": children},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+__all__ = ["DELETE_SELECTION_BATCH", "DeleteSelectionBatchCommand", "ENGINEERING_UPDATE_BATCH", "EngineeringUpdateBatchCommand"]
