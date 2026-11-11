@@ -185,6 +185,7 @@ class AddSLDNodeCommand(Command):
                  presentation: dict | None = None,
                  presentation_properties: dict | None = None,
                  presentation_rotation: float | None = None,
+                 layer_id: str = "default",
                  command_id: UUID | None = None, correlation_id: UUID | None = None,
                  causation_id: UUID | None = None) -> None:
         super().__init__(
@@ -200,6 +201,7 @@ class AddSLDNodeCommand(Command):
                 "presentation": None if presentation is None else dict(presentation),
                 "presentation_properties": {} if presentation_properties is None else dict(presentation_properties),
                 "presentation_rotation": presentation_rotation,
+                "layer_id": layer_id,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
@@ -287,6 +289,7 @@ class AddSLDConnectionCommand(Command):
         core_connection_id: str | None = None,
         presentation_owner: str = "engineer",
         projection_source: str | None = None,
+        layer_id: str = "default",
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
@@ -308,6 +311,7 @@ class AddSLDConnectionCommand(Command):
                 "core_connection_id": core_connection_id,
                 "presentation_owner": presentation_owner,
                 "projection_source": projection_source,
+                "layer_id": layer_id,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
