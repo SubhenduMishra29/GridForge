@@ -1268,3 +1268,181 @@ Next integration contract:
 Verification boundary:
 - Source audit only; no files changed in this audit batch.
 - No GUI, selection lifecycle, command undo/redo, or project save/reopen runtime acceptance is claimed.
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-001 — ROOT ISSUE #1180 PREFLIGHT
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+
+Correction:
+- Extended the existing Application-owned sld.delete_selection_batch handler
+  with a complete identity-existence preflight before the first child command
+  is executed.
+- Resolve Core Bus, Transformer, and Breaker identities against the active
+  Application NetworkReadModel and verify the expected semantic element type.
+- Resolve Simple Wire identities against the same immutable network snapshot.
+- Resolve draft equipment and draft connection identities against the active
+  document-scoped DraftNetwork snapshot.
+- Resolve SLD-only node identities against the active SLDService document and
+  reject missing nodes or nodes owned by Core equipment.
+- Preserve the existing single shared transaction, dependency-ordered child
+  execution, and one outer history record. Child handlers retain their own
+  domain/dependency validation and transactional rollback behavior.
+
+Verification boundary:
+- Static source inspection confirmed the read-model fields and active-document
+  DraftNetwork shape used by the preflight, and the complete updated handler
+  was fetched from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- This correction covers identity/type existence preflight; full dependency
+  graph preflight, exact inverse restoration of all Core/DraftNetwork/SLD
+  associations, and interactive Cut/undo/redo/cancel/save-reopen acceptance
+  remain open under root issue #1180. Do not close the issue on this change.
+
+======================================================================
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-002 — ROOT ISSUE #1180 DEPENDENCY CLOSURE
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Extend the existing Application batch preflight to require dependency closure
+  before any child command executes.
+- For selected Core Bus, Transformer, and Breaker identities, inspect every
+  incident Simple Wire in the immutable NetworkReadModel and reject the batch
+  unless every such wire is explicitly included as a canonical removal child.
+- For selected DraftNetwork equipment, inspect document-scoped draft connections
+  and reject the batch unless every connection whose endpoint scope is "draft"
+  and whose object identity matches the selected equipment is explicitly included.
+- Keep Core Junctions outside the deletion child vocabulary. Junction endpoints
+  remain Core-owned topology references; removing a selected wire does not imply
+  removal of its junction.
+- Retain connection-before-equipment ordering and the existing single outer
+  Application transaction/history boundary. No new service or registry added.
+
+Verification boundary:
+- Static source inspection confirms endpoint mapping shape in
+  TopologyEndpointReference.to_mapping(), SimpleWireReadModel, and
+  DraftEndpointReference/DraftConnection serialization.
+- Updated batch handler and register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse restoration and interactive acceptance evidence remain open;
+  this dependency-closure correction does not close root issue #1180.
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-003 — ROOT ISSUE #1180 AGGREGATE PRE-COMMIT
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Route the outer sld.delete_selection_batch command through one aggregate
+  pre-commit reconciliation path because child commands executed with
+  CommandManager.execute_in_transaction() do not invoke child pre-commit hooks.
+- Reconcile Core Simple Wire deletion against its persistent SLD companion,
+  then reconcile selected Core Bus/Transformer/Breaker deletions against their
+  persistent SLD equipment nodes, all inside the existing outer transaction.
+- Add one RevisionService transition for mixed batch deletion: advance the Core
+  model/topology revision once when the batch contains Core deletes and advance
+  the persistent presentation revision once for the aggregate command.
+- Preserve the one outer command/history record; child SLD/Core inverses are
+  registered in the same transaction journal. No nested transaction or
+  independent child history is introduced.
+
+Verification boundary:
+- Static inspection traced CommandManager.execute_in_transaction() (no hook),
+  Application._coordinate_pre_commit(), SLDService.reconcile_connection_delete(),
+  SLDService.reconcile_element_delete(), and RevisionService transition methods.
+- Source changes and this register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse restoration across every mixed graph and interactive acceptance
+  remain open; root issue #1180 must not be closed on this correction alone.
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-004 — ROOT ISSUE #1180 HISTORY EVENTS / REDO
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Publish one aggregate semantic event payload for selection deletion instead
+  of treating the outer sld.delete_selection_batch as presentation-only.
+- When Core children are present, emit one aggregate TopologyChanged and one
+  NetworkChanged event carrying the deleted equipment identities, removed
+  Simple Wire identities, document identity, and child command IDs; emit one
+  SLDPresentationChanged event for the same aggregate command.
+- Make RevisionService classify a batch containing Core delete children as a
+  topology mutation so redo records the actual Core topology revision.
+- Invalidate validation projections on undo/redo of a mixed Core/SLD batch,
+  while retaining the existing single history record and aggregate command ID.
+
+Verification boundary:
+- Static inspection traced Application.execute/undo/redo, semantic event
+  publishing, and RevisionService redo topology classification.
+- Source changes and this register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Interactive event-consumer and undo/redo acceptance remain open; #1180 stays
+  OPEN pending the complete acceptance contract.
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-005 — ROOT ISSUE #1180 BUS ATTACHMENT CLOSURE
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Extend complete-selection preflight to inspect physical Bus attachments from
+  the immutable NetworkReadModel before any delete child is executed.
+- For each selected Bus, inspect other elements' terminal_connectivity pairs
+  and branch from_endpoint/to_endpoint identities. Reject the batch if any
+  physically attached equipment is not also selected for deletion.
+- This keeps unsupported dependent types (including Lines/Cables and other
+  equipment without an allowed batch delete command) fail-closed rather than
+  relying on a later child handler or leaving stale terminal-to-Bus references.
+- Preserve the existing explicit Simple Wire dependency check, junction
+  ownership, one Application transaction, and one history record.
+
+Verification boundary:
+- Static inspection confirms NetworkReadService._connectivity() publishes
+  terminal_connectivity endpoint IDs and _branch_endpoint_ids() publishes
+  branch endpoint IDs in ElementReadModel.attributes.
+- Restored the earlier committed identity/type and Simple Wire/Draft dependency
+  preflight into the current branch tree before adding this physical attachment
+  check; all five #1180 register entries are retained.
+- Updated preflight and this register entry fetched back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse and interactive acceptance remain open; #1180 stays OPEN.
+
+======================================================================
+GF-SLD-ATOMIC-SELECTION-DELETE-006 — ROOT ISSUE #1180 PROJECTION EVENT COALESCING
+======================================================================
+Date: 2026-11-10
+Repository: madhuri196mishra-cpu/GridForge (main)
+Related: SubhenduMishra29/GridForge root issue #1180
+
+Correction:
+- Mark aggregate NetworkChanged/TopologyChanged and SLDPresentationChanged
+  notifications with the same presentation_operation identity for batch delete.
+- Extend the existing SLDUpdateCoordinator paired-event boundary to defer
+  canvas refresh on the aggregate network event and refresh once after the
+  matching SLD presentation event.
+- Reproject the document-scoped DraftNetwork snapshot at that same SLD boundary
+  so a mixed Core/DraftNetwork selection cannot leave stale draft graphics.
+- Reuse the existing coordinator and projection authority; no parallel event
+  bus or projection manager introduced.
+
+Verification boundary:
+- Static source inspection traced SLDUpdateCoordinator handling of paired
+  NetworkChanged/TopologyChanged and SLDPresentationChanged events, including
+  the existing network.commit_draft deferral pattern.
+- Updated Application event metadata, coordinator, and register entry fetched
+  back from GitHub after commit.
+- No tests, CI, GUI, startup, or runtime experiments were run.
+- Exact inverse and interactive acceptance remain open; #1180 stays OPEN.
