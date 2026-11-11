@@ -263,20 +263,6 @@ class EngineeringUpdatePreparer:
         for intent in values:
             element_type = str(getattr(intent, "element_type", "")).strip().lower()
             element_id = str(getattr(intent, "element_id", "")).strip()
-            creation_type = _CREATION_TYPE_ALIASES.get(element_type, element_type)
-            definition = creation_definition_for(creation_type)
-            supplied = dict(getattr(intent, "values", {}) or {})
-            for parameter in definition.parameter_definitions:
-                command_field = definition.parameter_mapping.get(
-                    parameter.parameter_id, parameter.parameter_id
-                )
-                if parameter.topology_impact and (
-                    command_field in supplied or parameter.parameter_id in supplied
-                ):
-                    raise ValueError(
-                        f"Engineering batch does not permit topology-impacting parameter "
-                        f"{parameter.parameter_id!r} on {element_type} {element_id}."
-                    )
             try:
                 commands.append(cls.prepare(intent))
             except Exception as exc:
