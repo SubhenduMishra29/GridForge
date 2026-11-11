@@ -18,6 +18,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
     QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt, QDrag, QMimeData,
+    QTableWidget, QTableWidgetItem,
 )
 from ui.plugins.panels_plugin import PanelSpec
 from ui.equipment.symbol.palette_symbol_adapter import PaletteSymbolAdapter
@@ -366,20 +367,28 @@ class PropertiesPanelWidget(QWidget):
         self._apply_changes_connected = True
         self._place_draft_connected = False
         self._commit_network_button: QPushButton | None = None
+        self._single_target_container: QWidget | None = None
+        self._batch_table: QTableWidget | None = None
+        self._batch_status_label: QLabel | None = None
+        self._batch_targets: tuple[ProjectionState, ...] = ()
+        self._batch_parameters: tuple[EngineeringParameterState, ...] = ()
         self._commit_future_completed.connect(self._on_commit_future_completed)
         self._build_controls()
 
     def _build_controls(self) -> None:
         root = QVBoxLayout(self)
+        self._single_target_container = QWidget(self)
+        single_layout = QVBoxLayout(self._single_target_container)
+        root.addWidget(self._single_target_container)
         self._form_layout = QFormLayout()
-        root.addLayout(self._form_layout)
-        root.addWidget(self._transformer_configuration_editor)
+        single_layout.addLayout(self._form_layout)
+        single_layout.addWidget(self._transformer_configuration_editor)
         self._annotation_layout = QFormLayout()
-        root.addWidget(QLabel("SLD Data Annotations", self))
-        root.addLayout(self._annotation_layout)
+        single_layout.addWidget(QLabel("SLD Data Annotations", self))
+        single_layout.addLayout(self._annotation_layout)
         self._symbol_review_layout = QFormLayout()
-        root.addWidget(QLabel("Symbol Standard / Variant Review", self))
-        root.addLayout(self._symbol_review_layout)
+        single_layout.addWidget(QLabel("Symbol Standard / Variant Review", self))
+        single_layout.addLayout(self._symbol_review_layout)
         self._symbol_registry: Any | None = None
         self._symbol_equipment_registry: Any | None = None
         self._symbol_variant_combo: QComboBox | None = None
@@ -392,17 +401,27 @@ class PropertiesPanelWidget(QWidget):
         self._validation_label = QLabel("Select an element to inspect.", self)
         self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
-        root.addWidget(self._validation_label)
+        single_layout.addWidget(self._validation_label)
         self._apply_button = QPushButton("Apply / Commit", self)
         self._apply_button.setProperty("role", "primaryAction")
         self._apply_button.setEnabled(False)
         self._apply_button.clicked.connect(self._apply_changes)
-        root.addWidget(self._apply_button)
+        single_layout.addWidget(self._apply_button)
         self._commit_network_button = QPushButton("Commit Network", self)
         self._commit_network_button.setProperty("role", "commitNetworkAction")
         self._commit_network_button.setEnabled(False)
         self._commit_network_button.clicked.connect(self._commit_network)
-        root.addWidget(self._commit_network_button)
+        single_layout.addWidget(self._commit_network_button)
+        self._batch_status_label = QLabel("Select compatible equipment to edit parameters in a table.", self)
+        self._batch_status_label.setWordWrap(True)
+        self._batch_status_label.setProperty("role", "validationInfo")
+        root.addWidget(self._batch_status_label)
+        self._batch_table = QTableWidget(self)
+        self._batch_table.setObjectName("EngineeringBatchEditor")
+        self._batch_table.setAlternatingRowColors(True)
+        root.addWidget(self._batch_table)
+        self._batch_status_label.hide()
+        self._batch_table.hide()
 
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._application = application
@@ -835,8 +854,150 @@ class PropertiesPanelWidget(QWidget):
 
     def set_target(self, target: Any | None) -> None:
         self._creation_mode = False
+        self._batch_targets = ()
+        self._batch_parameters = ()
+        if self._batch_table is not None:
+            self._batch_table.hide()
+        if self._batch_status_label is not None:
+            self._batch_status_label.hide()
+        if self._single_target_container is not None:
+            self._single_target_container.show()
         self.logical_panel.set_target(target)
         self._render_projection(target)
+
+    def set_batch_targets(self, targets: tuple[ProjectionState, ...] | list[ProjectionState]) -> None:
+        """Render compatible committed equipment as a keyboard-traversable parameter grid."""
+        values = tuple(targets)
+        if len(values) < 2 or any(not isinstance(item, ProjectionState) for item in values):
+            raise ValueError("Batch Inspector requires at least two valid equipment projections.")
+        if any(item.identity_kind != "element" for item in values):
+            raise ValueError("Batch Inspector supports committed equipment only.")
+        if len({item.display_type.strip().lower() for item in values}) != 1:
+            raise ValueError("Batch Inspector requires compatible equipment types.")
+        self._batch_targets = values
+        self._batch_parameters = self._common_batch_parameters(values)
+        if self._single_target_container is not None:
+            self._single_target_container.hide()
+        if self._batch_status_label is not None:
+            mixed = []
+            for parameter in self._batch_parameters:
+                distinct = {repr(self._parameter_value_for(target, parameter.parameter_id)) for target in values}
+                if len(distinct) > 1:
+                    mixed.append(parameter.display_name or parameter.parameter_id)
+            summary = (
+                "Mixed values across selection: " + ", ".join(mixed) + ". Each row retains its own value."
+                if mixed else "Selected equipment values are consistent. Edit cells directly; Tab and Shift+Tab move between cells."
+            )
+            if not self._batch_parameters:
+                summary = "No common editable non-topology parameters are available for this selection."
+            self._batch_status_label.setText(summary)
+            self._batch_status_label.show()
+        table = self._batch_table
+        if table is None:
+            return
+        table.clear()
+        table.setRowCount(len(values))
+        table.setColumnCount(1 + len(self._batch_parameters))
+        headers = ["Equipment"] + [
+            f"{item.display_name or item.parameter_id}" + (f" ({item.unit})" if item.unit else "")
+            for item in self._batch_parameters
+        ]
+        table.setHorizontalHeaderLabels(headers)
+        for row, target in enumerate(values):
+            identity = QTableWidgetItem(f"{target.object_id} · {target.display_type}")
+            identity.setFlags(identity.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            table.setItem(row, 0, identity)
+            parameters = {item.parameter_id: item for item in target.engineering_parameters}
+            for column, common in enumerate(self._batch_parameters, start=1):
+                parameter = parameters[common.parameter_id]
+                value = parameter.value
+                item = QTableWidgetItem("" if value is None else str(value))
+                item.setToolTip(
+                    f"{common.display_name or common.parameter_id} · {target.object_id}\n"
+                    + ("Mixed values are represented per equipment row." if len({
+                        repr(self._parameter_value_for(candidate, common.parameter_id)) for candidate in values
+                    }) > 1 else "Tab / Shift+Tab traverses editable cells.")
+                )
+                table.setItem(row, column, item)
+        table.show()
+        if self._apply_button is not None:
+            self._apply_button.setText("Apply Batch")
+            self._apply_button.setEnabled(bool(self._batch_parameters))
+
+    @staticmethod
+    def _parameter_value_for(target: ProjectionState, parameter_id: str) -> Any:
+        parameter = next((item for item in target.engineering_parameters if item.parameter_id == parameter_id), None)
+        return None if parameter is None else parameter.value
+
+    @staticmethod
+    def _common_batch_parameters(targets: tuple[ProjectionState, ...]) -> tuple[EngineeringParameterState, ...]:
+        first = targets[0]
+        common: list[EngineeringParameterState] = []
+        for parameter in first.engineering_parameters:
+            if not parameter.editable or parameter.derived or not parameter.inspectable or parameter.topology_impact:
+                continue
+            compatible = True
+            for target in targets[1:]:
+                candidate = next((item for item in target.engineering_parameters if item.parameter_id == parameter.parameter_id), None)
+                if (
+                    candidate is None or not candidate.editable or candidate.derived or not candidate.inspectable
+                    or candidate.topology_impact or candidate.datatype != parameter.datatype
+                    or candidate.choices != parameter.choices
+                ):
+                    compatible = False
+                    break
+            if compatible:
+                common.append(parameter)
+        return tuple(common)
+
+    def _apply_batch_changes(self) -> None:
+        if self._engineering_editor is None or self._batch_table is None:
+            raise RuntimeError("Batch engineering editor is not bound.")
+        changes_by_target: list[dict[str, Any]] = []
+        try:
+            for row, target in enumerate(self._batch_targets):
+                parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
+                changes: dict[str, Any] = {}
+                for column, common in enumerate(self._batch_parameters, start=1):
+                    cell = self._batch_table.item(row, column)
+                    raw = "" if cell is None else cell.text().strip()
+                    parameter = parameter_states[common.parameter_id]
+                    if parameter.datatype.lower() in {"bool", "boolean"}:
+                        normalized = raw.lower()
+                        if normalized not in {"true", "false"}:
+                            raise ValueError(f"{target.object_id}: {common.parameter_id} must be true or false.")
+                        value = normalized == "true"
+                    elif raw == "" and parameter.validation.get("nullable") is True:
+                        value = None
+                    else:
+                        value = EngineeringParameterEditor._coerce_typed_value(
+                            parameter.datatype, raw, common.parameter_id, parameter.validation
+                        )
+                    if value != parameter.value:
+                        changes[common.parameter_id] = value
+                changes_by_target.append(changes)
+            if not any(changes_by_target):
+                if self._batch_status_label is not None:
+                    self._batch_status_label.setText("No engineering changes to commit.")
+                return
+            result = self._engineering_editor.submit_batch_per_target(
+                self._batch_targets, tuple(changes_by_target)
+            )
+        except (RuntimeError, TypeError, ValueError, KeyError) as exc:
+            if self._batch_status_label is not None:
+                self._batch_status_label.setText(f"Batch update rejected; no changes committed: {exc}")
+            return
+        if not getattr(result, "success", False):
+            message = getattr(result, "message", None) or "Batch engineering update was rejected."
+            if self._batch_status_label is not None:
+                self._batch_status_label.setText(f"Batch update rejected; no changes committed: {message}")
+            return
+        if self._batch_status_label is not None:
+            self._batch_status_label.setText(
+                f"Accepted: {len(self._batch_targets)} equipment updates committed atomically."
+            )
+        if self._apply_button is not None:
+            self._apply_button.setEnabled(False)
 
     def set_creation_draft(self, draft: CreationDraft | None) -> None:
         if draft is None:
@@ -850,6 +1011,14 @@ class PropertiesPanelWidget(QWidget):
 
 
     def clear_target(self) -> None:
+        self._batch_targets = ()
+        self._batch_parameters = ()
+        if self._batch_table is not None:
+            self._batch_table.hide()
+        if self._batch_status_label is not None:
+            self._batch_status_label.hide()
+        if self._single_target_container is not None:
+            self._single_target_container.show()
         self.logical_panel.clear_target()
         if self._creation_context is not None and self._creation_context.draft is not None:
             self._creation_mode = True
@@ -1339,6 +1508,9 @@ class PropertiesPanelWidget(QWidget):
         return str(control.text())  # type: ignore[attr-defined]
 
     def _apply_changes(self) -> None:
+        if self._batch_targets:
+            self._apply_batch_changes()
+            return
         if self._engineering_editor is None:
             raise RuntimeError("Properties configuration runtime is not bound.")
         target = self.logical_panel.target
