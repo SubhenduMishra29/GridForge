@@ -58,6 +58,7 @@ class GraphicsView(QGraphicsView):
         interaction_manager: Optional[InteractionManager] = None,
         navigation_controller: Optional[NavigationController] = None,
         parent: Optional[Any] = None,
+        sld_controller: Any | None = None,
     ) -> None:
         if controller is None:
             raise ValueError("controller must not be None.")
@@ -68,6 +69,7 @@ class GraphicsView(QGraphicsView):
 
         super().__init__(parent)
         self.controller = controller
+        self.sld_controller: Any | None = None
         self.tool_manager = tool_manager
         self._scene = scene
         self._last_cursor_scene_position: tuple[float, float] | None = None
@@ -154,9 +156,27 @@ class GraphicsView(QGraphicsView):
             self.addAction(action)
             self._symbol_rotation_actions.append(action)
 
+        if sld_controller is not None:
+            self.bind_sld_controller(sld_controller)
+
         self._scene.selectionChanged.connect(self._refresh_contextual_tool_strip)
         self.horizontalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
         self.verticalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
+
+    def bind_sld_controller(self, sld_controller: Any) -> None:
+        """Bind the canonical SLD document/command capability for contextual edits."""
+        if sld_controller is None:
+            raise ValueError("sld_controller must not be None.")
+        if not callable(getattr(sld_controller, "set_node_presentation", None)):
+            raise TypeError("sld_controller must provide set_node_presentation().")
+        if not callable(getattr(sld_controller, "set_annotation_blocks", None)):
+            raise TypeError("sld_controller must provide set_annotation_blocks().")
+        if not hasattr(type(sld_controller), "active_document"):
+            raise TypeError("sld_controller must expose active_document.")
+        if self.sld_controller is not None and self.sld_controller is not sld_controller:
+            raise RuntimeError("GraphicsView is already bound to a different SLDController.")
+        self.sld_controller = sld_controller
+        self._refresh_contextual_tool_strip()
 
     def bind_services(
         self,
@@ -244,7 +264,7 @@ class GraphicsView(QGraphicsView):
         if node is None or item is None:
             self._contextual_strip.hide()
             return
-        document = getattr(self.controller, "active_document", None)
+        document = getattr(self.sld_controller, "active_document", None)
         annotation_blocks = tuple(
             block for block in getattr(document, "annotation_blocks", ())
             if block.node_id == node.node_id
@@ -265,7 +285,7 @@ class GraphicsView(QGraphicsView):
     def _cycle_contextual_annotation_quadrant(self) -> None:
         """Persist annotation placement through the existing Application command path."""
         node, _item = self._selected_presentation_node()
-        document = getattr(self.controller, "active_document", None)
+        document = getattr(self.sld_controller, "active_document", None)
         if node is None or document is None:
             return
         blocks = tuple(getattr(document, "annotation_blocks", ()))
@@ -283,7 +303,11 @@ class GraphicsView(QGraphicsView):
                     if current in quadrants else "top_right"
                 )
             updated.append(payload)
-        self.controller.set_annotation_blocks(updated)
+        try:
+            self.sld_controller.set_annotation_blocks(updated)
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+            self.controller.show_status_message(f"Annotation placement update rejected: {exc}")
+            return
         self._refresh_contextual_tool_strip()
 
     def _apply_contextual_symbol_action(self, operation: str) -> None:
@@ -305,17 +329,15 @@ class GraphicsView(QGraphicsView):
             presentation.set_property("mirror_y", not bool(presentation.get_property("mirror_y", False)))
         else:
             raise ValueError(f"Unsupported contextual symbol action: {operation}")
-        from core.application.commands.sld_commands import SetSLDNodePresentationCommand
-
-        result = self.controller.execute_command(
-            SetSLDNodePresentationCommand(
-                node_id=str(node.node_id),
-                presentation=presentation.to_dict(),
+        try:
+            self.sld_controller.set_node_presentation(
+                str(node.node_id),
+                presentation,
             )
-        )
-        if not getattr(result, "success", False):
-            message = getattr(result, "message", None) or "The SLD symbol presentation update failed."
-            self.controller.show_status_message(str(message))
+        except (KeyError, RuntimeError, TypeError, ValueError) as exc:
+            self.controller.show_status_message(
+                f"SLD symbol presentation update rejected: {exc}"
+            )
             return
         self._refresh_contextual_tool_strip()
 
@@ -700,6 +722,7 @@ class GraphicsView(QGraphicsView):
         self.interaction_manager = None
         self.navigation_controller = None
         self._contextual_strip.hide()
+        self.sld_controller = None
         self.controller = None
         self.tool_manager = None
 
