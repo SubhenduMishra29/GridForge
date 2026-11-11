@@ -3584,3 +3584,48 @@ Disposition:
 - Static source/tree inspection only. No hardware, runtime, GPU/NPU, HIL,
   numerical equivalence, tests or CI executed.
 ======================================================================
+
+======================================================================
+GridForge V2 — Cross-Canvas Instrument Wiring and Identification Requirement
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Research outcome:
+- Established that instrument wiring requires distinct identities for equipment,
+  terminals, cable assemblies, cable cores, individual wires/jumpers, signal
+  designations and connection relationships. These must not be collapsed into
+  a single wire label or conflated with MeasurementChannel identity.
+- Standards basis reviewed: IEC 81346-1/-2 (system structuring and reference
+  designations), IEC 62491 (cable/core labelling), IEC 61666 (terminal
+  identification), IEC 61175-1 (signal designation, separate from physical
+  wiring), IEC 61082-1 (electrotechnical document presentation), and
+  IEC 61850-7-4 where IED logical-node/data-object modelling applies.
+- Proposed canonical records for Cable, CableCore, Wire, Terminal,
+  TerminalConnection, CableRoute, SignalDefinition, SignalConnection,
+  SignalSourceBinding and ConsumerBinding. Human-readable tags remain
+  configurable project attributes; stable internal IDs own references.
+- One physical wiring model must drive SLD physical wiring, Control signal
+  paths, Protection input paths, cable/core schedules, terminal plans,
+  instrument loop/interconnection lists and point-to-point reports.
+- Control and Protection canvases must show logical signal/function views
+  with provenance back to physical instrument, cable, core, terminal and
+  MeasurementChannel records; they must not create duplicate cable records.
+- CT-specific validation must preserve phase, S1/S2 polarity, return path and
+  explicit shorting/test-terminal arrangement. PT/CVT, RTD/thermocouple and
+  communication wiring require their own typed constraints. Unknown engineering
+  data must not be fabricated.
+- Architecture boundary: Core owns physical wiring/connectivity truth;
+  Application owns controlled mutation/tag allocation/read services/events;
+  canvases remain projections and interaction only.
+
+Disposition:
+- Created issue #1203 for canonical cross-canvas cable/core/terminal/signal
+  identity, wiring lifecycle, navigation, validation and generated schedules.
+- Coordinate with #1198, #1199, #1200 and #1201; reconcile overlapping scope.
+- No source code changed. This records a requirement and implementation plan,
+  not a claim that wiring functionality has been implemented.
+- Research reviewed official IEC publication summaries and IEC TC3 guidance;
+  project-specific adoption of editions and tag conventions remains a design
+  decision to be documented before implementation.
+======================================================================
