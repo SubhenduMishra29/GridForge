@@ -261,11 +261,20 @@ def test_project_package_round_trip_preserves_layer_registry_and_all_memberships
     service = ProjectPersistenceService()
     context = ProjectContext("PROJECT-001", "Layered SLD Persistence", None)
     path = tmp_path / "layered-roundtrip.gridforge"
-    document = _sld()
-    document.add_layer(SLDPresentationLayer(
-        "protection", "Protection", visible=False, locked=True,
-        opacity=0.55, order=1,
-    ))
+    base = _sld()
+    document = SLDDocument(
+        document_id=base.document_id,
+        name=base.name,
+        project_id=base.project_id,
+        model=base.model,
+        layers=[
+            SLDPresentationLayer("default", "Default", order=0),
+            SLDPresentationLayer(
+                "protection", "Protection", visible=False, locked=True,
+                opacity=0.55, order=1,
+            ),
+        ],
+    )
     document.model.get_node("SLD-NODE-001").layer_id = "protection"
     document.model.get_connection("SLD-CONN-001").layer_id = "protection"
     document.add_annotation_block(SLDAnnotationBlock(
