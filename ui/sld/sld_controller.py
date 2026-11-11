@@ -512,7 +512,11 @@ class SLDController:
         for node_id in node_ids:
             node = document.model.get_node_optional(node_id)
             if node is None:
-                raise KeyError(f"Selected SLD node {node_id!r} is no longer in the active document.")
+                if node_id in draft_equipment:
+                    append(RemoveDraftEquipmentCommand(draft_id=node_id, document_id=document.document_id), node_id)
+                    selected_draft_equipment.add(node_id)
+                    continue
+                raise KeyError(f"Selected SLD node {node_id!r} is no longer in the active document or DraftNetwork.")
             equipment_id = str(node.equipment_id or "").strip()
             if equipment_id and equipment_id in elements:
                 element_type = str(elements[equipment_id].element_type).strip().upper()
@@ -540,6 +544,9 @@ class SLDController:
 
         for selected_id in selected_connection_ids:
             connection = document.model.get_connection_optional(selected_id)
+            if connection is None and selected_id in draft_connections:
+                append(RemoveDraftConnectionCommand(connection_id=selected_id, document_id=document.document_id), selected_id)
+                continue
             if connection is None:
                 matches = tuple(
                     item for item in document.model.connections
