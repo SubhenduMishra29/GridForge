@@ -69,7 +69,7 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
-from .services.instrumentation_wiring_service import InstrumentationWiringService
+from .services.instrumentation_wiring_service import InstrumentationWiringService, InstrumentationWiringCommandHandlers
 from .synchronism_check import (
     BypassAuthorization,
     ProjectScopedSynchronismAuditSink,
@@ -136,6 +136,7 @@ def create_application(
             target[command_type] = handler
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
+    instrumentation_wiring_service = InstrumentationWiringService()
     application: Application | None = None
     synchronism_guard: Any = None
 
@@ -203,6 +204,7 @@ def create_application(
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
         register_handlers(handlers, SimpleWireConnectionCommandHandlers().handlers(), "simple wire connectivity")
+        register_handlers(handlers, InstrumentationWiringCommandHandlers(instrumentation_wiring_service).handlers(), "instrumentation wiring")
         register_handlers(handlers, PhaseDomainConductorNetworkCommandHandlers().handlers(), "phase-domain conductor network")
         register_handlers(handlers, JunctionCommandHandlers().handlers(), "junction topology")
         register_handlers(
@@ -725,7 +727,6 @@ def create_application(
         return rollback
 
     persistence = ProjectPersistenceService()
-    instrumentation_wiring_service = InstrumentationWiringService()
     dynamic_models = DynamicMachineModelRegistry()
 
     def activate_project_state(context: ProjectContext | None, loaded, network: Network, generation: int):
