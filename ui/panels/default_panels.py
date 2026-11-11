@@ -905,6 +905,7 @@ class PropertiesPanelWidget(QWidget):
         if table is None:
             return
         table.clear()
+        table.setTabKeyNavigation(True)
         table.setRowCount(len(values))
         table.setColumnCount(1 + len(self._batch_parameters))
         headers = ["Equipment"] + [
@@ -929,6 +930,9 @@ class PropertiesPanelWidget(QWidget):
                 )
                 table.setItem(row, column, item)
         table.show()
+        if self._batch_parameters:
+            table.setCurrentCell(0, 1)
+            table.setFocus()
         if self._batch_apply_button is not None:
             self._batch_apply_button.setEnabled(bool(self._batch_parameters))
             self._batch_apply_button.show()
@@ -989,6 +993,7 @@ class PropertiesPanelWidget(QWidget):
                 if self._batch_status_label is not None:
                     self._batch_status_label.setText("No engineering changes to commit.")
                 return
+            changed_equipment_count = sum(bool(changes) for changes in changes_by_target)
             result = self._engineering_editor.submit_batch_per_target(
                 self._batch_targets, tuple(changes_by_target)
             )
@@ -1002,9 +1007,11 @@ class PropertiesPanelWidget(QWidget):
                 self._batch_status_label.setText(f"Batch update rejected; no changes committed: {message}")
             return
         if self._batch_status_label is not None:
-            self._batch_status_label.setText(
-                f"Accepted: {len(self._batch_targets)} equipment updates committed atomically."
-            )
+            if changed_equipment_count > 1:
+                message = f"Accepted: {changed_equipment_count} equipment updates committed in one atomic batch."
+            else:
+                message = "Accepted: one equipment update committed."
+            self._batch_status_label.setText(message)
         if self._batch_apply_button is not None:
             self._batch_apply_button.setEnabled(False)
 
