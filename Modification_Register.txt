@@ -3304,3 +3304,37 @@ Disposition:
 - Static source and GitHub diff inspection only. No Qt GUI, runtime, tests or
   CI execution performed.
 ======================================================================
+
+
+Issue #821 implementation follow-up — final source reconciliation:
+- Exported ENGINEERING_UPDATE_BATCH and EngineeringUpdateBatchCommand through
+  core/application/commands/__init__.py.
+- Replaced temporary visible selection mutation with
+  SelectionManager.temporary_single_selection(). The coordinator now reads
+  each selected ProjectionState without emitting selection_changed or changing
+  the scene's visible multi-selection; the original domain selection remains
+  intact throughout projection.
+- Stale identities encountered during temporary projection no longer clear
+  the user's original selection snapshot.
+- Application.prepare_engineering_update_batch() now reads each target through
+  Application.read_element(), verifies that every requested parameter is
+  currently editable and non-derived, and rejects topology-impacting fields
+  using the authoritative EngineeringParameterReadModel metadata.
+- EngineeringUpdatePreparer.prepare_batch() performs target-specific canonical
+  command preparation and annotates validation failures with the equipment
+  type and identity. CreationParameterDefinition does not carry topology_impact;
+  topology eligibility is therefore correctly checked against the Application
+  read model rather than an unsupported creation-schema attribute.
+- Transactional child execution failures are annotated with the equipment
+  identity. The Inspector catches Application ExecutionError and presents the
+  rejection without reporting a successful commit.
+- Final follow-up commits:
+  command package export: 274d4b3624d6697923e5e9970c9ba5df19b4f03b
+  temporary selection projection: 24c43a294e593a29ec1340f8263daed69d4b0a96
+  stale identity preservation: 377b5b3f34d23f2147fdb83e3b106e35dd12076d
+  Application read-model validation: 57eb5a6bac0ff02ccd1f4e24c319143188a5b19e
+  target-specific transaction errors: 2577d8963ed39b334455dc090ff23d277dabf80f
+  preparer schema correction: 329ca71bf8cd48079a3124c9993a0bb87bcacb52
+- Fetched-back source inspection remains the verification boundary. No Python
+  compile/import execution, automated tests, CI, or live Qt GUI acceptance
+  has been performed. Issue #821 remains OPEN until runtime acceptance.
