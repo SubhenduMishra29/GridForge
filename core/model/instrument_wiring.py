@@ -233,6 +233,76 @@ class SignalCarrierBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class WiringTagSeries:
+    """Explicit project-defined sequential tag series for one record category."""
+
+    record_kind: str
+    prefix: str
+    separator: str = ""
+    minimum_digits: int = 3
+    next_number: int = 1
+
+    def __post_init__(self) -> None:
+        kind = _required_text(self.record_kind, "record_kind").upper()
+        prefix = _required_text(self.prefix, "prefix")
+        if not isinstance(self.separator, str):
+            raise TypeError("separator must be a string.")
+        if self.separator != self.separator.strip():
+            raise ValueError("separator must not contain leading or trailing whitespace.")
+        object.__setattr__(self, "record_kind", kind)
+        object.__setattr__(self, "prefix", prefix)
+        object.__setattr__(self, "minimum_digits", _positive_int(self.minimum_digits, "minimum_digits"))
+        object.__setattr__(self, "next_number", _positive_int(self.next_number, "next_number"))
+
+    def format(self, number: int) -> str:
+        number = _positive_int(number, "number")
+        return self.prefix + self.separator + str(number).zfill(self.minimum_digits)
+
+
+@dataclass(frozen=True, slots=True)
+class WiringTagPolicy:
+    """Project-owned tag series; no standard syntax or prefix is assumed."""
+
+    series: tuple[WiringTagSeries, ...] = ()
+
+    def __post_init__(self) -> None:
+        values = tuple(self.series)
+        if any(not isinstance(item, WiringTagSeries) for item in values):
+            raise TypeError("series must contain only WiringTagSeries values.")
+        kinds = [item.record_kind for item in values]
+        if len(kinds) != len(set(kinds)):
+            raise ValueError("Tag policy contains duplicate record_kind series.")
+        object.__setattr__(self, "series", values)
+
+    def allocate(
+        self, record_kind: str, *, used_tags: tuple[str, ...] | list[str] | set[str] = ()
+    ) -> tuple[str, "WiringTagPolicy"]:
+        """Return the next unused tag and a new policy with an advanced counter."""
+        kind = _required_text(record_kind, "record_kind").upper()
+        matches = [item for item in self.series if item.record_kind == kind]
+        if len(matches) != 1:
+            raise ValueError(f"No unique tag series is configured for {kind!r}.")
+        used = set(used_tags)
+        if any(not isinstance(item, str) for item in used):
+            raise TypeError("used_tags must contain strings.")
+        current = matches[0]
+        number = current.next_number
+        tag = current.format(number)
+        while tag in used:
+            number += 1
+            tag = current.format(number)
+        advanced = WiringTagSeries(
+            record_kind=current.record_kind,
+            prefix=current.prefix,
+            separator=current.separator,
+            minimum_digits=current.minimum_digits,
+            next_number=number + 1,
+        )
+        updated = tuple(advanced if item is current else item for item in self.series)
+        return tag, WiringTagPolicy(updated)
+
+
+@dataclass(frozen=True, slots=True)
 class InstrumentationWiringInventory:
     """Validated project-level snapshot of instrumentation wiring records.
 
@@ -245,8 +315,11 @@ class InstrumentationWiringInventory:
     panel_wires: tuple[PanelWire, ...] = ()
     signals: tuple[SignalDefinition, ...] = ()
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
+    tag_policy: WiringTagPolicy = WiringTagPolicy()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.tag_policy, WiringTagPolicy):
+            raise TypeError("tag_policy must be a WiringTagPolicy.")
         collections = (
             ("cables", self.cables, CableAssembly),
             ("cores", self.cores, CableCore),
@@ -326,5 +399,7 @@ __all__ = [
     "PanelWire",
     "SignalDefinition",
     "SignalCarrierBinding",
+    "WiringTagSeries",
+    "WiringTagPolicy",
     "InstrumentationWiringInventory",
 ]
