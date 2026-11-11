@@ -279,6 +279,11 @@ class SLDCanvasRenderSystem:
         controller = self._route_edit_controller
         if controller is None or item is None:
             return
+        # Application-owned physical wiring is regenerated from canonical
+        # cable/core/wire records. Its transient render IDs are not persisted
+        # SLD connection IDs and must never enter the authored route editor.
+        if getattr(item, "projection_source", None) == "instrumentation_wiring":
+            return
         item_key = id(item)
         if item_key in self._route_edit_bound_items:
             return
