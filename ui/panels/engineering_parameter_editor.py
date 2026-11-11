@@ -13,6 +13,7 @@ from types import MappingProxyType
 from typing import Any, Mapping
 
 from ui.projection.projection_state import ProjectionState
+from core.application.commands.selection_commands import EngineeringUpdateBatchCommand
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +103,40 @@ class EngineeringParameterEditor:
         else:
             command = self._application.prepare_engineering_update(intent)
         return self._application.execute(command)
+
+    def submit_batch(
+        self,
+        projections: tuple[ProjectionState, ...] | list[ProjectionState],
+        changes: Mapping[str, Any],
+    ) -> Any:
+        """Prepare all target-specific updates before one atomic Application execution."""
+        targets = tuple(projections)
+        if len(targets) < 2:
+            raise ValueError("Batch editing requires at least two selected equipment items.")
+        if not changes:
+            raise ValueError("At least one common engineering parameter change is required.")
+        if any(not isinstance(target, ProjectionState) for target in targets):
+            raise TypeError("Every batch target must be a ProjectionState.")
+        if len({(target.identity_kind, target.object_id) for target in targets}) != len(targets):
+            raise ValueError("Batch editing contains duplicate equipment identities.")
+        if any(target.identity_kind != "element" for target in targets):
+            raise ValueError("Batch engineering updates support committed equipment only.")
+        if len({target.display_type.strip().lower() for target in targets}) != 1:
+            raise ValueError("Batch engineering updates require compatible equipment types.")
+
+        # Prepare and validate every target before dispatch. No Core mutation
+        # occurs if any target rejects a field, paired value or typed conversion.
+        commands = []
+        for target in targets:
+            intent = self.intent_from_projection(target, changes)
+            if any(
+                parameter.topology_impact
+                for parameter in target.engineering_parameters
+                if parameter.parameter_id in changes
+            ):
+                raise ValueError("Batch editing does not permit topology-impacting parameters.")
+            commands.append(self._application.prepare_engineering_update(intent))
+        return self._application.execute(EngineeringUpdateBatchCommand(commands=tuple(commands)))
 
     @staticmethod
     def _coerce_typed_value(
