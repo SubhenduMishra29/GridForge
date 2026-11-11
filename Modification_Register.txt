@@ -1189,3 +1189,34 @@ Verification boundary:
 - Status: Issue #811 was closed as completed after this source correction and
   regression coverage at the repository owner's direction. Closure does not
   claim GUI/runtime acceptance; that evidence was not executed in this run.
+
+
+======================================================================
+GF-UI-SYMBOL-STANDARD-010 — SYMBOL CATALOGUE REVIEW GATE
+======================================================================
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Changes:
+- SymbolDefinition now records catalogue review status (unreviewed,
+  in_review, approved, rejected), geometry-review completion, and
+  terminal-anchor-review completion. These fields are serialized with the
+  renderer-neutral catalogue definition; legacy definitions default to
+  unreviewed and remain available as their existing canonical defaults.
+- Approval is rejected unless a specific standard reference is present,
+  the standard is not unspecified, and both geometry and terminal anchors
+  are explicitly marked reviewed.
+- SymbolRegistry.approved_variants_for_family() exposes only approved
+  variants with the required review evidence. Equipment-specific terminal
+  role/creation-contract reconciliation remains a separate mandatory gate;
+  this method alone does not certify a variant as selectable.
+
+Verification boundary:
+- Source changes committed to main and fetched back for inspection.
+- No built-in variant was promoted to approved; no IEC/ANSI artwork was
+  copied or compliance claim made.
+- No selector UI was added in this batch. Runtime GUI, equipment-contract
+  reconciliation against a real approved candidate, and project save/reopen
+  remain unverified.
+- No tests/CI were treated as acceptance gates.
