@@ -468,7 +468,7 @@ class PropertiesPanelWidget(QWidget):
                 child_layout = widget.layout()
                 if child_layout is not None:
                     collect(child_layout)
-                elif widget.focusPolicy() != Qt.NoFocus and widget.isEnabled():
+                elif widget.focusPolicy() != Qt.NoFocus:
                     ordered.append(widget)
 
         collect(self._scroll_content.layout())
