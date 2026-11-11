@@ -2266,3 +2266,33 @@ Phase A validation/API hardening:
 - Legacy schema-3 migration now rejects layer registries or layer_id fields that do not belong to schema 3 instead of silently overwriting them.
 - Added strict-validator regression coverage for unknown node layer references and out-of-range opacity.
 - Exported SLDPresentationLayer from ui.sld and retained the default-layer fallback for programmatic SLDAnnotationBlock mappings. Canonical persisted schema-4 validation still requires explicit membership.
+
+
+======================================================================
+GridForge V2 — SLD presentation-layer transactional commands (Phase B)
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Scope:
+- Implement Phase B of issue #820: Application command/service/transaction support for creating, updating, deleting, and reordering SLD presentation layers, with undo/redo and layer lock enforcement.
+
+Implementation:
+- Added typed immutable commands: CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand, and ReorderSLDLayersCommand, with stable command type constants and public exports through core.application.commands.
+- Registered all four commands in SLDCommandHandlers and SLDService's canonical command dispatch/allowlist.
+- Added SLDDocument.layer_state_snapshot() and replace_layer_state(). The replacement preflights the complete layer registry, exact node/connection membership maps, annotation identities/node references, and all target layer references before applying any in-memory mutation.
+- Added one transactional service operation that snapshots the complete before/after layer state, records a conflict-aware inverse before mutation, and restores the complete registry and all memberships atomically on rollback/undo. Redo re-executes the original typed command.
+- Layer creation validates identity and appends at the end. Layer updates validate name/visibility/lock/opacity; locked layers must be explicitly unlocked before other property changes. Layer reordering requires an exact permutation of every layer.
+- Default layer deletion is prohibited. Deleting a non-default unlocked layer requires a distinct existing unlocked destination and atomically reassigns all nodes, connections, and annotation blocks before removing/compacting the layer order.
+- AddSLDNodeCommand and AddSLDConnectionCommand now accept explicit layer_id, defaulting to "default". Application service validates target existence and lock state; object creation records layer membership as part of its undo conflict signature.
+- Application service preflight prevents node/connection geometry, presentation, property, route, and deletion mutations on locked layers. Node deletion also checks attached connections and annotations so it cannot cascade-delete content on a locked layer. Annotation collection changes are checked against locked-layer ownership.
+- All operations remain SLD presentation-only. No Core equipment, terminal, connectivity, topology, study, or calculation state is mutated by layer operations. Hiding a layer remains a future renderer projection concern (Phase C).
+
+Regression coverage added:
+- Layer creation/update/reorder/delete, atomic reassignment of populated node/connection/annotation content, undo and redo.
+- Default-layer deletion and locked-layer deletion rejection without state/history mutation.
+- Explicit layer placement for newly created SLD nodes/connections and locked-layer edit/add rejection.
+
+Verification:
+- Fetched latest main before each source update and fetched back updated command, service, handler, document, package export, and test sources.
+- Tests and CI were not executed. No Qt runtime or GUI acceptance is claimed.
