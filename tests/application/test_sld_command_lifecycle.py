@@ -6,12 +6,13 @@ from core.application.bootstrap import create_application
 from core.network.network import Network
 from core.model.bus import Bus
 from core.application.services.sld_service import SLDService
-from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand, SetSLDNodeTransformsCommand
+from core.application.commands.sld_commands import AddSLDNodeCommand, SetSLDNodePositionCommand, SetSLDNodeTransformsCommand, CreateSLDLayerCommand, UpdateSLDLayerCommand, DeleteSLDLayerCommand, ReorderSLDLayersCommand
 from core.application.commands.model_commands import CreateBusCommand
 from core.application.events import SLDPresentationChanged
 from core.application.errors import ExecutionError
 from core.application.services.sld_service import SLDService
 from ui.sld.sld_document import SLDDocument
+from ui.sld.sld_model import SLDAnnotationBlock
 from ui.equipment.symbol.symbol_base import SymbolBase
 
 
@@ -181,3 +182,64 @@ def test_group_transform_stale_member_rejects_undo_without_partial_restore() -> 
     assert _group_state(document) == externally_changed
     assert _group_state(document)["bus-1"] == after["bus-1"]
     assert before["bus-1"] != after["bus-1"]
+
+
+def test_layer_commands_are_atomic_and_undo_redo_membership_with_content():
+    application, document = _application()
+    document.model.create_node("layer-node-a", "bus-1", 10, 20)
+    document.model.create_node("layer-node-b", "bus-1", 30, 40)
+    document.model.create_connection("layer-wire", "layer-node-a", "layer-node-b")
+    document.add_annotation_block(SLDAnnotationBlock(
+        block_id="layer-note", node_id="layer-node-a", fields=("identity",),
+    ))
+    original_ids = (
+        tuple(node.node_id for node in document.model.nodes),
+        tuple(connection.connection_id for connection in document.model.connections),
+    )
+
+    application.execute(CreateSLDLayerCommand(
+        layer_id="details", name="Details", visible=True, opacity=0.8,
+    ))
+    application.execute(UpdateSLDLayerCommand(
+        layer_id="details", name="Engineering details", visible=False, opacity=0.45,
+    ))
+    application.execute(ReorderSLDLayersCommand(layer_ids=("details", "default")))
+    assert [layer.layer_id for layer in document.layers] == ["details", "default"]
+    assert document.layers[0].visible is False
+    assert document.layers[0].opacity == 0.45
+
+    application.execute(DeleteSLDLayerCommand(layer_id="details", reassign_to="default"))
+    assert [layer.layer_id for layer in document.layers] == ["default"]
+    assert all(node.layer_id == "default" for node in document.model.nodes)
+    assert all(connection.layer_id == "default" for connection in document.model.connections)
+    assert document.annotation_blocks[0].layer_id == "default"
+    assert (
+        tuple(node.node_id for node in document.model.nodes),
+        tuple(connection.connection_id for connection in document.model.connections),
+    ) == original_ids
+
+    application.undo()
+    assert [layer.layer_id for layer in document.layers] == ["details", "default"]
+    assert document.model.get_node("layer-node-a").layer_id == "details"
+    assert document.model.get_connection("layer-wire").layer_id == "details"
+    assert document.annotation_blocks[0].layer_id == "default"
+
+    application.redo()
+    assert [layer.layer_id for layer in document.layers] == ["default"]
+    assert all(node.layer_id == "default" for node in document.model.nodes)
+    assert document.annotation_blocks[0].layer_id == "default"
+
+
+def test_layer_commands_reject_default_deletion_and_locked_layer_deletion():
+    application, document = _application()
+    with pytest.raises(ValueError, match="default"):
+        DeleteSLDLayerCommand(layer_id="default")
+
+    application.execute(CreateSLDLayerCommand(layer_id="locked", name="Locked"))
+    application.execute(UpdateSLDLayerCommand(layer_id="locked", locked=True))
+    before = document.layer_state_snapshot()
+    history_before = application.undo_count()
+    with pytest.raises(ExecutionError):
+        application.execute(DeleteSLDLayerCommand(layer_id="locked"))
+    assert document.layer_state_snapshot() == before
+    assert application.undo_count() == history_before
