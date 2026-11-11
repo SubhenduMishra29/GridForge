@@ -2044,3 +2044,27 @@ Corrections:
 Verification:
 - Source changes committed to main and fetch-back verification pending at register entry creation.
 - No Qt runtime/GUI acceptance claimed.
+
+
+======================================================================
+GridForge V2 — Canonical workspace panel ownership and duplicate-presentation audit
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Audit findings:
+- The canonical visible workspace is hosted in the MainWindow central surface through ControlSurfaceHost → EngineeringEditorHost → editor Regions. WorkspaceRealizer activates the canonical editor host; its dock bindings are explicitly compatibility-only and are not read from WorkspaceDefinition or WorkspaceLayout.
+- PanelsPlugin initially creates one widget instance per utility panel. The composition root then detaches project, equipment, properties, element-list, messages and study-case widgets from their legacy dock wrappers before mounting them into canonical editor Regions. The detached wrappers are removed and their widgets are reparented; the same panel widget is not left visible in a second dock.
+- Project Explorer, Equipment Browser and Element List are separate tabs within the single SLD Explorer Region. Properties is mounted once in the SLD Inspector Region; Messages is mounted once in the SLD Diagnostics Region; Study Cases is mounted once in the Study Editor Explorer Region.
+- ControlWorkspace retains hidden historical palette and toolbar widgets. The visible Control ToolShelf is constructed by ControlEditor through ControlSurfaceHost. The hidden palette remains a compatibility/data source for ControlWorkspace tool descriptors and activation; the hidden toolbar is not mounted in the visible editor. These are latent duplicate widget allocations, not duplicate visible panel surfaces. Removing them safely requires separating ControlWorkspace tool metadata/lifecycle from its historical widget wrappers; this audit does not delete them or alter control-tool behavior.
+- ControlWorkspace's inspector widget is injected by identity into the canonical Control Editor Inspector Region. It is not a second inspector instance. ProtectionWorkspace similarly supplies its own explorer and inspector widgets to Protection Editor Regions.
+- The SLD editor's local panel buttons control Region visibility; the legacy dock wrappers are already detached. They do not expose a second visible dock presentation.
+
+Disposition:
+- No proven duplicate visible Project Explorer, Equipment Browser, Inspector, Messages or Study Cases panel was found in the current composition path. Do not remove or merge distinct Explorer tabs or discipline-specific inspectors.
+- Retain the legacy dock compatibility API and hidden ControlWorkspace palette/toolbar until their remaining non-visual responsibilities can be extracted without changing tool behavior. This is a bounded cleanup item, not evidence of a visible GUI duplication defect.
+
+Verification:
+- Fetched current main and inspected WorkspaceRealizer, WorkspaceDefinition defaults, PanelsPlugin, default panel factories, MainWindow, ControlSurfaceHost, SLDEditor, ControlEditor, ControlWorkspace and the application composition root.
+- Source tracing confirmed each utility panel widget is detached from its dock and mounted into one canonical Region/tab. No source changes to widget composition were justified by this audit.
+- No Qt runtime, visible-window inspection, panel-toggle interaction, or desktop GUI acceptance was performed.
