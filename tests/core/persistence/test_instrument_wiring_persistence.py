@@ -16,6 +16,7 @@ from core.model.instrument_wiring import (
     TerminalBlock, TerminalPoint, TerminalAccessory, TerminalAccessoryKind, TerminalAccessoryState,
     CTSecondaryCircuit, CTSecondaryCircuitState,
     PTSecondaryCircuit, PTSecondaryCircuitState, PTSecondaryPolarity, PTSecondaryGrounding,
+    TemperatureSensorKind, TemperatureSensorLeadRoute, TemperatureSensorCircuit,
 )
 from core.persistence.instrument_wiring_serializer import (
     InstrumentationWiringSerializationError,
@@ -829,4 +830,46 @@ def test_schema_six_wiring_inventory_remains_readable_after_schema_seven():
     payload = serialize_instrumentation_wiring(sample_inventory())
     payload["schema"] = 6
     payload.pop("pt_secondary_circuits")
+    assert deserialize_instrumentation_wiring(payload) == sample_inventory()
+
+
+def test_temperature_sensor_circuit_schema_eight_round_trip():
+    cable = CableAssembly(
+        id="rtd-persist-cable", tag="C-RTD-PERSIST", service="RTD", core_count=2,
+    )
+    terminal_a = WiringTerminalReference("RTD-PERSIST", "A", "A")
+    terminal_b = WiringTerminalReference("RTD-PERSIST", "B", "B")
+    core_a = CableCore(
+        id="rtd-persist-a", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(terminal_a, WiringTerminalReference("TB-RTD", "1", "1")),
+    )
+    core_b = CableCore(
+        id="rtd-persist-b", cable_id=cable.id, core_number=2,
+        role=WiringConductorRole.RETURN,
+        terminal_path=(terminal_b, WiringTerminalReference("TB-RTD", "2", "2")),
+    )
+    circuit = TemperatureSensorCircuit(
+        id="rtd-persist-circuit", sensor_id="RTD-PERSIST",
+        sensor_kind=TemperatureSensorKind.RTD,
+        measurement_channel_id="temperature-channel",
+        rtd_wiring_configuration="2_WIRE",
+        leads=(
+            TemperatureSensorLeadRoute("rtd-lead-a", terminal_a, (core_a.id,)),
+            TemperatureSensorLeadRoute("rtd-lead-b", terminal_b, (core_b.id,)),
+        ),
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core_a, core_b),
+        temperature_sensor_circuits=(circuit,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 8
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+def test_schema_seven_wiring_inventory_remains_readable_after_schema_eight():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["schema"] = 7
+    payload.pop("temperature_sensor_circuits")
     assert deserialize_instrumentation_wiring(payload) == sample_inventory()
