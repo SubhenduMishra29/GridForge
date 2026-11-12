@@ -17,7 +17,7 @@ from core.persistence.instrument_wiring_serializer import (
     deserialize_instrumentation_wiring,
     serialize_instrumentation_wiring,
 )
-from core.persistence.migration import _ProjectSchema5To6, _ProjectSchema6To7, _ProjectSchema7To8
+from core.persistence.migration import _ProjectSchema5To6, _ProjectSchema6To7, _ProjectSchema7To8, _ProjectSchema8To9
 
 
 class FakeNetwork:
@@ -299,7 +299,7 @@ def test_wiring_codec_round_trips_hop_identity_and_lifecycle_without_geometry():
     hop = PhysicalConnectionHop(id="hop-stable-001", from_terminal=start, to_terminal=end, carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id, revision=3, lifecycle_status="INSTALLED")
     inventory = InstrumentationWiringInventory(cables=(cable,), cores=(core,), connection_hops=(hop,))
     payload = serialize_instrumentation_wiring(inventory)
-    assert payload["schema"] == 3
+    assert payload["schema"] == 4
     assert "geometry" not in payload
     restored = deserialize_instrumentation_wiring(payload)
     assert restored == inventory
@@ -314,3 +314,50 @@ def test_schema_seven_migration_preserves_legacy_paths_without_fabricating_hop_i
     assert migrated["instrumentation_wiring"]["schema"] == 3
     assert migrated["instrumentation_wiring"]["connection_hops"] == []
     assert source["instrumentation_wiring"]["schema"] == 2
+
+
+def test_schema_eight_migration_leaves_channel_association_unset_without_inference():
+    source = {
+        "schema": 8,
+        "instrumentation_wiring": {
+            "schema": 3,
+            "cables": [], "cores": [], "panel_wires": [],
+            "signals": [{
+                "id": "sig-1", "tag": "IA", "description": "Phase A current",
+                "kind": "CURRENT", "unit": "A", "phase": "A",
+            }],
+            "signal_bindings": [], "tag_policy": [], "connection_hops": [],
+        },
+    }
+    migrated = _ProjectSchema8To9().migrate(source)
+    assert migrated["schema"] == 9
+    assert migrated["instrumentation_wiring"]["schema"] == 4
+    assert migrated["instrumentation_wiring"]["signals"][0]["measurement_channel_id"] is None
+    assert source["instrumentation_wiring"]["signals"][0].get("measurement_channel_id") is None
+
+
+def test_wiring_codec_round_trips_explicit_measurement_channel_identity():
+    signal = SignalDefinition(
+        id="signal-with-channel", tag="IA-CH", description="Phase A current",
+        kind=SignalKind.CURRENT, unit="A", phase="A",
+        measurement_channel_id="measurement-channel-17",
+    )
+    inventory = InstrumentationWiringInventory(signals=(signal,))
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["signals"][0]["measurement_channel_id"] == "measurement-channel-17"
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+def test_inventory_rejects_two_signals_claiming_one_measurement_channel():
+    first = SignalDefinition(
+        id="signal-1", tag="IA-1", description="First current",
+        kind=SignalKind.CURRENT, unit="A", phase="A",
+        measurement_channel_id="channel-shared",
+    )
+    second = SignalDefinition(
+        id="signal-2", tag="IA-2", description="Second current",
+        kind=SignalKind.CURRENT, unit="A", phase="A",
+        measurement_channel_id="channel-shared",
+    )
+    with pytest.raises(ValueError, match="only one instrumentation signal"):
+        InstrumentationWiringInventory(signals=(first, second))
