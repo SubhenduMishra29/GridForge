@@ -443,9 +443,13 @@ class HYGOVReducedHydroGovernor(DynamicPlugin):
             raise ValueError(
                 "initial flow and gate must satisfy the configured steady-state head"
             )
-        filtered_error = reference - speed - p.permanent_droop_pu * gate
-        integrator = gate - filtered_error / p.temporary_droop_pu
-        return (filtered_error, integrator, gate, flow)
+        equilibrium_reference = speed + p.permanent_droop_pu * gate
+        if abs(reference - equilibrium_reference) > 1e-6:
+            raise ValueError(
+                "power reference is inconsistent with the requested steady-state "
+                "speed and gate position"
+            )
+        return (0.0, gate, gate, flow)
 
     def derivatives(self, state: tuple[float, ...] | list[float], *,
                     power_reference_pu: float, speed_deviation_pu: float = 0.0,
