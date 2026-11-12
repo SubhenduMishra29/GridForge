@@ -517,3 +517,31 @@ stages, couple AVR output into the network source, or commit GGOV1 sampled
 feedback. A future integration must make the network solver, machine
 derivatives, component derivatives, event boundaries and accepted/rejected
 step participants consume one common augmented-state protocol atomically.
+
+### Core dynamic-component derivative assembly boundary
+
+Core now exports `DynamicComponentBinding`,
+`DynamicComponentBatchEvaluation` and
+`evaluate_dynamic_components()`. Each registered extension is bound to one
+existing machine ID and one authoritative terminal ID. Evaluation verifies
+that component identities and state dimensions match the composed global
+layout, that the bound machine and terminal exist in the study snapshot, and
+that the machine has an electrical-power input. Each component receives its
+detached local state and the same immutable study input snapshot.
+
+The returned component derivative blocks are keyed by component ID and
+mechanical-power outputs are keyed by canonical machine ID. A component may
+only produce mechanical power for its bound machine; multiple controllers
+driving one machine are rejected until an explicit engineering aggregation
+policy exists. No Core machine is mutated and no static mechanical-power map
+is silently overwritten.
+
+This is a pure component-evaluation boundary, not a complete DAE derivative
+assembler. The host must still sequence algebraic network solution, electrical
+machine output evaluation, component evaluation, mechanical-power handoff,
+and machine derivative evaluation consistently. AVR terminal-voltage and
+internal-emf feedback is not yet solved by this contract. The current
+`DAESolver` still consumes only the existing `MultiMachineSystem` vector
+and fixed mechanical-power mapping; neither the new layout nor this evaluator
+is wired into production integration. Discrete GGOV1 sample feedback remains
+owned by the accepted-step transaction boundary, never by a derivative call.
