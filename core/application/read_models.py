@@ -765,9 +765,9 @@ class MeasurementChannelConfigurationReadModel:
 
     channel_id: str
     name: str
-    source_id: str
-    source_equipment_type: str
-    source_terminal_reference: Mapping[str, Any]
+    source_id: str | None
+    source_equipment_type: str | None
+    source_terminal_reference: Mapping[str, Any] | None
     signal_type: str
     phase: str
     unit: str
@@ -779,16 +779,21 @@ class MeasurementChannelConfigurationReadModel:
     producer_id: str | None
 
     def __post_init__(self) -> None:
-        for field_name in ("channel_id", "source_id", "source_equipment_type", "signal_type", "phase", "unit"):
+        for field_name in ("channel_id", "signal_type", "phase", "unit"):
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty.")
             object.__setattr__(self, field_name, value.strip())
         if not isinstance(self.name, str):
             raise TypeError("MeasurementChannelConfigurationReadModel.name must be a string.")
-        if not isinstance(self.source_terminal_reference, Mapping):
-            raise TypeError("source_terminal_reference must be a mapping.")
-        object.__setattr__(self, "source_terminal_reference", _freeze(self.source_terminal_reference))
+        for field_name in ("source_id", "source_equipment_type"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty or None.")
+        if self.source_terminal_reference is not None:
+            if not isinstance(self.source_terminal_reference, Mapping):
+                raise TypeError("source_terminal_reference must be a mapping or None.")
+            object.__setattr__(self, "source_terminal_reference", _freeze(self.source_terminal_reference))
         for field_name in ("nominal_value", "scale", "polarity"):
             value = getattr(self, field_name)
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
