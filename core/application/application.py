@@ -33,6 +33,7 @@ from .commands.selection_commands import EngineeringUpdateBatchCommand
 from .draft.network import DraftNetwork
 from .draft.collection import DraftNetworkCollection
 from .commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
+from .commands.instrumentation_wiring_commands import SET_INSTRUMENTATION_WIRING_INVENTORY
 from .commands.control_commands import (
     ADD_CONTROL_COMPONENT, REMOVE_CONTROL_COMPONENT,
     CONNECT_CONTROL_SIGNALS, DISCONNECT_CONTROL_SIGNALS,
@@ -5394,7 +5395,7 @@ class Application:
                 metadata=metadata,
             ))
             return
-        if command.command_type == "instrumentation_wiring.set_inventory":
+        if command.command_type == SET_INSTRUMENTATION_WIRING_INVENTORY:
             expected_inventory = command.payload.get("expected_inventory")
             replacement_inventory = command.payload.get("replacement_inventory")
             if expected_inventory is None or replacement_inventory is None:

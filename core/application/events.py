@@ -210,7 +210,7 @@ class InstrumentationWiringChanged(ApplicationEvent):
         causation_id: UUID | None = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
-        if operation not in {"execute", "undo", "redo"}:
+        if not isinstance(operation, str) or operation not in {"execute", "undo", "redo"}:
             raise ValueError("operation must be execute, undo or redo.")
         if not isinstance(project_id, str) or not project_id.strip():
             raise ValueError("project_id must be a non-empty string.")
