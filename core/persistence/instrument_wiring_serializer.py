@@ -8,10 +8,11 @@ from typing import Any
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
     PanelWire, SignalCarrierBinding, SignalDefinition, SignalKind,
+    SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 2
+WIRING_SCHEMA_VERSION = 3
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -107,6 +108,20 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.signal_bindings
         ],
+        "endpoint_bindings": [
+            {
+                "id": item.id,
+                "signal_id": item.signal_id,
+                "endpoint": {
+                    "kind": item.endpoint.kind.value,
+                    "endpoint_id": item.endpoint.endpoint_id,
+                    "owner_id": item.endpoint.owner_id,
+                    "port": item.endpoint.port,
+                },
+                "direction": item.direction,
+            }
+            for item in inventory.endpoint_bindings
+        ],
     }
 
 
@@ -116,19 +131,28 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         return InstrumentationWiringInventory()
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
-    expected = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
+    expected_v2 = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
+    expected_v3 = expected_v2 | {"endpoint_bindings"}
+    schema = data.get("schema")
+    expected = expected_v2 if schema == 2 else expected_v3
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
             + ", ".join(sorted(str(key) for key in set(data) ^ expected))
         )
-    if isinstance(data.get("schema"), bool) or data.get("schema") != WIRING_SCHEMA_VERSION:
+    if isinstance(schema, bool) or schema not in {2, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
-            f"Unsupported instrumentation wiring schema {data.get('schema')!r}."
+            f"Unsupported instrumentation wiring schema {schema!r}."
         )
     for key in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"):
         if not isinstance(data.get(key), list) or any(not isinstance(item, Mapping) for item in data[key]):
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
+
+    if schema == WIRING_SCHEMA_VERSION and (
+        not isinstance(data.get("endpoint_bindings"), list)
+        or any(not isinstance(item, Mapping) for item in data["endpoint_bindings"])
+    ):
+        raise InstrumentationWiringSerializationError("Instrumentation wiring endpoint_bindings must be an array of objects.")
 
     try:
         _field_contracts = (
@@ -137,6 +161,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour"}, "Panel wire"),
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
+            ("endpoint_bindings", {"id", "signal_id", "endpoint"}, {"direction"}, "Signal endpoint binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
         )
         for collection_name, required, optional, label in _field_contracts:
@@ -178,9 +203,24 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             )
             for item in data["signal_bindings"]
         )
+        endpoint_bindings = tuple(
+            SignalEndpointBinding(
+                id=item["id"],
+                signal_id=item["signal_id"],
+                endpoint=SignalEndpointReference(
+                    kind=SignalEndpointKind(item["endpoint"]["kind"]),
+                    endpoint_id=item["endpoint"]["endpoint_id"],
+                    owner_id=item["endpoint"].get("owner_id"),
+                    port=item["endpoint"].get("port"),
+                ),
+                direction=item.get("direction", "SOURCE_TO_SINK"),
+            )
+            for item in data.get("endpoint_bindings", ())
+        )
         return InstrumentationWiringInventory(
             cables=cables, cores=cores, panel_wires=panel_wires,
             signals=signals, signal_bindings=bindings, tag_policy=tag_policy,
+            endpoint_bindings=endpoint_bindings,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(
