@@ -788,5 +788,12 @@ step calls do not overwrite one another. Only the returned accepted state and
 its final algebraic stage are eligible for a host's accepted-step checkpoint;
 Application StudyService remains the owner of cancellation, terminal result
 persistence and lifecycle events. The current archive allowlist does not
-reconstruct plugin-specific stage-result dataclasses, so hosts must not assume
-this diagnostic tuple is durably archived by the generic StudyResult archive.
+reconstruct plugin-specific stage-result dataclasses. For durable evidence,
+call `GeneratorAugmentedStepResult.to_archive_payload()` and place the returned
+versioned primitive mapping in the Application-owned `StudyResult.value` (or
+its result payload). This keeps Core's archive independent of plugin imports
+while retaining accepted state, final algebraic evidence, per-stage excitation,
+network convergence, terminal/power inputs and derivative contributions.
+The payload labels derivative entries as solver evaluations, not accepted
+trajectory points; hosts must persist accepted-step checkpoints separately and
+must not promote trial evaluations to committed states.
