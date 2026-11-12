@@ -63,6 +63,7 @@ class ControlSurfaceHost(QWidget):
             activators.setdefault("sld", tool_activator)
         providers = dict(tool_active_providers or {})
         self._application = application
+        self._workspace_surfaces = normalized
         self._study_runtime = study_runtime
         self._study_reports_view: ReportsWorkspaceView | None = None
         self._host = EngineeringEditorHost(parent=self)
@@ -145,6 +146,11 @@ class ControlSurfaceHost(QWidget):
         # do not define WorkspaceDefinition/EditorDefinition policy.
         self._host.register_editor("topology", TopologyWorkspaceView(application, parent=self._host))
         self._host.register_editor("map", MapWorkspaceView(parent=self._host))
+
+        for surface in normalized.values():
+            bind_navigation = getattr(surface, "set_editor_navigation_callback", None)
+            if callable(bind_navigation):
+                bind_navigation(self.navigate_to_endpoint)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -275,6 +281,23 @@ class ControlSurfaceHost(QWidget):
             widget = self._host.widget("map")
             if isinstance(widget, MapWorkspaceView):
                 widget.set_document(self._sld_document)
+
+    def navigate_to_endpoint(self, editor_type: str, object_id: str) -> None:
+        """Activate a discipline editor and centre its canonical target."""
+        target_editor = str(editor_type).strip().lower()
+        target_id = str(object_id).strip()
+        if not target_id:
+            raise ValueError("object_id must be a non-empty string.")
+        surface = self._workspace_surfaces.get(target_editor)
+        if surface is None:
+            raise KeyError(f"Unknown signal provenance target editor: {target_editor!r}")
+        selector = getattr(surface, "select_canonical_object", None)
+        if not callable(selector):
+            raise RuntimeError(
+                f"Editor {target_editor!r} does not expose canonical target selection."
+            )
+        self.activate(target_editor)
+        selector(target_id)
 
     def set_editor_context(self, context: object | None) -> None:
         self._host.set_editor_context(context)
