@@ -50,3 +50,16 @@ def test_temperature_sensor_endpoint_reference_uses_canonical_equipment_type():
     )
     assert reference.equipment_id == "RTD-3"
     assert reference.terminal_role == "A"
+
+def test_temperature_sensor_endpoint_reference_rejects_unknown_terminal_role():
+    try:
+        EndpointReference.terminal(
+            equipment_type=EquipmentType.RTD,
+            equipment_id="RTD-4",
+            terminal_role="POSITIVE",
+        )
+    except ValueError as exc:
+        assert "not valid" in str(exc)
+    else:
+        raise AssertionError("RTD endpoint reference accepted a non-RTD terminal role.")
+
