@@ -29,6 +29,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "reduced_hydro_governor_model",
         "ggov1_parameter_contract",
         "ggov1_pid_subblock",
+        "ggov1_valve_actuator_subblock",
         "excitation_and_governor_configuration",
         "instrumentation_templates",
         "measurement_channel_provisioning",
