@@ -12,6 +12,9 @@ from core.model import (
     SignalCarrierBinding,
     SignalDefinition,
     SignalKind,
+    SignalEndpointKind,
+    SignalEndpointReference,
+    SignalEndpointBinding,
     WiringTerminalReference,
 )
 
@@ -128,3 +131,81 @@ def test_inventory_rejects_duplicate_tags_and_dangling_signal_bindings():
     )
     with pytest.raises(ValueError, match="missing cable core"):
         InstrumentationWiringInventory(signals=(signal,), signal_bindings=(dangling,))
+
+
+
+def test_signal_endpoint_binding_models_measurement_control_and_protection_targets():
+    signal = SignalDefinition(
+        id="signal-1", tag="PT-101-V", description="Bus voltage",
+        kind=SignalKind.VOLTAGE, unit="V", phase="A",
+    )
+    endpoints = (
+        SignalEndpointReference(
+            kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+            endpoint_id="channel-1",
+        ),
+        SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-1", owner_id="control-1", port="PV",
+        ),
+        SignalEndpointReference(
+            kind=SignalEndpointKind.PROTECTION_INPUT,
+            endpoint_id="protection-binding-1",
+            owner_id="protection-element-1", port="V_A",
+        ),
+    )
+    bindings = tuple(
+        SignalEndpointBinding(
+            id=f"endpoint-binding-{index}", signal_id=signal.id,
+            endpoint=endpoint,
+        )
+        for index, endpoint in enumerate(endpoints, start=1)
+    )
+    inventory = InstrumentationWiringInventory(
+        signals=(signal,), endpoint_bindings=bindings,
+    )
+    assert tuple(item.endpoint.kind for item in inventory.endpoint_bindings) == (
+        SignalEndpointKind.MEASUREMENT_CHANNEL,
+        SignalEndpointKind.CONTROL_INPUT,
+        SignalEndpointKind.PROTECTION_INPUT,
+    )
+
+
+def test_signal_endpoint_binding_rejects_incomplete_typed_endpoint():
+    with pytest.raises(ValueError, match="Control input references require"):
+        SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-1",
+        )
+    with pytest.raises(ValueError, match="MeasurementChannel endpoint references use"):
+        SignalEndpointReference(
+            kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+            endpoint_id="channel-1", owner_id="instrument-1",
+        )
+
+
+def test_inventory_rejects_dangling_and_duplicate_signal_endpoint_bindings():
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-1", description="Temperature",
+        kind=SignalKind.TEMPERATURE,
+    )
+    endpoint = SignalEndpointReference(
+        kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+        endpoint_id="channel-1",
+    )
+    dangling = SignalEndpointBinding(
+        id="endpoint-binding-1", signal_id="missing-signal", endpoint=endpoint,
+    )
+    with pytest.raises(ValueError, match="references missing signal"):
+        InstrumentationWiringInventory(endpoint_bindings=(dangling,))
+
+    first = SignalEndpointBinding(
+        id="endpoint-binding-1", signal_id=signal.id, endpoint=endpoint,
+    )
+    second = SignalEndpointBinding(
+        id="endpoint-binding-2", signal_id=signal.id, endpoint=endpoint,
+    )
+    with pytest.raises(ValueError, match="only one canonical signal"):
+        InstrumentationWiringInventory(
+            signals=(signal,), endpoint_bindings=(first, second),
+        )
