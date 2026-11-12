@@ -86,3 +86,20 @@ caller-supplied value: no universal plant-independent tracking constant is
 assumed. If both values are omitted, the standalone PID behavior is unchanged.
 This hook does not add tracking to controllers that have not yet been
 implemented, and does not claim the full GGOV1 limiter network is complete.
+
+
+## Acceleration, load and temperature sub-block boundaries
+
+The acceleration path now follows the PSS/E/NERC integral form:
+`d(FSRA)/dt = Ka * (Aset - filtered_acceleration)`. The state vector contains
+both the filtered acceleration and FSRA integrator. A selected-command
+tracking correction is optional and uses a caller-supplied positive tracking
+time constant.
+
+The fuel-flow load-limiter PI is a separate approximation using
+`Ldref - filtered_fuel_flow`, `Kpload`, and `Kiload`; it is not a substitute
+for the complete PSS/E exhaust-temperature controller. The
+`GGOV1TemperatureMeasurement` block supplies only the
+`(1+s*Tsa)/(1+s*Tsb)` exhaust-temperature measurement conditioning. OEM
+temperature references, ambient compensation, limiter maps and combined
+FSRT composition remain explicit integration requirements.
