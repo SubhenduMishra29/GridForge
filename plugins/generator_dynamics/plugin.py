@@ -35,6 +35,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "ggov1_control_coordinator",
         "ggov1_common_fuel_command_limiter",
         "ggov1_operating_point_reconciliation",
+        "ggov1_sampled_execution_adapter",
         "ggov1_pid_tracking_input",
         "ggov1_acceleration_limiter",
         "ggov1_exhaust_temperature_load_limiter",
