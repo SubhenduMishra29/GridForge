@@ -856,8 +856,8 @@ class MultiMachineSystem:
 
         return derivative
 
-    @staticmethod
     def _validate_field_voltages(
+        self,
         field_voltages: Mapping[str, float] | None,
     ) -> dict[str, float]:
         """Validate optional AVR outputs keyed by canonical machine identity."""
@@ -875,6 +875,12 @@ class MultiMachineSystem:
             if not np.isfinite(numeric) or numeric < 0.0:
                 raise MultiMachineError(f"field voltage for {machine_id!r} must be finite and non-negative")
             values[machine_id] = numeric
+        known_machine_ids = {machine.machine_id for machine in self._machines}
+        unknown = set(values) - known_machine_ids
+        if unknown:
+            raise MultiMachineError(
+                f"Field-voltage inputs reference unknown machines: {sorted(unknown)}"
+            )
         return values
 
     # ==================================================================
