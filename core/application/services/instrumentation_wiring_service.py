@@ -16,7 +16,7 @@ from core.application.read_models import InstrumentationWiringReadModel
 from core.application.transaction import Transaction
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
-    SignalCarrierBinding, SignalDefinition,
+    SignalCarrierBinding, SignalDefinition, PhysicalConnectionHop,
 )
 
 
@@ -33,6 +33,7 @@ class InstrumentationWiringService:
 
     def __init__(self) -> None:
         self._inventory_validator: Any | None = None
+        self._receiver_validator: Any | None = None
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Any | None = None
@@ -43,6 +44,21 @@ class InstrumentationWiringService:
         if validator is not None and not callable(validator):
             raise TypeError("inventory validator must be callable or None.")
         self._inventory_validator = validator
+
+    def bind_receiver_validator(self, validator: Any | None) -> None:
+        """Bind Control/Protection reconciliation against active project registries."""
+        if validator is not None and not callable(validator):
+            raise TypeError("receiver validator must be callable or None.")
+        self._receiver_validator = validator
+
+    def validate_receiver_bindings(
+        self, inventory: InstrumentationWiringInventory | None = None
+    ) -> None:
+        candidate = self._inventory if inventory is None else inventory
+        if not isinstance(candidate, InstrumentationWiringInventory):
+            raise TypeError("inventory must be an InstrumentationWiringInventory.")
+        if self._receiver_validator is not None:
+            self._receiver_validator(candidate)
 
     @property
     def project_id(self) -> str | None:
@@ -146,6 +162,7 @@ class InstrumentationWiringService:
             signals=tuple(self._read_value(item) for item in inventory.signals),
             signal_bindings=tuple(self._read_value(item) for item in inventory.signal_bindings),
             tag_policy=tuple(self._read_value(item) for item in inventory.tag_policy.series),
+            connection_hops=tuple(self._read_value(item) for item in inventory.connection_hops),
         )
 
     def allocate_tag(
@@ -165,8 +182,9 @@ class InstrumentationWiringService:
         }
         if kind not in used_by_kind:
             raise ValueError(f"Unsupported instrumentation wiring tag category: {kind!r}.")
+        all_used_tags = tuple(tag for values in used_by_kind.values() for tag in values)
         tag, updated_policy = self._inventory.tag_policy.allocate(
-            kind, used_tags=used_by_kind[kind]
+            kind, used_tags=all_used_tags
         )
         return tag, replace(self._inventory, tag_policy=updated_policy)
 
@@ -179,6 +197,7 @@ class InstrumentationWiringService:
             PanelWire: "panel_wires",
             SignalDefinition: "signals",
             SignalCarrierBinding: "signal_bindings",
+            PhysicalConnectionHop: "connection_hops",
         }
         try:
             return collections[record_type]
@@ -190,7 +209,7 @@ class InstrumentationWiringService:
             return self._inventory
         if not isinstance(candidate, InstrumentationWiringInventory):
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
-        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings"):
+        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "connection_hops"):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
         return candidate
@@ -224,6 +243,110 @@ class InstrumentationWiringService:
         if len(remaining) == len(records):
             raise KeyError(f"Instrumentation wiring record {record_id!r} does not exist.")
         return self.create_replace_command(replace(self._inventory, **{field: remaining}))
+    def create_update_carrier_route_command(
+        self,
+        carrier_kind: Any,
+        carrier_id: str,
+        terminal_path: tuple[Any, ...] | list[Any],
+        *,
+        new_hop_ids: tuple[str, ...] | list[str] = (),
+    ) -> SetInstrumentationWiringInventoryCommand:
+        """Prepare a route revision while retaining IDs for unchanged segments.
+
+        new_hop_ids supplies explicit IDs only for newly introduced adjacent
+        segments, in route order. Removed active segments remain as RETIRED
+        history records; no ID is generated or inferred.
+        """
+        from core.model.instrument_wiring import CarrierKind, WiringTerminalReference
+
+        if not isinstance(carrier_kind, CarrierKind):
+            raise TypeError("carrier_kind must be a CarrierKind.")
+        if carrier_kind not in {CarrierKind.CABLE_CORE, CarrierKind.PANEL_WIRE}:
+            raise ValueError("Only cable-core and panel-wire routes can be revised.")
+        if not isinstance(carrier_id, str) or not carrier_id.strip():
+            raise ValueError("carrier_id must be a non-empty string.")
+        path = tuple(terminal_path)
+        if len(path) < 2 or any(not isinstance(item, WiringTerminalReference) for item in path):
+            raise ValueError("terminal_path must contain at least two terminal references.")
+        if len({item.identity for item in path}) != len(path):
+            raise ValueError("terminal_path must not repeat a terminal.")
+        supplied_ids = tuple(new_hop_ids)
+        if any(not isinstance(item, str) or not item.strip() for item in supplied_ids):
+            raise ValueError("new_hop_ids must contain non-empty explicit IDs.")
+
+        field = "cores" if carrier_kind is CarrierKind.CABLE_CORE else "panel_wires"
+        records = list(getattr(self._inventory, field))
+        matches = [index for index, item in enumerate(records) if item.id == carrier_id]
+        if len(matches) != 1:
+            raise KeyError(f"Instrumentation wiring carrier {carrier_id!r} does not exist uniquely.")
+        carrier_index = matches[0]
+        carrier = records[carrier_index]
+        new_pairs = [
+            frozenset((path[index].identity, path[index + 1].identity))
+            for index in range(len(path) - 1)
+        ]
+        if len(new_pairs) != len(set(new_pairs)):
+            raise ValueError("A route cannot contain a repeated physical segment.")
+
+        existing = [
+            hop for hop in self._inventory.connection_hops
+            if hop.carrier_kind is carrier_kind and hop.carrier_id == carrier_id
+        ]
+        active_by_pair = {
+            frozenset((hop.from_terminal.identity, hop.to_terminal.identity)): hop
+            for hop in existing if hop.lifecycle_status in {"PLANNED", "INSTALLED"}
+        }
+        preserved_pairs = set(active_by_pair).intersection(new_pairs)
+        added_pairs = [pair for pair in new_pairs if pair not in preserved_pairs]
+        if len(supplied_ids) != len(added_pairs):
+            raise ValueError(
+                f"Route revision requires exactly {len(added_pairs)} new_hop_ids; "
+                f"received {len(supplied_ids)}."
+            )
+        existing_ids = {item.id for item in self._inventory.connection_hops}
+        if len(supplied_ids) != len(set(supplied_ids)) or existing_ids.intersection(supplied_ids):
+            raise ValueError("New hop IDs must be unique and must not reuse existing hop IDs.")
+
+        new_hops = []
+        id_iter = iter(supplied_ids)
+        for index in range(len(path) - 1):
+            left, right = path[index], path[index + 1]
+            pair = frozenset((left.identity, right.identity))
+            if pair in preserved_pairs:
+                continue
+            new_hops.append(PhysicalConnectionHop(
+                id=next(id_iter),
+                from_terminal=left,
+                to_terminal=right,
+                carrier_kind=carrier_kind,
+                carrier_id=carrier_id,
+                revision=1,
+                lifecycle_status="PLANNED",
+            ))
+
+        revised_hops = []
+        for hop in self._inventory.connection_hops:
+            if hop.carrier_kind is not carrier_kind or hop.carrier_id != carrier_id:
+                revised_hops.append(hop)
+                continue
+            pair = frozenset((hop.from_terminal.identity, hop.to_terminal.identity))
+            if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in new_pairs:
+                revised_hops.append(replace(
+                    hop, revision=hop.revision + 1, lifecycle_status="RETIRED",
+                ))
+            else:
+                revised_hops.append(hop)
+        revised_hops.extend(new_hops)
+
+        records[carrier_index] = replace(
+            carrier, terminal_path=path, revision=carrier.revision + 1,
+        )
+        replacement = replace(
+            self._inventory,
+            **{field: tuple(records), "connection_hops": tuple(revised_hops)},
+        )
+        return self.create_replace_command(replacement)
+
     def create_replace_command(
         self, replacement: InstrumentationWiringInventory
     ) -> SetInstrumentationWiringInventoryCommand:
@@ -254,6 +377,7 @@ class InstrumentationWiringService:
         self._validate_inventory_terminals(network, replacement)
         if self._inventory_validator is not None:
             self._inventory_validator(replacement)
+        self.validate_receiver_bindings(replacement)
         previous = self._inventory
         project_id = self._project_id
         generation = self._activation_generation
