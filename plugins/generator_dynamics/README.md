@@ -797,3 +797,22 @@ network convergence, terminal/power inputs and derivative contributions.
 The payload labels derivative entries as solver evaluations, not accepted
 trajectory points; hosts must persist accepted-step checkpoints separately and
 must not promote trial evaluations to committed states.
+
+### Accepted-step checkpoint observer
+
+`GeneratorAugmentedDAEAdapter.step()` accepts an optional
+`accepted_step_observer` callback. It is invoked once, only after the Core
+integrator has returned a finite augmented state and the final-time algebraic
+network/component stage has succeeded. Intermediate RK4 and trapezoidal
+Newton/finite-difference evaluations are never sent to this observer. Hosts
+can use it to hand the accepted result's `to_archive_payload()` to their
+Application-owned checkpoint/result workflow, then inspect the canonical
+`StudyCancellationToken` before requesting the next step.
+
+If the observer raises, the integration step has already been numerically
+accepted. The adapter raises `GeneratorAugmentedIntegratorError` with the
+`accepted_step_result` and `cause_type` attributes so the host can distinguish
+checkpoint publication failure from solver rejection and reconcile the
+accepted state explicitly. The adapter does not write files, persist results,
+advance a study clock, or own cancellation; `StudyService` remains the sole
+owner of study lifecycle and durable terminal-result archival.
