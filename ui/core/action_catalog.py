@@ -44,7 +44,7 @@ _SURFACE_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("edit.box_select", "Box Select", "Select objects inside a rectangle.", category="edit"),
     ActionDefinition("edit.move", "Move", "Move selected objects.", category="edit"),
     ActionDefinition("edit.drag_move", "Drag Move", "Drag selected objects through the Select tool.", category="edit"),
-    ActionDefinition("edit.rotate", "Rotate", "Rotate selected symbols clockwise; R rotates the active SLD selection.", shortcut="R", category="edit"),
+    ActionDefinition("edit.rotate", "Rotate", "Rotate selected symbols.", category="edit"),
     ActionDefinition("edit.mirror_horizontal", "Mirror H", "Mirror selected symbols horizontally.", category="edit"),
     ActionDefinition("edit.mirror_vertical", "Mirror V", "Mirror selected symbols vertically.", category="edit"),
     ActionDefinition("network.commit_draft", "Commit Network", "Commit the active DraftNetwork.", shortcut="Ctrl+Shift+Enter", category="project"),
