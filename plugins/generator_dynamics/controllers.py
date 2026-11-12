@@ -580,7 +580,7 @@ class GGOV1Parameters:
             "load_filter_time_constant_s", "load_proportional_gain",
             "load_integral_gain_per_s", "no_load_fuel_flow_pu",
             "power_controller_integral_gain_per_s", "acceleration_limiter_gain",
-            "acceleration_filter_time_constant_s", "speed_deadband_pu",
+            "speed_deadband_pu",
             "temperature_lead_time_constant_s", "temperature_lag_time_constant_s",
         )
         for name in positive:
@@ -613,6 +613,13 @@ class GGOV1Parameters:
             raise ValueError("valve opening rate must be positive and closing rate negative")
         if self.acceleration_limit_pu_per_s < 0.0:
             raise ValueError("acceleration_limit_pu_per_s must be non-negative")
+        acceleration_time = _number(
+            self.acceleration_filter_time_constant_s,
+            "acceleration_filter_time_constant_s",
+        )
+        if acceleration_time <= 0.0:
+            raise ValueError("GGOV1 acceleration filter time constant Ta must be greater than zero")
+        object.__setattr__(self, "acceleration_filter_time_constant_s", acceleration_time)
         if (self.load_limit_increase_rate_pu_per_s <= 0.0
                 or self.load_limit_decrease_rate_pu_per_s >= 0.0):
             raise ValueError("load-limit increase rate must be positive and decrease rate negative")
