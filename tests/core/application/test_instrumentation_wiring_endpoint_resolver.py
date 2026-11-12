@@ -40,11 +40,14 @@ def _signal_inventory(*bindings):
         terminal_path=(
             WiringTerminalReference("CT-101", "S1", "S1"),
             WiringTerminalReference("TB-101", "1", "1"),
+            WiringTerminalReference("PLC-101", "AI1", "AI1"),
+            WiringTerminalReference("IED-101", "IA", "IA"),
         ),
     )
     carrier = SignalCarrierBinding(
         id="carrier-1", signal_id=signal.id,
         carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+        source_channel_id="channel-1",
     )
     return InstrumentationWiringInventory(
         cables=(cable,), cores=(core,), signals=(signal,),
@@ -65,12 +68,13 @@ def _channel(channel_id="channel-1"):
     )
 
 
-def _endpoint_binding(binding_id, kind, endpoint_id, owner_id=None, port=None):
+def _endpoint_binding(binding_id, kind, endpoint_id, owner_id=None, port=None, physical_terminal=None):
     return SignalEndpointBinding(
         id=binding_id,
         signal_id="signal-1",
         endpoint=SignalEndpointReference(
             kind=kind, endpoint_id=endpoint_id, owner_id=owner_id, port=port,
+            physical_terminal=physical_terminal,
             physical_terminal=(
                 WiringTerminalReference("TB-101", "1", "1")
                 if kind is not SignalEndpointKind.MEASUREMENT_CHANNEL else None
@@ -113,6 +117,7 @@ def test_control_input_requires_exact_active_control_mapping_and_channel_provena
     control_ref = _endpoint_binding(
         "control-ref", SignalEndpointKind.CONTROL_INPUT,
         "component-1", "control-1", "PV",
+        WiringTerminalReference("PLC-101", "AI1", "AI1"),
     )
     mapping = ControlSignalMapping(bindings=(
         ControlSignalBinding(
@@ -156,6 +161,7 @@ def test_protection_input_requires_matching_binding_owner_port_and_channel():
     protection_ref = _endpoint_binding(
         "protection-ref", SignalEndpointKind.PROTECTION_INPUT,
         "protection-binding-1", "element-1", "IA",
+        WiringTerminalReference("IED-101", "IA", "IA"),
     )
     binding = SimpleNamespace(
         protection_element_id="element-1",
@@ -275,13 +281,14 @@ def test_multi_carrier_signal_path_resolves_when_terminal_hops_are_contiguous():
     panel_wire = PanelWire(
         id="jumper-1", tag="W-101", role=WiringConductorRole.SIGNAL,
         terminal_path=(
-            WiringTerminalReference("TB-101", "1", "1"),
-            WiringTerminalReference("PLC-101", "AI1", "AI1"),
+            WiringTerminalReference("IED-101", "IA", "IA"),
+            WiringTerminalReference("IED-101", "IB", "IB"),
         ),
     )
     jumper_binding = SignalCarrierBinding(
         id="carrier-jumper", signal_id="signal-1",
         carrier_kind=CarrierKind.PANEL_WIRE, carrier_id=panel_wire.id,
+        source_channel_id="channel-1",
     )
     inventory = InstrumentationWiringInventory(
         cables=base.cables, cores=base.cores,
@@ -295,7 +302,8 @@ def test_multi_carrier_signal_path_resolves_when_terminal_hops_are_contiguous():
         control_signal_mapping=None,
         protection_configuration=None,
     )
-    assert result[0].status == "RESOLVED"
+    assert result[0].status == "UNRESOLVED"
+    assert "no explicit physical source-terminal contract" in result[0].diagnostics[0]
 
 
 def test_multi_carrier_signal_path_reports_disconnected_jumper():
