@@ -299,6 +299,8 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         termination: Mapping[str, object] | None = None,
         event_schedule: Sequence[Mapping[str, object]] = (),
         resume_provenance: Mapping[str, object] | None = None,
+        solver_restart_metadata: Mapping[str, object] | None = None,
+        termination_history: Sequence[Mapping[str, object]] = (),
         checkpoint_identity: GeneratorStudyCheckpointIdentity | None = None,
     ) -> None:
         if isinstance(accepted_steps, (str, bytes)) or not isinstance(accepted_steps, Sequence):
@@ -321,14 +323,20 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             raise TypeError("event_schedule entries must be mappings")
         if resume_provenance is not None and not isinstance(resume_provenance, Mapping):
             raise TypeError("resume_provenance must be a mapping when supplied")
+        if solver_restart_metadata is not None and not isinstance(solver_restart_metadata, Mapping):
+            raise TypeError("solver_restart_metadata must be a mapping when supplied")
+        if any(not isinstance(item, Mapping) for item in termination_history):
+            raise TypeError("termination_history entries must be mappings")
         if checkpoint_identity is not None and not isinstance(checkpoint_identity, GeneratorStudyCheckpointIdentity):
             raise TypeError("checkpoint_identity must be GeneratorStudyCheckpointIdentity")
         provenance_data = _freeze_archive_value({
             "execution_status": execution_status,
             "trajectory_status": trajectory_status,
             "termination": dict(termination or {}),
+            "termination_history": tuple(dict(item) for item in termination_history),
             "event_schedule": tuple(dict(item) for item in event_schedule),
             "resume": dict(resume_provenance or {}),
+            "solver_restart_metadata": dict(solver_restart_metadata or {}),
         }, path="provenance")
         payload = _freeze_archive_value({
             "schema": "gridforge.generator_augmented_study",
@@ -357,6 +365,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         termination: Mapping[str, object] | None = None,
         event_schedule: Sequence[Mapping[str, object]] = (),
         checkpoint_identity: GeneratorStudyCheckpointIdentity | None = None,
+        solver_restart_metadata: Mapping[str, object] | None = None,
     ) -> "GeneratorAugmentedStudyEvidence":
         """Build a continued trajectory only from the exact last accepted state and identity."""
         if not isinstance(previous, cls):
@@ -401,19 +410,37 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             raise TypeError("resumed_steps must contain GeneratorAugmentedStepResult values")
         if continuation[0].simulation_time_s <= previous.time[-1]:
             raise ValueError("resumed steps must begin after the prior checkpoint time")
+        prior_events = previous.provenance.get("event_schedule", ())
+        if not isinstance(prior_events, tuple) or any(not isinstance(item, Mapping) for item in prior_events):
+            raise ValueError("previous event schedule is malformed")
+        prior_termination = previous.provenance.get("termination", {})
+        if not isinstance(prior_termination, Mapping):
+            raise ValueError("previous termination provenance is malformed")
+        prior_history = previous.provenance.get("termination_history", ())
+        if not isinstance(prior_history, tuple) or any(not isinstance(item, Mapping) for item in prior_history):
+            raise ValueError("previous termination history is malformed")
+        termination_history = tuple(prior_history)
+        if prior_termination:
+            termination_history = (*termination_history, dict(prior_termination))
+        prior_resume = previous.provenance.get("resume", {})
+        if not isinstance(prior_resume, Mapping):
+            raise ValueError("previous resume provenance is malformed")
         return cls(
             (*previous._accepted_steps, *continuation),
             execution_status=execution_status,
             trajectory_status=trajectory_status,
             termination=termination,
-            event_schedule=event_schedule,
+            termination_history=termination_history,
+            event_schedule=(*prior_events, *tuple(event_schedule)),
             checkpoint_identity=checkpoint_identity,
+            solver_restart_metadata=solver_restart_metadata,
             resume_provenance={
                 "previous_schema": "gridforge.generator_augmented_study",
                 "previous_schema_version": 1,
                 "previous_execution_status": previous.provenance["execution_status"],
                 "checkpoint_time_s": previous.time[-1],
                 "resumed_step_count": len(continuation),
+                "previous_resume": dict(prior_resume),
             },
         )
 
