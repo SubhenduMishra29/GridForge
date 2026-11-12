@@ -2016,6 +2016,12 @@ class MeasurementChannelReadService:
             stale_after=channel.stale_after,
             producer_id=getattr(channel, "producer_id", None),
             validity=validity.value,
+            source_id=str(channel.source_id),
+            source_terminal_role=getattr(channel.source_terminal, "terminal_role", None),
+            name=str(channel.name),
+            nominal_value=float(channel.nominal_value),
+            scale=float(channel.scale),
+            polarity=float(channel.polarity),
         )
 
     def channels(self) -> tuple[MeasurementChannelReadModel, ...]:
