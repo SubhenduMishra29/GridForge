@@ -1,5 +1,7 @@
 """GridForge V2 motor dynamics extension; optional dependencies are loaded lazily."""
 from .plugin import MotorDynamicsPlugin
+from .catalog import MOTOR_FAMILY_PROFILES, MotorFamily, MotorFamilyProfile, MotorNameplate, MotorOperatingMode, motor_family_profile
+from .instrumentation import MotorMeasurementPoint, motor_measurement_points, provision_motor_measurement_channels
 from .transient_solver import (
     MotorParameters,
     MotorSimulationResult,
@@ -10,6 +12,9 @@ from .transient_solver import (
 
 __all__ = [
     "MotorDynamicsPlugin",
+    "MotorFamily", "MotorFamilyProfile", "MotorNameplate", "MotorOperatingMode",
+    "MOTOR_FAMILY_PROFILES", "motor_family_profile",
+    "MotorMeasurementPoint", "motor_measurement_points", "provision_motor_measurement_channels",
     "MotorParameters",
     "MotorSimulationResult",
     "solve_transient_cpu",

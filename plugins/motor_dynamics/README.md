@@ -315,3 +315,16 @@ Until these gaps are closed and validated, treat outputs as development/engineer
 - [Pull request #674](https://github.com/SubhenduMishra29/GridForge/pull/674)
 
 **Author:** Subhendu Mishra
+
+
+## Expanded motor-family catalogue and instrumentation
+
+The family catalogue now includes three-phase squirrel-cage and wound-rotor induction; single-phase split-phase, capacitor-start, permanent-split-capacitor, capacitor-start/capacitor-run and shaded-pole; wound-field synchronous, PMSM/IPM, BLDC, synchronous reluctance and switched reluctance; DC shunt, series, compound, separately excited and permanent-magnet; universal; variable-reluctance, PM and hybrid stepper; AC/DC servo; linear induction/synchronous; traction induction/PMSM; hysteresis and torque motors.
+
+The immutable family profiles and validated SI nameplate contract distinguish family recognition from solver availability. The existing transient solver remains an experimental induction dq model. Other family profiles are catalogued and instrumentable, but their family-specific transient equations and reference-case validation remain open engineering work. Wound-rotor external resistance, single-phase auxiliary windings/capacitors, synchronous excitation, PMSM/BLDC commutation, reluctance torque, DC commutation, stepper holding/detent torque, servo loops and linear thrust are not claimed as implemented solvers.
+
+Family-aware logical instrumentation points cover phase/armature voltage and current, power and frequency; speed, position and torque; vibration axes, bearing/winding/cooling temperatures; insulation resistance/leakage, shaft voltage and bearing current; field excitation; DC link and inverter telemetry; encoder/resolver/Hall feedback; starting capacitors and switches; brush/commutator condition; and linear thrust/air-gap/position.
+
+Provisioning uses Core MeasurementProvisioning and requires explicit source equipment, authoritative Core terminals and EndpointReference for every configured point. Required electrical points must be supplied; optional points may be omitted. No physical sensor, CT/PT, terminal, topology or synthetic measurement channel is fabricated.
+
+CPU remains the deterministic engineering reference. CUDA is limited to its declared supported induction batch workload. ONNX NPU/GPU providers remain optional diagnostic inference only and must never become the authority for physics state, protection trips or interlocks.

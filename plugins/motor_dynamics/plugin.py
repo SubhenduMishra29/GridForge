@@ -43,6 +43,10 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "transient_solver",
         "cpu_transient_simulation",
         "optional_cuda_batch_simulation",
+        "motor_family_catalog",
+        "motor_nameplate_validation",
+        "family_specific_instrumentation",
+        "canonical_measurement_channel_provisioning",
     }),
 )
 

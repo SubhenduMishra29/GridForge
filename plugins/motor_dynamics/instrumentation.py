@@ -1,0 +1,184 @@
+"""Family-aware motor measurement templates using canonical Core channels."""
+from __future__ import annotations
+from dataclasses import dataclass
+from typing import Any, Mapping
+from core.model import EndpointReference
+from core.measurement.measurement_channel import MeasurementChannel, MeasurementPhase, MeasurementSignalType
+from core.measurement.measurement_provisioning import MeasurementProvisioning
+from .catalog import MotorFamily, motor_family_profile
+
+
+@dataclass(frozen=True, slots=True)
+class MotorMeasurementPoint:
+    point_id: str
+    name: str
+    signal_type: MeasurementSignalType
+    phase: MeasurementPhase
+    unit: str
+    consumers: frozenset[str]
+    required: bool = False
+    description: str = ""
+
+    def __post_init__(self) -> None:
+        for field in ("point_id", "name", "unit"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field} must be a non-empty string")
+        if not isinstance(self.signal_type, MeasurementSignalType):
+            raise TypeError("signal_type must be a MeasurementSignalType")
+        if not isinstance(self.phase, MeasurementPhase):
+            raise TypeError("phase must be a MeasurementPhase")
+        if not isinstance(self.consumers, frozenset) or not self.consumers:
+            raise TypeError("consumers must be a non-empty frozenset")
+        if not isinstance(self.required, bool):
+            raise TypeError("required must be bool")
+
+
+def _p(pid: str, name: str, kind: MeasurementSignalType, phase: MeasurementPhase,
+       unit: str, consumers: tuple[str, ...], required: bool = False) -> MotorMeasurementPoint:
+    return MotorMeasurementPoint(pid, name, kind, phase, unit, frozenset(consumers), required)
+
+
+def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint, ...]:
+    """Return required electrical points plus optional mechanical, thermal and drive points."""
+    profile = motor_family_profile(family)
+    C, V, P, F, D, X = (MeasurementSignalType.CURRENT, MeasurementSignalType.VOLTAGE,
+                        MeasurementSignalType.POWER, MeasurementSignalType.FREQUENCY,
+                        MeasurementSignalType.DIGITAL, MeasurementSignalType.CUSTOM)
+    N, A, B, CPH, AB, BC, CA, T = (MeasurementPhase.NONE, MeasurementPhase.A,
+        MeasurementPhase.B, MeasurementPhase.C, MeasurementPhase.AB,
+        MeasurementPhase.BC, MeasurementPhase.CA, MeasurementPhase.THREE_PHASE)
+    pts: list[MotorMeasurementPoint] = []
+    if profile.supply == "DC":
+        pts += [_p("terminal.armature_voltage", "Armature terminal voltage", V, N, "V", ("metering","control","protection"), True),
+                _p("terminal.armature_current", "Armature current", C, N, "A", ("metering","control","protection"), True),
+                _p("electrical.input_power", "DC input power", P, N, "kW", ("metering","scada"), True)]
+    elif profile.phase_count == 1:
+        pts += [_p("terminal.voltage", "Single-phase terminal voltage", V, N, "V", ("metering","protection","control"), True),
+                _p("terminal.current", "Single-phase line current", C, N, "A", ("metering","protection","control"), True),
+                _p("electrical.input_power", "Single-phase input power", P, N, "kW", ("metering","scada"), True),
+                _p("electrical.frequency", "Supply frequency", F, N, "Hz", ("control","protection","scada"))]
+    else:
+        for phase, suffix in ((A,"a"), (B,"b"), (CPH,"c")):
+            pts += [_p(f"terminal.i{suffix}", f"Phase-{suffix.upper()} current", C, phase, "A", ("metering","protection","scada"), True),
+                    _p(f"terminal.v{suffix}", f"Phase-{suffix.upper()} voltage", V, phase, "V", ("metering","protection","control"), True)]
+        pts += [_p("terminal.vab", "Line voltage AB", V, AB, "V", ("metering","protection")),
+                _p("terminal.vbc", "Line voltage BC", V, BC, "V", ("metering","protection")),
+                _p("terminal.vca", "Line voltage CA", V, CA, "V", ("metering","protection")),
+                _p("terminal.in", "Neutral current", C, N, "A", ("protection","monitoring")),
+                _p("electrical.active_power", "Three-phase active power", P, T, "kW", ("metering","scada","control"), True),
+                _p("electrical.reactive_power", "Three-phase reactive power", P, T, "kvar", ("metering","scada")),
+                _p("electrical.apparent_power", "Three-phase apparent power", P, T, "kVA", ("metering","scada")),
+                _p("electrical.power_factor", "Power factor", P, T, "pu", ("metering","scada")),
+                _p("electrical.frequency", "Supply frequency", F, N, "Hz", ("control","protection","scada"), True),
+                _p("electrical.phase_sequence", "Phase sequence", D, N, "state", ("protection","commissioning"))]
+
+    pts += [
+        _p("machine.speed", "Rotor / translator speed", X, N, "rpm_or_m_s", ("control","protection","monitoring"), True),
+        _p("machine.shaft_torque", "Shaft torque", X, N, "N.m", ("monitoring","analysis")),
+        _p("machine.output_power", "Mechanical output power", P, N, "kW", ("metering","analysis")),
+        _p("machine.position", "Rotor / linear position", X, N, "deg_or_mm", ("control","monitoring")),
+        _p("machine.acceleration", "Shaft / translator acceleration", X, N, "m/s2", ("monitoring","analysis")),
+        _p("machine.vibration_x", "Vibration X", X, N, "mm/s_RMS", ("condition_monitoring","alarm")),
+        _p("machine.vibration_y", "Vibration Y", X, N, "mm/s_RMS", ("condition_monitoring","alarm")),
+        _p("machine.vibration_z", "Vibration Z", X, N, "mm/s_RMS", ("condition_monitoring","alarm")),
+        _p("machine.bearing_de", "Drive-end bearing temperature", X, N, "degC", ("monitoring","alarm","protection")),
+        _p("machine.bearing_nde", "Non-drive-end bearing temperature", X, N, "degC", ("monitoring","alarm","protection")),
+        _p("stator.winding_u", "Stator winding U temperature", X, N, "degC", ("monitoring","alarm","protection")),
+        _p("stator.winding_v", "Stator winding V temperature", X, N, "degC", ("monitoring","alarm","protection")),
+        _p("stator.winding_w", "Stator winding W temperature", X, N, "degC", ("monitoring","alarm","protection")),
+        _p("machine.coolant_inlet_temperature", "Cooling medium inlet temperature", X, N, "degC", ("monitoring","alarm")),
+        _p("machine.coolant_outlet_temperature", "Cooling medium outlet temperature", X, N, "degC", ("monitoring","alarm")),
+        _p("insulation.insulation_resistance", "Insulation resistance to earth", X, N, "Mohm", ("maintenance","commissioning")),
+        _p("insulation.leakage_current", "Insulation leakage current", C, N, "mA", ("protection","monitoring")),
+        _p("shaft.shaft_voltage", "Shaft voltage", V, N, "V", ("condition_monitoring","maintenance")),
+        _p("shaft.bearing_current", "Bearing current", C, N, "mA", ("condition_monitoring","maintenance")),
+        _p("environment.ambient_temperature", "Ambient temperature", X, N, "degC", ("monitoring","analysis")),
+        _p("protection.trip_status", "Motor protection trip status", D, N, "state", ("protection","scada")),
+        _p("protection.thermal_model_state", "Thermal overload model state", D, N, "state", ("protection","monitoring")),
+    ]
+    drive_families = {MotorFamily.BRUSHLESS_DC, MotorFamily.SWITCHED_RELUCTANCE,
+        MotorFamily.STEPPER_VARIABLE_RELUCTANCE, MotorFamily.STEPPER_PERMANENT_MAGNET,
+        MotorFamily.STEPPER_HYBRID, MotorFamily.AC_SERVO, MotorFamily.LINEAR_SYNCHRONOUS,
+        MotorFamily.TRACTION_INDUCTION, MotorFamily.TRACTION_PERMANENT_MAGNET,
+        MotorFamily.TORQUE, MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS}
+    if profile.supply in {"DC link", "AC / DC link"} or family in drive_families:
+        pts += [_p("drive.dc_link_voltage", "Drive DC-link voltage", V, N, "V", ("control","protection","monitoring")),
+                _p("drive.dc_link_current", "Drive DC-link current", C, N, "A", ("control","protection","monitoring")),
+                _p("drive.inverter_temperature", "Inverter heat-sink temperature", X, N, "degC", ("monitoring","alarm")),
+                _p("drive.switching_frequency", "Inverter switching frequency", F, N, "Hz", ("control","diagnostics")),
+                _p("drive.active_current_reference", "Active-axis current reference", C, N, "A", ("control","diagnostics")),
+                _p("drive.torque_current_reference", "Torque-axis current reference", C, N, "A", ("control","diagnostics")),
+                _p("drive.modulation_index", "PWM modulation index", X, N, "pu", ("control","diagnostics")),
+                _p("drive.regeneration_status", "Regenerative operating status", D, N, "state", ("control","protection","scada"))]
+    if family in {MotorFamily.WOUND_FIELD_SYNCHRONOUS, MotorFamily.DC_SHUNT, MotorFamily.DC_SERIES,
+                  MotorFamily.DC_COMPOUND, MotorFamily.DC_SEPARATELY_EXCITED}:
+        pts += [_p("excitation.field_voltage", "Field winding voltage", V, N, "V", ("control","monitoring")),
+                _p("excitation.field_current", "Field winding current", C, N, "A", ("control","monitoring","protection")),
+                _p("excitation.field_temperature", "Field winding temperature", X, N, "degC", ("monitoring","alarm"))]
+    if family == MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION:
+        pts += [_p("rotor.external_resistance", "External rotor resistance", X, N, "ohm", ("control","monitoring")),
+                _p("rotor.slip_ring_temperature", "Slip-ring temperature", X, N, "degC", ("monitoring","alarm")),
+                _p("rotor.brush_wear", "Rotor brush wear", X, N, "%", ("maintenance","alarm"))]
+    if family in {MotorFamily.SINGLE_PHASE_CAPACITOR_START, MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR,
+                  MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN}:
+        pts += [_p("starting.capacitor_voltage", "Start/run capacitor voltage", V, N, "V", ("monitoring","maintenance")),
+                _p("starting.capacitor_current", "Start/run capacitor current", C, N, "A", ("monitoring","maintenance")),
+                _p("starting.switch_status", "Centrifugal switch / start relay status", D, N, "state", ("control","maintenance"))]
+    if family in {MotorFamily.DC_SHUNT, MotorFamily.DC_SERIES, MotorFamily.DC_COMPOUND,
+                  MotorFamily.DC_SEPARATELY_EXCITED, MotorFamily.DC_PERMANENT_MAGNET,
+                  MotorFamily.UNIVERSAL, MotorFamily.DC_SERVO}:
+        pts += [_p("commutator.temperature", "Commutator temperature", X, N, "degC", ("monitoring","alarm")),
+                _p("brush.current", "Brush current", C, N, "A", ("monitoring","maintenance")),
+                _p("brush.wear", "Brush wear", X, N, "%", ("maintenance","alarm"))]
+    if family in {MotorFamily.AC_SERVO, MotorFamily.DC_SERVO, MotorFamily.STEPPER_VARIABLE_RELUCTANCE,
+                  MotorFamily.STEPPER_PERMANENT_MAGNET, MotorFamily.STEPPER_HYBRID,
+                  MotorFamily.BRUSHLESS_DC, MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS}:
+        pts += [_p("feedback.encoder_position", "Encoder position feedback", X, N, "deg", ("control","commissioning")),
+                _p("feedback.encoder_speed", "Encoder speed feedback", X, N, "rpm", ("control","commissioning")),
+                _p("feedback.resolver_position", "Resolver position feedback", X, N, "deg", ("control","commissioning")),
+                _p("feedback.hall_state", "Hall sensor commutation state", D, N, "state", ("control","diagnostics"))]
+    if family in {MotorFamily.LINEAR_INDUCTION, MotorFamily.LINEAR_SYNCHRONOUS}:
+        pts += [_p("linear.thrust_force", "Linear motor thrust force", X, N, "N", ("control","analysis")),
+                _p("linear.air_gap", "Primary-secondary air gap", X, N, "mm", ("monitoring","maintenance")),
+                _p("linear.position", "Translator position", X, N, "mm", ("control","monitoring"))]
+
+    ids = [point.point_id for point in pts]
+    if len(ids) != len(set(ids)):
+        raise RuntimeError(f"duplicate motor measurement point IDs for {family.value}")
+    return tuple(pts)
+
+
+def provision_motor_measurement_channels(*, motor_id: str, family: MotorFamily,
+        sources: Mapping[str, tuple[Any, Any, EndpointReference]]) -> tuple[MeasurementChannel, ...]:
+    """Provision configured sources only; required points must be wired explicitly.
+
+    Each source tuple is (source equipment, authoritative Core terminal,
+    EndpointReference). Optional points may be omitted. No instrument,
+    terminal, topology or measurement source is fabricated.
+    """
+    if not isinstance(motor_id, str) or not motor_id.strip():
+        raise ValueError("motor_id must be a non-empty string")
+    if not isinstance(sources, Mapping):
+        raise TypeError("sources must be a mapping")
+    points = motor_measurement_points(family)
+    by_id = {point.point_id: point for point in points}
+    supplied = set(sources)
+    unknown = supplied - set(by_id)
+    missing = {p.point_id for p in points if p.required} - supplied
+    if unknown or missing:
+        raise ValueError(f"instrument source mismatch; missing_required={sorted(missing)}, unknown={sorted(unknown)}")
+    channels = []
+    for point in points:
+        if point.point_id not in sources:
+            continue
+        source, terminal, reference = sources[point.point_id]
+        channels.append(MeasurementProvisioning.provision_channel(
+            source=source, source_terminal=terminal, source_terminal_reference=reference,
+            channel_id=f"{motor_id}.{point.point_id}", signal_type=point.signal_type,
+            name=point.name, phase=point.phase, unit=point.unit))
+    return tuple(channels)
+
+
+__all__ = ["MotorMeasurementPoint", "motor_measurement_points",
+           "provision_motor_measurement_channels"]
