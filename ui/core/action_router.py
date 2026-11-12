@@ -184,7 +184,7 @@ class UIActionRouter:
         self._checked_provider_failures.pop(canonical, None)
         return checked
 
-    def _report_enabled_provider_failure(self, action_id: str, error: Exception) -> None;
+    def _report_enabled_provider_failure(self, action_id: str, error: Exception) -> None:
         """Report each unchanged enabled-provider failure once per action."""
         signature = (type(error).__name__, str(error))
         if self._enabled_provider_failures.get(action_id) == signature:
