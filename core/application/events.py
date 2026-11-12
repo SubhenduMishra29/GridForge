@@ -167,6 +167,23 @@ class ProtectionChanged(ApplicationEvent):
         super().__init__("protection.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
+class InstrumentationWiringChanged(ApplicationEvent):
+    """Semantic fact that the canonical project instrumentation wiring inventory changed."""
+
+    def __init__(self, *, operation: str, correlation_id: UUID | None = None,
+                 causation_id: UUID | None = None,
+                 metadata: Mapping[str, Any] | None = None) -> None:
+        payload = {"operation": operation}
+        if metadata:
+            payload.update(metadata)
+        super().__init__(
+            "instrumentation_wiring.changed",
+            payload,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 class SLDPresentationChanged(ApplicationEvent):
     """Semantic fact that persistent SLD presentation state changed."""
 
