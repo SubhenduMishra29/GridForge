@@ -23,6 +23,9 @@ from core.model import (
     TerminalAccessoryState,
     CTSecondaryCircuitState,
     CTSecondaryCircuit,
+    TemperatureSensorKind,
+    TemperatureSensorLeadRoute,
+    TemperatureSensorCircuit,
 )
 
 
@@ -443,4 +446,75 @@ def test_ct_secondary_circuit_rejects_swapped_s1_s2_terminal_identity():
             shorting_accessory_id="short-link",
             shorting_s1_terminal_point_id="point-s1",
             shorting_s2_terminal_point_id="point-s2",
+        )
+
+
+def test_rtd_physical_lead_routes_match_three_wire_configuration():
+    cable = CableAssembly(id="rtd-cable", tag="C-RTD-1", service="RTD", core_count=3)
+    roles = ("A", "B1", "B2")
+    cores = tuple(
+        CableCore(
+            id=f"rtd-core-{index}", cable_id=cable.id, core_number=index,
+            role=WiringConductorRole.SIGNAL if index == 1 else WiringConductorRole.RETURN,
+            terminal_path=(
+                terminal("RTD-1", role, role),
+                terminal("TB-RTD", str(index), f"RTD-{role}"),
+            ),
+        )
+        for index, role in enumerate(roles, 1)
+    )
+    leads = tuple(
+        TemperatureSensorLeadRoute(
+            id=f"lead-{role}",
+            terminal=terminal("RTD-1", role, role),
+            carrier_ids=(f"rtd-core-{index}",),
+        )
+        for index, role in enumerate(roles, 1)
+    )
+    circuit = TemperatureSensorCircuit(
+        id="rtd-circuit-1", sensor_id="RTD-1",
+        sensor_kind=TemperatureSensorKind.RTD,
+        measurement_channel_id="temperature-channel-1",
+        rtd_wiring_configuration="3_WIRE",
+        leads=leads,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=cores, temperature_sensor_circuits=(circuit,),
+    )
+    assert inventory.temperature_sensor_circuits[0].leads == leads
+
+
+def test_thermocouple_circuit_requires_type_and_polarity_leads():
+    with pytest.raises(ValueError, match="POSITIVE and NEGATIVE"):
+        TemperatureSensorCircuit(
+            id="tc-circuit-invalid", sensor_id="TC-1",
+            sensor_kind=TemperatureSensorKind.THERMOCOUPLE,
+            measurement_channel_id="channel-1",
+            thermocouple_type="K",
+            leads=(
+                TemperatureSensorLeadRoute(
+                    id="tc-positive", terminal=terminal("TC-1", "POSITIVE", "+"),
+                    carrier_ids=("tc-pos-core",),
+                ),
+            ),
+        )
+
+
+def test_rtd_circuit_rejects_mismatched_configuration_lead_roles():
+    with pytest.raises(ValueError, match="exactly match"):
+        TemperatureSensorCircuit(
+            id="rtd-circuit-invalid", sensor_id="RTD-1",
+            sensor_kind=TemperatureSensorKind.RTD,
+            measurement_channel_id="channel-1",
+            rtd_wiring_configuration="2_WIRE",
+            leads=(
+                TemperatureSensorLeadRoute(
+                    id="lead-a", terminal=terminal("RTD-1", "A", "A"),
+                    carrier_ids=("core-a",),
+                ),
+                TemperatureSensorLeadRoute(
+                    id="lead-b1", terminal=terminal("RTD-1", "B1", "B1"),
+                    carrier_ids=("core-b",),
+                ),
+            ),
         )
