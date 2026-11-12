@@ -932,8 +932,8 @@ class PropertiesPanelWidget(QWidget):
             self._batch_status_label.hide()
         if self._batch_apply_button is not None:
             self._batch_apply_button.hide()
-        if self._single_target_container is not None:
-            self._single_target_container.show()
+        self._scroll_area.show()
+        self._action_footer.show()
         self.logical_panel.set_target(target)
         self._render_projection(target)
 
@@ -949,8 +949,8 @@ class PropertiesPanelWidget(QWidget):
         self._batch_targets = values
         self._batch_parameters = self._common_batch_parameters(values)
         self.logical_panel.clear_target()
-        if self._single_target_container is not None:
-            self._single_target_container.hide()
+        self._scroll_area.hide()
+        self._action_footer.hide()
         if self._batch_status_label is not None:
             mixed = []
             for parameter in self._batch_parameters:
@@ -1110,8 +1110,8 @@ class PropertiesPanelWidget(QWidget):
             self._batch_table.hide()
         if self._batch_status_label is not None:
             self._batch_status_label.hide()
-        if self._single_target_container is not None:
-            self._single_target_container.show()
+        self._scroll_area.show()
+        self._action_footer.show()
         self.logical_panel.clear_target()
         if self._creation_context is not None and self._creation_context.draft is not None:
             self._creation_mode = True
