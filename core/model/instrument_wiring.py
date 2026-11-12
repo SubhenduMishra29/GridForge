@@ -212,7 +212,12 @@ class SignalDefinition:
 
 @dataclass(frozen=True, slots=True)
 class SignalCarrierBinding:
-    """Binds a logical signal to a physical/logical carrier without owning either."""
+    """Binds a signal carrier to its explicit source MeasurementChannel.
+
+    source_channel_id remains optional only for lossless decoding of legacy
+    schema-2/schema-3 records. Application resolution fails closed until a
+    physical carrier has an explicit source-channel owner.
+    """
 
     id: str
     signal_id: str
@@ -254,6 +259,8 @@ class SignalEndpointReference:
     and port is the input name.
     PROTECTION_INPUT: owner_id is protection element ID, endpoint_id is
     ProtectionMeasurementBinding ID, and port is the relay-input ID.
+    CONTROL_INPUT/PROTECTION_INPUT physical_terminal identifies the exact
+    physical sink terminal reached by the carrier route.
     """
 
     kind: SignalEndpointKind
