@@ -4265,9 +4265,10 @@ Boundary:
 - Existing ControlSignalMapping and ProtectionMeasurementBinding remain the
   authoritative logical/runtime mappings. Physical sink identity is an
   additional cross-reference and does not replace either mapping.
-- Control sources in the Core domain are checked for explicit sink identity
-  and active Core source existence; a full directed physical route from a
-  Core-domain source still requires an explicit source-terminal contract.
+- Core-domain Control sources remain UNRESOLVED for physical wiring
+  provenance until an explicit source-terminal contract is available. Active
+  Core element/signal existence alone is not treated as proof of a physical
+  instrument signal route.
 - CT polarity, PT polarity, return/shorting arrangements, shield/earth paths,
   RTD/thermocouple conductor arrangements and communication media remain
   domain-specific follow-up validation. They must not be inferred from tags.
