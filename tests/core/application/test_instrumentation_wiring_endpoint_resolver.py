@@ -210,7 +210,7 @@ def test_control_core_source_is_checked_through_application_read_service():
         read_service=ReadService(),
     )
     assert result[0].status == "UNRESOLVED"
-    assert "no explicit physical sink terminal" in result[0].diagnostics[0]
+    assert "no explicit physical source-terminal contract" in result[0].diagnostics[0]
 
 
 def test_control_core_source_missing_from_read_service_is_unresolved():
@@ -344,7 +344,6 @@ def test_control_input_rejects_missing_physical_sink_terminal():
         endpoint=SignalEndpointReference(
             kind=SignalEndpointKind.CONTROL_INPUT,
             endpoint_id="component-1", owner_id="control-1", port="PV",
-            physical_terminal=WiringTerminalReference("PLC-999", "AI9", "AI9"),
         ),
     )
     mapping = ControlSignalMapping(bindings=(
@@ -376,7 +375,7 @@ def test_control_input_rejects_sink_terminal_outside_physical_carrier_graph():
     endpoint = SignalEndpointReference(
         kind=SignalEndpointKind.CONTROL_INPUT,
         endpoint_id="component-1", owner_id="control-1", port="PV",
-        physical_terminal=WiringTerminalReference("PLC-101", "AI1", "AI1"),
+        physical_terminal=WiringTerminalReference("PLC-999", "AI9", "AI9"),
     )
     control_ref = SignalEndpointBinding(
         id="control-ref", signal_id="signal-1", endpoint=endpoint,
