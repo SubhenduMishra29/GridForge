@@ -280,6 +280,17 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("linear.drive_electrical_frequency", "Travelling-field electrical frequency", F, N, "Hz", ("control","diagnostics")),
                 _p("linear.end_effect_compensation_state", "End-effect compensation state", D, N, "state", ("control","diagnostics"))]
 
+    if family == MotorFamily.VOICE_COIL:
+        pts += [_p("voice_coil.current", "Voice-coil winding current", I, N, "A", ("control","protection","monitoring"), True),
+                _p("voice_coil.drive_voltage", "Voice-coil drive voltage", V, N, "V", ("control","diagnostics")),
+                _p("voice_coil.position", "Actuator position", X, N, "m", ("control","monitoring"), True),
+                _p("voice_coil.velocity", "Moving-coil velocity", X, N, "m/s", ("control","monitoring")),
+                _p("voice_coil.force", "Electromagnetic actuator force", X, N, "N", ("control","analysis")),
+                _p("voice_coil.external_load", "External load force", X, N, "N", ("control","analysis")),
+                _p("voice_coil.stroke_utilization", "Stroke utilization", X, N, "pu", ("control","alarm","monitoring")),
+                _p("voice_coil.winding_temperature", "Coil winding temperature", X, N, "degC", ("monitoring","alarm","maintenance")),
+                _p("voice_coil.end_stop_force", "End-stop reaction force", X, N, "N", ("monitoring","protection","diagnostics"))]
+
     ids = [point.point_id for point in pts]
     if len(ids) != len(set(ids)):
         raise RuntimeError(f"duplicate motor measurement point IDs for {family.value}")
