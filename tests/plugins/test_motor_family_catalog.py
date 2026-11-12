@@ -336,7 +336,7 @@ from plugins.motor_dynamics.transient_solver import DCMotorParameters, solve_dc_
 
 def _dc_parameters(excitation="separately_excited", **kw):
     values=dict(armature_resistance_ohm=.4,armature_inductance_h=.008,inertia_kg_m2=.02,excitation=excitation,
-        field_resistance_ohm=110.,field_inductance_h=2.,shunt_flux_wb_per_a=.08,series_flux_wb_per_a=.012,
+        field_resistance_ohm=110.,series_field_resistance_ohm=.08,field_inductance_h=2.,shunt_flux_wb_per_a=.08,series_flux_wb_per_a=.012,
         saturation_flux_wb=.9,permanent_magnet_flux_wb=.06)
     values.update(kw); return DCMotorParameters(**values)
 

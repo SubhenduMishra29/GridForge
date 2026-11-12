@@ -1576,7 +1576,7 @@ class DCMotorParameters:
     initial_field_temperature_c: float = 25.0
 
     def __post_init__(self):
-        for name in ("armature_resistance_ohm","armature_inductance_h","inertia_kg_m2","field_resistance_ohm","field_inductance_h","saturation_flux_wb","armature_thermal_capacity_j_k","field_thermal_capacity_j_k"):
+        for name in ("armature_resistance_ohm","armature_inductance_h","inertia_kg_m2","field_resistance_ohm","series_field_resistance_ohm","field_inductance_h","saturation_flux_wb","armature_thermal_capacity_j_k","field_thermal_capacity_j_k"):
             v=getattr(self,name)
             if not _is_numeric_scalar(v) or not isfinite(float(v)) or v<=0: raise ValueError(f"{name} must be finite and positive")
         for name in ("shunt_flux_wb_per_a","series_flux_wb_per_a","permanent_magnet_flux_wb","friction_n_m_s","thermal_conductance_w_k","resistance_temp_coefficient_per_k","ambient_temperature_c","initial_speed_rad_s","initial_armature_temperature_c","initial_field_temperature_c"):
@@ -1643,7 +1643,7 @@ class DCMotorSimulationResult:
             "air_gap_flux_wb":flux,"back_emf_v":ke*speed,"electromagnetic_torque_nm":torque,
             "rotor_speed_rad_s":speed,"rotor_speed_rpm":speed*60/(2*np.pi),"mechanical_position_rad":pos,
             "armature_temperature_c":ta,"field_temperature_c":tf,"winding_temperature_c":ta,
-            "armature_copper_loss_w":ra*ia**2,"field_copper_loss_w":rf*fi**2,
+            "armature_copper_loss_w":ra*ia**2,"field_copper_loss_w":(rs*fi**2 if p.excitation in {"series","compound"} else rf*fi**2),
             "electrical_input_power_w":self.armature_voltage_v*ia+fv*fi,"mechanical_output_power_w":torque*speed,
             "load_torque_nm":self.load_torque_nm}
         for v in values.values(): v.setflags(write=False)
@@ -1668,10 +1668,10 @@ def _dc_derivative(x,p,va,vf,load):
     ra=p.armature_resistance_ohm*max(.05,1+p.resistance_temp_coefficient_per_k*(ta-p.ambient_temperature_c))
     rf=p.field_resistance_ohm*max(.05,1+p.resistance_temp_coefficient_per_k*(tf-p.ambient_temperature_c))
     flux=_dc_flux(p,ia,ifield); ke=p.pole_pairs*flux
-    dia=(va-ra*ia-ke*w)/p.armature_inductance_h
+    dia=(va-(ra+(rs if p.excitation in {"series","compound"} else 0.0))*ia-ke*w)/p.armature_inductance_h
     dif=0.0 if p.excitation in {"series","permanent_magnet"} else (vf-rf*ifield)/p.field_inductance_h
     torque=ke*ia; arm_loss=ra*ia**2
-    field_loss=rf*ifield**2 if p.excitation not in {"series","permanent_magnet"} else 0.0
+    field_loss=(rs*ia**2 if p.excitation in {"series","compound"} else rf*ifield**2 if p.excitation not in {"permanent_magnet"} else 0.0)
     return np.asarray((dia,dif,(torque-load-p.friction_n_m_s*w)/p.inertia_kg_m2,w,
         (arm_loss-p.thermal_conductance_w_k*(ta-p.ambient_temperature_c))/p.armature_thermal_capacity_j_k,
         (field_loss-p.thermal_conductance_w_k*(tf-p.ambient_temperature_c))/p.field_thermal_capacity_j_k),dtype=np.float64)

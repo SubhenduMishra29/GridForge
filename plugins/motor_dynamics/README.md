@@ -366,7 +366,7 @@ Both are experimental CPU reference solvers using the shared Core numerical RK4 
 
 ## Brushed DC motor transient model (experimental)
 
-`solve_dc_motor_transient_cpu(...)` provides an excitation-explicit averaged model for separately excited, shunt, series, compound and PM brushed DC machines. The armature circuit couples to rotor back-EMF and electromagnetic torque. Separately excited, shunt and compound field circuits have independent RL states; series-field current equals armature current. Compound winding polarity is selected as cumulative or differential. Flux uses a bounded tanh saturation approximation, with separate armature and field thermal states and temperature-adjusted resistance.
+`solve_dc_motor_transient_cpu(...)` provides an excitation-explicit averaged model for separately excited, shunt, series, compound and PM brushed DC machines. The armature circuit couples to rotor back-EMF and electromagnetic torque. Separately excited fields have an independent RL supply; shunt and compound shunt fields follow the armature terminal voltage. Series-field current equals armature current and its copper resistance is included in the armature path. Compound winding polarity is selected as cumulative or differential. Flux uses a bounded tanh saturation approximation, with separate armature and field thermal states and temperature-adjusted resistance.
 
 Sample-aligned armature voltage, field voltage and load-torque profiles produce armature/field/series current, flux, back-EMF, torque, speed, position, copper losses, electrical/mechanical power and winding temperatures. CPU/RK4 uses the shared Core numerical engine.
 
