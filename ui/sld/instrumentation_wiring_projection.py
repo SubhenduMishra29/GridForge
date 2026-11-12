@@ -210,7 +210,7 @@ class SLDInstrumentationWiringAdapter:
                 core_id=core_id,
                 core_number=core_number,
                 signal_tags=signal_tags,
-                signal_ids=signal_ids,
+                signal_ids=signal_ids if index == len(endpoints) - 2 else (),
                 route=SLDRoute.from_dict(route_overrides[f"{carrier_kind}:{carrier_id}:{index + 1}"]) if f"{carrier_kind}:{carrier_id}:{index + 1}" in route_overrides else SLDRoute(),
             )
             for index in range(len(endpoints) - 1)
