@@ -920,6 +920,24 @@ remains readable for backward compatibility but is not suitable for
 identity-verified restart.
 
 
+
+### Continuation provenance across repeated resumes
+
+`GeneratorAugmentedStudyEvidence.resume_from_checkpoint(...)` carries the
+prior accepted-step sequence forward and now also preserves the prior event
+schedule, termination history and nested resume provenance. Newly supplied
+event records are appended to the prior schedule without guessing their
+ordering semantics or deduplicating records whose identity is host-defined.
+The current termination remains the active terminal reason; earlier terminal
+records are retained separately in `termination_history`.
+
+The host may pass `solver_restart_metadata` as a primitive, archive-safe
+mapping. It is retained in the evidence provenance for the host's restart
+workflow and is not interpreted as a serialized solver object. The checkpoint
+identity must still match the active solver/layout fingerprints. Hosts remain
+responsible for restoring any opaque solver-owned history and for assigning
+stable event IDs or reconciling duplicate external events before continuation.
+
 ### Host-controlled checkpoint continuation loop
 
 After the Application archive has loaded and
