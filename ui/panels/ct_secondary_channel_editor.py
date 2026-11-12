@@ -207,6 +207,7 @@ class CTSecondaryChannelEditor(QGroupBox):
     def _refresh_channels(self) -> None:
         if self._application is None or self._target_id is None:
             self._channels_by_id = {}
+            self._samples_by_id = {}
             self._set_enabled(False)
             self._refreshing = True
             try:
@@ -227,6 +228,7 @@ class CTSecondaryChannelEditor(QGroupBox):
             }
         except (RuntimeError, TypeError, ValueError) as exc:
             self._channels_by_id = {}
+            self._samples_by_id = {}
             self._refreshing = True
             try:
                 self._channel_selector.clear()
