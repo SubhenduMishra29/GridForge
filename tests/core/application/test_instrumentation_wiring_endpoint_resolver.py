@@ -23,6 +23,11 @@ from core.model.instrument_wiring import (
     SignalKind,
     WiringConductorRole,
     WiringTerminalReference,
+    TerminalBlock,
+    TerminalPoint,
+    TerminalAccessory,
+    TerminalAccessoryKind,
+    TerminalAccessoryState,
 )
 
 
@@ -632,3 +637,126 @@ def test_physical_carrier_without_explicit_source_channel_ownership_fails_closed
     )
     assert result[0].status == "UNRESOLVED"
     assert "without explicit MeasurementChannel ownership" in result[0].diagnostics[0]
+
+
+
+def _terminal_accessory_signal_inventory(accessory_state):
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-1", description="Phase A current",
+        kind=SignalKind.CURRENT, unit="A", phase="A",
+    )
+    cable = CableAssembly(
+        id="cable-1", tag="C-1", service="CT secondary", core_count=1,
+    )
+    block = TerminalBlock(
+        id="TB-101", tag="TB-101", panel_id="PANEL-1",
+        location="Marshalling cabinet", terminal_count=2,
+    )
+    point_a = TerminalPoint(
+        id="tb-point-1", terminal_block_id=block.id,
+        terminal_number="1", designation="1",
+    )
+    point_b = TerminalPoint(
+        id="tb-point-2", terminal_block_id=block.id,
+        terminal_number="2", designation="2",
+    )
+    core = CableCore(
+        id="core-1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("CT-101", "S1", "S1"),
+            WiringTerminalReference(block.id, "1", "1", point_a.id),
+        ),
+    )
+    panel_wire = PanelWire(
+        id="jumper-1", tag="W-101", role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference(block.id, "2", "2", point_b.id),
+            WiringTerminalReference("PLC-101", "AI1", "AI1"),
+        ),
+    )
+    accessory = TerminalAccessory(
+        id="link-1", tag="TB-101-L1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=accessory_state,
+        terminal_point_ids=(point_a.id, point_b.id),
+        conductive_pairs=((point_a.id, point_b.id),),
+    )
+    return InstrumentationWiringInventory(
+        cables=(cable,), cores=(core,), panel_wires=(panel_wire,),
+        signals=(signal,),
+        signal_bindings=(
+            SignalCarrierBinding(
+                id="core-binding", signal_id=signal.id,
+                carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+                direction="SOURCE_TO_SINK", source_channel_id="channel-1",
+            ),
+            SignalCarrierBinding(
+                id="wire-binding", signal_id=signal.id,
+                carrier_kind=CarrierKind.PANEL_WIRE, carrier_id=panel_wire.id,
+                direction="SOURCE_TO_SINK", source_channel_id="channel-1",
+            ),
+        ),
+        endpoint_bindings=(
+            _endpoint_binding(
+                "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+            ),
+            SignalEndpointBinding(
+                id="control-ref", signal_id=signal.id,
+                endpoint=SignalEndpointReference(
+                    kind=SignalEndpointKind.CONTROL_INPUT,
+                    endpoint_id="component-1", owner_id="control-1", port="PV",
+                    physical_terminal=WiringTerminalReference("PLC-101", "AI1", "AI1"),
+                ),
+            ),
+        ),
+        terminal_blocks=(block,), terminal_points=(point_a, point_b),
+        terminal_accessories=(accessory,),
+    )
+
+
+def test_closed_terminal_test_disconnect_completes_multi_carrier_signal_path():
+    inventory = _terminal_accessory_signal_inventory(TerminalAccessoryState.CLOSED)
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement", element_type="channel",
+                object_id="channel-1", signal="value",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(_channel(),),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+    )
+    assert result[1].status == "RESOLVED"
+
+
+def test_open_terminal_test_disconnect_breaks_signal_continuity():
+    inventory = _terminal_accessory_signal_inventory(TerminalAccessoryState.OPEN)
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement", element_type="channel",
+                object_id="channel-1", signal="value",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(_channel(),),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+    )
+    assert result[1].status == "UNRESOLVED"
+    assert "discontinuous" in result[1].diagnostics[0]
