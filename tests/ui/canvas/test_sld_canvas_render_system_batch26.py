@@ -426,6 +426,7 @@ def test_sld_physical_route_provenance_label_navigates_to_exact_peer_and_tracks_
     scene.addItem(route)
     renderer._items["physical-route"] = (route,)
     renderer._connection_signal_ids["physical-route"] = ("signal-1",)
+    renderer._connection_label_signal_ids["physical-route"] = ("signal-1",)
     navigations = []
     renderer.set_provenance_navigation_callback(
         lambda editor, object_id: navigations.append((editor, object_id))
@@ -464,3 +465,30 @@ def test_sld_physical_route_provenance_label_navigates_to_exact_peer_and_tracks_
     assert current_label.opacity() == pytest.approx(0.4)
     renderer.dispose()
     assert scene.items() == []
+
+
+
+def test_sld_signal_selection_highlights_all_carrier_segments(qapp):
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    renderer = SLDCanvasRenderSystem(scene, factory, realization)
+    first = QGraphicsLineItem(0.0, 0.0, 50.0, 0.0)
+    second = QGraphicsLineItem(50.0, 0.0, 100.0, 0.0)
+    first.setFlag(first.GraphicsItemFlag.ItemIsSelectable, True)
+    second.setFlag(second.GraphicsItemFlag.ItemIsSelectable, True)
+    scene.addItem(first)
+    scene.addItem(second)
+    renderer._items["carrier-hop-1"] = (first,)
+    renderer._items["carrier-hop-2"] = (second,)
+    renderer._connection_signal_ids = {
+        "carrier-hop-1": ("signal-1",),
+        "carrier-hop-2": ("signal-1",),
+    }
+
+    bounds = renderer.select_signal_routes("signal-1")
+
+    assert first.isSelected()
+    assert second.isSelected()
+    assert bounds.left() <= first.sceneBoundingRect().left()
+    assert bounds.right() >= second.sceneBoundingRect().right()
+    renderer.dispose()
