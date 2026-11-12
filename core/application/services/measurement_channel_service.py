@@ -322,7 +322,7 @@ class MeasurementChannelService:
 
     def create_channel(
         self, *, definition: Mapping[str, Any], transaction: Transaction,
-    ) -> ApplicationResult[MeasurementChannel]:
+    ) -> ApplicationResult[str]:
         """Author one CT secondary channel through the active Application transaction."""
         self._require_transaction(transaction)
         with self._execution_lock:
@@ -420,11 +420,11 @@ class MeasurementChannelService:
         validator = self._channel_usage_validator
         if validator is None:
             raise RuntimeError(
-                "Protection channel-reference validation is not configured; editing or deleting a channel is denied."
+                "Protection/Control channel-reference validation is not configured; editing or deleting a channel is denied."
             )
         if validator(channel_id):
             raise ValueError(
-                f"Measurement channel {channel_id!r} is still referenced by Protection configuration; "
+                f"Measurement channel {channel_id!r} is still referenced by Protection or Control configuration; "
                 "unbind every consumer before editing or deleting it."
             )
 
