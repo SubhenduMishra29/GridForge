@@ -15,7 +15,7 @@ from .machine_models import (
     MachineElectricalOutput,
 )
 from .multimachine import MultiMachineSystem
-from .component_assembly import (\n    DynamicComponentAssemblyError,\n    DynamicComponentBinding,\n    DynamicComponentBatchEvaluation,\n    evaluate_dynamic_components,\n)\nfrom .dynamic_state_layout import (\n    DynamicSystemLayoutError,\n    DynamicStateBlockSlice,\n    DynamicSystemStateLayout,\n)\nfrom .component_contract import (
+from .derivative_assembly import (\n    DynamicDerivativeAssemblyError,\n    DynamicSystemDerivativeAssembly,\n    MachineDerivativeEvaluator,\n    evaluate_composed_dynamic_derivatives,\n)\nfrom .component_assembly import (\n    DynamicComponentAssemblyError,\n    DynamicComponentBinding,\n    DynamicComponentBatchEvaluation,\n    evaluate_dynamic_components,\n)\nfrom .dynamic_state_layout import (\n    DynamicSystemLayoutError,\n    DynamicStateBlockSlice,\n    DynamicSystemStateLayout,\n)\nfrom .component_contract import (
     DynamicComponentContractError,
     DynamicComponentInputs,
     DynamicComponentEvaluation,
@@ -53,7 +53,7 @@ __all__ = [
     "DynamicComponentInputs",
     "DynamicComponentEvaluation",
     "DynamicStateComponent",
-    "validate_dynamic_state_component",\n    "DynamicSystemLayoutError",\n    "DynamicStateBlockSlice",\n    "DynamicSystemStateLayout",\n    "DynamicComponentAssemblyError",\n    "DynamicComponentBinding",\n    "DynamicComponentBatchEvaluation",\n    "evaluate_dynamic_components",
+    "validate_dynamic_state_component",\n    "DynamicSystemLayoutError",\n    "DynamicStateBlockSlice",\n    "DynamicSystemStateLayout",\n    "DynamicComponentAssemblyError",\n    "DynamicComponentBinding",\n    "DynamicComponentBatchEvaluation",\n    "evaluate_dynamic_components",\n    "DynamicDerivativeAssemblyError",\n    "DynamicSystemDerivativeAssembly",\n    "MachineDerivativeEvaluator",\n    "evaluate_composed_dynamic_derivatives",
     "SimulationEvent",
     "EventOperation",
     "EventBatchConflictError",
