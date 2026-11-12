@@ -33,10 +33,11 @@ class DynamicComponentBinding:
 
     component_id: str
     machine_id: str
+    bus_id: str
     terminal_id: str
 
     def __post_init__(self) -> None:
-        for name in ("component_id", "machine_id", "terminal_id"):
+        for name in ("component_id", "machine_id", "bus_id", "terminal_id"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise DynamicComponentAssemblyError(f"{name} must be a non-empty stable identity")
