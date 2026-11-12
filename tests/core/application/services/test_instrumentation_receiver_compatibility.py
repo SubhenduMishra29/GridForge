@@ -139,7 +139,7 @@ def test_control_binding_requires_persisted_mapping_to_reference_signal_identity
     ))
     result = validate_control_mapping_binding(signal, wrong_source, destination)
     assert not result.compatible
-    assert any("does not identify instrumentation signal" in item for item in result.diagnostics)
+    assert any("must reference MeasurementChannel" in item for item in result.diagnostics)
 
 
 def test_control_binding_without_persisted_mapping_fails_closed():
@@ -217,3 +217,37 @@ def test_inventory_mutation_receiver_validator_runs_before_state_change():
     with pytest.raises(ValueError, match="receiver reconciliation rejected"):
         service.execute(command, SimpleNamespace(network=network), Transaction())
     assert service.inventory is before
+
+
+def test_inventory_reconciliation_checks_control_mapping_against_persisted_channel_link():
+    from core.application.control_signal_mapping import (
+        ControlSignalBinding, ControlSignalMapping, ControlSignalSource,
+    )
+    from core.application.services.instrumentation_receiver_compatibility import (
+        validate_inventory_receiver_bindings,
+    )
+    from core.model.instrument_wiring import InstrumentationWiringInventory
+    from core.protection.project_configuration import ProtectionProjectConfiguration
+
+    signal = _signal(measurement_channel_id="channel-current-1")
+    destination = ControlSignalDestination(
+        control_id="CTRL-1", component_id="PID-1", input_name="PV",
+        expected_signal_types=("CURRENT",), expected_phases=("A",), accepted_units=("A",),
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement", element_type="measurement_channel",
+                object_id="channel-current-1", signal="value",
+            ),
+            destination=destination,
+        ),
+    ))
+    result = validate_inventory_receiver_bindings(
+        InstrumentationWiringInventory(signals=(signal,)),
+        control_mapping=mapping,
+        protection_configuration=ProtectionProjectConfiguration("project-1"),
+        channels={"channel-current-1": object()},
+    )
+    assert len(result) == 1
+    assert result[0].compatible
