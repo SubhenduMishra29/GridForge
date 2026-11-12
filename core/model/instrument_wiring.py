@@ -579,6 +579,86 @@ class PTSecondaryCircuit:
             raise ValueError("PT/CVT grounding accessory references are only valid when grounding is GROUNDED.")
 
 
+class TemperatureSensorKind(str, Enum):
+    RTD = "RTD"
+    THERMOCOUPLE = "THERMOCOUPLE"
+
+
+@dataclass(frozen=True, slots=True)
+class TemperatureSensorLeadRoute:
+    """One explicitly identified sensor lead and its ordered physical carriers."""
+
+    id: str
+    terminal: WiringTerminalReference
+    carrier_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _required_text(self.id, "id"))
+        if not isinstance(self.terminal, WiringTerminalReference):
+            raise TypeError("terminal must be a WiringTerminalReference.")
+        values = tuple(_required_text(value, "carrier_id") for value in self.carrier_ids)
+        if not values or len(values) != len(set(values)):
+            raise ValueError("Temperature sensor lead carrier_ids must be non-empty and unique.")
+        object.__setattr__(self, "carrier_ids", values)
+
+
+@dataclass(frozen=True, slots=True)
+class TemperatureSensorCircuit:
+    """Physical lead set for one RTD or thermocouple, bound to one active channel.
+
+    Sensor calibration and channel scaling remain on their canonical owners.
+    This record describes only sensor identity, lead topology and receiver binding.
+    """
+
+    id: str
+    sensor_id: str
+    sensor_kind: TemperatureSensorKind
+    measurement_channel_id: str
+    leads: tuple[TemperatureSensorLeadRoute, ...]
+    rtd_wiring_configuration: Optional[str] = None
+    thermocouple_type: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        for name in ("id", "sensor_id", "measurement_channel_id"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        if not isinstance(self.sensor_kind, TemperatureSensorKind):
+            raise TypeError("sensor_kind must be a TemperatureSensorKind.")
+        leads = tuple(self.leads)
+        if not leads or any(not isinstance(item, TemperatureSensorLeadRoute) for item in leads):
+            raise TypeError("leads must contain TemperatureSensorLeadRoute records.")
+        if len({item.id for item in leads}) != len(leads):
+            raise ValueError("Temperature sensor lead route IDs must be unique.")
+        if len({item.terminal.identity for item in leads}) != len(leads):
+            raise ValueError("Temperature sensor lead terminal identities must be unique.")
+        if any(item.terminal.equipment_id != self.sensor_id for item in leads):
+            raise ValueError("Every temperature sensor lead terminal must belong to the declared sensor.")
+        all_carriers = [carrier for item in leads for carrier in item.carrier_ids]
+        if len(all_carriers) != len(set(all_carriers)):
+            raise ValueError("Temperature sensor leads must not reuse physical carriers.")
+        object.__setattr__(self, "leads", leads)
+        rtd_configuration = _optional_text(self.rtd_wiring_configuration, "rtd_wiring_configuration")
+        thermocouple_type = _optional_text(self.thermocouple_type, "thermocouple_type")
+        if self.sensor_kind is TemperatureSensorKind.RTD:
+            expected = {
+                "2_WIRE": {"A", "B"},
+                "3_WIRE": {"A", "B1", "B2"},
+                "4_WIRE": {"A1", "A2", "B1", "B2"},
+            }
+            if rtd_configuration not in expected or {item.terminal.terminal_role for item in leads} != expected[rtd_configuration]:
+                raise ValueError("RTD lead routes must exactly match the declared 2/3/4-wire terminal configuration.")
+            if thermocouple_type is not None:
+                raise ValueError("RTD circuit must not declare a thermocouple type.")
+        else:
+            if {item.terminal.terminal_role for item in leads} != {"POSITIVE", "NEGATIVE"}:
+                raise ValueError("Thermocouple circuit requires exactly POSITIVE and NEGATIVE lead routes.")
+            if thermocouple_type not in {"J", "K", "T", "E", "N", "R", "S", "B"}:
+                raise ValueError("Thermocouple circuit requires a supported explicit thermocouple type.")
+            if rtd_configuration is not None:
+                raise ValueError("Thermocouple circuit must not declare an RTD wiring configuration.")
+        object.__setattr__(self, "rtd_wiring_configuration", rtd_configuration)
+        object.__setattr__(self, "thermocouple_type", thermocouple_type)
+
+
 class CTSecondaryCircuitState(str, Enum):
     """Declared physical state of an instrument CT secondary circuit."""
 
@@ -655,6 +735,7 @@ class InstrumentationWiringInventory:
     terminal_accessories: tuple[TerminalAccessory, ...] = ()
     ct_secondary_circuits: tuple[CTSecondaryCircuit, ...] = ()
     pt_secondary_circuits: tuple[PTSecondaryCircuit, ...] = ()
+    temperature_sensor_circuits: tuple[TemperatureSensorCircuit, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
@@ -671,6 +752,7 @@ class InstrumentationWiringInventory:
             ("terminal_accessories", self.terminal_accessories, TerminalAccessory),
             ("ct_secondary_circuits", self.ct_secondary_circuits, CTSecondaryCircuit),
             ("pt_secondary_circuits", self.pt_secondary_circuits, PTSecondaryCircuit),
+            ("temperature_sensor_circuits", self.temperature_sensor_circuits, TemperatureSensorCircuit),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -883,6 +965,31 @@ class InstrumentationWiringInventory:
                     raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' requires an explicit EARTH_LINK accessory.")
                 if circuit.grounding_terminal_point_id not in point_by_id or circuit.grounding_terminal_point_id not in earth.terminal_point_ids:
                     raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' grounding terminal must be a point on its declared earth link.")
+        sensor_circuit_keys: set[str] = set()
+        for circuit in self.temperature_sensor_circuits:
+            if circuit.sensor_id in sensor_circuit_keys:
+                raise ValueError(f"Temperature sensor '{circuit.sensor_id}' has more than one physical wiring circuit.")
+            sensor_circuit_keys.add(circuit.sensor_id)
+            for lead in circuit.leads:
+                route = [carrier_by_id.get(item) for item in lead.carrier_ids]
+                if any(item is None for item in route):
+                    raise ValueError(f"Temperature sensor circuit '{circuit.id}' lead '{lead.id}' references a missing physical carrier.")
+                if any(len(item.terminal_path) < 2 for item in route):
+                    raise ValueError(f"Temperature sensor circuit '{circuit.id}' lead '{lead.id}' contains a carrier without a complete terminal path.")
+                first_path = route[0].terminal_path
+                if lead.terminal.identity not in {first_path[0].identity, first_path[-1].identity}:
+                    raise ValueError(f"Temperature sensor circuit '{circuit.id}' lead '{lead.id}' must begin at its exact sensor terminal.")
+                for left, right in zip(route, route[1:]):
+                    left_ends = {left.terminal_path[0].identity, left.terminal_path[-1].identity}
+                    right_ends = {right.terminal_path[0].identity, right.terminal_path[-1].identity}
+                    if not left_ends.intersection(right_ends):
+                        raise ValueError(f"Temperature sensor circuit '{circuit.id}' lead '{lead.id}' carrier chain is discontinuous.")
+                if any(item.role not in {WiringConductorRole.SIGNAL, WiringConductorRole.RETURN} for item in route):
+                    raise ValueError(f"Temperature sensor circuit '{circuit.id}' lead '{lead.id}' uses a non-signal/return carrier.")
+            route_ids = {carrier_id for lead in circuit.leads for carrier_id in lead.carrier_ids}
+            if len(route_ids) != sum(len(lead.carrier_ids) for lead in circuit.leads):
+                raise ValueError(f"Temperature sensor circuit '{circuit.id}' reuses a carrier between leads.")
+
         endpoint_signals: dict[tuple[str, ...], str] = {}
         for binding in self.endpoint_bindings:
             if binding.signal_id not in signal_ids:
@@ -928,5 +1035,6 @@ __all__ = [
     "CTSecondaryCircuitState",
     "CTSecondaryCircuit",
     "PTSecondaryCircuitState", "PTSecondaryPolarity", "PTSecondaryGrounding", "PTSecondaryCircuit",
+    "TemperatureSensorKind", "TemperatureSensorLeadRoute", "TemperatureSensorCircuit",
     "InstrumentationWiringInventory",
 ]
