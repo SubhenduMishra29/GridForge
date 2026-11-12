@@ -27,6 +27,9 @@ def wiring_inventory(*carriers):
         CableCore(
             id=core.id, cable_id=cables[index].id, core_number=1,
             role=core.role, terminal_path=core.terminal_path,
+            conductor_material=core.conductor_material,
+            thermocouple_type=core.thermocouple_type,
+            thermocouple_polarity=core.thermocouple_polarity,
         )
         for index, core in enumerate(cores)
     )
@@ -111,3 +114,44 @@ def test_spare_core_cannot_prove_temperature_signal_continuity():
         CableCore("spare-core", "temporary", 1, WiringConductorRole.SPARE, (sensor, receiver)),
     )
     assert not TemperatureInstrumentService._has_physical_route(inventory, (sensor,), (receiver,))
+
+
+def test_thermocouple_route_requires_matching_type_polarity_and_material():
+    sensor_pos, tx_pos = terminal("tc", "POS"), terminal("tx", "IN+")
+    sensor_neg, tx_neg = terminal("tc", "NEG"), terminal("tx", "IN-")
+    positive = CableCore(
+        "tc-pos", "temporary", 1, WiringConductorRole.SIGNAL,
+        (sensor_pos, tx_pos), conductor_material="declared-alloy-a",
+        thermocouple_type="K", thermocouple_polarity="POSITIVE",
+    )
+    negative = CableCore(
+        "tc-neg", "temporary", 1, WiringConductorRole.RETURN,
+        (sensor_neg, tx_neg), conductor_material="declared-alloy-b",
+        thermocouple_type="K", thermocouple_polarity="NEGATIVE",
+    )
+    wiring = wiring_inventory(positive, negative)
+    # The helper's cable assemblies must carry declared construction metadata.
+    cables = tuple(
+        CableAssembly(
+            id=item.id, tag=item.tag, service=item.service, core_count=item.core_count,
+            cable_type="declared-K-extension", conductor_material="declared-pair-construction",
+        ) for item in wiring.cables
+    )
+    wiring = InstrumentationWiringInventory(cables=cables, cores=wiring.cores)
+    assert TemperatureInstrumentService._has_physical_route(
+        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="K", polarity="POSITIVE"
+    )
+    assert not TemperatureInstrumentService._has_physical_route(
+        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="J", polarity="POSITIVE"
+    )
+    assert not TemperatureInstrumentService._has_physical_route(
+        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="K", polarity="NEGATIVE"
+    )
+
+
+def test_thermocouple_conductor_metadata_must_be_complete():
+    with pytest.raises(ValueError, match="declared together"):
+        CableCore(
+            "tc-incomplete", "cable", 1, WiringConductorRole.SIGNAL,
+            thermocouple_type="K",
+        )
