@@ -2780,3 +2780,165 @@ def solve_stepper_transient_cpu(
 
 
 __all__ += ["StepperParameters", "StepperSimulationResult", "solve_stepper_transient_cpu"]
+
+
+@dataclass(frozen=True, slots=True)
+class LinearInductionParameters:
+    stator_resistance_ohm: float
+    secondary_resistance_ohm: float
+    stator_leakage_inductance_h: float
+    secondary_leakage_inductance_h: float
+    magnetizing_inductance_h: float
+    pole_pitch_m: float
+    translator_mass_kg: float
+    viscous_friction_n_s_m: float = 0.0
+    thermal_capacity_j_k: float = 1200.0
+    thermal_conductance_w_k: float = 8.0
+    ambient_temperature_c: float = 25.0
+
+    def __post_init__(self) -> None:
+        for n in ("stator_resistance_ohm","secondary_resistance_ohm","stator_leakage_inductance_h",
+                  "secondary_leakage_inductance_h","magnetizing_inductance_h","pole_pitch_m",
+                  "translator_mass_kg","thermal_capacity_j_k"):
+            v=getattr(self,n)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or float(v)<=0:
+                raise ValueError(f"{n} must be finite and positive")
+        for n in ("viscous_friction_n_s_m","thermal_conductance_w_k","ambient_temperature_c"):
+            v=getattr(self,n)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or (n!="ambient_temperature_c" and float(v)<0):
+                raise ValueError(f"{n} must be finite and non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class LinearSynchronousParameters:
+    phase_resistance_ohm: float
+    d_axis_inductance_h: float
+    q_axis_inductance_h: float
+    permanent_magnet_flux_wb: float
+    pole_pitch_m: float
+    translator_mass_kg: float
+    viscous_friction_n_s_m: float = 0.0
+    thermal_capacity_j_k: float = 1200.0
+    thermal_conductance_w_k: float = 8.0
+    ambient_temperature_c: float = 25.0
+
+    def __post_init__(self) -> None:
+        for n in ("phase_resistance_ohm","d_axis_inductance_h","q_axis_inductance_h",
+                  "permanent_magnet_flux_wb","pole_pitch_m","translator_mass_kg","thermal_capacity_j_k"):
+            v=getattr(self,n)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or float(v)<=0:
+                raise ValueError(f"{n} must be finite and positive")
+        for n in ("viscous_friction_n_s_m","thermal_conductance_w_k","ambient_temperature_c"):
+            v=getattr(self,n)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or (n!="ambient_temperature_c" and float(v)<0):
+                raise ValueError(f"{n} must be finite and non-negative")
+
+
+@dataclass(frozen=True)
+class LinearMotorSimulationResult:
+    motor_id: str
+    model: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    d_axis_voltage_v: np.ndarray
+    q_axis_voltage_v: np.ndarray
+    electrical_frequency_rad_s: np.ndarray
+    load_force_n: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.diagnostics, Mapping) or not self.motor_id:
+            raise ValueError("linear motor result requires diagnostics and motor_id")
+        count=int(np.asarray(self.time_s).size)
+        for n in ("time_s","state_data","d_axis_voltage_v","q_axis_voltage_v","electrical_frequency_rad_s","load_force_n"):
+            a=np.asarray(getattr(self,n),dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(a).all(): raise ValueError(f"{n} must be finite")
+            a.setflags(write=False); object.__setattr__(self,n,a)
+        if count<1 or self.state_data.size%count or any(getattr(self,n).size!=count for n in
+            ("d_axis_voltage_v","q_axis_voltage_v","electrical_frequency_rad_s","load_force_n")):
+            raise ValueError("linear motor result arrays must align")
+        object.__setattr__(self,"diagnostics",MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self) -> int: return int(self.time_s.size)
+
+    def channels(self, parameters: LinearInductionParameters | LinearSynchronousParameters) -> dict[str,np.ndarray]:
+        if self.model=="linear_induction_dq" and isinstance(parameters,LinearInductionParameters):
+            ps,qs,pr,qr,vel,pos,temp=self.state_data.reshape(self.sample_count,7).T
+            p=parameters; lm=p.magnetizing_inductance_h
+            ls=p.stator_leakage_inductance_h+lm; lr=p.secondary_leakage_inductance_h+lm; det=ls*lr-lm*lm
+            ids=(lr*ps-lm*pr)/det; iqs=(lr*qs-lm*qr)/det
+            idr=(ls*pr-lm*ps)/det; iqr=(ls*qr-lm*qs)/det
+            force=1.5*np.pi/p.pole_pitch_m*(ps*iqs-qs*ids)
+            loss=1.5*(p.stator_resistance_ohm*(ids**2+iqs**2)+p.secondary_resistance_ohm*(idr**2+iqr**2))
+            return {"stator_d_current_a":ids,"stator_q_current_a":iqs,"secondary_d_current_a":idr,
+                "secondary_q_current_a":iqr,"translator_velocity_m_s":vel,"translator_position_m":pos,
+                "thrust_force_n":force,"load_force_n":self.load_force_n,"copper_loss_w":loss,"winding_temperature_c":temp}
+        if self.model=="linear_synchronous_dq" and isinstance(parameters,LinearSynchronousParameters):
+            id_,iq,vel,pos,temp=self.state_data.reshape(self.sample_count,5).T; p=parameters
+            force=1.5*np.pi/p.pole_pitch_m*(p.permanent_magnet_flux_wb*iq+(p.d_axis_inductance_h-p.q_axis_inductance_h)*id_*iq)
+            loss=1.5*p.phase_resistance_ohm*(id_**2+iq**2)
+            return {"d_axis_current_a":id_,"q_axis_current_a":iq,"translator_velocity_m_s":vel,
+                "translator_position_m":pos,"thrust_force_n":force,"load_force_n":self.load_force_n,
+                "stator_copper_loss_w":loss,"winding_temperature_c":temp}
+        raise TypeError("linear motor result and parameter family do not match")
+
+
+def solve_linear_induction_transient_cpu(motor_id: str, parameters: LinearInductionParameters,
+    duration_s: float, step_s: float, *, d_axis_voltage_v: float|Sequence[float]|np.ndarray,
+    q_axis_voltage_v: float|Sequence[float]|np.ndarray, electrical_frequency_rad_s: float|Sequence[float]|np.ndarray,
+    load_force_n: float|Sequence[float]|np.ndarray=0.0) -> LinearMotorSimulationResult:
+    if not isinstance(parameters,LinearInductionParameters): raise TypeError("invalid linear induction parameters")
+    count,_=_validate_time(duration_s,step_s); vd=_voltage_profile(d_axis_voltage_v,count,"d_axis_voltage_v")
+    vq=_voltage_profile(q_axis_voltage_v,count,"q_axis_voltage_v"); we=_voltage_profile(electrical_frequency_rad_s,count,"electrical_frequency_rad_s")
+    load=_voltage_profile(load_force_n,count,"load_force_n"); p=parameters
+    lm=p.magnetizing_inductance_h; ls=p.stator_leakage_inductance_h+lm; lr=p.secondary_leakage_inductance_h+lm
+    det=ls*lr-lm*lm; k=np.pi/p.pole_pitch_m
+    initial=np.asarray((0.,0.,0.,0.,0.,0.,p.ambient_temperature_c))
+    def derivative(y:np.ndarray,u:tuple[float,float,float,float])->np.ndarray:
+        ps,qs,pr,qr,vel,_pos,temp=y; vds,vqs,omega,fl=u
+        ids=(lr*ps-lm*pr)/det; iqs=(lr*qs-lm*qr)/det
+        idr=(ls*pr-lm*ps)/det; iqr=(ls*qr-lm*qs)/det
+        slip=omega-k*vel; force=1.5*k*(ps*iqs-qs*ids)
+        dps=vds-p.stator_resistance_ohm*ids+omega*qs; dqs=vqs-p.stator_resistance_ohm*iqs-omega*ps
+        dpr=-p.secondary_resistance_ohm*idr+slip*qr; dqr=-p.secondary_resistance_ohm*iqr-slip*pr
+        loss=1.5*(p.stator_resistance_ohm*(ids**2+iqs**2)+p.secondary_resistance_ohm*(idr**2+iqr**2))
+        dt=(loss-p.thermal_conductance_w_k*(temp-p.ambient_temperature_c))/p.thermal_capacity_j_k
+        acc=(force-fl-p.viscous_friction_n_s_m*vel)/p.translator_mass_kg
+        return np.asarray((dps,dqs,dpr,dqr,acc,vel,dt),dtype=np.float64)
+    problem=NumericalProblem(problem_id=motor_id,workload="linear_induction_dq_single",derivative=derivative,
+        initial_state=initial,duration_s=duration_s,maximum_step_s=step_s,
+        input_at=lambda i,_t:(float(vd[i]),float(vq[i]),float(we[i]),float(load[i])),precision="float64")
+    sol=solve_numerical_problem(problem)
+    return LinearMotorSimulationResult(motor_id,"linear_induction_dq",sol.time_s,sol.state_data,vd,vq,we,load,
+        sol.sample_period_s,"cpu-rk4",{"integrator":sol.integrator,"fidelity":"experimental; end effects, saturation and deep-bar skin effect omitted"})
+
+
+def solve_linear_synchronous_transient_cpu(motor_id: str, parameters: LinearSynchronousParameters,
+    duration_s: float, step_s: float, *, d_axis_voltage_v: float|Sequence[float]|np.ndarray,
+    q_axis_voltage_v: float|Sequence[float]|np.ndarray, load_force_n: float|Sequence[float]|np.ndarray=0.0) -> LinearMotorSimulationResult:
+    if not isinstance(parameters,LinearSynchronousParameters): raise TypeError("invalid linear synchronous parameters")
+    count,_=_validate_time(duration_s,step_s); vd=_voltage_profile(d_axis_voltage_v,count,"d_axis_voltage_v")
+    vq=_voltage_profile(q_axis_voltage_v,count,"q_axis_voltage_v"); load=_voltage_profile(load_force_n,count,"load_force_n")
+    p=parameters; k=np.pi/p.pole_pitch_m; initial=np.asarray((0.,0.,0.,0.,p.ambient_temperature_c))
+    def derivative(y:np.ndarray,u:tuple[float,float,float])->np.ndarray:
+        id_,iq,vel,pos,temp=y; vds,vqs,fl=u; omega=k*vel
+        did=(vds-p.phase_resistance_ohm*id_+omega*p.q_axis_inductance_h*iq)/p.d_axis_inductance_h
+        diq=(vqs-p.phase_resistance_ohm*iq-omega*(p.d_axis_inductance_h*id_+p.permanent_magnet_flux_wb))/p.q_axis_inductance_h
+        force=1.5*k*(p.permanent_magnet_flux_wb*iq+(p.d_axis_inductance_h-p.q_axis_inductance_h)*id_*iq)
+        loss=1.5*p.phase_resistance_ohm*(id_**2+iq**2)
+        dt=(loss-p.thermal_conductance_w_k*(temp-p.ambient_temperature_c))/p.thermal_capacity_j_k
+        acc=(force-fl-p.viscous_friction_n_s_m*vel)/p.translator_mass_kg
+        return np.asarray((did,diq,acc,vel,dt),dtype=np.float64)
+    problem=NumericalProblem(problem_id=motor_id,workload="linear_synchronous_dq_single",derivative=derivative,
+        initial_state=initial,duration_s=duration_s,maximum_step_s=step_s,
+        input_at=lambda i,_t:(float(vd[i]),float(vq[i]),float(load[i])),precision="float64")
+    sol=solve_numerical_problem(problem); omega=k*sol.state_data.reshape(count,5)[:,2]
+    return LinearMotorSimulationResult(motor_id,"linear_synchronous_dq",sol.time_s,sol.state_data,vd,vq,omega,load,
+        sol.sample_period_s,"cpu-rk4",{"integrator":sol.integrator,"fidelity":"experimental PM dq; end effects, PWM and magnet segmentation omitted"})
+
+
+__all__ += ["LinearInductionParameters","LinearSynchronousParameters","LinearMotorSimulationResult",
+            "solve_linear_induction_transient_cpu","solve_linear_synchronous_transient_cpu"]
