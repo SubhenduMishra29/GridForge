@@ -180,6 +180,72 @@ class MeasurementChannelChanged(ApplicationEvent):
         )
 
 
+_INSTRUMENTATION_WIRING_COLLECTIONS = (
+    "cables",
+    "cores",
+    "panel_wires",
+    "signals",
+    "signal_bindings",
+    "connection_hops",
+    "tag_policy",
+)
+
+
+@dataclass(frozen=True)
+class InstrumentationWiringChanged(ApplicationEvent):
+    """Semantic fact that canonical physical instrumentation wiring changed.
+
+    This event refreshes wiring provenance projections. It does not assert
+    Core electrical topology or network-study inputs have changed.
+    """
+
+    def __init__(
+        self,
+        *,
+        operation: str,
+        project_id: str,
+        activation_generation: int,
+        changed_collections: tuple[str, ...],
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        if operation not in {"execute", "undo", "redo"}:
+            raise ValueError("operation must be execute, undo or redo.")
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if (
+            isinstance(activation_generation, bool)
+            or not isinstance(activation_generation, int)
+            or activation_generation < 1
+        ):
+            raise ValueError("activation_generation must be a positive integer.")
+        if not isinstance(changed_collections, (tuple, list)):
+            raise TypeError("changed_collections must be a tuple or list.")
+        requested = tuple(changed_collections)
+        if (
+            not requested
+            or any(not isinstance(item, str) for item in requested)
+            or len(set(requested)) != len(requested)
+            or any(item not in _INSTRUMENTATION_WIRING_COLLECTIONS for item in requested)
+        ):
+            raise ValueError("changed_collections must contain unique canonical inventory collection names.")
+        ordered = tuple(name for name in _INSTRUMENTATION_WIRING_COLLECTIONS if name in requested)
+        payload = dict(metadata or {})
+        payload.update({
+            "operation": operation,
+            "project_id": project_id.strip(),
+            "activation_generation": activation_generation,
+            "changed_collections": ordered,
+        })
+        super().__init__(
+            "instrumentation.wiring.changed",
+            payload,
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 @dataclass(frozen=True)
 class ProtectionChanged(ApplicationEvent):
     """Semantic fact that Application-owned protection read state changed."""
@@ -315,7 +381,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
-    "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "MeasurementChannelChanged", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
+    "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "MeasurementChannelChanged", "InstrumentationWiringChanged", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProtectionTripRequested",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed", "DraftChanged",
     "StudyCaseCreated", "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",

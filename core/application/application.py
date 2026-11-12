@@ -56,7 +56,7 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ProtectionChanged, MeasurementChannelChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged, MeasurementChannelChanged, InstrumentationWiringChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
     SimpleWireConnectionCreated, SimpleWireConnectionRemoved, JunctionCreated, JunctionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
@@ -5389,6 +5389,42 @@ class Application:
                 channel_id=channel_id,
                 source_id=str(source_id) if source_id is not None else None,
                 terminal_role=str(terminal_role) if terminal_role is not None else None,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+            return
+        if command.command_type == "instrumentation_wiring.set_inventory":
+            expected_inventory = command.payload.get("expected_inventory")
+            replacement_inventory = command.payload.get("replacement_inventory")
+            if expected_inventory is None or replacement_inventory is None:
+                raise RuntimeError("Instrumentation wiring semantic event lacks inventory snapshots.")
+            collection_names = (
+                "cables", "cores", "panel_wires", "signals",
+                "signal_bindings", "connection_hops", "tag_policy",
+            )
+            changed_collections = tuple(
+                name for name in collection_names
+                if getattr(expected_inventory, name, None)
+                != getattr(replacement_inventory, name, None)
+            )
+            if not changed_collections:
+                raise RuntimeError("Instrumentation wiring command changed no canonical inventory collection.")
+            project_id = result.metadata.get("project_id")
+            activation_generation = result.metadata.get("activation_generation")
+            if not isinstance(project_id, str) or not project_id.strip():
+                raise RuntimeError("Instrumentation wiring semantic event lacks the active project identity.")
+            if (
+                isinstance(activation_generation, bool)
+                or not isinstance(activation_generation, int)
+                or activation_generation < 1
+            ):
+                raise RuntimeError("Instrumentation wiring semantic event lacks the active generation.")
+            self._event_bus.publish(InstrumentationWiringChanged(
+                operation=operation,
+                project_id=project_id,
+                activation_generation=activation_generation,
+                changed_collections=changed_collections,
                 correlation_id=command.correlation_id,
                 causation_id=command.causation_id,
                 metadata=metadata,

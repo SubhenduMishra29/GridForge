@@ -12,7 +12,7 @@ from typing import Any
 from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-    ProtectionChanged, MeasurementChannelChanged, TopologyChanged,
+    ProtectionChanged, MeasurementChannelChanged, InstrumentationWiringChanged, TopologyChanged,
     NetworkCommitted, ProjectClosed, ProjectLoaded,
     StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
 )
@@ -785,7 +785,7 @@ class ProtectionWorkspace(QWidget):
     workspace_id = "protection"
     _EVENT_TYPES = (
         ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-        ProtectionChanged, MeasurementChannelChanged, TopologyChanged, NetworkCommitted,
+        ProtectionChanged, MeasurementChannelChanged, InstrumentationWiringChanged, TopologyChanged, NetworkCommitted,
         ProjectLoaded, ProjectClosed,
         StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
     )
