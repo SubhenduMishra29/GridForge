@@ -4288,3 +4288,28 @@ Verification:
 - Static source inspection and fetch-back only. No tests, imports, startup,
   save/reopen or Qt GUI runtime were executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Instrumentation wiring project-wide tag identity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Instrumentation wiring tag uniqueness was enforced separately for cable, panel-wire and signal collections.
+- Cable-core tags were checked in a separate collection.
+- A case-only variation or a duplicate across record kinds could therefore make a visible tag ambiguous when resolving the same engineering designation across SLD, Control, Protection and schedules.
+- Application tag allocation checked only the selected record category and could allocate a value already used by another instrumentation record kind.
+
+Correction:
+- Enforced one case-insensitive project-wide tag namespace across cable tags, optional cable-core tags, panel-wire tags and signal tags.
+- Preserved stable record IDs as canonical identity; visible tags remain engineering designations and are not used as foreign keys.
+- Changed Application tag allocation to avoid collisions with all currently assigned instrumentation tags, not only the selected category.
+- Added model regression-test source for valid cross-category tags, case-insensitive cross-category collisions and cable-core collisions.
+- Kept all tag prefixes and formats project-defined; no IEC/ISA convention or default prefix is assumed.
+
+Verification:
+- Updated source and test files were committed to the fresh branch based on current main.
+- No tests, imports, GUI interaction, schedule rendering/export, or save/reopen were run.
+- This is the first isolated reconciliation slice. It does not implement the remaining endpoint compatibility, stable connection-hop identity, shield/earth continuity, communication/fibre, temperature transmitter/BTD/OTD/WTD, or cross-canvas schedule/provenance requirements.
