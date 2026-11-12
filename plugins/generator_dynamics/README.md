@@ -815,16 +815,21 @@ accepted. The adapter raises `GeneratorAugmentedIntegratorError` with the
 checkpoint publication failure from solver rejection and reconcile the
 accepted state explicitly. `GeneratorAugmentedStudyEvidence.from_checkpoint_publication_failure(...)`
 combines the previously accepted trajectory with that attached accepted step
-and produces failed/incomplete evidence with the failure time and cause. A host
+and produces failed/incomplete evidence with the failure time and cause.
 The augmented StudyService handler also performs this conversion automatically
 when the host solver lets an observer-publication exception carrying
 `accepted_step_result` escape. If the host attaches prior accepted steps as
 `accepted_steps`, they are included in order; otherwise the recovered evidence
 contains the accepted step carried by the exception. An existing host-supplied
 `partial_result` is preserved. The resulting evidence is attached to the
-exception for StudyService's normal failure persistence path. The adapter does not write files,
-persist results, advance a study clock, or own cancellation; `StudyService`
-remains the sole owner of study lifecycle and durable terminal-result archival.
+exception for StudyService's normal failure persistence path.
+`resume_from_checkpoint(...)` continues an interrupted or failed evidence
+object only when the host supplies the exact last accepted state vector and new
+accepted steps strictly follow the prior checkpoint time. Resume provenance
+records the previous execution status and checkpoint time. The evidence object
+remains immutable. The adapter does not write files, persist results, advance a
+study clock, or own cancellation; `StudyService` remains the sole owner of
+study lifecycle and durable terminal-result archival.
 
 ### StudyService-compatible augmented trajectory evidence
 
