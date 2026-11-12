@@ -46,6 +46,11 @@ from .excitation_handoff import (
     build_generator_excitation_snapshot,
 )
 from .avr_component import AVRComponentBindingError, FirstOrderAVRStateComponent
+from .stage_evaluation import (
+    GeneratorDynamicStageError, GeneratorDynamicStageResult,
+    TerminalVoltageProjector, ElectricalPowerEvaluator,
+    GeneratorMachineDerivativeEvaluator, evaluate_generator_dynamic_stage,
+)
 from .network_stage import (
     GeneratorNetworkStageError,
     GeneratorNetworkStageRequest,
@@ -78,6 +83,9 @@ __all__ = [
     "ExcitationHandoffError", "AVRGeneratorBinding",
     "GeneratorExcitationSnapshot", "build_generator_excitation_snapshot",
     "AVRComponentBindingError", "FirstOrderAVRStateComponent",
+    "GeneratorDynamicStageError", "GeneratorDynamicStageResult",
+    "TerminalVoltageProjector", "ElectricalPowerEvaluator",
+    "GeneratorMachineDerivativeEvaluator", "evaluate_generator_dynamic_stage",
     "GeneratorNetworkStageError", "GeneratorNetworkStageRequest",
     "GeneratorNetworkStageSolution", "GeneratorNetworkSolver",
     "solve_generator_network_stage",
