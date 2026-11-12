@@ -19,6 +19,7 @@ from .transient_solver import (
     StepperParameters, StepperSimulationResult, solve_stepper_transient_cpu,
     LinearInductionParameters, LinearSynchronousParameters, LinearMotorSimulationResult,
     solve_linear_induction_transient_cpu, solve_linear_synchronous_transient_cpu,
+    VoiceCoilParameters, VoiceCoilSimulationResult, solve_voice_coil_transient_cpu,
 )
 __all__ = [
     "MotorDynamicsPlugin", "MotorFamily", "MotorFamilyProfile", "MotorNameplate", "MotorOperatingMode",
@@ -38,5 +39,6 @@ __all__ = [
     "StepperParameters", "StepperSimulationResult", "solve_stepper_transient_cpu",
     "LinearInductionParameters", "LinearSynchronousParameters", "LinearMotorSimulationResult",
     "solve_linear_induction_transient_cpu", "solve_linear_synchronous_transient_cpu",
+    "VoiceCoilParameters", "VoiceCoilSimulationResult", "solve_voice_coil_transient_cpu",
     "solve_transient_cpu", "solve_transient_batch", "cuda_available",
 ]
