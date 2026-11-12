@@ -4859,3 +4859,18 @@ Verification:
 - Kept calibration, CJC, lead compensation, transmitter configuration, channel scaling, MeasurementChannel acquisition and UI projection outside Core.
 - Added regression-test source for terminal ownership, configuration-specific roles, type validation and endpoint identity. Tests were not executed.
 - Remaining in #1203: schema-8 RTD/thermocouple wiring profiles and carrier-chain compatibility validation; physical extension/compensating lead material and polarity; measurement input compatibility; shields/drains/armour/earth; communication media; schedule/report export and save/reopen evidence. PR #1207 remains draft/unmerged pending reconciliation and full acceptance.
+
+2026-11-12 | Issue #1203 / PR #1207 | Temperature-sensor endpoint role validation correction
+- EndpointReference now validates a terminal role against the canonical
+  Terminal.ROLE_CONTRACT_BY_TYPE for its declared EquipmentType. A caller
+  can no longer construct an RTD endpoint reference using a thermocouple
+  polarity role or another unsupported terminal role.
+- Added regression-test source for rejection of an invalid RTD endpoint role.
+- RTD's selected 2/3/4-wire configuration remains authoritative on the
+  actual Core RTD object; the generic endpoint identity contract validates
+  the allowed RTD role vocabulary, while resolution against the actual
+  equipment must still confirm that the selected configuration owns that
+  exact role.
+- Tests were not executed. PR #1207 remains draft/open/unmerged and is
+  divergent from main (220 commits ahead, 4 behind at this audit).
+
