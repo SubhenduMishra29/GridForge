@@ -21,6 +21,46 @@ class GeneratorNetworkStageError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class GeneratorNetworkConvergenceEvidence:
+    """Solver-reported convergence evidence for one algebraic network stage."""
+
+    converged: bool
+    iteration_count: int
+    residual_norm: float
+    tolerance: float
+    solver_id: str
+
+    def __post_init__(self) -> None:
+        if type(self.converged) is not bool:
+            raise GeneratorNetworkStageError("converged must be an explicit bool")
+        if isinstance(self.iteration_count, bool) or not isinstance(self.iteration_count, int) or self.iteration_count < 0:
+            raise GeneratorNetworkStageError("iteration_count must be a non-negative integer")
+        for name, value in (("residual_norm", self.residual_norm), ("tolerance", self.tolerance)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) or value < 0:
+                raise GeneratorNetworkStageError(f"{name} must be finite and non-negative")
+        if self.tolerance <= 0:
+            raise GeneratorNetworkStageError("tolerance must be greater than zero")
+        if not isinstance(self.solver_id, str) or not self.solver_id.strip():
+            raise GeneratorNetworkStageError("solver_id must be a non-empty identifier")
+        if self.converged and self.residual_norm > self.tolerance:
+            raise GeneratorNetworkStageError("converged network result exceeds its declared residual tolerance")
+
+
+@dataclass(frozen=True, slots=True)
+class GeneratorNetworkSolveResult:
+    """Detached algebraic solution plus evidence reported by the host solver."""
+
+    bus_voltages: Mapping[str, complex]
+    convergence: GeneratorNetworkConvergenceEvidence
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.bus_voltages, Mapping):
+            raise GeneratorNetworkStageError("bus_voltages must be a mapping")
+        if not isinstance(self.convergence, GeneratorNetworkConvergenceEvidence):
+            raise TypeError("convergence must be GeneratorNetworkConvergenceEvidence")
+
+
+@dataclass(frozen=True, slots=True)
 class GeneratorNetworkStageRequest:
     """Detached machine state and excitation values for one network stage."""
 
