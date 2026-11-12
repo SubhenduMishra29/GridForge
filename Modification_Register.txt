@@ -3985,3 +3985,35 @@ Disposition:
 - Wider Control/Protection consumer freshness and timestamp-domain policy
   remains tracked separately by #1031 and #1049.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — PR #1204 Mainline Merge Reconciliation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+PR: #1204
+
+Reconciliation:
+- Created merge commit f841a35efa524f82c9ea0ddc2e0359659142ea9d.
+- Merge commit parents are feature head b5e62c1708823e77a6df77740f12f72ab54c98b1
+  and main head 79a9aa8cf2bb81c20d117c102fd7655a4b0ef63f.
+- Carried forward main-only measurement-channel staleness model/test and
+  SLD action-catalog changes.
+- Verified overlapping bootstrap and Qt files preserve main's additions;
+  branch bootstrap retains instrumentation wiring lifecycle composition.
+- Carried forward main's Modification_Register entries and retained the
+  feature branch's wiring-specific register entries.
+- PR now targets latest main and GitHub reports mergeable=true, ahead-only.
+- Marked PR ready for review.
+
+Merge blocker:
+- GitHub rejected merge operation with HTTP 403 because the authenticated
+  account has no verified email address. PR remains open and unmerged.
+- Issue #1203 remains open pending successful PR merge.
+
+Verification:
+- Git history, merge parents, branch head, compare result and mergeability
+  were inspected. No pytest, import, application startup, save/reopen or
+  GUI interaction was executed.
+======================================================================
