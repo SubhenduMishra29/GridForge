@@ -625,3 +625,24 @@ def test_variable_reluctance_stepper_requires_inductance_gradient():
         StepperParameters(phase_resistance_ohm=1., phase_inductance_h=.01,
             inertia_kg_m2=.001, rotor_teeth=40, family="variable_reluctance",
             inductance_gradient_h_per_rad=0.)
+
+
+def test_linear_motor_family_models_and_translational_channels():
+    import numpy as np
+    from plugins.motor_dynamics import (LinearInductionParameters, LinearSynchronousParameters,
+        solve_linear_induction_transient_cpu, solve_linear_synchronous_transient_cpu)
+    assert motor_family_profile(MotorFamily.LINEAR_INDUCTION).dynamic_model == "linear_induction_dq"
+    assert motor_family_profile(MotorFamily.LINEAR_SYNCHRONOUS).dynamic_model == "linear_synchronous_dq"
+    for family in (MotorFamily.LINEAR_INDUCTION, MotorFamily.LINEAR_SYNCHRONOUS):
+        ids={p.point_id for p in motor_measurement_points(family)}
+        assert {"linear.translator_velocity","linear.translator_position","linear.thrust_force","linear.air_gap"} <= ids
+    ip=LinearInductionParameters(.8,.6,.004,.004,.08,.12,18.,1.2)
+    ir=solve_linear_induction_transient_cpu("lim-test",ip,.005,.00005,d_axis_voltage_v=30.,
+        q_axis_voltage_v=8.,electrical_frequency_rad_s=2*np.pi*40.,load_force_n=12.)
+    assert ir.backend=="cpu-rk4" and np.isfinite(ir.state_data).all()
+    assert np.isfinite(ir.channels(ip)["thrust_force_n"]).all()
+    sp=LinearSynchronousParameters(.5,.006,.006,.08,.1,12.,.8)
+    sr=solve_linear_synchronous_transient_cpu("lsm-test",sp,.005,.00005,
+        d_axis_voltage_v=0.,q_axis_voltage_v=20.,load_force_n=5.)
+    assert sr.backend=="cpu-rk4" and np.isfinite(sr.state_data).all()
+    assert np.isfinite(sr.channels(sp)["translator_position_m"]).all()
