@@ -3731,3 +3731,41 @@ Disposition:
 - Wider Control/Protection consumer freshness and timestamp-domain policy
   remains tracked separately by #1031 and #1049.
 ======================================================================
+
+======================================================================
+GridForge V2 — Restore Bus-to-equipment Simple Wire endpoint snapping
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: fix/sld-wire-bus-snap-resolution
+
+Implemented:
+- Bus wire snapping now measures the pointer against the continuous visible
+  Bus-bar segment and maps the hit to the nearest existing stable attachment
+  slot. It no longer requires the cursor to land within tolerance of one of
+  the nine discrete slot coordinates.
+- The returned Bus endpoint remains canonical: Bus ID plus the selected
+  attachment-N identity. No free-form endpoint, Core terminal, or SLD
+  connection is fabricated by the graphics layer.
+- MouseEventAdapter now preserves fractional viewport pointer coordinates by
+  inverting the viewport transform instead of rounding through QPoint.
+- Mouse input carries a 14-viewport-pixel snap radius converted to scene units
+  at the current zoom. WireTool passes that per-event tolerance to SnapSystem;
+  the configured default tolerance is not mutated.
+- Existing equipment terminal candidates retain their exact terminal identity;
+  the viewport-scaled tolerance makes them reachable consistently across zoom.
+
+Regression coverage authored:
+- Clicking along the Bus bar resolves to a stable nearest attachment slot.
+- A pointer outside the Bus-bar hit radius is rejected.
+- Per-event tolerance does not mutate SnapSystem's configured tolerance.
+- Viewport-to-scene mapping preserves fractional coordinates and computes
+  zoom-scaled snap tolerance.
+
+Verification:
+- Test source added; tests have not yet been executed.
+- No GUI interaction, Python import/runtime, project save/reopen, or CI run is
+  claimed. The correction is isolated in a dedicated branch and is not merged.
+
+Disposition:
+- Dedicated PR to be reviewed against current main before integration.
+======================================================================
