@@ -4463,3 +4463,14 @@ PR: #1214
   link/accessory electrical state and receiver capability are still outstanding.
 
 ======================================================================
+
+GridForge V2 — Temperature conductor-role continuity guard
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added regression coverage proving a SPARE core cannot establish a valid
+  temperature signal path.
+- Regression source remains unexecuted.
+
+======================================================================
