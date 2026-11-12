@@ -16,6 +16,11 @@ from core.model import (
     SignalEndpointReference,
     SignalEndpointBinding,
     WiringTerminalReference,
+    TerminalBlock,
+    TerminalPoint,
+    TerminalAccessory,
+    TerminalAccessoryKind,
+    TerminalAccessoryState,
 )
 
 
@@ -272,4 +277,88 @@ def test_logical_protection_input_rejects_two_different_signal_designations():
                 ),
                 other_binding,
             ),
+        )
+
+
+
+def test_terminal_block_points_have_stable_identity_independent_of_designation():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=4,
+    )
+    point = TerminalPoint(
+        id="terminal-point-id", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+        manufacturer_designation="1",
+    )
+    reference = WiringTerminalReference(
+        block.id, point.terminal_number, point.designation, point.id,
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(point,),
+    )
+    assert reference.identity == (block.id, "1", point.id)
+    assert inventory.terminal_points[0].id == point.id
+
+
+def test_terminal_block_rejects_duplicate_terminal_numbers_and_designations():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=4,
+    )
+    first = TerminalPoint(
+        id="point-1", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+    )
+    duplicate = TerminalPoint(
+        id="point-2", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:2",
+    )
+    with pytest.raises(ValueError, match="duplicate terminal number"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=(first, duplicate),
+        )
+
+
+def test_terminal_accessory_requires_explicit_terminal_membership_and_pairs():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=2,
+    )
+    points = (
+        TerminalPoint(id="point-1", terminal_block_id=block.id, terminal_number="1", designation="1"),
+        TerminalPoint(id="point-2", terminal_block_id=block.id, terminal_number="2", designation="2"),
+    )
+    link = TerminalAccessory(
+        id="link-id", tag="TB-101-L1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.SHORTING_LINK,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=("point-1", "point-2"),
+        conductive_pairs=(("point-1", "point-2"),),
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=points,
+        terminal_accessories=(link,),
+    )
+    assert inventory.terminal_accessories[0].conductive_pairs == (("point-1", "point-2"),)
+
+
+def test_closed_terminal_accessory_cannot_infer_conductive_pairing():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=2,
+    )
+    points = (
+        TerminalPoint(id="point-1", terminal_block_id=block.id, terminal_number="1", designation="1"),
+        TerminalPoint(id="point-2", terminal_block_id=block.id, terminal_number="2", designation="2"),
+    )
+    with pytest.raises(ValueError, match="requires explicit conductive_pairs"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=points,
+            terminal_accessories=(TerminalAccessory(
+                id="link-id", tag="TB-101-L1", terminal_block_id=block.id,
+                kind=TerminalAccessoryKind.TEST_DISCONNECT,
+                state=TerminalAccessoryState.CLOSED,
+                terminal_point_ids=("point-1", "point-2"),
+            ),),
         )
