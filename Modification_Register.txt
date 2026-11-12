@@ -4474,3 +4474,32 @@ PR: #1214
 - Regression source remains unexecuted.
 
 ======================================================================
+
+GridForge V2 — Temperature MeasurementChannel contract
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added MeasurementSignalType.TEMPERATURE as a generic Core measurement type;
+  no BTD/OTD/WTD service concepts were added to MeasurementChannel.
+- MeasurementChannelService now provisions temperature channels from explicit
+  source equipment and terminal references. Producer identity, trusted clock
+  domain, engineering unit, scale, polarity and stale-after duration are
+  mandatory; no terminal, unit or scaling defaults are inferred.
+- TemperatureInstrumentService validates linked channel existence, signal type,
+  explicit unit, source equipment identity and source terminal role. For an
+  intermediary transmitter/monitor, the source must be the declared interface
+  output terminal and the unit must match its declared output unit.
+- Project activation validates temperature-to-channel references only after
+  candidate MeasurementChannels have been activated, avoiding validation
+  against the previous project's channel registry.
+- Added source-level regression tests for type, unit, source, terminal and
+  provenance/scaling contracts. Tests have not been executed.
+
+Remaining:
+- Manufacturer pin mapping, RTD lead/TC polarity and extension cable checks.
+- Receiver module channel capabilities and analog input range/scaling semantics.
+- Alarm/trip consumer registry validation and canvas projections/schedules.
+- Full runtime, import, persistence round-trip and GUI verification.
+
+======================================================================
