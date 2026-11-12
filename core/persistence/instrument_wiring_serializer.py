@@ -12,10 +12,11 @@ from core.model.instrument_wiring import (
     TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint, TerminalAccessory,
     CTSecondaryCircuitState, CTSecondaryCircuit,
     PTSecondaryCircuitState, PTSecondaryPolarity, PTSecondaryGrounding, PTSecondaryCircuit,
+    TemperatureSensorKind, TemperatureSensorLeadRoute, TemperatureSensorCircuit,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 7
+WIRING_SCHEMA_VERSION = 8
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -137,6 +138,21 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.pt_secondary_circuits
         ],
+        "temperature_sensor_circuits": [
+            {
+                "id": item.id, "sensor_id": item.sensor_id,
+                "sensor_kind": item.sensor_kind.value,
+                "measurement_channel_id": item.measurement_channel_id,
+                "rtd_wiring_configuration": item.rtd_wiring_configuration,
+                "thermocouple_type": item.thermocouple_type,
+                "leads": [
+                    {"id": lead.id, "terminal": _terminal_to_dict(lead.terminal),
+                     "carrier_ids": list(lead.carrier_ids)}
+                    for lead in item.leads
+                ],
+            }
+            for item in inventory.temperature_sensor_circuits
+        ],
         "ct_secondary_circuits": [
             {
                 "id": item.id, "ct_id": item.ct_id, "phase": item.phase,
@@ -200,6 +216,24 @@ def serialize_instrumentation_wiring(
 def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> InstrumentationWiringInventory:
     """Validate and reconstruct a project-owned wiring inventory."""
     if data is None:
+        temperature_sensor_circuits = tuple(
+            TemperatureSensorCircuit(
+                id=item["id"], sensor_id=item["sensor_id"],
+                sensor_kind=TemperatureSensorKind(item["sensor_kind"]),
+                measurement_channel_id=item["measurement_channel_id"],
+                rtd_wiring_configuration=item.get("rtd_wiring_configuration"),
+                thermocouple_type=item.get("thermocouple_type"),
+                leads=tuple(
+                    TemperatureSensorLeadRoute(
+                        id=lead["id"],
+                        terminal=_terminal_from_dict(lead["terminal"], schema=schema),
+                        carrier_ids=tuple(lead["carrier_ids"]),
+                    )
+                    for lead in item["leads"]
+                ),
+            )
+            for item in data.get("temperature_sensor_circuits", ())
+        )
         return InstrumentationWiringInventory()
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
@@ -208,12 +242,13 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     expected_v5 = expected_v3 | {"terminal_blocks", "terminal_points", "terminal_accessories"}
     expected_v6 = expected_v5 | {"ct_secondary_circuits"}
     expected_v7 = expected_v6 | {"pt_secondary_circuits"}
+    expected_v8 = expected_v7 | {"temperature_sensor_circuits"}
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema not in {2, 3, 4, 5, 6, WIRING_SCHEMA_VERSION}:
+    if isinstance(schema, bool) or schema not in {2, 3, 4, 5, 6, 7, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {schema!r}."
         )
-    expected = expected_v2 if schema == 2 else expected_v3 if schema in {3, 4} else expected_v5 if schema == 5 else expected_v6 if schema == 6 else expected_v7
+    expected = expected_v2 if schema == 2 else expected_v3 if schema in {3, 4} else expected_v5 if schema == 5 else expected_v6 if schema == 6 else expected_v7 if schema == 7 else expected_v8
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
@@ -307,6 +342,23 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                         raise InstrumentationWiringSerializationError(f"PT/CVT secondary {carrier_name} must be an array of strings.")
                 if not isinstance(item.get("isolation_accessory_ids", []), list) or any(not isinstance(value, str) for value in item.get("isolation_accessory_ids", [])):
                     raise InstrumentationWiringSerializationError("PT/CVT secondary isolation_accessory_ids must be an array of strings.")
+        if schema >= 8:
+            if not isinstance(data.get("temperature_sensor_circuits"), list) or any(not isinstance(item, Mapping) for item in data["temperature_sensor_circuits"]):
+                raise InstrumentationWiringSerializationError("Instrumentation wiring temperature_sensor_circuits must be an array of objects.")
+            _field_contracts += ((
+                "temperature_sensor_circuits",
+                {"id", "sensor_id", "sensor_kind", "measurement_channel_id", "leads"},
+                {"rtd_wiring_configuration", "thermocouple_type"},
+                "Temperature sensor circuit",
+            ),)
+            for circuit in data["temperature_sensor_circuits"]:
+                if not isinstance(circuit["leads"], list) or any(not isinstance(lead, Mapping) for lead in circuit["leads"]):
+                    raise InstrumentationWiringSerializationError("Temperature sensor leads must be an array of objects.")
+                for lead in circuit["leads"]:
+                    _check_record_fields(lead, required={"id", "terminal", "carrier_ids"}, optional=set(), label="Temperature sensor lead")
+                    _terminal_from_dict(lead["terminal"], schema=schema)
+                    if not isinstance(lead["carrier_ids"], list) or any(not isinstance(value, str) for value in lead["carrier_ids"]):
+                        raise InstrumentationWiringSerializationError("Temperature sensor lead carrier_ids must be an array of strings.")
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
@@ -435,6 +487,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             terminal_accessories=terminal_accessories,
             ct_secondary_circuits=ct_secondary_circuits,
             pt_secondary_circuits=pt_secondary_circuits,
+            temperature_sensor_circuits=temperature_sensor_circuits,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(
