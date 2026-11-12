@@ -23,6 +23,7 @@ from ui.core.qt import (
     QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox,
 )
 from ui.core.selection_manager import SelectionManager
+from ui.instrumentation_wiring_provenance import project_signal_provenance
 from .protection_presentation import ProtectionPresentationDocument
 from .protection_tools import ProtectionInteractionController
 from .protection_engineering_panels import (
@@ -37,10 +38,10 @@ class ProtectionGraphicsNode(QGraphicsRectItem):
     """Selectable presentation node carrying canonical identity plus presentation role."""
 
     def __init__(self, object_id: str, title: str, x: float, y: float,
-                 width: float = 150.0, *, kind: str = "object",
+                 width: float = 150.0, *, height: float = 52.0, kind: str = "object",
                  relay_id: str | None = None, input_name: str | None = None,
                  channel_id: str | None = None, element_id: str | None = None) -> None:
-        super().__init__(0.0, 0.0, width, 52.0)
+        super().__init__(0.0, 0.0, width, height)
         self.setPos(float(x), float(y))
         self.object_id = str(object_id)
         self.title = str(title)
@@ -100,6 +101,18 @@ class ProtectionGraphicsSurface(QGraphicsView):
         except RuntimeError:
             self._draw_message("Protection read boundary unavailable.")
             return
+
+        try:
+            wiring = self._application.read_instrumentation_wiring()
+            resolutions = self._application.read_instrumentation_wiring_endpoint_resolution()
+            provenance = project_signal_provenance(wiring, resolutions)
+        except RuntimeError:
+            provenance = ()
+        protection_provenance = {
+            (item.owner_id, item.port): item
+            for item in provenance
+            if item.endpoint_kind == "PROTECTION_INPUT"
+        }
 
         configuration_by_relay: dict[str, list[Any]] = {}
         for configuration in configurations:
@@ -174,16 +187,23 @@ class ProtectionGraphicsSurface(QGraphicsView):
                 ):
                     input_y = row_y + 20.0 + input_index * 58.0
                     input_node_id = f"{relay_id}:element:{element_id}:input:{input_name}"
+                    input_provenance = protection_provenance.get((element_id, str(input_name)))
                     input_node = self._add_node(
                         input_node_id,
                         f"RELAY INPUT\n{input_name}\n{channel_id}",
-                        285.0, input_y, 170.0,
+                        285.0, input_y, 220.0,
+                        height=70.0 if input_provenance is not None else 52.0,
                         kind="relay_input",
                         relay_id=relay_id,
                         element_id=element_id,
                         input_name=str(input_name),
                         channel_id=str(channel_id),
                     )
+                    if input_provenance is not None:
+                        input_node.setToolTip(input_provenance.detail_text)
+                        provenance_label = QGraphicsTextItem(input_provenance.short_label, input_node)
+                        provenance_label.setPos(8.0, 52.0)
+                        provenance_label.setScale(0.65)
                     source_node = self._nodes.get(str(channel_id))
                     if source_node is None:
                         source_node = self._add_node(
@@ -257,11 +277,11 @@ class ProtectionGraphicsSurface(QGraphicsView):
             self.fitInView(self._scene.itemsBoundingRect().adjusted(-30, -30, 30, 30))
 
     def _add_node(self, object_id: str, title: str, x: float, y: float, width: float = 150.0,
-                  **metadata: Any) -> ProtectionGraphicsNode:
+                  *, height: float = 52.0, **metadata: Any) -> ProtectionGraphicsNode:
         stored = self._presentation.node(object_id, default_x=x, default_y=y)
         node = ProtectionGraphicsNode(
             object_id, title.replace("\n", " | "),
-            float(stored.get("x", x)), float(stored.get("y", y)), width, **metadata,
+            float(stored.get("x", x)), float(stored.get("y", y)), width, height=height, **metadata,
         )
         self._scene.addItem(node)
         self._nodes[object_id] = node
