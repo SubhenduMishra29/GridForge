@@ -16,7 +16,10 @@ from collections.abc import Callable
 from typing import Any
 
 from core.application.application import Application
-from core.application.events import ApplicationEvent, ProjectClosed, ProjectLoaded
+from core.application.events import (
+    ApplicationEvent, InstrumentationWiringChanged, ProjectClosed, ProjectLoaded,
+)
+from ui.instrumentation_wiring_provenance import project_signal_provenance
 from core.application.control_events import (
     ControlComponentCreated,
     ControlComponentRemoved,
@@ -48,6 +51,7 @@ _CONTROL_EVENTS = (
     ControlExecutionStarted,
     ControlExecutionCompleted,
     ControlExecutionFailed,
+    InstrumentationWiringChanged,
     ProjectLoaded,
     ProjectClosed,
 )
@@ -75,6 +79,18 @@ class ControlUpdateCoordinator:
         self._application = application
         self._canvas = canvas
         self._canvas_refresh = canvas_refresh
+
+    def _project_signal_provenance(self) -> None:
+        projector = getattr(self._canvas, "project_signal_provenance", None)
+        if not callable(projector):
+            return
+        try:
+            wiring = self._application.read_instrumentation_wiring()
+            resolutions = self._application.read_instrumentation_wiring_endpoint_resolution()
+        except RuntimeError:
+            projector(())
+            return
+        projector(project_signal_provenance(wiring, resolutions))
 
     def refresh(self, event: ApplicationEvent) -> None:
         """Refresh the Control projection after a relevant Application fact."""
@@ -104,12 +120,14 @@ class ControlUpdateCoordinator:
             return
 
         self._canvas.project(read_model)
+        self._project_signal_provenance()
         self._canvas_refresh()
 
     def refresh_current(self) -> None:
         """Project the currently active Control read model, or clear when inactive."""
         try:
             self._canvas.project(self._application.read_control())
+            self._project_signal_provenance()
         except RuntimeError:
             reset = getattr(self._canvas, "reset_scene", None)
             if callable(reset):
