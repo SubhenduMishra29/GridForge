@@ -4313,3 +4313,37 @@ Verification:
 - Updated source and test files were committed to the fresh branch based on current main.
 - No tests, imports, GUI interaction, schedule rendering/export, or save/reopen were run.
 - This is the first isolated reconciliation slice. It does not implement the remaining endpoint compatibility, stable connection-hop identity, shield/earth continuity, communication/fibre, temperature transmitter/BTD/OTD/WTD, or cross-canvas schedule/provenance requirements.
+
+
+======================================================================
+GridForge V2 — Stable physical instrumentation connection-hop identity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- CableCore and PanelWire terminal_path values identify an ordered route, but
+  each terminal-to-terminal segment had no independent stable Core identity.
+- A route insertion or reroute could shift segment indices and prevent
+  unaffected physical segments from retaining their own audit identity.
+
+Correction:
+- Added immutable Core PhysicalConnectionHop with its own stable ID, exact
+  endpoint terminal references, carrier kind/ID, revision, lifecycle status,
+  and optional superseded-hop reference.
+- Inventory validation requires each hop to identify an actual adjacent
+  segment of its owning cable core or panel wire, and rejects missing
+  carriers/predecessors and duplicate global record IDs.
+- Added Application service record add/update/remove support and public
+  Core model exports.
+- Added regression-test source for adjacent/non-adjacent paths, missing
+  carrier/predecessor, and stable hop identifiers.
+- Kept route geometry out of Core; this record expresses physical connectivity
+  only. No historical IDs are fabricated for legacy terminal_path routes.
+
+Limitations:
+- Persistence schema/serializer migration and legacy-route reconciliation are
+  not yet implemented. Existing paths must not be assigned synthetic hop IDs.
+- No cable reroute/replacement command, immutable audit event, schedule
+  projection, or cross-canvas selection/highlighting is yet connected.
+- No tests, imports, GUI, or save/reopen checks were run.
