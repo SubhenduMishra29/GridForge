@@ -128,7 +128,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
     the terminal StudyResult status and owns durable persistence.
     """
 
-    __slots__ = ("_payload", "_accepted_steps", "provenance", "time")
+    __slots__ = ("_payload", "_accepted_steps", "provenance", "time", "checkpoint_identity")
 
     def __init__(
         self,
@@ -265,6 +265,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         *,
         termination: Mapping[str, object] | None = None,
         event_schedule: Sequence[Mapping[str, object]] = (),
+        checkpoint_identity: GeneratorStudyCheckpointIdentity | None = None,
     ) -> "GeneratorAugmentedStudyEvidence":
         """Retain a numerically accepted step when its checkpoint observer fails."""
         if not isinstance(failure, BaseException):
@@ -294,6 +295,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             trajectory_status="incomplete",
             termination=details,
             event_schedule=event_schedule,
+            checkpoint_identity=checkpoint_identity,
         )
     def __getitem__(self, key: str) -> object:
         return self._payload[key]
