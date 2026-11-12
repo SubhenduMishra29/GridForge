@@ -936,14 +936,6 @@ class GraphicsView(QGraphicsView):
                 event.accept()
                 self._refresh_contextual_tool_strip()
                 return
-        if no_modifiers and key == Qt.Key.Key_E:
-            self._apply_contextual_symbol_action("rotate_cw")
-            event.accept()
-            return
-        if no_modifiers and key == Qt.Key.Key_Q:
-            self._apply_contextual_symbol_action("rotate_ccw")
-            event.accept()
-            return
         if self.interaction_manager is not None and self.interaction_manager.key_press(event):
             return
         super().keyPressEvent(event)
