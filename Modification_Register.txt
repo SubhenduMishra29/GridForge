@@ -4447,3 +4447,19 @@ PR: #1214
 - Test source has not been executed.
 
 ======================================================================
+
+GridForge V2 — Temperature loop protection against wiring edits
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Bound InstrumentationWiringService replacement validation to the active
+  TemperatureInstrumentService. Editing/removing a carrier can no longer
+  silently break a declared, fully mapped temperature loop.
+- Continuity graph accepts only SIGNAL, RETURN and COMMUNICATION carrier roles;
+  spare, reserved, screen, drain, armour and protective-earth conductors cannot
+  accidentally prove a temperature signal path.
+- The validation remains terminal-path based. Manufacturer pin-to-pin mapping,
+  link/accessory electrical state and receiver capability are still outstanding.
+
+======================================================================
