@@ -143,6 +143,8 @@ class TemperatureInstrumentService:
         for interface in inventory.interfaces:
             refs.extend(interface.input_terminals)
             refs.extend(interface.output_terminals)
+        for receiver in inventory.receiver_inputs:
+            refs.extend(receiver.terminals)
         seen = set()
         for reference in refs:
             if reference.identity in seen:
