@@ -4458,3 +4458,60 @@ Verification:
   imports, startup, GUI interaction and save/reopen were not run. No CI gate
   was requested or treated as acceptance evidence.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical Terminal Blocks, Terminal Points and Accessories
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added stable TerminalBlock records with independent internal ID, project tag,
+  owning panel identity, location, terminal capacity, terminal type,
+  manufacturer/part data, revision and lifecycle status.
+- Added stable TerminalPoint records for each terminal position, preserving
+  terminal number, visible designation, manufacturer designation, function,
+  side and lifecycle status independently.
+- Extended WiringTerminalReference with optional terminal_point_id. When a
+  terminal block is present in the inventory, references must resolve to the
+  exact stable point ID and must match its block ID, terminal number and
+  designation. Legacy Core equipment terminals retain equipment ID + exact
+  Core role resolution.
+- Added TerminalAccessory records for fixed links, test-disconnects,
+  shorting links, earth links, fuse links, isolating links and project-defined
+  accessories. Accessory membership and conductive terminal pairs are
+  explicit; CLOSED state never infers a bridge from tag or terminal proximity.
+- Added explicit accessory states CLOSED, OPEN, REMOVED and UNKNOWN. Only
+  declared conductive pairs in CLOSED accessories participate in signal
+  continuity; OPEN/REMOVED/UNKNOWN accessories fail closed.
+- Added terminal-block, terminal-point and accessory aggregate invariants,
+  project tag allocation categories, Application add/update/remove support,
+  immutable read-model projection and strict schema-5 persistence. Schema
+  2/3/4 payloads remain readable with empty terminal collections.
+- Added terminal accessory conductive pairs to the physical signal continuity
+  graph as bidirectional internal terminal bridges. Cable/core/panel-wire
+  identity and MeasurementChannel ownership remain independent.
+- Preserved stable terminal-point IDs in SLD route segment properties and
+  endpoint provenance detail.
+
+Boundary:
+- Terminal block and accessory data now has a canonical project-owned model.
+  Manufacturer-specific terminal accessories, CT shorting/test arrangements,
+  PT fuse/grounding details, terminal link diagrams and terminal plans still
+  need domain-specific semantics and authoritative schedule presentation.
+- This batch does not invent conductor sizes, colours, terminal ratings,
+  accessory states or manufacturer designations.
+- SLD symbol placement for standalone terminal blocks and per-terminal
+  graphical selection/filtering remains open, as do full cable/core/terminal
+  schedules, instrument loop/wiring schedules, interconnection lists and
+  point-to-point reports.
+
+Verification:
+- Source-level inspection only. Regression-test source was added for model
+  invariants, schema-5 round-trip and schema 2/3/4 compatibility, Application
+  record operations and CLOSED/OPEN terminal accessory continuity. Tests,
+  imports, startup, GUI interaction and save/reopen were not run.
+======================================================================
