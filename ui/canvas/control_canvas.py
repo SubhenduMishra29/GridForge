@@ -224,7 +224,8 @@ class ControlCanvas(GridScene):
             if position is None:
                 continue
             peers = protection_by_signal.get(item.signal_id, ())
-            peer = peers[0] if len(peers) == 1 else None
+            peer_targets = {str(candidate.owner_id) for candidate in peers if candidate.owner_id}
+            peer = peers[0] if len(peer_targets) == 1 else None
             detail = item.detail_text
             if peer is not None:
                 detail += "\nDouble-click to locate the matching Protection input."
