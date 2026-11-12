@@ -179,11 +179,11 @@ The class follows the existing `DynamicPlugin` local-state contract only. It doe
 
 \`GGOV1Parameters\` is the validated, immutable parameter contract for the next gas-turbine governor implementation milestone. It captures the distinct turbine MW rating, droop feedback selector (\`Rselect\`), fuel-speed selector (\`Flag\`), PID governor gains, electrical-power measurement lag, governor error and valve limits, actuator time/rate limits, turbine lead-lag and transport constants, no-load fuel flow, load limiter, plant power controller, acceleration limiter, speed deadband, temperature-detection lead/lag, and load-limit slew rates.
 
-The parameter contract is accompanied by `GGOV1PIDGovernor`, an executable PSS/E-derived frequency-control PID and supervisory reset sub-block. The plugin descriptor advertises both `ggov1_parameter_contract` and `ggov1_pid_subblock`, but deliberately does not advertise a complete `ggov1_executable` capability. The block is not a complete GGOV1 governor and must not be selected as a full plant model. The PID sub-block exposes local initialization, derivatives and output through the existing DynamicPlugin contract; it is not connected to the transient DAE. The separate `GGOV1ValveActuator` implements the first-order `Tact` response with asymmetric `Ropen`/`Rclose` slew limits and `Vmin`/`Vmax` position stops. It accepts the already selected and limited fuel-stroke command. The separate `GGOV1LowValueSelector` now provides the minimum-selection and tracking-error contract, while actual acceleration/load/temperature limiter controller dynamics and tracking states remain open.
+The parameter contract is accompanied by `GGOV1PIDGovernor`, an executable PSS/E-derived frequency-control PID and supervisory reset sub-block. The plugin descriptor advertises both `ggov1_parameter_contract` and `ggov1_pid_subblock`, but deliberately does not advertise a complete `ggov1_executable` capability. The block is not a complete GGOV1 governor and must not be selected as a full plant model. The PID sub-block exposes local initialization, derivatives and output through the existing DynamicPlugin contract; it is not connected to the transient DAE. The separate `GGOV1ValveActuator` implements the first-order `Tact` response with asymmetric `Ropen`/`Rclose` slew limits and `Vmin`/`Vmax` position stops. It accepts the already selected and limited fuel-stroke command. The separate `GGOV1LowValueSelector` now provides the minimum-selection and tracking-error contract, while detailed OEM calibration and integrated plant-level control remain open.
 
 The turbine rating is explicit, positive, and is not inferred from generator MVA. \`system_to_turbine_power_base_ratio()\` exposes the numerical system-base/turbine-rating ratio; the caller must still apply the correct MW/MVA and per-unit convention for the connected machine and study. No hidden base conversion is performed. The selector contract follows the NERC PSS/E definition: \`Rselect\` values 1, 0, -1 and -2 select electrical power, no feedback, valve stroke and governor output respectively; \`Flag\` is binary. Parameter checks enforce ordered error/valve limits, positive opening and negative closing rates, and the turbine lead/lag zero-time consistency rule. Mechanical damping is finite but intentionally not constrained to be positive because published manufacturer data can use a negative value.
 
-The implemented PID sub-block follows the PSS/E-derived OpenIPSL topology for selected droop feedback, filtered electrical-power measurement, dead-zone/error limiting, proportional/integral/filtered-derivative control, bounded supervisory reset integration, and operating-point initialization. It deliberately does not claim the complete GGOV1 behavior: valve actuator rate/position dynamics, fuel/turbine response, load-controller tracking, low-value selection among governor/load/acceleration/temperature limiters, temperature proxy dynamics, optional transport delay, and bumpless tracking/anti-windup across competing controls remain open. The block is not connected to the transient DAE. See `GGOV1_PID.md` for the state and equation boundary.
+The implemented PID sub-block follows the PSS/E-derived OpenIPSL topology for selected droop feedback, filtered electrical-power measurement, dead-zone/error limiting, proportional/integral/filtered-derivative control, bounded supervisory reset integration, and operating-point initialization. It deliberately does not claim the complete GGOV1 behavior: valve actuator rate/position dynamics, fuel/turbine response, load-controller tracking, low-value selection among governor/load/acceleration/temperature limiters, OEM-specific temperature maps and ambient compensation, complete limiter scheduling, optional transport delay, and integrated DAE execution remain open. The block is not connected to the transient DAE. See `GGOV1_PID.md` for the state and equation boundary.
 
 NERC describes GGOV1 as a general-purpose PID governor with valve actuation, fuel-system dynamics, exhaust-temperature load limiting, load control, acceleration limiting, and governor deadband. It also emphasizes plant-specific verification, correct turbine MW rating, and avoiding confusion between turbine rating and generator MVA base. Manufacturer default values are starting points, not universal settings. References:
 
@@ -281,14 +281,16 @@ selected-command tracking correction is supplied with an explicit positive
 tracking time constant. The host supplies acceleration in pu/s and owns all
 integration history.
 
-`GGOV1LoadLimiter` implements the separately documented fuel-flow PI form:
-`error = Ldref - filtered_fuel_flow` and
-`FSRT = Kpload * error + integral`, with the integral driven by
-`Kiload * error`. It includes the `Tfload` measurement lag and an optional
-selected-command tracking input. This is an explicit fuel-flow PI sub-block;
-it is not by itself a claim of exact PSS/E OEM temperature-controller
-equivalence. The controller output is bounded by the configured FSR valve
-limits before it is offered to the low-value selector.
+`GGOV1LoadLimiter` follows the PSS/E-derived OpenIPSL `LoadLimiter.mo`
+topology. It forms `temperature_reference = Wfnl + LDREF / Kturb`, computes
+`error = temperature_reference - TEXM`, integrates `Kiload * error`, and
+forms `FSRT = min(1.0, Kpload * error + integral)`. Its integral is initialized
+from the electrical-power operating point as `(PELEC + Dm) / Kturb + Wfnl`.
+The block accepts conditioned exhaust temperature `TEXM`; the separate
+`GGOV1TemperatureMeasurement` block implements the `Tsa/Tsb` lead-lag.
+Optional selected-command tracking is explicit and uses a caller-supplied
+positive time constant. The lower FSR bound is intentionally not invented:
+the reference LoadLimiter applies an upper limit of 1.0 pu only.
 
 `GGOV1TemperatureMeasurement` implements the proper first-order lead/lag
 measurement conditioner `(1+s*Tsa)/(1+s*Tsb)` for the exhaust-temperature
@@ -301,7 +303,8 @@ combined `load_temperature` selector candidate.
 The NERC GGOV1 block diagram identifies separate speed, acceleration, load
 and temperature control paths feeding a low-value selector. It also notes
 that the proportional/integral controllers include tracking for smooth
-transfer, and warns that software implementations may differ. Consequently,
-these blocks remain local sub-components, not a complete integrated GGOV1
-model. Plant/OEM parameter provenance and disturbance-based validation are
+transfer, and warns that software implementations may differ. The limiter equation is PSS/E-derived from OpenIPSL's published source
+topology, not a claim that all vendor implementations are identical.
+Consequently, these blocks remain local sub-components, not a complete
+integrated GGOV1 model. Plant/OEM parameter provenance and disturbance-based validation are
 required before engineering study use.
