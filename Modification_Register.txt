@@ -3823,3 +3823,12 @@ Verification:
   device matrix have not been executed in this environment.
 - PR #1204 remains draft and must be reconciled with latest main before merge.
 ======================================================================
+
+
+Wire endpoint hit-testing follow-up:
+- Clicked-symbol candidates now take precedence over nearby endpoint candidates
+  belonging to other registered items, preventing adjacent Bus/device anchors
+  from stealing a wire target click.
+- Bus attachment selection is deterministic at exact midpoint ties, including
+  when multiple Bus attachments are already inside the normal snap tolerance.
+- Added overlap-priority and Bus-midpoint regression test cases.
