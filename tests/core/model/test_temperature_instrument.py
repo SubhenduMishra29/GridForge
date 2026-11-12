@@ -315,3 +315,33 @@ def test_receiver_terminal_declaration_without_capability_record_fails_closed():
             input_mode=TemperatureInputMode.DIRECT_SENSOR,
             receiver_terminals=(terminal("plc-unconfigured", "AI1"),),
         ),))
+
+def test_direct_rtd_receiver_requires_exact_technology_and_sensor_configuration():
+    receiver = TemperatureReceiverInput(
+        id="plc-rtd-1", module_equipment_id="plc-rtd", channel_designation="RTD-01",
+        input_kind=TemperatureReceiverInputKind.RTD,
+        terminals=(terminal("plc-rtd", "RTD1+"), terminal("plc-rtd", "RTD1-"), terminal("plc-rtd", "RTD1S")),
+        engineering_unit="degC",
+        supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
+        supported_sensor_configurations=("Pt100 3-wire",),
+    )
+    instrument = TemperatureInstrument(
+        id="temp-direct-rtd", tag="BTD-DIRECT-1", service=TemperatureService.BTD,
+        asset_id="motor-1", location="DE bearing", sensor_equipment_id="rtd-direct",
+        sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.DIRECT_SENSOR, sensor_configuration="Pt100 3-wire",
+        sensor_terminals=(terminal("rtd-direct", "A"), terminal("rtd-direct", "B"), terminal("rtd-direct", "C")),
+        receiver_terminals=receiver.terminals, receiver_input_id=receiver.id, unit="degC",
+    )
+    assert TemperatureInstrumentInventory((instrument,), receiver_inputs=(receiver,)).receiver_inputs
+
+    invalid = TemperatureInstrument(
+        id="temp-direct-rtd-invalid", tag="BTD-DIRECT-2", service=TemperatureService.BTD,
+        asset_id="motor-1", location="NDE bearing", sensor_equipment_id="rtd-invalid",
+        sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.DIRECT_SENSOR, sensor_configuration="Pt100 4-wire",
+        sensor_terminals=tuple(terminal("rtd-invalid", role) for role in ("A", "B", "C", "D")),
+        receiver_terminals=receiver.terminals, receiver_input_id=receiver.id, unit="degC",
+    )
+    with pytest.raises(ValueError, match="does not explicitly support"):
+        TemperatureInstrumentInventory((invalid,), receiver_inputs=(receiver,))
