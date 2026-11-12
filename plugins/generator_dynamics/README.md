@@ -193,3 +193,6 @@ NERC describes GGOV1 as a general-purpose PID governor with valve actuation, fue
 - ORNL GridKit GGOV1 equations and explicit implementation caveats: https://github.com/ORNL/GridKit/blob/develop/GridKit/Model/PhasorDynamics/Governor/GGOV1/README.md
 
 ORNL GridKit currently marks multiple GGOV1 damping, fuel-flow, PID, limiter, temperature and transport-delay paths incomplete or unverified. Its equations are therefore useful for cross-checking signal/parameter names, but are not treated here as sufficient proof of a complete reference implementation. Plant/OEM data and disturbance-based model verification remain mandatory before study use.
+
+
+**Selector-source reconciliation:** NERC's PSS/E GGOV1 table defines `Rselect` as `1 = Pelec`, `0 = no feedback`, `-1 = fuel-valve stroke`, and `-2 = governor output`. The ORNL GridKit explanatory equations currently document a different mapping for the non-default values and omit selector 0 in its validation set. This package records the NERC/PSS/E mapping in the parameter contract but deliberately does not implement the selector equations until the exact target-library convention is fixed and reconciled against its authoritative model block diagram. The GGOV1D deadband variant is also kept distinct from GGOV1 rather than silently applied to both.
