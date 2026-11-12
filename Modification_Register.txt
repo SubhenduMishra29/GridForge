@@ -4615,3 +4615,30 @@ Verification:
   imports, startup, GUI interaction, report rendering/export and save/reopen
   were not run. No CI gate was requested or treated as acceptance evidence.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Publish Instrumentation Wiring Change Events to All Canvas Projections
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+PR: #1207
+
+Audit correction:
+- Added the immutable Application-level InstrumentationWiringChanged event
+  for successful execute/undo/redo of the canonical inventory replacement
+  command. The event carries operation, correlation/causation and project
+  scope metadata from the existing command boundary.
+- Subscribed the SLD update coordinator so physical carrier route projections
+  refresh without misclassifying instrumentation wiring edits as Core network
+  topology changes.
+- Subscribed the Control provenance coordinator and Protection workspace so
+  signal/cable/core/terminal provenance and endpoint diagnostics refresh
+  immediately after inventory mutations.
+- Kept all three canvases as read-only projections; the event does not create
+  a second inventory or mutate electrical topology.
+
+Verification:
+- Static source reconciliation only. No tests, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
