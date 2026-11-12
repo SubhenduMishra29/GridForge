@@ -4593,8 +4593,10 @@ Correction:
 - Generated instrument loop/wiring schedule rows per signal, with explicit
   MeasurementChannel sources, Control/Protection consumers, physical carriers,
   sink terminals, resolution status and diagnostics.
-- Generated interconnection rows per adjacent terminal hop and point-to-point
-  rows per cable core or panel wire, preserving the entire terminal path.
+- Generated interconnection rows per adjacent terminal hop and explicit
+  terminal-accessory bridge pair. Point-to-point rows cover each cable core,
+  panel wire and accessory bridge while preserving the full terminal path and
+  whether an accessory bridge is presently conductive.
 - Exported the read model and builder through the Application package.
 - Added regression-test source for all six schedule families, immutability,
   unresolved endpoint diagnostics and preservation of unspecified values.
