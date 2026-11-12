@@ -138,6 +138,7 @@ class GGOV1OperatingPoint:
     initial_fuel_flow_pu: float
     initial_temperature_proxy_input_pu: float
     pid_integral_target_pu: float
+    initial_power_reference_pu: float
     load_integral_target_pu: float
     load_limiter_request_pu: float
     integral_alignment_error_pu: float
@@ -166,6 +167,7 @@ def calculate_ggov1_operating_point(
     electrical_power_pu: float,
     mechanical_power_pu: float | None = None,
     speed_deviation_pu: float = 0.0,
+    initial_governor_output_pu: float = 0.0,
 ) -> GGOV1OperatingPoint:
     """Calculate common initial targets without owning or mutating block state."""
     if not isinstance(parameters, GGOV1Parameters):
@@ -179,6 +181,11 @@ def calculate_ggov1_operating_point(
     shaft_speed = 1.0 + speed_deviation
     if shaft_speed <= 0.0:
         raise ValueError("absolute shaft speed must be greater than zero")
+    if speed_deviation != 0.0:
+        raise ValueError(
+            "source-derived steady-state initialization requires nominal speed; "
+            "use a disturbance initialization path for nonzero speed deviation"
+        )
 
     fsr = (pm + p.mechanical_damping) / p.turbine_gain + p.no_load_fuel_flow_pu
     if not p.valve_min_pu <= fsr <= p.valve_max_pu:
@@ -197,6 +204,13 @@ def calculate_ggov1_operating_point(
     temperature_proxy = (fuel_flow - p.no_load_fuel_flow_pu) * speed_factor
 
     pid_integral = (pm + p.mechanical_damping) / p.turbine_gain + p.no_load_fuel_flow_pu
+    governor_output = _number(initial_governor_output_pu, "initial_governor_output_pu")
+    feedback = p.droop_feedback_signal(
+        electrical_power_pu=pelec,
+        valve_stroke_pu=fsr,
+        governor_output_pu=governor_output,
+    )
+    initial_power_reference = p.droop_pu * feedback
     load_integral = (pelec + p.mechanical_damping) / p.turbine_gain + p.no_load_fuel_flow_pu
     temperature_reference = p.no_load_fuel_flow_pu + p.load_limit_reference_pu / p.turbine_gain
     temperature_error = temperature_reference - temperature_proxy
@@ -212,6 +226,7 @@ def calculate_ggov1_operating_point(
         initial_fuel_flow_pu=fuel_flow,
         initial_temperature_proxy_input_pu=temperature_proxy,
         pid_integral_target_pu=pid_integral,
+        initial_power_reference_pu=initial_power_reference,
         load_integral_target_pu=load_integral,
         load_limiter_request_pu=load_request,
         integral_alignment_error_pu=load_integral - pid_integral,
