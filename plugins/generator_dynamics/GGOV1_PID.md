@@ -68,3 +68,21 @@ electrical-power time constant is treated as an algebraic measurement bypass.
 OpenIPSL is used here as a transparent implementation reference, not as a
 claim of equivalence to every vendor's GGOV1 variant. Plant/OEM data and
 disturbance-based validation are still required.
+
+
+## Low-value selector tracking hook
+
+`GGOV1LowValueSelector` is a separate stateless block. It selects the minimum
+of the active governor, acceleration and combined load/temperature fuel
+requests. It returns a selected-minus-requested tracking error for every
+active source. This allows each controller's own integrator to track the
+active fuel request while it is not selected.
+
+The PID sub-block accepts `selected_fuel_command_pu` and
+`tracking_time_constant_s` together in `derivatives()`. The governor
+integral derivative receives the tracking correction
+`(selected_fuel_command - raw_PID_output) / Ttrack`. Ttrack is an explicit
+caller-supplied value: no universal plant-independent tracking constant is
+assumed. If both values are omitted, the standalone PID behavior is unchanged.
+This hook does not add tracking to controllers that have not yet been
+implemented, and does not claim the full GGOV1 limiter network is complete.
