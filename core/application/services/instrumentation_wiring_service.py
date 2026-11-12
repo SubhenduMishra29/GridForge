@@ -16,7 +16,7 @@ from core.application.read_models import InstrumentationWiringReadModel
 from core.application.transaction import Transaction
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
-    SignalCarrierBinding, SignalDefinition,
+    SignalCarrierBinding, SignalDefinition, PhysicalConnectionHop,
 )
 
 
@@ -180,6 +180,7 @@ class InstrumentationWiringService:
             PanelWire: "panel_wires",
             SignalDefinition: "signals",
             SignalCarrierBinding: "signal_bindings",
+            PhysicalConnectionHop: "connection_hops",
         }
         try:
             return collections[record_type]
@@ -191,7 +192,7 @@ class InstrumentationWiringService:
             return self._inventory
         if not isinstance(candidate, InstrumentationWiringInventory):
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
-        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings"):
+        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "connection_hops"):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
         return candidate
