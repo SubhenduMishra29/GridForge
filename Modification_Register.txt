@@ -3883,3 +3883,105 @@ Verification:
 - Test source and fixture signature inspected after correction.
 - Test execution remains outstanding; no pytest, import, or GUI run is claimed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Application Bootstrap Lifecycle Ordering Correction
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Observed startup failure:
+- Application composition called set_draft_network() before attaching
+  ProjectLifecycleService. The setter reads Application.presentation, which
+  delegates to project_lifecycle and correctly rejects an unconfigured
+  lifecycle. Startup therefore stopped with:
+  RuntimeError: Application project lifecycle is not configured.
+
+Correction:
+- Removed the premature initial DraftNetwork installation.
+- Attached ProjectLifecycleService first, then installed the initial empty
+  DraftNetwork using lifecycle.activation_generation rather than a duplicated
+  hard-coded generation value.
+- Kept the lifecycle ownership boundary intact; no lazy fallback or weakened
+  lifecycle guard was introduced.
+
+Disposition:
+- Corrected core/application/bootstrap.py.
+- Commit: 52a0db3de38896da544ca43fa984f8c3077fcefe
+- Runtime startup verification remains pending in the user's local checkout.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical SLD Layers Menu Action Registration
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: main
+
+Observed startup failure:
+- MenuPlugin's View > Panels menu references action ID 'view.layers'.
+- main.py already supplies the runtime handler, but the canonical
+  ui/core/action_catalog.py omitted its ActionDefinition.
+- Menu construction correctly failed closed when the router could not
+  resolve canonical metadata; this prevented plugin initialization.
+
+Correction:
+- Added the missing canonical 'view.layers' ActionDefinition to the
+  single-source presentation action catalog.
+- Kept the existing SLD layer-manager handler and menu projection intact.
+
+Disposition:
+- Corrected ui/core/action_catalog.py.
+- Commit: 812e72b495dba018cd3b7a04c024f2c8b61d5686
+- Local startup verification remains pending.
+- The subsequent Properties panel cleanup error in the supplied traceback
+  is a secondary failure during teardown after plugin initialization aborts;
+  it is not the originating exception and will be audited separately if it
+  persists after this correction.
+======================================================================
+
+
+======================================================================
+GF-MEASUREMENT-STALE-AFTER-002 — REJECT BOOLEAN STALENESS INPUTS
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Issue: #1047
+Related merged persistence correction: PR #1188
+Branch: fix/measurement-stale-after-bool-validation-20261111
+
+Finding:
+- The merged GF-MEASUREMENT-STALE-AFTER-001 correction persists and restores
+  the configured stale_after policy through MeasurementChannelService.
+- Core MeasurementChannel._validate_stale_after() converted bool to float,
+  so True/False could silently become valid age thresholds.
+- MeasurementChannel.validity(current_time=...) likewise accepted bool as
+  a numeric clock value.
+
+Correction:
+- Reject bool and non-real values before converting stale_after.
+- Retain None as the explicit unconfigured/backward-compatible policy.
+- Reject bool and non-real current_time values before stale-age evaluation.
+- Preserve the existing finite, non-negative threshold rule and exact
+  age > stale_after comparison.
+- No clock source or timestamp conversion was added to Core. Trusted
+  timestamp-domain matching remains an Application ingress/consumer
+  responsibility; Control and Protection consumer enforcement stays with
+  their respective integration issues.
+
+Verification boundary:
+- Added focused regression-test source for boolean threshold and clock inputs,
+  plus the threshold boundary behavior.
+- Static source inspection only; no tests, CI, imports, startup, GUI, or
+  project save/reopen runtime was executed.
+- No Qt/UI change or package export change is required.
+- PR #1205 merged; authoritative merge commit:
+  50c34c4c93f6607758dc620d58692c6165aabd73.
+- Issue #1047 closed as completed after integration.
+
+Disposition:
+- This is the final Core validation hardening for the channel-level
+  stale-age configuration tracked by #1047.
+- Wider Control/Protection consumer freshness and timestamp-domain policy
+  remains tracked separately by #1031 and #1049.
+======================================================================
