@@ -566,9 +566,9 @@ class GGOV1Parameters:
     power_controller_setpoint_mw: float | None = None
 
     def __post_init__(self) -> None:
-        if isinstance(self.rselect, bool) or self.rselect not in (1, 0, -1, -2):
+        if isinstance(self.rselect, bool) or not isinstance(self.rselect, int) or self.rselect not in (1, 0, -1, -2):
             raise ValueError("rselect must be 1 (electrical power), 0 (no feedback), -1 (valve), or -2 (governor output)")
-        if isinstance(self.flag, bool) or self.flag not in (0, 1):
+        if isinstance(self.flag, bool) or not isinstance(self.flag, int) or self.flag not in (0, 1):
             raise ValueError("flag must be 0 (fuel flow independent of speed) or 1 (speed dependent)")
         positive = ("turbine_rating_mw", "droop_pu", "turbine_gain", "actuator_time_constant_s")
         nonnegative = (
