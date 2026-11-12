@@ -2016,6 +2016,16 @@ class MeasurementChannelReadService:
             stale_after=channel.stale_after,
             producer_id=getattr(channel, "producer_id", None),
             validity=validity.value,
+            source_id=getattr(getattr(channel, "source", None), "id", None),
+            source_terminal=(
+                {
+                    "kind": "TERMINAL",
+                    "equipment_type": channel.source_terminal.equipment_type.value,
+                    "equipment_id": channel.source_terminal.object_id,
+                    "terminal_role": channel.source_terminal.terminal_role,
+                }
+                if channel.source_terminal is not None else None
+            ),
         )
 
     def channels(self) -> tuple[MeasurementChannelReadModel, ...]:
