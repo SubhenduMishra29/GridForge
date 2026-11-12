@@ -106,6 +106,10 @@ class InstrumentationWiringService:
                 references.append(binding.endpoint.physical_terminal)
         for circuit in inventory.ct_secondary_circuits:
             references.extend((circuit.s1_terminal, circuit.s2_terminal))
+        for circuit in inventory.pt_secondary_circuits:
+            references.extend((circuit.output_terminal, circuit.return_terminal))
+        for circuit in inventory.temperature_sensor_circuits:
+            references.extend(lead.terminal for lead in circuit.leads)
         terminal_points = {item.id: item for item in inventory.terminal_points}
         terminal_blocks = {item.id for item in inventory.terminal_blocks}
         seen: set[tuple[str, str, str | None]] = set()
@@ -205,7 +209,6 @@ class InstrumentationWiringService:
                 if earth.state is not TerminalAccessoryState.CLOSED:
                     raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' is declared GROUNDED but its earth link is not explicitly CLOSED.")
 
-    @staticmethod
     @staticmethod
     def _validate_temperature_sensor_circuits(network: Any, inventory: InstrumentationWiringInventory) -> None:
         """Resolve exact RTD/TC identities and require an explicit active channel binding."""
