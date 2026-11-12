@@ -674,3 +674,32 @@ construct `DynamicComponentInputs` from the resulting terminal voltages,
 then evaluate the composed derivative assembly. This establishes the
 component-level phase order without changing `DAESolver` or implying that
 the production transient runner already performs these steps.
+
+
+### Coordinated generator stage evaluation
+
+`evaluate_generator_dynamic_stage()` coordinates one complete continuous
+stage without taking ownership of the integrator. It extracts machine and
+component states from `DynamicSystemStateLayout`, validates that each AVR
+adapter is the exact registered component and matches its canonical machine
+and terminal binding, builds the immutable AVR excitation snapshot, and
+passes that snapshot to the network solver. The host then projects solved bus
+voltages to authoritative terminal IDs and calculates electrical active
+power from that same bus/excitation solution. Finally, Core's existing
+composed derivative assembly evaluates all registered components and machine
+equations and returns the assembled derivative vector.
+
+The supplied machine derivative callback receives the network solution's
+exact `field_voltages_pu` map as a required keyword argument; its host adapter
+must forward that map to `MultiMachineSystem.derivatives()`. The terminal
+voltage projector and electrical-power evaluator remain host-supplied because
+the plugin must not invent Core terminal topology or duplicate electrical
+equations. The stage result retains excitation provenance, network result,
+component inputs and derivative assembly together.
+
+This function is an explicit host composition operation, not an automatic
+change to `DAESolver` or `TransientStabilityRunner`. The integrator must call
+it independently for every actual stage state/time (including RK4 midpoint
+states); the host must pass the returned derivative vector to the integrator
+and retain its accepted/rejected-step policy. Discrete controller feedback,
+event commits and result persistence remain outside this pure stage call.
