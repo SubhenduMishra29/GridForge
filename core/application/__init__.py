@@ -86,6 +86,11 @@ from .protection_study import (
 from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
+from .services.temperature_instrument_service import (
+    TemperatureInstrumentService,
+    TemperatureInstrumentServiceState,
+    TemperatureInstrumentCommandHandlers,
+)
 
 __all__ = [
     "Application",
@@ -165,4 +170,7 @@ __all__ = [
     "ValidationSeverity",
     "ValidationSummary",
     "ValidationService",
+    "TemperatureInstrumentService",
+    "TemperatureInstrumentServiceState",
+    "TemperatureInstrumentCommandHandlers",
 ]
