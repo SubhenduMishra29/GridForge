@@ -135,8 +135,10 @@ def test_schedules_derive_cable_core_terminal_loop_and_point_to_point_rows():
     assert schedules.terminal_plan[0]["terminals"][0]["connected_carriers"][0]["carrier_tag"] == "IC-101/1"
     assert schedules.terminal_plan[0]["accessories"][0]["state"] == "CLOSED"
     assert schedules.instrument_loop_schedule[0]["resolution_status"] == "RESOLVED"
-    assert len(schedules.interconnection_list) == 2
-    assert len(schedules.point_to_point_list) == 2
+    assert len(schedules.interconnection_list) == 3
+    assert schedules.interconnection_list[-1]["carrier_kind"] == "TERMINAL_ACCESSORY"
+    assert schedules.interconnection_list[-1]["conductive"] is True
+    assert len(schedules.point_to_point_list) == 3
     assert schedules.point_to_point_list[0]["complete"] is True
 
 
