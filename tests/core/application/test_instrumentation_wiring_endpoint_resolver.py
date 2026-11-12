@@ -71,6 +71,10 @@ def _endpoint_binding(binding_id, kind, endpoint_id, owner_id=None, port=None):
         signal_id="signal-1",
         endpoint=SignalEndpointReference(
             kind=kind, endpoint_id=endpoint_id, owner_id=owner_id, port=port,
+            physical_terminal=(
+                WiringTerminalReference("TB-101", "1", "1")
+                if kind is not SignalEndpointKind.MEASUREMENT_CHANNEL else None
+            ),
         ),
     )
 
@@ -323,3 +327,113 @@ def test_multi_carrier_signal_path_reports_disconnected_jumper():
     )
     assert result[0].status == "UNRESOLVED"
     assert "discontinuous" in result[0].diagnostics[0]
+
+
+
+def test_control_input_rejects_missing_physical_sink_terminal():
+    control_ref = SignalEndpointBinding(
+        id="control-ref",
+        signal_id="signal-1",
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-1", owner_id="control-1", port="PV",
+        ),
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement", element_type="channel",
+                object_id="channel-1", signal="value",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    channel_ref = _endpoint_binding(
+        "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+    )
+    result = resolve_signal_endpoint_bindings(
+        _signal_inventory(channel_ref, control_ref),
+        measurement_channels=(_channel(),),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+    )
+    assert result[1].status == "UNRESOLVED"
+    assert "no explicit physical sink terminal" in result[1].diagnostics[0]
+
+
+def test_control_input_rejects_sink_terminal_outside_physical_carrier_graph():
+    endpoint = SignalEndpointReference(
+        kind=SignalEndpointKind.CONTROL_INPUT,
+        endpoint_id="component-1", owner_id="control-1", port="PV",
+        physical_terminal=WiringTerminalReference("PLC-101", "AI1", "AI1"),
+    )
+    control_ref = SignalEndpointBinding(
+        id="control-ref", signal_id="signal-1", endpoint=endpoint,
+    )
+    channel_ref = _endpoint_binding(
+        "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement", element_type="channel",
+                object_id="channel-1", signal="value",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    result = resolve_signal_endpoint_bindings(
+        _signal_inventory(channel_ref, control_ref),
+        measurement_channels=(_channel(),),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+    )
+    assert result[1].status == "UNRESOLVED"
+    assert "sink terminal is absent" in result[1].diagnostics[0]
+
+
+def test_control_input_rejects_carrier_direction_opposed_to_binding_direction():
+    endpoint = _endpoint_binding(
+        "control-ref", SignalEndpointKind.CONTROL_INPUT,
+        "component-1", "control-1", "PV",
+    )
+    base = _signal_inventory(
+        _endpoint_binding("channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1"),
+        endpoint,
+    )
+    reversed_carrier = SignalCarrierBinding(
+        id="carrier-1", signal_id="signal-1",
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id="core-1",
+        direction="SINK_TO_SOURCE",
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores, panel_wires=base.panel_wires,
+        signals=base.signals, signal_bindings=(reversed_carrier,),
+        endpoint_bindings=base.endpoint_bindings,
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement", element_type="channel",
+                object_id="channel-1", signal="value",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(_channel(),),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+    )
+    assert result[1].status == "UNRESOLVED"
+    assert "does not permit SOURCE_TO_SINK" in result[1].diagnostics[0]
