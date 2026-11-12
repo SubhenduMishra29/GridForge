@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from core.model.instrument_wiring import (
-    CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
+    CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory, PhysicalConnectionHop,
     PanelWire, SignalCarrierBinding, SignalDefinition, SignalKind,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
@@ -72,7 +72,7 @@ def serialize_instrumentation_wiring(
                 "id": item.id, "cable_id": item.cable_id,
                 "core_number": item.core_number, "role": item.role.value,
                 "terminal_path": [_terminal_to_dict(ref) for ref in item.terminal_path],
-                "colour": item.colour, "pair_id": item.pair_id, "core_tag": item.core_tag,
+                "colour": item.colour, "revision": item.revision, "pair_id": item.pair_id, "core_tag": item.core_tag, "revision": item.revision,
             }
             for item in inventory.cores
         ],
