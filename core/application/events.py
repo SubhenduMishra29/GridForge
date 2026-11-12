@@ -167,6 +167,7 @@ class ProtectionChanged(ApplicationEvent):
         super().__init__("protection.changed", payload, correlation_id=correlation_id, causation_id=causation_id)
 
 
+@dataclass(frozen=True)
 class InstrumentationWiringChanged(ApplicationEvent):
     """Semantic fact that the canonical project instrumentation wiring inventory changed."""
 
