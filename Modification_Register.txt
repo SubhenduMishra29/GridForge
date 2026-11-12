@@ -4162,3 +4162,75 @@ Verification:
 - Static source reconciliation only. No tests, imports, startup, Qt GUI,
   menu interaction, maximize/restore or cross-workspace runtime was executed.
 ======================================================================
+
+
+======================================================================
+GRIDFORGE V2 — CT SECONDARY MEASUREMENT-CHANNEL AUTHORING / INSPECTOR REACHABILITY
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feat/ct-secondary-channel-authoring-root
+Related issues: #1198 (partial), #1199 (partial), #1191 (source correction)
+Supersedes CT-only subset of fork PR #1189; does not close #774.
+
+Application/Core lifecycle:
+- Added immutable create/update/delete MeasurementChannel commands and one
+  MeasurementChannelCommandHandlers family on the canonical Application
+  registry. Mutations use the existing MeasurementChannelService and active
+  Application Transaction; inverse registry snapshots support rollback,
+  undo and redo.
+- CT secondary definitions require an authoritative CurrentTransformer,
+  canonical CT equipment identity, physical S1/S2 terminal, CURRENT/A,
+  explicit A/B/C/N phase, finite positive nominal value and scale, polarity
+  exactly +/-1, explicit producer identity, positive stale_after and the
+  configured trusted Application clock domain.
+- Reused the same CT validation contract on project activation/restore.
+  Restored and newly authored CT channels are reset to unavailable/UNKNOWN;
+  only trusted signed sample ingress may publish live values.
+- Producer identity is immutable after activation. Update rejects a producer
+  identity change; a future producer-rebind workflow must be explicit.
+- Update/delete fail closed while Protection input bindings, ANSI 25 channel
+  policies or active/static/dynamic Control signal mappings reference a channel.
+- Measurement channel commands participate in instrumentation revision
+  tracking and trigger ProtectionRuntime recomposition after execute/undo/redo.
+- Added immutable MeasurementChannelChanged semantic events for execute,
+  undo and redo. These events do not increment Core electrical topology.
+- Application command results return stable channel IDs, not live Core
+  MeasurementChannel entities.
+
+Read/projection boundary:
+- Kept MeasurementChannelReadModel as the live telemetry snapshot.
+- Added a separate MeasurementChannelConfigurationReadModel and
+  Application.read_measurement_channel_configurations() for authoring data:
+  source identity/type, canonical terminal reference, channel definition,
+  timestamp domain and read-only producer provenance.
+- The CT editor reads detached configuration and telemetry models separately.
+  It never accesses live Core equipment or MeasurementChannel instances.
+- The CT editor is mounted only for a committed CurrentTransformer target in
+  the existing PropertiesPanelWidget. Producer identity is editable only at
+  creation and read-only after activation; timestamp domain is read-only and
+  must match the configured trusted Application clock domain.
+- The editor refreshes from MeasurementChannelChanged after execute/undo/redo.
+  It displays actual quality/validity and never fabricates sample availability.
+
+Inspector reachability:
+- Wrapped the dynamic single-target inspector content in one vertical
+  QScrollArea; horizontal scrolling is disabled and the scroll area is not a
+  Tab stop.
+- Kept validation/status and Apply/Commit + Commit Network in a persistent
+  footer outside the scroll area.
+- Recomputed deterministic Tab order across scroll content and footer after
+  dynamic engineering, annotation, symbol-review and draft projection changes.
+
+Scope and outstanding work:
+- This is a CT-specific authoring slice, not completion of #1198 or #1199.
+  PT/CVT channel authoring, generic channel workspace/subscription management,
+  canonical consumer registration read models and cross-canvas consumer
+  refresh/navigation remain open.
+- Physical cable/core/terminal continuity and CT shorting/test-terminal
+  safety remain governed by #1203; this feature does not create physical
+  cable records or duplicate the instrument-wiring source of truth.
+- #774 is Inline Branch Equipment Replacement Mechanics and is not the correct
+  association for this channel-authoring work.
+- Verification: static source reconciliation and GitHub fetch-back only.
+  No Python imports, tests, CI, Qt startup or desktop GUI acceptance executed.
+======================================================================
