@@ -138,7 +138,6 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
     expected_v2 = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
     expected_v3 = expected_v2 | {"endpoint_bindings"}
-    expected_v4 = expected_v3
     schema = data.get("schema")
     expected = expected_v2 if schema == 2 else expected_v3
     if set(data) != expected:
