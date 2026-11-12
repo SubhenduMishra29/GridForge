@@ -327,6 +327,30 @@ class _ProjectSchema6To7(ProjectMigration):
         return result
 
 
+class _ProjectSchema7To8(ProjectMigration):
+    source_schema = 7
+    target_schema = 8
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 7-to-8 received a non-schema-7 payload.")
+        # Historical projects have no explicit BTD/OTD/WTD service inventory.
+        # Preserve that absence as an empty inventory; never infer service
+        # identity from generic RTD/thermocouple records or SLD labels.
+        result.setdefault(
+            "temperature_instruments",
+            {
+                "schema": 1,
+                "instruments": [],
+                "interfaces": [],
+                "alarm_trip_bindings": [],
+            },
+        )
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -752,6 +776,7 @@ class ProjectPersistenceMigration:
         4: _ProjectSchema4To5(),
         5: _ProjectSchema5To6(),
         6: _ProjectSchema6To7(),
+        7: _ProjectSchema7To8(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3(), 3: _SLDSchema3To4()}
 
