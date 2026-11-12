@@ -523,10 +523,8 @@ class HYGOVReducedHydroGovernor(DynamicPlugin):
 class GGOV1Parameters:
     """Validated GGOV1 parameter contract; not an executable controller.
 
-    Power/fuel quantities are on the turbine MW rating base. The turbine
-    rating is deliberately distinct from the connected generator MVA base.
-    Model-specific equations and all limiter/selector paths must be integrated
-    before this contract can be used by a DynamicPlugin implementation.
+    Power/fuel quantities are on the explicit turbine MW rating base. The
+    turbine rating is distinct from the connected generator MVA base.
     """
     turbine_rating_mw: float
     rselect: int
@@ -566,10 +564,13 @@ class GGOV1Parameters:
     power_controller_setpoint_mw: float | None = None
 
     def __post_init__(self) -> None:
+        # NERC's PSS/E selector table includes 0 (no droop feedback), while
+        # some independent implementations omit it. Keep the model-library
+        # selector set explicit rather than silently coercing values.
         if isinstance(self.rselect, bool) or not isinstance(self.rselect, int) or self.rselect not in (1, 0, -1, -2):
-            raise ValueError("rselect must be 1 (electrical power), 0 (no feedback), -1 (valve), or -2 (governor output)")
+            raise ValueError("rselect must be 1 (electrical power), 0 (none), -1 (valve stroke), or -2 (governor output)")
         if isinstance(self.flag, bool) or not isinstance(self.flag, int) or self.flag not in (0, 1):
-            raise ValueError("flag must be 0 (fuel flow independent of speed) or 1 (speed dependent)")
+            raise ValueError("flag must be 0 or 1")
         positive = ("turbine_rating_mw", "droop_pu", "turbine_gain", "actuator_time_constant_s")
         nonnegative = (
             "electrical_power_time_constant_s", "governor_proportional_gain",
@@ -600,10 +601,10 @@ class GGOV1Parameters:
         )
         for name in finite_names:
             object.__setattr__(self, name, _number(getattr(self, name), name))
-        if self.governor_error_min_pu >= self.governor_error_max_pu:
-            raise ValueError("governor error limits must be ordered")
-        if self.valve_min_pu >= self.valve_max_pu:
-            raise ValueError("valve limits must satisfy minimum < maximum")
+        if self.governor_error_min_pu > self.governor_error_max_pu:
+            raise ValueError("governor error limits must satisfy minimum <= maximum")
+        if self.valve_min_pu > self.valve_max_pu:
+            raise ValueError("valve limits must satisfy minimum <= maximum")
         if self.valve_open_rate_pu_per_s <= 0.0 or self.valve_close_rate_pu_per_s >= 0.0:
             raise ValueError("valve opening rate must be positive and closing rate negative")
         if self.acceleration_limit_pu_per_s < 0.0:
@@ -611,6 +612,8 @@ class GGOV1Parameters:
         if (self.load_limit_increase_rate_pu_per_s <= 0.0
                 or self.load_limit_decrease_rate_pu_per_s >= 0.0):
             raise ValueError("load-limit increase rate must be positive and decrease rate negative")
+        if self.turbine_lag_time_constant_s == 0.0 and self.turbine_lead_time_constant_s != 0.0:
+            raise ValueError("zero turbine lag requires zero turbine lead time constant")
         if self.power_controller_setpoint_mw is not None:
             setpoint = _number(self.power_controller_setpoint_mw, "power_controller_setpoint_mw")
             if setpoint < 0.0:
