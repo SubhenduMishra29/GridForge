@@ -13,7 +13,7 @@ import math
 from types import SimpleNamespace
 from typing import Any, Callable
 
-from ui.core.qt import QGraphicsScene, QPointF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
+from ui.core.qt import QGraphicsScene, QPointF, QRectF, QGraphicsItem, QGraphicsRectItem, QGraphicsTextItem, Qt
 from ui.connections.connection_router import ConnectionRouter
 from ui.sld.sld_endpoint_resolver import SLDEndpointResolver
 from ui.sld.sld_equipment_identity import equipment_type_for_semantic
@@ -112,7 +112,9 @@ class SLDCanvasRenderSystem:
         self._provenance_navigation_callback: Callable[[str, str], None] | None = None
         self._signal_provenance_targets: dict[str, tuple[dict[str, Any], ...]] = {}
         self._connection_signal_ids: dict[str, tuple[str, ...]] = {}
+        self._connection_label_signal_ids: dict[str, tuple[str, ...]] = {}
         self._provenance_items: dict[str, tuple[Any, ...]] = {}
+        self._selected_signal_route_ids: set[str] = set()
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
@@ -223,6 +225,51 @@ class SLDCanvasRenderSystem:
         self._signal_provenance_targets = normalized
         self._refresh_signal_provenance_items()
 
+    def select_signal_routes(self, signal_id: str) -> QRectF:
+        """Highlight every physical SLD carrier segment bound to one canonical signal."""
+        normalized = str(signal_id).strip()
+        if not normalized:
+            raise ValueError("signal_id must be a non-empty string.")
+        for connection_id in tuple(self._selected_signal_route_ids):
+            items = self._items.get(connection_id, ())
+            if not items:
+                continue
+            route_item = items[0]
+            setter = getattr(route_item, "set_visual_state", None)
+            if callable(setter):
+                setter(VisualState.NORMAL)
+            else:
+                selected = getattr(route_item, "setSelected", None)
+                if callable(selected):
+                    selected(False)
+        self._selected_signal_route_ids.clear()
+
+        matched: list[tuple[str, Any]] = []
+        for connection_id, signal_ids in self._connection_signal_ids.items():
+            if normalized not in signal_ids:
+                continue
+            items = self._items.get(connection_id, ())
+            if items:
+                matched.append((connection_id, items[0]))
+        if not matched:
+            raise KeyError(f"No active SLD physical carrier route is bound to signal {normalized!r}.")
+
+        bounds: QRectF | None = None
+        for connection_id, route_item in matched:
+            setter = getattr(route_item, "set_visual_state", None)
+            if callable(setter):
+                setter(VisualState.SELECTED)
+            else:
+                selected = getattr(route_item, "setSelected", None)
+                if callable(selected):
+                    selected(True)
+            self._selected_signal_route_ids.add(connection_id)
+            rect = route_item.sceneBoundingRect()
+            bounds = rect if bounds is None else bounds.united(rect)
+        if bounds is None:
+            raise RuntimeError("Signal route selection resolved no presentation bounds.")
+        return bounds
+
     def _refresh_signal_provenance_items(self) -> None:
         """Rebuild transient, clickable labels without changing SLD or Core records."""
         for labels in tuple(self._provenance_items.values()):
@@ -231,7 +278,7 @@ class SLDCanvasRenderSystem:
                     self._scene.removeItem(label)
         self._provenance_items.clear()
 
-        for connection_id, signal_ids in self._connection_signal_ids.items():
+        for connection_id, signal_ids in self._connection_label_signal_ids.items():
             items = self._items.get(connection_id, ())
             if not items:
                 continue
@@ -401,6 +448,13 @@ class SLDCanvasRenderSystem:
         self._connection_signal_ids = {
             connection.connection_id: tuple(
                 str(value) for value in connection.properties.get("signal_ids", ())
+            )
+            for connection in committed.connections
+            if connection.projection_source == "instrumentation_wiring"
+        }
+        self._connection_label_signal_ids = {
+            connection.connection_id: tuple(
+                str(value) for value in connection.properties.get("label_signal_ids", ())
             )
             for connection in committed.connections
             if connection.projection_source == "instrumentation_wiring"
@@ -1238,6 +1292,8 @@ class SLDCanvasRenderSystem:
         finally:
             self._render_signatures.pop(item_id, None)
             self._connection_signal_ids.pop(item_id, None)
+            self._connection_label_signal_ids.pop(item_id, None)
+            self._selected_signal_route_ids.discard(item_id)
             self._provenance_items.pop(item_id, None)
             self._annotation_base_visibility.pop(item_id, None)
             self._annotation_priorities.pop(item_id, None)
@@ -1256,6 +1312,8 @@ class SLDCanvasRenderSystem:
                 _LOGGER.exception("Failed to clear SLD snap candidates")
         self._render_signatures.clear()
         self._connection_signal_ids.clear()
+        self._connection_label_signal_ids.clear()
+        self._selected_signal_route_ids.clear()
         self._provenance_items.clear()
         self._annotation_base_visibility.clear()
         self._annotation_priorities.clear()
