@@ -55,6 +55,26 @@ class GGOV1TurbineFuelPath(DynamicPlugin):
         speed = _number(shaft_speed_pu, "shaft_speed_pu")
         return valve * p.fuel_speed_multiplier(speed)
 
+    def _dm_select_factor(self, speed_deviation_pu: float) -> float:
+        speed_factor = 1.0 + _number(speed_deviation_pu, "speed_deviation_pu")
+        if speed_factor <= 0.0:
+            raise ValueError("absolute shaft speed (1 + SPEED) must be greater than zero")
+        damping = self.parameters.mechanical_damping
+        return speed_factor if damping >= 0.0 else speed_factor ** damping
+
+    def temperature_proxy_input(
+        self,
+        *,
+        valve_stroke_pu: float,
+        speed_deviation_pu: float,
+    ) -> float:
+        """Return the pre-Tsa/Tsb fuel/temperature proxy input used by GGOV1."""
+        p = self.parameters
+        valve = _number(valve_stroke_pu, "valve_stroke_pu")
+        speed = 1.0 + _number(speed_deviation_pu, "speed_deviation_pu")
+        fuel_flow = valve * p.fuel_speed_multiplier(speed)
+        net_fuel_flow = fuel_flow - p.no_load_fuel_flow_pu
+        return net_fuel_flow * self._dm_select_factor(speed_deviation_pu)
     def initial_state(
         self,
         *,
@@ -124,8 +144,9 @@ class GGOV1TurbineFuelPath(DynamicPlugin):
             turbine_response = (
                 lead_ratio * (net_fuel - lagged_net_fuel) + lagged_net_fuel
             )
-        speed_deviation = _number(speed_deviation_pu, "speed_deviation_pu")
-        return p.turbine_gain * turbine_response - p.mechanical_damping * speed_deviation
+        damping_factor = self._dm_select_factor(speed_deviation_pu)
+        mechanical_damping = p.mechanical_damping * damping_factor
+        return p.turbine_gain * turbine_response - mechanical_damping
 
     def summary(self) -> dict[str, Any]:
         p = self.parameters
@@ -139,7 +160,7 @@ class GGOV1TurbineFuelPath(DynamicPlugin):
                 if p.engine_transport_time_constant_s > 0.0
                 else "bypassed (Teng=0)"
             ),
-            "scope": "GGOV1 turbine/fuel response sub-block; no limiter selection or DAE coupling",
+            "scope": "GGOV1 turbine/fuel response and temperature-proxy input sub-block; no limiter selection or DAE coupling",
         }
 
 
