@@ -142,6 +142,9 @@ class CableCore:
     colour: Optional[str] = None
     pair_id: Optional[str] = None
     core_tag: Optional[str] = None
+    conductor_material: Optional[str] = None
+    thermocouple_type: Optional[str] = None
+    thermocouple_polarity: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "cable_id"):
@@ -157,8 +160,19 @@ class CableCore:
         if len({item.identity for item in path}) != len(path):
             raise ValueError("terminal_path must not repeat a terminal.")
         object.__setattr__(self, "terminal_path", path)
-        for field in ("colour", "pair_id", "core_tag"):
+        for field in ("colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity"):
             object.__setattr__(self, field, _optional_text(getattr(self, field), field))
+        if self.thermocouple_type is not None:
+            object.__setattr__(self, "thermocouple_type", self.thermocouple_type.upper())
+        if self.thermocouple_polarity is not None:
+            polarity = self.thermocouple_polarity.upper()
+            if polarity not in {"POSITIVE", "NEGATIVE"}:
+                raise ValueError("thermocouple_polarity must be POSITIVE or NEGATIVE.")
+            object.__setattr__(self, "thermocouple_polarity", polarity)
+        if (self.thermocouple_type is None) != (self.thermocouple_polarity is None):
+            raise ValueError("thermocouple_type and thermocouple_polarity must be declared together.")
+        if self.thermocouple_type is not None and self.conductor_material is None:
+            raise ValueError("conductor_material is required for a declared thermocouple conductor.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +185,10 @@ class PanelWire:
     terminal_path: tuple[WiringTerminalReference, ...]
     cross_section_mm2: Optional[float] = None
     colour: Optional[str] = None
+    conductor_material: Optional[str] = None
+    thermocouple_type: Optional[str] = None
+    thermocouple_polarity: Optional[str] = None
+    thermocouple_cable_designation: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required_text(self.id, "id"))
@@ -188,6 +206,21 @@ class PanelWire:
             raise ValueError("cross_section_mm2 must be positive when supplied.")
         object.__setattr__(self, "cross_section_mm2", area)
         object.__setattr__(self, "colour", _optional_text(self.colour, "colour"))
+        for field in ("conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"):
+            object.__setattr__(self, field, _optional_text(getattr(self, field), field))
+        if self.thermocouple_cable_designation is not None:
+            object.__setattr__(self, "thermocouple_cable_designation", self.thermocouple_cable_designation.upper())
+        if self.thermocouple_type is not None:
+            object.__setattr__(self, "thermocouple_type", self.thermocouple_type.upper())
+        if self.thermocouple_polarity is not None:
+            polarity = self.thermocouple_polarity.upper()
+            if polarity not in {"POSITIVE", "NEGATIVE"}:
+                raise ValueError("thermocouple_polarity must be POSITIVE or NEGATIVE.")
+            object.__setattr__(self, "thermocouple_polarity", polarity)
+        if (self.thermocouple_type is None) != (self.thermocouple_polarity is None):
+            raise ValueError("thermocouple_type and thermocouple_polarity must be declared together.")
+        if self.thermocouple_type is not None and self.conductor_material is None:
+            raise ValueError("conductor_material is required for a declared thermocouple conductor.")
 
 
 @dataclass(frozen=True, slots=True)

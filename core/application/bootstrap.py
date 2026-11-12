@@ -70,6 +70,7 @@ from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
 from .services.instrumentation_wiring_service import InstrumentationWiringService, InstrumentationWiringCommandHandlers
+from .services.temperature_instrument_service import TemperatureInstrumentService, TemperatureInstrumentCommandHandlers
 from .synchronism_check import (
     BypassAuthorization,
     ProjectScopedSynchronismAuditSink,
@@ -137,6 +138,13 @@ def create_application(
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     instrumentation_wiring_service = InstrumentationWiringService()
+    temperature_instrument_service = TemperatureInstrumentService(instrumentation_wiring_service)
+    instrumentation_wiring_service.bind_inventory_validator(
+        temperature_instrument_service.validate_wiring_inventory
+    )
+    temperature_instrument_service.bind_measurement_channels_provider(
+        lambda: measurement_channel_service.channels
+    )
     application: Application | None = None
     synchronism_guard: Any = None
 
@@ -205,6 +213,7 @@ def create_application(
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
         register_handlers(handlers, SimpleWireConnectionCommandHandlers().handlers(), "simple wire connectivity")
         register_handlers(handlers, InstrumentationWiringCommandHandlers(instrumentation_wiring_service).handlers(), "instrumentation wiring")
+        register_handlers(handlers, TemperatureInstrumentCommandHandlers(temperature_instrument_service).handlers(), "temperature instruments")
         register_handlers(handlers, PhaseDomainConductorNetworkCommandHandlers().handlers(), "phase-domain conductor network")
         register_handlers(handlers, JunctionCommandHandlers().handlers(), "junction topology")
         register_handlers(
@@ -648,6 +657,7 @@ def create_application(
         control_service=control_service,
         protection_execution_audit_store=protection_execution_audit_store,
         instrumentation_wiring_service=instrumentation_wiring_service,
+        temperature_instrument_service=temperature_instrument_service,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
 
@@ -765,6 +775,7 @@ def create_application(
         previous_synchronism_guard = synchronism_guard
         previous_measurement_state = measurement_channel_service.snapshot_state()
         previous_wiring_state = instrumentation_wiring_service.snapshot_state()
+        previous_temperature_state = temperature_instrument_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
         # Capture the exact pre-transition authority. Reconstructing a synthetic
@@ -797,6 +808,7 @@ def create_application(
             synchronism_guard = previous_synchronism_guard
             measurement_channel_service.restore_state(previous_measurement_state)
             instrumentation_wiring_service.restore_state(previous_wiring_state)
+            temperature_instrument_service.restore_state(previous_temperature_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -821,12 +833,19 @@ def create_application(
                 network=network if context is not None else None,
                 generation=generation,
             )
+            temperature_instrument_service.activate(
+                context,
+                loaded.temperature_instruments if context is not None and loaded is not None else None,
+                network=network if context is not None else None,
+                generation=generation,
+            )
             measurement_channel_service.activate(
                 context,
                 network,
                 loaded.measurement_definitions if context is not None and loaded is not None else (),
                 generation=generation,
             )
+            temperature_instrument_service.validate_measurement_channels()
             if context is None:
                 application.set_draft_network_collection(None)
                 control_service.activate(ControlConfiguration.empty("closed-project"))
@@ -1064,6 +1083,7 @@ def create_application(
             presentation_collection=presentation_collection,
             study_cases=application.study_cases,
             instrumentation_wiring=instrumentation_wiring_service.inventory,
+            temperature_instruments=temperature_instrument_service.inventory,
             protection_presentation=(                application.protection_presentation.to_dict()
                 if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
                 else getattr(application, "protection_presentation", None)
@@ -1074,6 +1094,7 @@ def create_application(
 
     application.dynamic_models = dynamic_models
     application.instrumentation_wiring_service = instrumentation_wiring_service
+    application.temperature_instrument_service = temperature_instrument_service
 
     lifecycle = ProjectLifecycleService(
         network=network,

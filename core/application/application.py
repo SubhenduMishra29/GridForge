@@ -73,6 +73,7 @@ from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.instrumentation_wiring_service import InstrumentationWiringService
+from .services.temperature_instrument_service import TemperatureInstrumentService
 from .protection_dependency import build_protection_dependency_registry
 from .protection_execution import (
     ProtectionExecutionResult,
@@ -120,7 +121,8 @@ class Application:
                  control_service: ControlApplicationService | None = None,
                  control_signal_mapping: ControlSignalMapping | None = None,
                  protection_execution_audit_store: ProtectionExecutionAuditStore | None = None,
-                 instrumentation_wiring_service: InstrumentationWiringService | None = None) -> None:
+                 instrumentation_wiring_service: InstrumentationWiringService | None = None,
+                 temperature_instrument_service: TemperatureInstrumentService | None = None) -> None:
         if not isinstance(command_manager, CommandManager): raise TypeError("Application command_manager must be a CommandManager.")
         if read_service is not None and not isinstance(read_service, ReadService): raise TypeError("Application read_service must implement ReadService.")
         if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping): raise TypeError("Application control_signal_mapping must be a ControlSignalMapping or None.")
@@ -132,6 +134,8 @@ class Application:
         if measurement_channel_service is not None and not isinstance(measurement_channel_service, MeasurementChannelService): raise TypeError("Application measurement_channel_service must be a MeasurementChannelService.")
         if instrumentation_wiring_service is not None and not isinstance(instrumentation_wiring_service, InstrumentationWiringService):
             raise TypeError("instrumentation_wiring_service must be an InstrumentationWiringService or None.")
+        if temperature_instrument_service is not None and not isinstance(temperature_instrument_service, TemperatureInstrumentService):
+            raise TypeError("temperature_instrument_service must be a TemperatureInstrumentService or None.")
         if protection_execution_audit_store is not None and not isinstance(protection_execution_audit_store, ProtectionExecutionAuditStore):
             raise TypeError("protection_execution_audit_store must be a ProtectionExecutionAuditStore or None.")
         self._protection_execution_audit_store = protection_execution_audit_store
@@ -152,6 +156,7 @@ class Application:
         if control_signal_mapping is not None and control_service is not None:
             self._validate_control_signal_mapping(control_signal_mapping, control_service.configuration)
         self._instrumentation_wiring_service = instrumentation_wiring_service
+        self._temperature_instrument_service = temperature_instrument_service
         self._measurement_channel_service = measurement_channel_service
         self._measurement_channel_read_service = (
             MeasurementChannelReadService(measurement_channel_service)
@@ -5085,6 +5090,18 @@ class Application:
         if service is None:
             raise RuntimeError("Application instrumentation wiring service is not configured.")
         return service.read_model()
+
+    def read_temperature_instruments(self):
+        """Return the immutable BTD/OTD/WTD inventory for the active project."""
+        lifecycle = self.project_lifecycle
+        if not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Temperature instrument reads require an active project.")
+        service = self._temperature_instrument_service
+        if service is None:
+            raise RuntimeError("Application temperature instrument service is not configured.")
+        if service.project_id != lifecycle.context.project_id or service.activation_generation != lifecycle.activation_generation:
+            raise RuntimeError("Temperature instrument inventory is stale for the active project generation.")
+        return service.inventory
 
     def read_measurement_channel_configurations(self) -> tuple[MeasurementChannelConfigurationReadModel, ...]:
         """Return detached project configuration, separate from live telemetry."""

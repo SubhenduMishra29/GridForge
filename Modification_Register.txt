@@ -1,3 +1,152 @@
+GridForge V2 — BTD/OTD/WTD physical continuity validation
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Correction:
+- TemperatureInstrumentService now consumes the existing project-scoped
+  InstrumentationWiringService inventory; no second cable/core/wire graph was
+  introduced.
+- Temperature loop activation and inventory replacement validate declared
+  sensor-to-interface and interface-to-receiver paths (or direct sensor-to-
+  receiver paths) against ordered CableCore and PanelWire terminal paths.
+- Logical SignalCarrierBinding and MeasurementChannel identity are not treated
+  as proof of physical continuity.
+- A declared but discontinuous temperature loop is rejected. Records without
+  complete terminal maps remain unverified and are not represented as proven
+  wired; no terminal mapping is inferred.
+- Bootstrap composition injects the canonical wiring service into the
+  temperature service.
+
+Remaining:
+- Explicit one-to-one manufacturer pin mapping, including RTD lead assignment
+  and thermocouple polarity/extension-lead compatibility.
+- Receiver module input capability and MeasurementChannel signal/unit/scaling
+  compatibility. Current MeasurementSignalType does not yet define TEMPERATURE,
+  and current MeasurementChannel authoring is CT-specific.
+- Validate alarm/trip associations against configured Control/Protection
+  function registries and runtime semantics.
+- SLD/Control/Protection projections, authoring, provenance/highlighting and
+  dedicated temperature schedules.
+- Runtime/import/test/save-reopen/GUI verification not performed.
+
+======================================================================
+
+GridForge V2 — BTD/OTD/WTD Application lifecycle and command integration
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Additional correction:
+- Added project-scoped TemperatureInstrumentService with immutable inventory
+  snapshots, activation generation, Core terminal-owner/role resolution,
+  stale-state guarded atomic replacement, undo support and add/update/remove
+  command preparation for instrument, interface and alarm/trip records.
+- Added SetTemperatureInstrumentInventoryCommand and command handler
+  registration in the Application composition root.
+- Integrated service activation and compensation rollback into project
+  activation/close transitions.
+- Application exposes read_temperature_instruments() with active-project and
+  activation-generation checks.
+- Project save now persists the active temperature inventory; project load
+  restores it; MeasurementChannel references are validated at both save and
+  load boundaries.
+- Added Application lifecycle test source.
+
+Remaining:
+- Receiver terminal pin-to-channel binding and sensor/interface physical
+  carrier continuity across cable cores and panel wires.
+- Validate actual receiver module input type, sensor configuration, units,
+  scaling and terminal ownership, not only declared interface capability.
+- Cross-canvas SLD/Control/Protection read models, authoring and route
+  highlighting; dedicated temperature loop and termination schedules.
+- Alarm/trip binding validation against configured Control/Protection
+  function registries and runtime semantics.
+- Runtime/import/test/save-reopen/GUI verification not performed.
+
+======================================================================
+
+GridForge V2 — BTD/OTD/WTD project persistence integration
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Additional correction:
+- Advanced canonical project schema from 7 to 8.
+- Added deterministic schema 7-to-8 migration. Historical projects receive an
+  explicit empty temperature_instruments schema-1 inventory; generic RTD and
+  thermocouple records are never reclassified or guessed as BTD/OTD/WTD.
+- Added temperature_instruments to LoadedProject and ProjectPersistenceService
+  save/load, using the strict temperature instrument codec.
+- Canonical schema validation now requires the temperature_instruments object.
+- Declared instrument/interface MeasurementChannel IDs are checked against the
+  active project's persisted measurement channel IDs at load.
+- Added save/load-boundary validation test source and schema migration tests.
+
+Remaining:
+- Application CRUD and project activation/close integration.
+- Resolve declared terminal references against actual Core equipment and enforce
+  complete physical sensor/interface/receiver cable and panel-wire paths.
+- Validate receiver input capability, MeasurementChannel type/unit/scaling and
+  Control/Protection function registry bindings.
+- Cross-canvas provenance, authoring and dedicated temperature schedules.
+- Tests/imports/save-reopen/GUI execution not performed.
+
+======================================================================
+
+GridForge V2 — BTD/OTD/WTD temperature service contracts (implementation foundation)
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/btd-otd-wtd-instrument-contracts
+Issue: #1203
+
+Finding:
+- Generic RTD/thermocouple identities do not distinguish bearing, oil and winding
+  temperature services, their asset/location, intermediary transmitter/monitor,
+  or explicit alarm/trip consumer associations.
+
+Correction:
+- Added immutable Core TemperatureInstrument records with explicit BTD/OTD/WTD
+  service identity, asset/location, sensor technology, input mode, declared
+  sensor/receiver terminals, optional MeasurementChannel identity and optional
+  declared measurement range.
+- Added TemperatureInterfaceDevice contracts for transmitter, temperature
+  monitor and explicitly declared WTD thermal-image arrangements, including
+  supported sensor technologies/configurations, input/output terminals and
+  declared output signal/unit/range.
+- Added explicit TemperatureAlarmTripBinding records for signal, consumer,
+  function and stage associations. Threshold, latching and reset policy remain
+  optional only when not supplied; no values are fabricated.
+- Added immutable TemperatureInstrumentInventory validation for stable IDs,
+  unique service tags, interface ownership/mode compatibility and declared
+  sensor technology/configuration support.
+- Added a strict schema-1 temperature instrument codec and public Core and
+  Persistence package exports.
+- Added focused model and codec regression-test source. Tests were not run.
+
+Boundaries / outstanding integration:
+- This is a Core contract and codec foundation, not complete #1203 acceptance.
+- The new temperature inventory is not yet wired into the canonical project
+  instrumentation inventory/project package lifecycle or Application CRUD,
+  activation validation, MeasurementChannel/receiver terminal resolution,
+  physical carrier continuity, or SLD/Control/Protection provenance.
+- Sensor terminal roles and interface terminal maps still require active Core
+  equipment resolution; transmitter/monitor physical input/output carrier
+  routes must be bound through the canonical wiring inventory.
+- Alarm/trip bindings still require validation against actual Control and
+  Protection function registries and their configured execution semantics.
+- Dedicated temperature loop/termination schedule projection and GUI authoring
+  remain outstanding.
+- Existing generic RTD/thermocouple records are not automatically classified
+  as BTD/OTD/WTD. No sensor type, calibration, range, alarm threshold, trip
+  setting, lead compensation, or channel scaling is inferred.
+
+Verification:
+- Source additions and package exports were committed on a fresh branch from
+  current main. No Python imports, tests, GUI, save/reopen, or project lifecycle
+  execution were performed. Keep issue #1203 and PR #1207 open.
+======================================================================
+
 GridForge V2 — Group transform API and fail-closed commit correction
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
@@ -4287,4 +4436,278 @@ Correction:
 Verification:
 - Static source inspection and fetch-back only. No tests, imports, startup,
   save/reopen or Qt GUI runtime were executed.
+======================================================================
+
+GridForge V2 — Temperature physical continuity regression coverage
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added tests/core/application/test_temperature_instrument_wiring_continuity.py covering cable-core plus panel-wire continuity, disconnected endpoints, complete transmitter paths and missing transmitter-output segments.
+- Test source has not been executed.
+
+======================================================================
+
+GridForge V2 — Temperature loop protection against wiring edits
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Bound InstrumentationWiringService replacement validation to the active
+  TemperatureInstrumentService. Editing/removing a carrier can no longer
+  silently break a declared, fully mapped temperature loop.
+- Continuity graph accepts only SIGNAL, RETURN and COMMUNICATION carrier roles;
+  spare, reserved, screen, drain, armour and protective-earth conductors cannot
+  accidentally prove a temperature signal path.
+- The validation remains terminal-path based. Manufacturer pin-to-pin mapping,
+  link/accessory electrical state and receiver capability are still outstanding.
+
+======================================================================
+
+GridForge V2 — Temperature conductor-role continuity guard
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added regression coverage proving a SPARE core cannot establish a valid
+  temperature signal path.
+- Regression source remains unexecuted.
+
+======================================================================
+
+GridForge V2 — Temperature MeasurementChannel contract
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added MeasurementSignalType.TEMPERATURE as a generic Core measurement type;
+  no BTD/OTD/WTD service concepts were added to MeasurementChannel.
+- MeasurementChannelService now provisions temperature channels from explicit
+  source equipment and terminal references. Producer identity, trusted clock
+  domain, engineering unit, scale, polarity and stale-after duration are
+  mandatory; no terminal, unit or scaling defaults are inferred.
+- TemperatureInstrumentService validates linked channel existence, signal type,
+  explicit unit, source equipment identity and source terminal role. For an
+  intermediary transmitter/monitor, the source must be the declared interface
+  output terminal and the unit must match its declared output unit.
+- Project activation validates temperature-to-channel references only after
+  candidate MeasurementChannels have been activated, avoiding validation
+  against the previous project's channel registry.
+- Added source-level regression tests for type, unit, source, terminal and
+  provenance/scaling contracts. Tests have not been executed.
+
+Remaining:
+- Manufacturer pin mapping, RTD lead/TC polarity and extension cable checks.
+- Receiver module channel capabilities and analog input range/scaling semantics.
+- Alarm/trip consumer registry validation and canvas projections/schedules.
+- Full runtime, import, persistence round-trip and GUI verification.
+
+======================================================================
+
+GridForge V2 — Explicit temperature sensor pin mapping
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added TemperatureTerminalMapping to capture manufacturer-declared sensor pin
+  to transmitter/temperature-monitor input terminal correspondence.
+- RTD mappings are one-to-one by stable terminal identity. A supplied mapping
+  must cover every declared sensor terminal and every declared interface input
+  terminal exactly once; duplicate or undeclared pins are rejected.
+- Thermocouple mappings additionally require explicit POSITIVE and NEGATIVE
+  polarity labels. No polarity is inferred from terminal names or order.
+- Mapping is included in the strict temperature inventory serializer. The
+  decoder still accepts older schema-1 records where the optional mapping field
+  is absent; those records remain unmapped/unverified rather than guessed.
+- Added model/persistence regression-test source. Not executed.
+
+Remaining:
+- Receiver module input channel/pin mapping and capability (RTD/TC/analog input
+  types, ranges, scaling).
+- Explicit RTD 2/3/4-wire lead topology and TC extension/compensating conductor
+  material/type compatibility.
+- Control/Protection function binding validation and runtime integration.
+- Canvas projections, schedules and full runtime/save-reopen verification.
+
+======================================================================
+
+GridForge V2 — RTD lead-count and thermocouple pair validation
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- For RTD sensor configurations explicitly identifying 2-wire, 3-wire or
+  4-wire, the declared sensor terminal count must match the stated lead count.
+  No count is inferred when the configuration or terminal map is absent.
+- Thermocouple measurement endpoints, when declared, must contain exactly two
+  measurement terminals. Screen/earth is not accepted as a measurement lead.
+  Positive/negative polarity still requires the explicit terminal mapping.
+- Added source-level regression tests. Not executed.
+
+======================================================================
+
+GridForge V2 — Explicit temperature receiver input capability
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added TemperatureReceiverInputKind and immutable TemperatureReceiverInput
+  records for one declared PLC/RTU/temperature-monitor receiver channel.
+- Each record requires a stable module/channel identity, explicit physical
+  terminal references, input kind and engineering unit. Direct RTD/TC input
+  capability must explicitly list supported sensor technologies and may list
+  supported sensor configurations. Optional range bounds must be supplied as
+  a valid pair.
+- Temperature instruments may bind to a receiver_input_id. Inventory validation
+  checks the receiver exists, receiver terminals match exactly, and engineering
+  units agree. Direct sensor capability is checked against technology and
+  configured sensor type. Intermediary interface output kind/unit/range are
+  checked against the receiver capability when declared.
+- Receiver input terminals are resolved against active Core equipment during
+  project activation. No PLC/RTU module catalogue, terminal map, range or
+  manufacturer capability is invented.
+- The schema-1 serializer stores receiver capabilities; older schema-1 payloads
+  without receiver_inputs remain readable as unconfigured/unverified.
+- Added regression-test source for capability round-trip, signal-kind mismatch,
+  missing physical terminals and incomplete ranges. Not executed.
+
+Remaining:
+- Separate raw electrical input range/unit from engineering process range and
+  validate explicit analog scaling/calibration end-to-end.
+- Thermocouple extension/compensating conductor material/type compatibility.
+- Control/Protection consumer registry/runtime integration, canvas projections,
+  schedules and runtime/save-reopen verification.
+
+======================================================================
+
+GridForge V2 — Receiver input range-unit reconciliation
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Interface output ranges and receiver input ranges now require explicit range
+  units independently of the engineering process unit. The receiver capability
+  validator compares both numeric bounds and range units, avoiding the
+  conflation of mA/V input range with degC engineering measurement units.
+- An instrument declaring receiver terminals without a receiver_input_id now
+  fails closed. Instruments with no receiver terminal/capability declaration
+  remain unverified; no module/channel is inferred.
+- Receiver terminals are resolved against the active Core Network on project
+  activation. Existing schema-1 payloads without receiver_inputs remain
+  decodable and are treated as unconfigured rather than guessed.
+- Added source-level regression coverage. Not executed.
+
+======================================================================
+
+GridForge V2 — Receiver capability fail-closed refinement
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Direct RTD receiver input capability must be RTD-only and explicitly list
+  supported sensor configurations. Thermocouple receiver input capability must
+  be thermocouple-only and explicitly list supported configurations.
+- A bound direct sensor instrument must match both the exact receiver technology
+  and a listed sensor configuration; empty/unspecified configuration data is
+  not treated as support.
+- Receiver terminal matching is by exact stable terminal identity, independent
+  of ordering. A range unit without numeric range bounds, or numeric bounds
+  without a range unit, is rejected.
+- Added direct RTD receiver capability regression source. Not executed.
+
+======================================================================
+
+GridForge V2 — Receiver channel identity uniqueness
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Receiver channel designation is unique within its module equipment identity;
+  duplicate module/channel keys are rejected even when stable record IDs differ.
+- Added source-level regression coverage. Not executed.
+
+======================================================================
+
+
+======================================================================
+
+GridForge V2 — Explicit thermocouple conductor identity and lead routing
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Extended the canonical CableCore and PanelWire records with optional,
+  explicit conductor material, thermocouple type and positive/negative
+  polarity metadata. Type and polarity must be declared together; a declared
+  thermocouple conductor must also declare its material. Unknown values remain
+  absent rather than receiving assumed alloy or polarity defaults.
+- Advanced the instrumentation-wiring codec to schema 3 while retaining schema
+  2 decode compatibility. New saves preserve the conductor metadata.
+- Added an explicit thermocouple_type to TemperatureInstrument and its strict
+  schema-1 codec; old records remain decodable but mapped thermocouple loops
+  without a type are rejected at inventory validation.
+- For mapped RTD and thermocouple sensor-to-interface routes, physical
+  continuity is now checked pin-by-pin rather than allowing any sensor pin to
+  reach any interface pin. Thermocouple routes require each carrier to match
+  the declared type and polarity and carry explicit material; cable-core routes
+  additionally require declared cable_type and cable conductor_material.
+- Added source-level regression cases for type/polarity mismatch and incomplete
+  conductor metadata. Not executed.
+
+Remaining: configurable material/alloy-to-thermocouple-type compatibility and
+extension-versus-compensating cable classification; RTD 2/3/4-wire end-to-end
+lead assignment through all terminal accessories; shield/drain/armour/PE bond
+and isolation topology; receiver raw-range scaling/calibration; Control and
+Protection consumer integration; canvas projections/schedules; runtime and
+save/reopen verification.
+
+======================================================================
+
+
+======================================================================
+
+GridForge V2 — Project-configurable thermocouple extension/compensating cable catalogue
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Engineering basis:
+- IEC 60584-3:2021 distinguishes extension cables (same nominal conductor
+  composition as the corresponding thermocouple; designation suffix X) from
+  compensating cables (different conductor composition; designation suffix C).
+- Each cable is a specific positive/negative conductor pair. The pair must
+  have thermoelectric properties close to the corresponding thermocouple and
+  meet the applicable EMF tolerance class. GridForge does not infer alloy
+  compatibility from type labels, cable colour or free-text service.
+- The standard is referenced, not reproduced as a baked-in catalogue. The
+  project must explicitly approve cable designation, cable class, positive and
+  negative conductor material identifiers, standard reference and tolerance
+  class for each thermocouple type/designation pair.
+
+Implementation:
+- Added immutable TemperatureThermocoupleCableSpec and explicit EXTENSION /
+  COMPENSATING classification to the temperature inventory.
+- Catalogue entries are unique by thermocouple type + cable designation and
+  persist through the existing schema-1 temperature inventory codec. Older
+  payloads without this optional catalogue remain readable but cannot verify
+  a mapped TC route.
+- CableCore segments resolve their parent CableAssembly.cable_type against the
+  project catalogue; PanelWire segments carry an explicit cable designation.
+  Every mapped positive/negative conductor must match the catalogue's exact
+  material identifier for that polarity and the declared thermocouple type.
+  Missing catalogue rows, cable designation, construction or material fail
+  closed for mapped TC sensor-to-interface continuity.
+- No vendor-specific or universal K/J/T/N alloy table is embedded. A project
+  engineer must enter and approve the actual material identifiers and
+  designation/tolerance data from its procurement specification or supplier
+  certificate.
+- Added model round-trip/uniqueness and physical-route compatibility regression
+  source. Not executed.
+
+Remaining: verify catalogue entries against approved supplier datasheets and
+project temperature limits; apply the same typed catalogue to direct-sensor TC
+receiver routes; complete RTD 2/3/4-wire accessory/link topology; model separate
+shield/drain/armour/PE bonding; analog scaling/calibration; Control/Protection
+integration; canvas projections/schedules; runtime and save/reopen verification.
+
 ======================================================================

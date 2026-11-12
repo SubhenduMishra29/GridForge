@@ -32,10 +32,17 @@ class InstrumentationWiringService:
     """Project lifecycle, canonical terminal validation and controlled mutation."""
 
     def __init__(self) -> None:
+        self._inventory_validator: Any | None = None
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Any | None = None
         self._inventory = InstrumentationWiringInventory()
+
+    def bind_inventory_validator(self, validator: Any | None) -> None:
+        """Bind cross-domain validation before replacing physical wiring."""
+        if validator is not None and not callable(validator):
+            raise TypeError("inventory validator must be callable or None.")
+        self._inventory_validator = validator
 
     @property
     def project_id(self) -> str | None:
@@ -245,6 +252,8 @@ class InstrumentationWiringService:
         if self._inventory is not expected:
             raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
         self._validate_inventory_terminals(network, replacement)
+        if self._inventory_validator is not None:
+            self._inventory_validator(replacement)
         previous = self._inventory
         project_id = self._project_id
         generation = self._activation_generation
