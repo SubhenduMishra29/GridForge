@@ -277,7 +277,17 @@ class SignalEndpointReference:
 
     @property
     def identity(self) -> tuple[str, str, Optional[str], Optional[str]]:
+        """Return the exact endpoint reference identity, including binding ID."""
         return self.kind.value, self.endpoint_id, self.owner_id, self.port
+
+    @property
+    def logical_identity(self) -> tuple[str, ...]:
+        """Return the consumer endpoint identity, independent of binding member ID."""
+        if self.kind is SignalEndpointKind.MEASUREMENT_CHANNEL:
+            return self.kind.value, self.endpoint_id
+        if self.kind is SignalEndpointKind.CONTROL_INPUT:
+            return self.kind.value, str(self.owner_id), self.endpoint_id, str(self.port)
+        return self.kind.value, str(self.owner_id), str(self.port)
 
 
 @dataclass(frozen=True, slots=True)
@@ -453,16 +463,17 @@ class InstrumentationWiringInventory:
                     "for a different carrier kind."
                 )
 
-        endpoint_keys: set[tuple[str, str, Optional[str], Optional[str]]] = set()
+        endpoint_signals: dict[tuple[str, ...], str] = {}
         for binding in self.endpoint_bindings:
             if binding.signal_id not in signal_ids:
                 raise ValueError(
                     f"Signal endpoint binding '{binding.id}' references missing signal '{binding.signal_id}'."
                 )
-            key = binding.endpoint.identity
-            if key in endpoint_keys:
+            key = binding.endpoint.logical_identity
+            existing_signal = endpoint_signals.get(key)
+            if existing_signal is not None and existing_signal != binding.signal_id:
                 raise ValueError("A logical endpoint may have only one canonical signal designation.")
-            endpoint_keys.add(key)
+            endpoint_signals[key] = binding.signal_id
 
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:
