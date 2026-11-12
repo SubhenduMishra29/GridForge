@@ -20,6 +20,8 @@ class SignalProvenancePresentation:
     carrier_labels: tuple[str, ...]
     status: str
     diagnostics: tuple[str, ...] = ()
+    direction: str = "SOURCE_TO_SINK"
+    physical_sink_terminal: tuple[str, str, str] | None = None
 
     @property
     def short_label(self) -> str:
@@ -34,6 +36,13 @@ class SignalProvenancePresentation:
             f"Signal: {self.signal_tag} ({self.signal_id})",
             f"Endpoint: {self.endpoint_kind} {self.owner_id or ''}/{self.endpoint_id}/{self.port or ''}",
             f"Physical carriers: {', '.join(self.carrier_labels) if self.carrier_labels else 'none'}",
+            f"Direction: {self.direction}",
+            (
+                "Physical sink terminal: "
+                + " / ".join(self.physical_sink_terminal)
+                if self.physical_sink_terminal is not None
+                else "Physical sink terminal: not declared"
+            ),
             f"Resolution: {self.status}",
         ]
         lines.extend(f"Diagnostic: {item}" for item in self.diagnostics)
@@ -93,6 +102,16 @@ def project_signal_provenance(
             carrier_labels=tuple(carriers_by_signal.get(signal_id, ())),
             status=str(resolution.status),
             diagnostics=tuple(resolution.diagnostics),
+            direction=str(getattr(resolution, "direction", "SOURCE_TO_SINK")),
+            physical_sink_terminal=(
+                (
+                    str(resolution.physical_sink_terminal["equipment_id"]),
+                    str(resolution.physical_sink_terminal["terminal_role"]),
+                    str(resolution.physical_sink_terminal["designation"]),
+                )
+                if getattr(resolution, "physical_sink_terminal", None) is not None
+                else None
+            ),
         ))
     return tuple(result)
 
