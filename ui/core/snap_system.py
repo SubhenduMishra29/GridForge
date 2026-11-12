@@ -800,6 +800,8 @@ class SnapSystem:
         best: Optional[tuple[float, int, SnapResult]] = None
         ambiguous_best = False
         candidate_order = 0
+        shape_candidates: list[tuple[float, int, SnapResult]] = []
+        ordinary_candidates: list[tuple[float, int, SnapResult]] = []
 
         for item in tuple(self._registered_items.values()):
             if callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
@@ -827,32 +829,40 @@ class SnapSystem:
                 candidate_order += 1
 
             eligible = [entry for entry in item_candidates if entry[0] <= self.tolerance]
-            if not eligible and allow_item_hit and item_candidates:
+            hit_shape = False
+            if allow_item_hit and item_candidates:
                 contains = getattr(item, "contains", None)
                 map_from_scene = getattr(item, "mapFromScene", None)
                 if callable(contains) and callable(map_from_scene):
                     local_position = map_from_scene(scene_pos)
                     try:
-                        hit = bool(contains(local_position))
+                        hit_shape = bool(contains(local_position))
                     except (TypeError, ValueError, RuntimeError):
-                        hit = False
-                    if hit:
-                        nearest_distance = min(entry[0] for entry in item_candidates)
-                        nearest = [
-                            entry for entry in item_candidates
-                            if abs(entry[0] - nearest_distance) <= 1e-9
-                        ]
-                        # A Bus bar is a multi-attachment conductor: when a
-                        # click is exactly midway between available attachment
-                        # points, choose the first stable attachment in the
-                        # item's declared snap-point order. Equipment terminal
-                        # ties remain ambiguous and therefore fail closed.
-                        if isinstance(item, BusItem) and nearest:
-                            eligible = [min(nearest, key=lambda entry: entry[1])]
-                        else:
-                            eligible = nearest
+                        hit_shape = False
+            if hit_shape:
+                if not eligible:
+                    nearest_distance = min(entry[0] for entry in item_candidates)
+                    nearest = [
+                        entry for entry in item_candidates
+                        if abs(entry[0] - nearest_distance) <= 1e-9
+                    ]
+                    # A Bus bar is a multi-attachment conductor: when a
+                    # click is exactly midway between available attachment
+                    # points, choose the first stable declared attachment.
+                    # Equipment terminal ties remain ambiguous and fail closed.
+                    if isinstance(item, BusItem) and nearest:
+                        eligible = [min(nearest, key=lambda entry: entry[1])]
+                    else:
+                        eligible = nearest
+                shape_candidates.extend(eligible)
+            else:
+                ordinary_candidates.extend(eligible)
 
-            for distance, order, result in eligible:
+        # A click inside a realized symbol belongs to that symbol. This avoids
+        # a nearby Bus/other device's terminal stealing the click merely
+        # because its anchor happens to be slightly closer to the pointer.
+        selected_candidates = shape_candidates if shape_candidates else ordinary_candidates
+        for distance, order, result in selected_candidates:
                 if best is None or distance < best[0] - 1e-9:
                     best = (distance, order, result)
                     ambiguous_best = False
