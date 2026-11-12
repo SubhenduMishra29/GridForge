@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 
 from core.application.instrumentation_wiring_schedules import (
