@@ -15,7 +15,7 @@ from .machine_models import (
     MachineElectricalOutput,
 )
 from .multimachine import MultiMachineSystem
-from .component_contract import (
+from .dynamic_state_layout import (\n    DynamicSystemLayoutError,\n    DynamicStateBlockSlice,\n    DynamicSystemStateLayout,\n)\nfrom .component_contract import (
     DynamicComponentContractError,
     DynamicComponentInputs,
     DynamicComponentEvaluation,
@@ -53,7 +53,7 @@ __all__ = [
     "DynamicComponentInputs",
     "DynamicComponentEvaluation",
     "DynamicStateComponent",
-    "validate_dynamic_state_component",
+    "validate_dynamic_state_component",\n    "DynamicSystemLayoutError",\n    "DynamicStateBlockSlice",\n    "DynamicSystemStateLayout",
     "SimulationEvent",
     "EventOperation",
     "EventBatchConflictError",
