@@ -167,21 +167,8 @@ class GraphicsView(QGraphicsView):
         strip_layout.addWidget(self._annotation_quadrant_button)
         self._contextual_strip.hide()
 
-        # Keep rotation shortcuts active when focus moves to a canvas child.
         self._symbol_rotation_actions = []
         self._routed_shortcut_actions = []
-        for shortcut, operation, description in (
-            ("E", "rotate_cw", "Rotate selected symbol 90 degrees clockwise"),
-            ("Q", "rotate_ccw", "Rotate selected symbol 90 degrees counter-clockwise"),
-        ):
-            action = QAction(description, self)
-            action.setShortcut(shortcut)
-            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-            action.triggered.connect(
-                lambda _checked=False, op=operation: self._apply_contextual_symbol_action(op)
-            )
-            self.addAction(action)
-            self._symbol_rotation_actions.append(action)
 
         if sld_controller is not None:
             self.bind_sld_controller(sld_controller)
