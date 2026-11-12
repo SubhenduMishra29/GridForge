@@ -20,6 +20,7 @@ from core.model.instrument_wiring import (
     TerminalBlock, TerminalPoint, TerminalAccessory,
     CTSecondaryCircuit, CTSecondaryCircuitState, PTSecondaryCircuit, PTSecondaryCircuitState,
     PTSecondaryPolarity, PTSecondaryGrounding, TerminalAccessoryState,
+    TemperatureSensorCircuit,
 )
 
 
@@ -302,6 +303,7 @@ class InstrumentationWiringService:
             terminal_accessories=tuple(self._read_value(item) for item in inventory.terminal_accessories),
             ct_secondary_circuits=tuple(self._read_value(item) for item in inventory.ct_secondary_circuits),
             pt_secondary_circuits=tuple(self._read_value(item) for item in inventory.pt_secondary_circuits),
+            temperature_sensor_circuits=tuple(self._read_value(item) for item in inventory.temperature_sensor_circuits),
         )
 
     def allocate_tag(
@@ -343,6 +345,7 @@ class InstrumentationWiringService:
             TerminalAccessory: "terminal_accessories",
             CTSecondaryCircuit: "ct_secondary_circuits",
             PTSecondaryCircuit: "pt_secondary_circuits",
+            TemperatureSensorCircuit: "temperature_sensor_circuits",
         }
         try:
             return collections[record_type]
@@ -356,7 +359,7 @@ class InstrumentationWiringService:
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
         for field in (
             "cables", "cores", "panel_wires", "signals", "signal_bindings",
-            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories", "ct_secondary_circuits", "pt_secondary_circuits",
+            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories", "ct_secondary_circuits", "pt_secondary_circuits", "temperature_sensor_circuits",
         ):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
