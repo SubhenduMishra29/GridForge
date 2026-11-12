@@ -1,6 +1,10 @@
 import pytest
 
-from core.model import TemperatureInputMode, TemperatureInstrumentInventory, TemperatureInterfaceDevice, TemperatureSensorTechnology
+from core.model import (
+    TemperatureInputMode, TemperatureInstrumentInventory,
+    TemperatureInterfaceDevice, TemperatureSensorTechnology,
+    WiringTerminalReference,
+)
 
 
 def interface(identifier):
@@ -8,12 +12,8 @@ def interface(identifier):
         id=identifier, tag="TT-001", equipment_kind=TemperatureInputMode.TRANSMITTER,
         supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
         supported_sensor_configurations=("Pt100 3-wire",),
-        input_terminals=(
-            __import__("core.model", fromlist=["WiringTerminalReference"]).WiringTerminalReference(identifier, "A", "A"),
-        ),
-        output_terminals=(
-            __import__("core.model", fromlist=["WiringTerminalReference"]).WiringTerminalReference(identifier, "OUT", "OUT"),
-        ),
+        input_terminals=(WiringTerminalReference(identifier, "A", "A"),),
+        output_terminals=(WiringTerminalReference(identifier, "OUT", "OUT"),),
         output_signal_kind="4-20mA", output_unit="degC",
     )
 
