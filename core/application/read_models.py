@@ -151,6 +151,34 @@ class InstrumentationWiringReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class SignalEndpointResolutionReadModel:
+    """Detached resolution status for one canonical signal endpoint binding."""
+
+    binding_id: str
+    signal_id: str
+    endpoint_kind: str
+    endpoint_id: str
+    owner_id: str | None
+    port: str | None
+    status: str
+    diagnostics: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("binding_id", "signal_id", "endpoint_kind", "endpoint_id", "status"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        for name in ("owner_id", "port"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string or None.")
+        if self.status not in {"RESOLVED", "UNRESOLVED", "AMBIGUOUS"}:
+            raise ValueError("status must be RESOLVED, UNRESOLVED or AMBIGUOUS.")
+        object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+
+
+@dataclass(frozen=True, slots=True)
 class SimpleWireReadModel:
     """Immutable Application snapshot of one authoritative Simple Wire relationship."""
 
@@ -812,6 +840,7 @@ __all__ = [
     "NetworkReadModel",
     "SimpleWireReadModel",
     "InstrumentationWiringReadModel",
+    "SignalEndpointResolutionReadModel",
     "ProtectionReadModel",
     "MeasurementChannelReadModel",
     "RelayInputBindingReadModel",
