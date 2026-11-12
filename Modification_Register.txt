@@ -4408,3 +4408,53 @@ Verification:
 - Source-level review only; no pytest, CI, imports, startup, GUI interaction
   or save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Bidirectional Signal Route Navigation and Highlighting
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- SLD physical route projections now retain signal IDs on every segment for
+  complete route selection, while a separate label_signal_ids property anchors
+  visible provenance labels only on each carrier's final terminal hop.
+- SLDCanvasRenderSystem.select_signal_routes() resolves one canonical signal
+  ID to every currently projected physical carrier segment, applies the
+  selected presentation state to the complete route and returns the combined
+  scene bounds. No new Core or persisted SLD connection is created.
+- SLDCanvasSurface exposes select_canonical_object(signal_id) and centres the
+  canonical GraphicsView on the combined physical route bounds.
+- Control and Protection provenance labels now support a secondary
+  context-menu action to open the corresponding SLD physical route. Where no
+  unambiguous peer endpoint exists, double-click uses the SLD route as the
+  primary destination; where a peer exists, double-click retains the existing
+  Control/Protection peer navigation and the context menu offers SLD.
+- SLD route labels continue to navigate to the exact Control component or
+  Protection element. The canonical ControlSurfaceHost remains the sole
+  editor-activation/navigation owner.
+- Provenance labels inherit route visibility and opacity. Label graphics are
+  transient and are removed with their route realization.
+- Added regression-test source for complete multi-hop route selection,
+  route-label navigation, visibility/opacity projection and final-hop label
+  anchoring.
+
+Boundary:
+- Cross-canvas navigation is now signal-level across SLD, Control and
+  Protection. It highlights all carrier segments bound to the signal; it does
+  not yet expose independent selection identities for individual cable,
+  core, terminal block and terminal objects.
+- CT/PT polarity and return/shorting arrangements, RTD/thermocouple conductor
+  constraints, shield/earth paths and communication pair/fibre media remain
+  domain-specific validation work.
+- Engineering cable/core/terminal schedules, instrument loop/wiring schedules,
+  interconnection lists and point-to-point reports remain open #1203 scope.
+
+Verification:
+- Source-level review only. Regression-test source was extended but tests,
+  imports, startup, GUI interaction and save/reopen were not run. No CI gate
+  was requested or treated as acceptance evidence.
+======================================================================
