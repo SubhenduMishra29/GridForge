@@ -489,8 +489,21 @@ def test_terminal_block_points_and_accessory_state_round_trip_in_schema_five():
         terminal_point_ids=(point_a.id, point_b.id),
         conductive_pairs=((point_a.id, point_b.id),),
     )
+    terminal_cable = CableAssembly(
+        id="terminal-cable-id", tag="C-TB-101", service="terminal bridge route",
+        core_count=1,
+    )
+    terminal_core = CableCore(
+        id="terminal-core-id", cable_id=terminal_cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference(block.id, "1", "1A", point_a.id),
+            WiringTerminalReference(block.id, "2", "2A", point_b.id),
+        ),
+    )
     inventory = InstrumentationWiringInventory(
-        cables=base.cables, cores=base.cores, signals=base.signals,
+        cables=base.cables + (terminal_cable,),
+        cores=base.cores + (terminal_core,), signals=base.signals,
         signal_bindings=base.signal_bindings,
         terminal_blocks=(block,), terminal_points=(point_a, point_b),
         terminal_accessories=(accessory,),
@@ -498,6 +511,7 @@ def test_terminal_block_points_and_accessory_state_round_trip_in_schema_five():
     payload = serialize_instrumentation_wiring(inventory)
     assert payload["schema"] == 5
     assert payload["terminal_accessories"][0]["conductive_pairs"] == [["tb-point-a", "tb-point-b"]]
+    assert payload["cores"][-1]["terminal_path"][0]["terminal_point_id"] == "tb-point-a"
     assert deserialize_instrumentation_wiring(payload) == inventory
 
 
