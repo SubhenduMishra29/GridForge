@@ -216,7 +216,7 @@ def resolve_signal_endpoint_bindings(
                                 attributes = getattr(source_model, "attributes", {})
                                 if source.signal not in attributes:
                                     raise KeyError(source.signal)
-                            except Exception as exc:
+                            except (KeyError, TypeError, ValueError) as exc:
                                 status = "UNRESOLVED"
                                 diagnostics.append(
                                     f"Control Core source cannot be resolved: {type(exc).__name__}: {exc}."
