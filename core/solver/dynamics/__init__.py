@@ -20,6 +20,7 @@ from .component_contract import (
     DynamicComponentInputs,
     DynamicComponentEvaluation,
     DynamicStateComponent,
+    validate_dynamic_state_component,
 )
 from .events import EventBatchConflictError, EventExecution, EventManager, EventOperation, EventTransition, SimulationEvent
 from .dae_solver import (
@@ -52,6 +53,7 @@ __all__ = [
     "DynamicComponentInputs",
     "DynamicComponentEvaluation",
     "DynamicStateComponent",
+    "validate_dynamic_state_component",
     "SimulationEvent",
     "EventOperation",
     "EventBatchConflictError",
