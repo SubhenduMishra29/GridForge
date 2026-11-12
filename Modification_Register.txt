@@ -4196,3 +4196,36 @@ Verification:
 - Source-level review only; no pytest, CI, imports, startup, GUI or
   save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Explicit Cross-Canvas Signal Provenance Navigation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added one shared read-only SignalProvenanceItem for Control and Protection
+  canvas labels. Double-click navigation is available only when exactly one
+  peer endpoint exists for the same canonical signal designation.
+- Control input provenance labels can navigate to the matching Protection
+  function element. Protection input provenance labels can navigate to the
+  matching Control component.
+- ControlSurfaceHost binds the navigation callback to the canonical editor
+  host; it activates the target editor and asks the target workspace to select
+  and centre the canonical object.
+- Control and Protection workspaces expose narrow host callbacks and
+  select_canonical_object APIs; they do not own editor activation policy.
+- Protection selection uses the canonical protection element ID so the
+  Control/Protection selection projections and Protection Inspector can
+  resolve the same element identity.
+- Multiple peer endpoints do not silently choose an arbitrary destination;
+  the label remains inspectable but does not offer an ambiguous navigation
+  target.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI interaction
+  or save/reopen runtime was executed.
+======================================================================
