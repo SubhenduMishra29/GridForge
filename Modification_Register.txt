@@ -4627,3 +4627,38 @@ PR: #1214
 - Added source-level regression coverage. Not executed.
 
 ======================================================================
+
+
+======================================================================
+
+GridForge V2 — Explicit thermocouple conductor identity and lead routing
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Extended the canonical CableCore and PanelWire records with optional,
+  explicit conductor material, thermocouple type and positive/negative
+  polarity metadata. Type and polarity must be declared together; a declared
+  thermocouple conductor must also declare its material. Unknown values remain
+  absent rather than receiving assumed alloy or polarity defaults.
+- Advanced the instrumentation-wiring codec to schema 3 while retaining schema
+  2 decode compatibility. New saves preserve the conductor metadata.
+- Added an explicit thermocouple_type to TemperatureInstrument and its strict
+  schema-1 codec; old records remain decodable but mapped thermocouple loops
+  without a type are rejected at inventory validation.
+- For mapped RTD and thermocouple sensor-to-interface routes, physical
+  continuity is now checked pin-by-pin rather than allowing any sensor pin to
+  reach any interface pin. Thermocouple routes require each carrier to match
+  the declared type and polarity and carry explicit material; cable-core routes
+  additionally require declared cable_type and cable conductor_material.
+- Added source-level regression cases for type/polarity mismatch and incomplete
+  conductor metadata. Not executed.
+
+Remaining: configurable material/alloy-to-thermocouple-type compatibility and
+extension-versus-compensating cable classification; RTD 2/3/4-wire end-to-end
+lead assignment through all terminal accessories; shield/drain/armour/PE bond
+and isolation topology; receiver raw-range scaling/calibration; Control and
+Protection consumer integration; canvas projections/schedules; runtime and
+save/reopen verification.
+
+======================================================================
