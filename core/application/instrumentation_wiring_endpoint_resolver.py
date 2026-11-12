@@ -66,12 +66,17 @@ def resolve_signal_endpoint_bindings(
         if channel is None:
             return (f"MeasurementChannel {channel_id!r} is not active.",)
         source_id = getattr(channel, "source_id", None)
-        source_terminal = getattr(channel, "source_terminal", None)
+        source_terminal = getattr(channel, "source_terminal_reference", None)
+        if source_terminal is None:
+            source_terminal = getattr(channel, "source_terminal", None)
         if not isinstance(source_id, str) or not source_id.strip():
             return ("MeasurementChannel has no explicit physical source identity.",)
-        if not isinstance(source_terminal, Mapping) or source_terminal.get("kind") != "TERMINAL":
+        if not isinstance(source_terminal, Mapping):
             return ("MeasurementChannel has no explicit physical source terminal reference.",)
-        source_equipment_id = source_terminal.get("equipment_id")
+        terminal_kind = str(source_terminal.get("kind", "")).strip().upper()
+        if terminal_kind != "TERMINAL":
+            return ("MeasurementChannel source reference is not an explicit terminal endpoint.",)
+        source_equipment_id = source_terminal.get("object_id", source_terminal.get("equipment_id"))
         source_terminal_role = source_terminal.get("terminal_role")
         if source_equipment_id != source_id or not isinstance(source_terminal_role, str) or not source_terminal_role:
             return ("MeasurementChannel source equipment and source terminal owner identities disagree or are incomplete.",)
