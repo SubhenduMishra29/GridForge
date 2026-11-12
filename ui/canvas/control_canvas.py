@@ -12,7 +12,7 @@ import math
 from typing import Any
 
 from .grid_scene import GridScene
-from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QGraphicsTextItem, QPainter, QRectF, QPointF
+from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QRectF, QPointF
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 from ..items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.styling.presentation_style import VisualState, visual_font, visual_pen
