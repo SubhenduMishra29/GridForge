@@ -31,10 +31,53 @@ class TemperatureInstrumentService:
         if instrumentation_wiring_service is not None and not hasattr(instrumentation_wiring_service, "inventory"):
             raise TypeError("instrumentation_wiring_service must expose the canonical wiring inventory.")
         self._instrumentation_wiring_service = instrumentation_wiring_service
+        self._measurement_channels_provider: Any | None = None
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Any | None = None
         self._inventory = TemperatureInstrumentInventory()
+
+    def bind_measurement_channels_provider(self, provider: Any | None) -> None:
+        if provider is not None and not callable(provider):
+            raise TypeError("measurement channels provider must be callable or None.")
+        self._measurement_channels_provider = provider
+
+    def validate_measurement_channels(self, channels: Any | None = None) -> None:
+        if channels is None:
+            provider = self._measurement_channels_provider
+            channels = provider() if provider is not None else {}
+        if not isinstance(channels, dict):
+            channels = dict(channels)
+        interfaces = {item.id: item for item in self._inventory.interfaces}
+        for instrument in self._inventory.instruments:
+            channel_id = instrument.measurement_channel_id
+            if channel_id is None:
+                continue
+            channel = channels.get(channel_id)
+            if channel is None:
+                raise ValueError(f"Temperature instrument '{instrument.id}' references missing MeasurementChannel '{channel_id}'.")
+            if getattr(getattr(channel, "signal_type", None), "value", None) != "TEMPERATURE":
+                raise ValueError(f"Temperature instrument '{instrument.id}' requires a TEMPERATURE MeasurementChannel.")
+            if instrument.unit is None or channel.unit != instrument.unit:
+                raise ValueError(f"Temperature instrument '{instrument.id}' requires an explicit unit matching its MeasurementChannel.")
+            expected_source = instrument.sensor_equipment_id
+            expected_terminals = instrument.sensor_terminals
+            if instrument.input_mode.value != "DIRECT_SENSOR":
+                interface = interfaces[instrument.interface_equipment_id]
+                expected_source = interface.id
+                expected_terminals = interface.output_terminals
+                if interface.measurement_channel_id not in (None, channel_id):
+                    raise ValueError(f"Temperature interface '{interface.id}' references a different MeasurementChannel.")
+                if channel.unit != interface.output_unit:
+                    raise ValueError(f"Temperature channel unit does not match interface '{interface.id}' output unit.")
+            if getattr(channel, "source_id", None) != expected_source:
+                raise ValueError(f"Temperature channel '{channel_id}' source does not match the declared sensor/interface.")
+            source_terminal = getattr(channel, "source_terminal", None)
+            if source_terminal is None or not any(
+                item.equipment_id == expected_source and item.terminal_role == source_terminal.terminal_role
+                for item in expected_terminals
+            ):
+                raise ValueError(f"Temperature channel '{channel_id}' source terminal is not one of the declared physical output terminals.")
 
     @property
     def project_id(self) -> str | None:
@@ -251,6 +294,14 @@ class TemperatureInstrumentService:
             self._validate_physical_continuity(
                 replacement, self._instrumentation_wiring_service.inventory
             )
+        previous_inventory = self._inventory
+        self._inventory = replacement
+        try:
+            self.validate_measurement_channels()
+        except Exception:
+            self._inventory = previous_inventory
+            raise
+        self._inventory = previous_inventory
         previous = self._inventory
         project_id, generation = self._project_id, self._activation_generation
         self._inventory = replacement
@@ -299,6 +350,14 @@ class TemperatureInstrumentService:
                 self._validate_physical_continuity(
                     candidate, self._instrumentation_wiring_service.inventory
                 )
+            previous_inventory = self._inventory
+            self._inventory = candidate
+            try:
+                self.validate_measurement_channels()
+            except Exception:
+                self._inventory = previous_inventory
+                raise
+            self._inventory = previous_inventory
             next_project, next_generation, next_network = project_id.strip(), generation, network
         previous = self.snapshot_state()
         self._project_id, self._activation_generation = next_project, next_generation
