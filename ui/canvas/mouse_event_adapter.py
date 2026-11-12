@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import hypot
 from typing import Any, Optional
 
 from ui.core.qt import QGraphicsItem, QPointF, Qt
@@ -35,6 +36,7 @@ class CanvasMouseEvent:
     timestamp: Optional[int] = None
     insertion_intent: bool = False
     insertion_tolerance_scene: float = 0.0
+    snap_tolerance_scene: float | None = None
 
     @property
     def hit_target(self) -> CanvasHitTarget:
@@ -84,6 +86,7 @@ class MouseEventAdapter:
             insertion_intent=bool(modifiers & shift_mask),
             event_type=self._event_flag(event, "type", allow_none=True),
             timestamp=self._event_integer(event, "timestamp", allow_none=True),
+            snap_tolerance_scene=self._scene_tolerance_for_pixels(viewport_position, 14.0),
         )
 
     @staticmethod
@@ -102,13 +105,38 @@ class MouseEventAdapter:
             raise TypeError("mouse position must be QPointF-compatible.")
 
     def _map_to_scene(self, position: Any) -> Any:
+        # Preserve QPointF precision: mapToScene(QPoint) rounds the pointer,
+        # which becomes inaccurate when the canvas is zoomed far out.
+        transform_getter = getattr(self._view, "viewportTransform", None)
+        if callable(transform_getter):
+            inverse, invertible = transform_getter().inverted()
+            if invertible:
+                return inverse.map(self._point(position))
         mapper = getattr(self._view, "mapToScene", None)
         if not callable(mapper):
             raise TypeError("view must provide mapToScene().")
         to_point = getattr(position, "toPoint", None)
-        if callable(to_point):
-            return mapper(to_point())
-        return mapper(position)
+        return mapper(to_point() if callable(to_point) else position)
+
+    def _scene_tolerance_for_pixels(self, position: Any, pixels: float) -> float:
+        """Convert a stable viewport-pixel snap radius into scene units."""
+        transform_getter = getattr(self._view, "viewportTransform", None)
+        if not callable(transform_getter):
+            return 14.0
+        inverse, invertible = transform_getter().inverted()
+        if not invertible:
+            return 14.0
+        center = inverse.map(self._point(position))
+        offsets = (
+            QPointF(float(position.x()) + pixels, float(position.y())),
+            QPointF(float(position.x()) - pixels, float(position.y())),
+            QPointF(float(position.x()), float(position.y()) + pixels),
+            QPointF(float(position.x()), float(position.y()) - pixels),
+        )
+        return max(
+            hypot(float(mapped.x()) - float(center.x()), float(mapped.y()) - float(center.y()))
+            for mapped in (inverse.map(point) for point in offsets)
+        )
 
     def _hit_test(self, scene_position: Any) -> CanvasHitTarget:
         x = float(scene_position.x())
