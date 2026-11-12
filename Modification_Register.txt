@@ -4263,3 +4263,28 @@ Final pre-merge static audit:
   S1/S2 terminal role and CURRENT signal.
 - Channel reassignment events carry previous and new source identity so both
   affected CT editors refresh; undo/redo refreshes the selected CT projection.
+
+
+======================================================================
+GridForge V2 — Refresh SLD, Control and Protection on MeasurementChannelChanged
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: fix/measurement-channel-projection-refresh
+Related: #1199, #1203, #1212
+
+Correction:
+- Added the existing Application MeasurementChannelChanged semantic event to
+  SLDUpdateCoordinator.event_types, ControlUpdateCoordinator._CONTROL_EVENTS,
+  and ProtectionWorkspace._EVENT_TYPES.
+- MeasurementChannel create/update/delete and source reassignment (including
+  undo/redo where published by Application) now refresh the same read-only
+  projections that resolve channel provenance and endpoint diagnostics.
+- No new channel registry, duplicate event authority, or Core/UI dependency was
+  introduced. The existing Application event remains the single semantic
+  refresh trigger; each canvas continues to derive its view from Application
+  read models.
+
+Verification:
+- Static source inspection and fetch-back only. No tests, imports, startup,
+  save/reopen or Qt GUI runtime were executed.
+======================================================================
