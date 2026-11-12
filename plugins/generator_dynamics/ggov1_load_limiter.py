@@ -11,7 +11,7 @@ from typing import Any, ClassVar
 
 from plugins.dynamics.base import DynamicPlugin
 
-from .controllers import GGOV1Parameters, _clip, _number
+from .controllers import GGOV1Parameters, _number
 
 
 class GGOV1LoadLimiter(DynamicPlugin):
