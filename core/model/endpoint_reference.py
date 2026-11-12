@@ -82,7 +82,7 @@ from core.model import (
     Battery, Breaker, Bus, Cable, Capacitor, CVT, CurrentTransformer,
     Disconnector, ElectricalObject, Fuse, Generator, Grid, Injection, Line,
     Load, Motor, PT, Reactor, Relay, Shunt, Solar, Switch,
-    SynchronousMachine, Transformer, Branch,
+    SynchronousMachine, Transformer, Branch, RTD, Thermocouple,
 )
 
 
