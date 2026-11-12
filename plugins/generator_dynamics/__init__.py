@@ -18,6 +18,7 @@ from .controllers import (
 from .ggov1_pid import GGOV1PIDGovernor
 from .ggov1_actuator import GGOV1ValveActuator
 from .ggov1_turbine import GGOV1TurbineFuelPath
+from .ggov1_selector import GGOV1LowValueSelector, GGOV1Selection
 
 __all__ = [
     "GeneratorFamily", "GeneratorNameplate", "GeneratorOperatingMode",
@@ -30,4 +31,5 @@ __all__ = [
     "PSSParameters", "WashoutLeadLagPSS", "TGOV1Parameters", "TGOV1SteamGovernor",
     "HYGOVReducedParameters", "HYGOVReducedHydroGovernor", "GGOV1Parameters",
     "GGOV1PIDGovernor", "GGOV1ValveActuator", "GGOV1TurbineFuelPath",
+    "GGOV1LowValueSelector", "GGOV1Selection",
 ]
