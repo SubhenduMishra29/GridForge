@@ -228,7 +228,8 @@ class ProtectionGraphicsSurface(QGraphicsView):
                     )
                     if input_provenance is not None:
                         peers = control_by_signal.get(input_provenance.signal_id, ())
-                        peer = peers[0] if len(peers) == 1 else None
+                        peer_targets = {str(candidate.endpoint_id) for candidate in peers}
+                        peer = peers[0] if len(peer_targets) == 1 else None
                         detail = input_provenance.detail_text
                         if peer is not None:
                             detail += "\nDouble-click to locate the matching Control input."
