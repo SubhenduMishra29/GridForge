@@ -250,6 +250,10 @@ class MeasurementChannelService:
                     raise ValueError(f"Duplicate measurement channel ID: {channel.id}")
                 if isinstance(channel.source, CurrentTransformer):
                     self._validate_ct_channel_definition(definition, channel, existing_channels=next_channels)
+                    channel.reset(
+                        0.0, quality=MeasurementQuality.UNKNOWN, available=False,
+                        timestamp=None, sample_sequence=None,
+                    )
                 # Bind immutable producer identity before sealing the channel.
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
                 channel._bind_sample_update_authority(self._sample_update_authority)
@@ -442,7 +446,7 @@ class MeasurementChannelService:
         reference = self._endpoint_reference(terminal_data)
         if reference.terminal_role not in {"S1", "S2"}:
             raise ValueError("CT measurement channels must originate from physical secondary terminal S1 or S2.")
-        if getattr(reference.equipment_type, "value", None) != "current_transformer":
+        if getattr(reference.equipment_type, "value", None) != "ct":
             raise ValueError("CT secondary measurement channels require a CURRENT_TRANSFORMER terminal reference.")
         source = self._network.get_by_identity(source_id)
         if not isinstance(source, CurrentTransformer):
@@ -458,6 +462,10 @@ class MeasurementChannelService:
         channel = self._provision_definition(self._context, self._network, definition)
         self._validate_ct_channel_definition(
             definition, channel, existing_channels=self._channels
+        )
+        channel.reset(
+            0.0, quality=MeasurementQuality.UNKNOWN, available=False,
+            timestamp=None, sample_sequence=None,
         )
         channel.producer_id = producer_id
         channel._bind_sample_update_authority(self._sample_update_authority)
