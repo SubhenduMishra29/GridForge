@@ -205,12 +205,13 @@ def test_inventory_mutation_receiver_validator_runs_before_state_change():
     def reject(_inventory):
         raise ValueError("receiver reconciliation rejected")
 
-    service = InstrumentationWiringService(receiver_validator=reject)
+    service = InstrumentationWiringService()
+    service.bind_receiver_validator(reject)
     network = SimpleNamespace(get_by_identity=lambda _identity: None)
     context = ProjectContext(project_id="project-1", name="Test", path=None)
     service.activate(
         context, InstrumentationWiringInventory(), network=network,
-        generation=1, validate_receivers=False,
+        generation=1,
     )
     before = service.inventory
     command = service.create_replace_command(InstrumentationWiringInventory())
