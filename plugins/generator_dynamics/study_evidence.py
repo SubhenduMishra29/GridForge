@@ -54,6 +54,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         trajectory_status: str,
         termination: Mapping[str, object] | None = None,
         event_schedule: Sequence[Mapping[str, object]] = (),
+        resume_provenance: Mapping[str, object] | None = None,
     ) -> None:
         if isinstance(accepted_steps, (str, bytes)) or not isinstance(accepted_steps, Sequence):
             raise TypeError("accepted_steps must be an ordered sequence")
@@ -73,11 +74,14 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             raise ValueError("accepted step times must be strictly increasing")
         if any(not isinstance(item, Mapping) for item in event_schedule):
             raise TypeError("event_schedule entries must be mappings")
+        if resume_provenance is not None and not isinstance(resume_provenance, Mapping):
+            raise TypeError("resume_provenance must be a mapping when supplied")
         provenance_data = _freeze_archive_value({
             "execution_status": execution_status,
             "trajectory_status": trajectory_status,
             "termination": dict(termination or {}),
             "event_schedule": tuple(dict(item) for item in event_schedule),
+            "resume": dict(resume_provenance or {}),
         }, path="provenance")
         payload = _freeze_archive_value({
             "schema": "gridforge.generator_augmented_study",
@@ -90,6 +94,63 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         self.provenance = provenance_data
         self.time = times
         self._payload = payload
+
+    @classmethod
+    def resume_from_checkpoint(
+        cls,
+        previous: "GeneratorAugmentedStudyEvidence",
+        resumed_steps: Sequence[GeneratorAugmentedStepResult],
+        *,
+        resume_state: Sequence[float],
+        execution_status: str,
+        trajectory_status: str,
+        termination: Mapping[str, object] | None = None,
+        event_schedule: Sequence[Mapping[str, object]] = (),
+    ) -> "GeneratorAugmentedStudyEvidence":
+        """Build a continued trajectory only from the exact last accepted state."""
+        if not isinstance(previous, cls):
+            raise TypeError("previous must be GeneratorAugmentedStudyEvidence")
+        if previous.provenance.get("execution_status") not in {"cancelled", "failed"}:
+            raise ValueError("only interrupted or failed evidence can be resumed")
+        if not previous.time:
+            raise ValueError("cannot resume evidence without an accepted checkpoint")
+        if isinstance(resume_state, (str, bytes)) or not isinstance(resume_state, Sequence):
+            raise TypeError("resume_state must be an ordered numeric sequence")
+        prior_steps = previous._payload.get("accepted_steps")
+        if not isinstance(prior_steps, tuple) or not prior_steps:
+            raise ValueError("previous evidence has no archived accepted-step payload")
+        last_payload = prior_steps[-1]
+        if not isinstance(last_payload, Mapping):
+            raise ValueError("previous checkpoint payload is malformed")
+        accepted_state = last_payload.get("accepted_state")
+        if not isinstance(accepted_state, tuple):
+            raise ValueError("previous checkpoint has no accepted state vector")
+        supplied_state = tuple(resume_state)
+        if supplied_state != accepted_state:
+            raise ValueError("resume_state must exactly match the last accepted checkpoint state")
+        continuation = tuple(resumed_steps)
+        if not continuation:
+            raise ValueError("resumed_steps must contain at least one accepted step")
+        if any(not isinstance(step, GeneratorAugmentedStepResult) for step in continuation):
+            raise TypeError("resumed_steps must contain GeneratorAugmentedStepResult values")
+        if continuation[0].simulation_time_s <= previous.time[-1]:
+            raise ValueError("resumed steps must begin after the prior checkpoint time")
+        return cls(
+            (*tuple(
+                step for step in getattr(previous, "_accepted_steps", ())
+            ), *continuation),
+            execution_status=execution_status,
+            trajectory_status=trajectory_status,
+            termination=termination,
+            event_schedule=event_schedule,
+            resume_provenance={
+                "previous_schema": "gridforge.generator_augmented_study",
+                "previous_schema_version": 1,
+                "previous_execution_status": previous.provenance["execution_status"],
+                "checkpoint_time_s": previous.time[-1],
+                "resumed_step_count": len(continuation),
+            },
+        )
 
     @classmethod
     def from_checkpoint_publication_failure(
