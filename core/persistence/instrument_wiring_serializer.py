@@ -11,7 +11,7 @@ from core.model.instrument_wiring import (
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 2
+WIRING_SCHEMA_VERSION = 3
 
 
 class InstrumentationWiringSerializationError(ValueError):
