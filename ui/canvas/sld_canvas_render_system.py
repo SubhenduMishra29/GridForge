@@ -225,13 +225,10 @@ class SLDCanvasRenderSystem:
 
     def _refresh_signal_provenance_items(self) -> None:
         """Rebuild transient, clickable labels without changing SLD or Core records."""
-        for connection_id, labels in tuple(self._provenance_items.items()):
+        for labels in tuple(self._provenance_items.values()):
             for label in labels:
                 if label is not None and label.scene() is self._scene:
                     self._scene.removeItem(label)
-            items = self._items.get(connection_id, ())
-            if items:
-                self._items[connection_id] = (items[0],)
         self._provenance_items.clear()
 
         for connection_id, signal_ids in self._connection_signal_ids.items():
@@ -261,7 +258,6 @@ class SLDCanvasRenderSystem:
                     labels.append(label)
                     row += 1
             if labels:
-                self._items[connection_id] = (route_item, *labels)
                 self._provenance_items[connection_id] = tuple(labels)
 
     def bind_selection_manager(self, selection_manager: Any) -> None:
@@ -1213,6 +1209,13 @@ class SLDCanvasRenderSystem:
 
     def _remove_realized(self, item_id: str) -> None:
         """Best-effort cleanup that cannot strand later items after one failure."""
+        provenance_items = self._provenance_items.pop(item_id, ())
+        for label in provenance_items:
+            try:
+                if label is not None and label.scene() is self._scene:
+                    self._scene.removeItem(label)
+            except Exception:
+                _LOGGER.exception("Failed to remove signal provenance overlay for SLD item %s", item_id)
         items = self._items.pop(item_id, ())
         try:
             for item in items:
