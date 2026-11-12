@@ -43,7 +43,6 @@ class MotorParameters:
 
     stator_resistance_ohm: float
     rotor_resistance_ohm: float
-    external_rotor_resistance_ohm: float = 0.0
     stator_leakage_inductance_h: float
     rotor_leakage_inductance_h: float
     magnetizing_inductance_h: float
@@ -56,6 +55,7 @@ class MotorParameters:
     resistance_temp_coefficient_per_k: float = 0.00393
     initial_speed_rad_s: float = 0.0
     initial_temperature_c: float = 25.0
+    external_rotor_resistance_ohm: float = 0.0
 
     def __post_init__(self) -> None:
         positive = (
