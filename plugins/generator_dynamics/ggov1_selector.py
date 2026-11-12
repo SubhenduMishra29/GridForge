@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
-from .controllers import _number
+from .controllers import GGOV1Parameters, _clip, _number
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,4 +63,62 @@ class GGOV1LowValueSelector:
         )
 
 
-__all__ = ["GGOV1LowValueSelector", "GGOV1Selection"]
+
+
+@dataclass(frozen=True, slots=True)
+class GGOV1ControlDecision:
+    """Final common-limited fuel command and controller tracking feedback."""
+
+    selected_source: str
+    selected_unbounded_fuel_command_pu: float
+    actuator_command_pu: float
+    tracking_errors_pu: tuple[tuple[str, float], ...]
+
+    def tracking_error_for(self, source: str) -> float:
+        """Return final command minus the named controller request."""
+        for name, error in self.tracking_errors_pu:
+            if name == source:
+                return error
+        raise KeyError(f"controller source {source!r} was not active")
+
+
+class GGOV1ControlCoordinator:
+    """Coordinate selector, common FSR bounds and actuator handoff.
+
+    This is a stateless orchestration boundary. It owns no dynamic state,
+    integration clock, event loop or persistent authority. The same final
+    bounded command is the actuator setpoint and the tracking feedback for
+    the PID, acceleration and temperature/load paths.
+    """
+
+    def __init__(self, parameters: GGOV1Parameters) -> None:
+        if not isinstance(parameters, GGOV1Parameters):
+            raise TypeError("parameters must be GGOV1Parameters")
+        self.parameters = parameters
+
+    def coordinate(self, candidates_pu: Mapping[str, float]) -> GGOV1ControlDecision:
+        selection = GGOV1LowValueSelector.select(candidates_pu)
+        p = self.parameters
+        bounded = _clip(
+            selection.selected_fuel_command_pu,
+            p.valve_min_pu,
+            p.valve_max_pu,
+        )
+        tracking = tuple(
+            (source, bounded - _number(value, f"{source}_fuel_command_pu"))
+            for source, value in candidates_pu.items()
+        )
+        return GGOV1ControlDecision(
+            selected_source=selection.selected_source,
+            selected_unbounded_fuel_command_pu=selection.selected_fuel_command_pu,
+            actuator_command_pu=bounded,
+            tracking_errors_pu=tracking,
+        )
+
+
+__all__ = [
+    "GGOV1LowValueSelector",
+    "GGOV1Selection",
+    "GGOV1ControlCoordinator",
+    "GGOV1ControlDecision",
+]
