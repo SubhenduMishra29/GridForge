@@ -1,8 +1,9 @@
 """GGOV1 low-value fuel-command selection and tracking signals.
 
 This block owns no controller states. The host evaluates each active controller,
-then this deterministic selector chooses the smallest admissible fuel request.
-Each controller consumes its own selected-minus-requested tracking error.
+then this deterministic selector chooses the smallest request. The coordinator
+applies common valve-stroke bounds and exposes the final command for tracking
+and actuator handoff.
 """
 from __future__ import annotations
 
@@ -21,7 +22,7 @@ class GGOV1Selection:
     tracking_errors_pu: tuple[tuple[str, float], ...]
 
     def tracking_error_for(self, source: str) -> float:
-        """Return selected minus this controller's own requested command."""
+        """Return pre-common-limit selected minus this controller's request."""
         for name, error in self.tracking_errors_pu:
             if name == source:
                 return error
