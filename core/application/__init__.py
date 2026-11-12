@@ -64,6 +64,7 @@ from .read_models import (
     TransientEventReadModel,
     TransientResultPresentationReadModel,
 )
+from .instrumentation_wiring_schedules import build_instrumentation_wiring_schedules
 from .read_service import (
     ArchivedStudyResultReadModel,
     MeasurementChannelReadService,
@@ -138,6 +139,7 @@ __all__ = [
     "SimpleWireReadModel",
     "InstrumentationWiringReadModel",
     "InstrumentationWiringSchedulesReadModel",
+    "build_instrumentation_wiring_schedules",
     "SignalEndpointResolutionReadModel",
     "StudyResultReadModel",
     "TransientSignalReadModel",
