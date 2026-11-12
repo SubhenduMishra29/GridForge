@@ -8,9 +8,12 @@ contract when a cooperative cancellation returns an interrupted trajectory.
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
 import math
 from types import MappingProxyType
 from typing import Any
+
+from core.application.study import StudyExecutionContext, StudyRequest
 
 from .integrator_adapter import GeneratorAugmentedStepResult
 
@@ -35,6 +38,87 @@ def _freeze_archive_value(value: object, *, path: str = "value") -> object:
     raise TypeError(f"{path} contains unsupported archive value {type(value).__name__}")
 
 
+@dataclass(frozen=True, slots=True)
+class GeneratorStudyCheckpointIdentity:
+    """Stable host-supplied identity for safe augmented-study checkpoint reuse.
+
+    Fingerprints are produced by the host from canonical study inputs and
+    component/state-layout configuration. This contract deliberately does not
+    hash arbitrary plugin or project objects.
+    """
+
+    study_id: str
+    project_id: str
+    activation_generation: int
+    study_type: str
+    model_revision: int
+    topology_revision: int
+    study_configuration_fingerprint: str
+    state_layout_fingerprint: str
+    solver_id: str
+
+    def __post_init__(self) -> None:
+        for name in (
+            "study_id", "project_id", "study_type",
+            "study_configuration_fingerprint", "state_layout_fingerprint", "solver_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+            object.__setattr__(self, name, value.strip())
+        for name in ("activation_generation", "model_revision", "topology_revision"):
+            value = getattr(self, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if self.activation_generation < 1:
+            raise ValueError("activation_generation must be positive")
+
+    @classmethod
+    def from_execution(
+        cls,
+        request: StudyRequest,
+        execution_context: StudyExecutionContext,
+        *,
+        study_configuration_fingerprint: str,
+        state_layout_fingerprint: str,
+        solver_id: str,
+    ) -> "GeneratorStudyCheckpointIdentity":
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be StudyRequest")
+        if not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("execution_context must be StudyExecutionContext")
+        if (
+            request.project_id != execution_context.project_id
+            or request.activation_generation != execution_context.activation_generation
+            or request.source_revision != execution_context.source_revision
+        ):
+            raise ValueError("checkpoint identity request/context provenance mismatch")
+        return cls(
+            study_id=str(request.study_id),
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            study_type=request.study_type,
+            model_revision=request.source_revision.model_revision,
+            topology_revision=request.source_revision.topology_revision,
+            study_configuration_fingerprint=study_configuration_fingerprint,
+            state_layout_fingerprint=state_layout_fingerprint,
+            solver_id=solver_id,
+        )
+
+    def to_archive_payload(self) -> dict[str, object]:
+        return {
+            "study_id": self.study_id,
+            "project_id": self.project_id,
+            "activation_generation": self.activation_generation,
+            "study_type": self.study_type,
+            "model_revision": self.model_revision,
+            "topology_revision": self.topology_revision,
+            "study_configuration_fingerprint": self.study_configuration_fingerprint,
+            "state_layout_fingerprint": self.state_layout_fingerprint,
+            "solver_id": self.solver_id,
+        }
+
+
 class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
     """Immutable accepted-step trajectory evidence returned by a host solver.
 
@@ -55,6 +139,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         termination: Mapping[str, object] | None = None,
         event_schedule: Sequence[Mapping[str, object]] = (),
         resume_provenance: Mapping[str, object] | None = None,
+        checkpoint_identity: GeneratorStudyCheckpointIdentity | None = None,
     ) -> None:
         if isinstance(accepted_steps, (str, bytes)) or not isinstance(accepted_steps, Sequence):
             raise TypeError("accepted_steps must be an ordered sequence")
@@ -76,6 +161,8 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             raise TypeError("event_schedule entries must be mappings")
         if resume_provenance is not None and not isinstance(resume_provenance, Mapping):
             raise TypeError("resume_provenance must be a mapping when supplied")
+        if checkpoint_identity is not None and not isinstance(checkpoint_identity, GeneratorStudyCheckpointIdentity):
+            raise TypeError("checkpoint_identity must be GeneratorStudyCheckpointIdentity")
         provenance_data = _freeze_archive_value({
             "execution_status": execution_status,
             "trajectory_status": trajectory_status,
@@ -87,6 +174,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             "schema": "gridforge.generator_augmented_study",
             "schema_version": 1,
             "provenance": provenance_data,
+            "checkpoint_identity": None if checkpoint_identity is None else checkpoint_identity.to_archive_payload(),
             "accepted_steps": tuple(step.to_archive_payload() for step in steps),
         }, path="study_evidence")
         if not isinstance(provenance_data, Mapping) or not isinstance(payload, Mapping):
@@ -95,6 +183,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         self.time = times
         self._payload = payload
         self._accepted_steps = steps
+        self.checkpoint_identity = checkpoint_identity
 
     @classmethod
     def resume_from_checkpoint(
@@ -107,14 +196,21 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         trajectory_status: str,
         termination: Mapping[str, object] | None = None,
         event_schedule: Sequence[Mapping[str, object]] = (),
+        checkpoint_identity: GeneratorStudyCheckpointIdentity | None = None,
     ) -> "GeneratorAugmentedStudyEvidence":
-        """Build a continued trajectory only from the exact last accepted state."""
+        """Build a continued trajectory only from the exact last accepted state and identity."""
         if not isinstance(previous, cls):
             raise TypeError("previous must be GeneratorAugmentedStudyEvidence")
         if previous.provenance.get("execution_status") not in {"cancelled", "failed"}:
             raise ValueError("only interrupted or failed evidence can be resumed")
         if not previous.time:
             raise ValueError("cannot resume evidence without an accepted checkpoint")
+        if previous.checkpoint_identity is not None and checkpoint_identity is None:
+            raise ValueError("resume requires the original checkpoint identity")
+        if checkpoint_identity is not None and not isinstance(checkpoint_identity, GeneratorStudyCheckpointIdentity):
+            raise TypeError("checkpoint_identity must be GeneratorStudyCheckpointIdentity")
+        if previous.checkpoint_identity != checkpoint_identity:
+            raise ValueError("resume checkpoint identity does not match the original study inputs")
         if isinstance(resume_state, (str, bytes)) or not isinstance(resume_state, Sequence):
             raise TypeError("resume_state must be an ordered numeric sequence")
         prior_steps = previous._payload.get("accepted_steps")
@@ -151,6 +247,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             trajectory_status=trajectory_status,
             termination=termination,
             event_schedule=event_schedule,
+            checkpoint_identity=checkpoint_identity,
             resume_provenance={
                 "previous_schema": "gridforge.generator_augmented_study",
                 "previous_schema_version": 1,
@@ -208,4 +305,4 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         return len(self._payload)
 
 
-__all__ = ["GeneratorAugmentedStudyEvidence"]
+__all__ = ["GeneratorAugmentedStudyEvidence", "GeneratorStudyCheckpointIdentity"]
