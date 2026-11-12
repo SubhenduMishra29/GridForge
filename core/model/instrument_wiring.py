@@ -36,6 +36,8 @@ def _positive_int(value: int, field: str) -> int:
 def _non_negative_finite(value: Optional[float], field: str) -> Optional[float]:
     if value is None:
         return None
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be numeric, not boolean.")
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
