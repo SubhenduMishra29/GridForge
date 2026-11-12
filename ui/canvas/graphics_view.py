@@ -410,11 +410,6 @@ class GraphicsView(QGraphicsView):
             and callable(getattr(self.tool_manager, "get_tool", None))
             else None
         )
-        selected_count = (
-            select_tool.selected_transform_count()
-            if callable(getattr(select_tool, "selected_transform_count", None))
-            else 0
-        )
         group_mode = rotation_mode == "group"
         for button in self._single_symbol_buttons:
             button.setVisible(not group_mode)
