@@ -16,6 +16,7 @@ from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QGraphicsTextItem, QP
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 from ..items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.styling.presentation_style import VisualState, visual_font, visual_pen
+from ui.items.signal_provenance_item import SignalProvenanceItem
 from ..items.control_items import (
     ANDGateItem, CoilItem, ControlLogicItem, InterlockItem, LatchItem,
     NCContactItem, NOContactItem, NOTGateItem, ORGateItem, ResetCoilItem,
@@ -80,6 +81,7 @@ class ControlCanvas(GridScene):
         self._preview_item: ControlLogicItem | None = None
         self._connection_preview: QGraphicsLineItem | None = None
         self._port_positions: dict[tuple[str, str, str], tuple[float, float]] = {}
+        self._provenance_navigation_callback = None
 
     @property
     def control_read_model(self):
@@ -200,10 +202,19 @@ class ControlCanvas(GridScene):
             if item is not None:
                 item.setLine(source[0], source[1], target[0], target[1])
 
+    def set_provenance_navigation_callback(self, callback: Any | None) -> None:
+        if callback is not None and not callable(callback):
+            raise TypeError("provenance navigation callback must be callable or None.")
+        self._provenance_navigation_callback = callback
+
     def project_signal_provenance(self, provenance: tuple[Any, ...] = ()) -> None:
         """Overlay canonical signal/cable identity at matching Control input ports."""
         if not provenance:
             return
+        protection_by_signal: dict[str, list[Any]] = {}
+        for candidate in provenance:
+            if candidate.endpoint_kind == "PROTECTION_INPUT":
+                protection_by_signal.setdefault(candidate.signal_id, []).append(candidate)
         for item in provenance:
             if item.endpoint_kind != "CONTROL_INPUT":
                 continue
@@ -212,10 +223,19 @@ class ControlCanvas(GridScene):
             )
             if position is None:
                 continue
-            label = QGraphicsTextItem(item.short_label)
+            peers = protection_by_signal.get(item.signal_id, ())
+            peer = peers[0] if len(peers) == 1 else None
+            detail = item.detail_text
+            if peer is not None:
+                detail += "\nDouble-click to locate the matching Protection input."
+            label = SignalProvenanceItem(
+                item.short_label, detail,
+                target_editor="protection" if peer is not None else None,
+                target_object_id=str(peer.owner_id) if peer is not None else None,
+                navigate=self._provenance_navigation_callback,
+            )
             label.setPos(float(position[0]) + 7.0, float(position[1]) - 13.0)
             label.setZValue(20.0)
-            label.setToolTip(item.detail_text)
             self.addItem(label)
 
     def component_at(self, x: float, y: float) -> ControlLogicItem | None:
