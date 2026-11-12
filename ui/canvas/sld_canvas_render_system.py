@@ -25,6 +25,7 @@ from .sld_graphics_item_factory import SLDGraphicsItemFactory
 from .draft_sld_projection import DraftSLDCanvasSnapshot, DraftSLDCanvasNode, DraftSLDCanvasConnection
 from .draft_presentation_factory import DraftPresentationFactory
 from ui.styling.presentation_style import VisualState
+from ui.items.signal_provenance_item import SignalProvenanceItem
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -108,6 +109,10 @@ class SLDCanvasRenderSystem:
         self._degraded_diagnostics: dict[str, RenderDiagnostic] = {}
         self._reported_diagnostics: dict[str, tuple[str, ...]] = {}
         self._render_diagnostics: tuple[RenderDiagnostic, ...] = ()
+        self._provenance_navigation_callback: Callable[[str, str], None] | None = None
+        self._signal_provenance_targets: dict[str, tuple[dict[str, Any], ...]] = {}
+        self._connection_signal_ids: dict[str, tuple[str, ...]] = {}
+        self._provenance_items: dict[str, tuple[Any, ...]] = ()
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
@@ -195,6 +200,69 @@ class SLDCanvasRenderSystem:
     def unsupported_connections(self) -> dict[str, str]:
         """Return authored connection IDs whose presentation could not be realized."""
         return dict(self._unsupported_connections)
+
+    def set_provenance_navigation_callback(self, callback: Callable[[str, str], None] | None) -> None:
+        """Bind host-owned cross-editor navigation for SLD physical routes."""
+        if callback is not None and not callable(callback):
+            raise TypeError("provenance navigation callback must be callable or None.")
+        self._provenance_navigation_callback = callback
+        self._refresh_signal_provenance_items()
+
+    def set_signal_provenance_targets(self, targets: dict[str, tuple[dict[str, Any], ...]]) -> None:
+        """Project detached Control/Protection targets onto canonical SLD signal routes."""
+        if not isinstance(targets, dict):
+            raise TypeError("targets must be a mapping of signal IDs to target records.")
+        normalized: dict[str, tuple[dict[str, Any], ...]] = {}
+        for signal_id, entries in targets.items():
+            if not isinstance(signal_id, str) or not signal_id.strip():
+                raise ValueError("signal provenance target keys must be non-empty signal IDs.")
+            values = tuple(entries)
+            if any(not isinstance(item, dict) for item in values):
+                raise TypeError("signal provenance target entries must be mappings.")
+            normalized[signal_id] = values
+        self._signal_provenance_targets = normalized
+        self._refresh_signal_provenance_items()
+
+    def _refresh_signal_provenance_items(self) -> None:
+        """Rebuild transient, clickable labels without changing SLD or Core records."""
+        for connection_id, labels in tuple(self._provenance_items.items()):
+            for label in labels:
+                if label is not None and label.scene() is self._scene:
+                    self._scene.removeItem(label)
+            items = self._items.get(connection_id, ())
+            if items:
+                self._items[connection_id] = (items[0],)
+        self._provenance_items.clear()
+
+        for connection_id, signal_ids in self._connection_signal_ids.items():
+            items = self._items.get(connection_id, ())
+            if not items:
+                continue
+            route_item = items[0]
+            bounds = route_item.sceneBoundingRect()
+            labels: list[Any] = []
+            row = 0
+            for signal_id in signal_ids:
+                for target in self._signal_provenance_targets.get(signal_id, ()):
+                    label = SignalProvenanceItem(
+                        str(target.get("label", signal_id)),
+                        str(target.get("detail", "")),
+                        target_editor=target.get("target_editor"),
+                        target_object_id=target.get("target_object_id"),
+                        navigate=self._provenance_navigation_callback,
+                    )
+                    label.setPos(
+                        float(bounds.center().x()) + 6.0,
+                        float(bounds.center().y()) - 12.0 + row * 15.0,
+                    )
+                    label.setScale(0.65)
+                    label.setZValue(self._layer_z(0, self.ANNOTATION_Z_VALUE + 5.0))
+                    self._scene.addItem(label)
+                    labels.append(label)
+                    row += 1
+            if labels:
+                self._items[connection_id] = (route_item, *labels)
+                self._provenance_items[connection_id] = tuple(labels)
 
     def bind_selection_manager(self, selection_manager: Any) -> None:
         """Bind the canonical transient SelectionManager for presentation reconciliation."""
@@ -332,6 +400,13 @@ class SLDCanvasRenderSystem:
         if not isinstance(draft, DraftSLDCanvasSnapshot):
             raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
         draft_layers = {layer.layer_id: layer for layer in draft.layers}
+        self._connection_signal_ids = {
+            connection.connection_id: tuple(
+                str(value) for value in connection.properties.get("signal_ids", ())
+            )
+            for connection in committed.connections
+            if connection.projection_source == "instrumentation_wiring"
+        }
 
         self._unsupported_presentations.clear()
         self._unsupported_connections.clear()
@@ -817,6 +892,7 @@ class SLDCanvasRenderSystem:
             self._render_signatures[render_id] = signature
 
         self._reflow_annotation_layout()
+        self._refresh_signal_provenance_items()
 
     def _reflow_annotation_layout(self) -> None:
         """Resolve label collisions using rendered scene bounds and transient scaling."""
@@ -1156,6 +1232,8 @@ class SLDCanvasRenderSystem:
                     _LOGGER.exception("Failed to remove SLD graphics item %s from scene", item_id)
         finally:
             self._render_signatures.pop(item_id, None)
+            self._connection_signal_ids.pop(item_id, None)
+            self._provenance_items.pop(item_id, None)
             self._annotation_base_visibility.pop(item_id, None)
             self._annotation_priorities.pop(item_id, None)
             self._degraded_diagnostics.pop(item_id, None)
@@ -1172,6 +1250,8 @@ class SLDCanvasRenderSystem:
             except Exception:
                 _LOGGER.exception("Failed to clear SLD snap candidates")
         self._render_signatures.clear()
+        self._connection_signal_ids.clear()
+        self._provenance_items.clear()
         self._annotation_base_visibility.clear()
         self._annotation_priorities.clear()
         self._degraded_node_ids.clear()
