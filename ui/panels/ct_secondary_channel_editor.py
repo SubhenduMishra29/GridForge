@@ -164,7 +164,7 @@ class CTSecondaryChannelEditor(QGroupBox):
 
     def _on_measurement_channel_changed(self, event: MeasurementChannelChanged) -> None:
         payload = getattr(event, "payload", {})
-        source_id = payload.get("source_id") if isinstance(payload, dict) else None
+        source_id = payload.get("source_id") if callable(getattr(payload, "get", None)) else None
         if self._target_id is not None and source_id in {None, self._target_id}:
             self._refresh_channels()
 
@@ -329,7 +329,7 @@ class CTSecondaryChannelEditor(QGroupBox):
             "source": self._target_id,
             "source_terminal": {
                 "kind": "terminal",
-                "equipment_type": "current_transformer",
+                "equipment_type": "ct",
                 "object_id": self._target_id,
                 "terminal_role": terminal_role,
             },
