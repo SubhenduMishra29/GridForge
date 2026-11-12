@@ -4555,3 +4555,19 @@ Verification:
 - Source and test changes were committed and fetched back from the feature branch.
 - No Python syntax/import execution, tests, project activation runtime, save/reopen, or Qt GUI checks were executed.
 ======================================================================
+
+
+Control runtime reconciliation clarification — same batch:
+- Static inspection of ControlSignalMapping.resolve() showed that runtime
+  resolution supports the "measurement" and "core" source domains, but not an
+  "instrumentation" source domain.
+- Corrected instrumentation-to-Control reconciliation to require the
+  persisted SignalDefinition.measurement_channel_id and a ControlSignalSource
+  referencing that exact ID through domain="measurement",
+  element_type="measurement_channel", signal="value" (or the exact supported
+  engineering-value/type alias).
+- Legacy/unsupported Control source domain="instrumentation" is now rejected
+  by the project-wide reconciliation rather than incorrectly passing a
+  binding that Control runtime cannot resolve.
+- Generic MeasurementChannel sources with no instrumentation SignalDefinition
+  association remain outside this instrumentation-specific validator.
