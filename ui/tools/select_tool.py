@@ -245,13 +245,6 @@ class SelectTool(ToolBase):
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
         key = self._event_key(event)
-        if key in {16777223, 127}:  # Qt.Key_Delete
-            dispatch = getattr(self.get_controller(), "delete_selection", None)
-            if not callable(dispatch):
-                # Do not consume Delete in a partially composed tool host.
-                return False
-            dispatch()
-            return True
         if key == 16777216 or key in ("Escape", "escape"):  # Qt.Key_Escape
             return self.on_cancel()
         if key in (71, "G", "g"):  # Grab: arm the next pointer drag for the selected group.
