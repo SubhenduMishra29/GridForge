@@ -239,23 +239,15 @@ class GeneratorAugmentedDAEAdapter:
         returning False stops cleanly without creating a synthetic checkpoint.
         This method does not restore solver internals or own study cancellation.
         """
-        if isinstance(step_sizes_s_sentinel := step_sizes_s, (str, bytes)) or not isinstance(
-            step_sizes_s_sentinel, Sequence
-        ):
+        if isinstance(step_sizes_s, (str, bytes)) or not isinstance(step_sizes_s, Sequence):
             raise TypeError("step_sizes_s must be an ordered sequence")
-        if not step_sizes_s:
+        intervals = tuple(step_sizes_s)
+        if not intervals:
             raise ValueError("step_sizes_s must contain at least one continuation interval")
         if continue_predicate is not None and not callable(continue_predicate):
             raise TypeError("continue_predicate must be callable when supplied")
-        state = self.restore_checkpoint_state(
-            checkpoint,
-            expected_identity=expected_identity,
-        )
-        current_time = float(checkpoint.simulation_time_s)
-        accepted: list[GeneratorAugmentedStepResult] = []
-        for index, raw_interval in enumerate(step_sizes_s):
-            if continue_predicate is not None and not continue_predicate(current_time, index):
-                break
+        validated_intervals: list[float] = []
+        for index, raw_interval in enumerate(intervals):
             if (
                 isinstance(raw_interval, bool)
                 or not isinstance(raw_interval, (int, float))
@@ -265,10 +257,20 @@ class GeneratorAugmentedDAEAdapter:
                 raise GeneratorAugmentedIntegratorError(
                     f"continuation step size at index {index} must be finite and positive"
                 )
+            validated_intervals.append(float(raw_interval))
+        state = self.restore_checkpoint_state(
+            checkpoint,
+            expected_identity=expected_identity,
+        )
+        current_time = float(checkpoint.simulation_time_s)
+        accepted: list[GeneratorAugmentedStepResult] = []
+        for index, interval in enumerate(validated_intervals):
+            if continue_predicate is not None and not continue_predicate(current_time, index):
+                break
             result = self.step(
                 state,
                 current_time,
-                float(raw_interval),
+                interval,
                 accepted_step_observer=accepted_step_observer,
             )
             if result.simulation_time_s <= current_time:
