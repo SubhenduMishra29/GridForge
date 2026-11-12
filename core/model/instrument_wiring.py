@@ -232,6 +232,71 @@ class SignalCarrierBinding:
 
 
 
+class SignalEndpointKind(str, Enum):
+    """Explicit logical endpoint category for a signal designation."""
+
+    MEASUREMENT_CHANNEL = "MEASUREMENT_CHANNEL"
+    CONTROL_INPUT = "CONTROL_INPUT"
+    PROTECTION_INPUT = "PROTECTION_INPUT"
+
+
+@dataclass(frozen=True, slots=True)
+class SignalEndpointReference:
+    """Stable reference to an existing logical signal endpoint.
+
+    MEASUREMENT_CHANNEL: endpoint_id is the MeasurementChannel ID.
+    CONTROL_INPUT: owner_id is Control ID, endpoint_id is component ID,
+    and port is the input name.
+    PROTECTION_INPUT: owner_id is protection element ID, endpoint_id is
+    ProtectionMeasurementBinding ID, and port is the relay-input ID.
+    """
+
+    kind: SignalEndpointKind
+    endpoint_id: str
+    owner_id: Optional[str] = None
+    port: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, SignalEndpointKind):
+            raise TypeError("kind must be a SignalEndpointKind.")
+        object.__setattr__(self, "endpoint_id", _required_text(self.endpoint_id, "endpoint_id"))
+        object.__setattr__(self, "owner_id", _optional_text(self.owner_id, "owner_id"))
+        object.__setattr__(self, "port", _optional_text(self.port, "port"))
+        if self.kind is SignalEndpointKind.MEASUREMENT_CHANNEL:
+            if self.owner_id is not None or self.port is not None:
+                raise ValueError("MeasurementChannel endpoint references use endpoint_id only.")
+        elif self.kind is SignalEndpointKind.CONTROL_INPUT:
+            if self.owner_id is None or self.port is None:
+                raise ValueError("Control input references require control owner_id and input port.")
+        elif self.kind is SignalEndpointKind.PROTECTION_INPUT:
+            if self.owner_id is None or self.port is None:
+                raise ValueError("Protection input references require protection element owner_id and relay-input port.")
+
+    @property
+    def identity(self) -> tuple[str, str, Optional[str], Optional[str]]:
+        return self.kind.value, self.endpoint_id, self.owner_id, self.port
+
+
+@dataclass(frozen=True, slots=True)
+class SignalEndpointBinding:
+    """Binds one signal designation to one explicit logical endpoint."""
+
+    id: str
+    signal_id: str
+    endpoint: SignalEndpointReference
+    direction: str = "SOURCE_TO_SINK"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _required_text(self.id, "id"))
+        object.__setattr__(self, "signal_id", _required_text(self.signal_id, "signal_id"))
+        if not isinstance(self.endpoint, SignalEndpointReference):
+            raise TypeError("endpoint must be a SignalEndpointReference.")
+        direction = _required_text(self.direction, "direction").upper()
+        if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
+            raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
+        object.__setattr__(self, "direction", direction)
+
+
 @dataclass(frozen=True, slots=True)
 class WiringTagSeries:
     """Explicit project-defined sequential tag series for one record category."""
@@ -317,6 +382,7 @@ class InstrumentationWiringInventory:
     signals: tuple[SignalDefinition, ...] = ()
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
     tag_policy: WiringTagPolicy = WiringTagPolicy()
+    endpoint_bindings: tuple[SignalEndpointBinding, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
@@ -327,6 +393,7 @@ class InstrumentationWiringInventory:
             ("panel_wires", self.panel_wires, PanelWire),
             ("signals", self.signals, SignalDefinition),
             ("signal_bindings", self.signal_bindings, SignalCarrierBinding),
+            ("endpoint_bindings", self.endpoint_bindings, SignalEndpointBinding),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -383,6 +450,17 @@ class InstrumentationWiringInventory:
                     "for a different carrier kind."
                 )
 
+        endpoint_keys: set[tuple[str, str, Optional[str], Optional[str]]] = set()
+        for binding in self.endpoint_bindings:
+            if binding.signal_id not in signal_ids:
+                raise ValueError(
+                    f"Signal endpoint binding '{binding.id}' references missing signal '{binding.signal_id}'."
+                )
+            key = binding.endpoint.identity
+            if key in endpoint_keys:
+                raise ValueError("A logical endpoint may have only one canonical signal designation.")
+            endpoint_keys.add(key)
+
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:
         tags = [record.tag for record in records]
@@ -400,6 +478,9 @@ __all__ = [
     "PanelWire",
     "SignalDefinition",
     "SignalCarrierBinding",
+    "SignalEndpointKind",
+    "SignalEndpointReference",
+    "SignalEndpointBinding",
     "WiringTagSeries",
     "WiringTagPolicy",
     "InstrumentationWiringInventory",
