@@ -608,3 +608,27 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
     assert tuple(item.status for item in result) == (
         "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED",
     )
+
+
+
+def test_physical_carrier_without_explicit_source_channel_ownership_fails_closed():
+    endpoint = _endpoint_binding(
+        "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+    )
+    base = _signal_inventory(endpoint)
+    unassigned = SignalCarrierBinding(
+        id="carrier-1", signal_id="signal-1",
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id="core-1",
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores, signals=base.signals,
+        signal_bindings=(unassigned,), endpoint_bindings=base.endpoint_bindings,
+    )
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(_channel(),),
+        control_signal_mapping=None,
+        protection_configuration=None,
+    )
+    assert result[0].status == "UNRESOLVED"
+    assert "without explicit MeasurementChannel ownership" in result[0].diagnostics[0]
