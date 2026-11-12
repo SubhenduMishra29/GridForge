@@ -385,3 +385,10 @@ This is not a slip-ring starter sequence or resistor-bank thermal model: resista
 A reduced-order RMS-envelope model is available for split-phase, capacitor-start, permanent-split-capacitor, capacitor-start/run and shaded-pole families. It tracks main and auxiliary winding current envelopes, auxiliary phase displacement, a starting-winding cutout approximation for split-phase/capacitor-start variants, torque estimate, rotor speed/position and lumped winding temperature.
 
 This is a comparative reduced-order envelope model, not a cycle-resolved double-revolving-field equivalent circuit. It omits spatial air-gap fields, rotor slot harmonics, magnetic saturation, detailed capacitor switching, centrifugal-switch mechanics, shading-coil eddy-current field solution, inverter switching and separate winding thermal nodes. Validate against manufacturer test data before engineering use. CPU/RK4 only; no GPU/NPU capability is declared.
+
+
+## Universal series-wound commutator motor (experimental)
+
+The universal motor profile has a distinct series-field CPU model for AC and DC supplies. Armature and series-field current are the same state, with separate resistance and inductance contributions, a saturating field-flux approximation, electromagnetic torque, back EMF, speed/position, copper losses and lumped winding temperature. AC input is represented by an averaged rectified voltage envelope; DC uses its supplied voltage directly.
+
+This is not a cycle-resolved AC commutator model. Brush contact drop, commutation overlap, arcing, interpoles, armature reaction, magnetic hysteresis, field weakening and detailed thermal networks are omitted. The model is CPU/RK4 only and must be validated against manufacturer data before engineering use.
