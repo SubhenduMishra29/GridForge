@@ -112,13 +112,17 @@ temperature-detection lead/lag with `1/(1+s*Tfload)` and produces `TEXM`.
 This is a calculated model proxy, not a physical thermocouple model or an
 OEM firing-temperature map.
 
-The three requests `FSRN`, `FSRA`, and `FSRT` feed the minimum selector;
-its result is clamped to `[Vmin, Vmax]`, sent to the actuator, and fed back
-to the acceleration limiter. `Rup` and `Rdown` remain unimplemented source
-parameters in the OpenIPSL reference path and are not interchangeable with
-the actuator's `Ropen` and `Rclose`.
+The three requests `FSRN`, `FSRA`, and `FSRT` feed
+`GGOV1ControlCoordinator`. It applies the minimum selector followed by the
+common `[Vmin, Vmax]` clamp and returns an immutable decision. Pass its
+`actuator_command_pu` to the actuator and acceleration limiter, and pass the
+same value as `selected_fuel_command_pu` to PID/load-limiter derivative calls
+when their explicit tracking inputs are enabled. The decision also exposes
+final-command-minus-request errors for each active controller. The
+coordinator owns no dynamic state, clock or integration schedule. `Rup` and
+`Rdown` remain unimplemented source parameters in the OpenIPSL reference
+path and are not interchangeable with actuator `Ropen` and `Rclose`.
 
 These are reference-derived sub-blocks, not a complete integrated GGOV1
-plant model. Vendor-specific thermal maps, ambient compensation, complete
-tracking composition, delay execution, DAE integration and plant
+plant model. Vendor-specific thermal maps, ambient compensation, host scheduler/DELT ordering, delay execution, DAE integration and plant
 disturbance validation remain open.
