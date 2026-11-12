@@ -4898,4 +4898,8 @@ Verification:
   RTD lead compensation topology, shields/drains/armour/earth, and BTD/OTD/WTD.
 - Regression-test source was added but not executed. No import/startup,
   save/reopen, GUI or electrical runtime verification was performed.
+- Follow-up integration correction: added the temperature-sensor circuit to
+  the detached InstrumentationWiringReadModel and to the typed Application
+  add/update/remove record dispatch. Tag-policy-only candidate validation
+  also treats temperature sensor circuits as protected canonical records.
 
