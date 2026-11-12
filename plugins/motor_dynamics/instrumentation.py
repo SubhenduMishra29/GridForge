@@ -147,6 +147,27 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("feedback.encoder_speed", "Encoder speed feedback", X, N, "rpm", ("control","commissioning")),
                 _p("feedback.resolver_position", "Resolver position feedback", X, N, "deg", ("control","commissioning")),
                 _p("feedback.hall_state", "Hall sensor commutation state", D, N, "state", ("control","diagnostics"))]
+    if family == MotorFamily.SYNCHRONOUS_RELUCTANCE:
+        pts += [
+            _p("drive.d_axis_current_reference", "d-axis current reference", C, N, "A", ("control","diagnostics")),
+            _p("drive.q_axis_current_reference", "q-axis current reference", C, N, "A", ("control","diagnostics")),
+            _p("machine.d_axis_inductance", "d-axis inductance", X, N, "H", ("analysis","commissioning")),
+            _p("machine.q_axis_inductance", "q-axis inductance", X, N, "H", ("analysis","commissioning")),
+            _p("machine.reluctance_torque", "Reluctance torque component", X, N, "N.m", ("analysis","monitoring")),
+        ]
+    if family == MotorFamily.SWITCHED_RELUCTANCE:
+        pts += [
+            _p("drive.phase_a_voltage_command", "SRM phase-A voltage command", V, A, "V", ("control","diagnostics")),
+            _p("drive.phase_b_voltage_command", "SRM phase-B voltage command", V, B, "V", ("control","diagnostics")),
+            _p("drive.phase_c_voltage_command", "SRM phase-C voltage command", V, CPH, "V", ("control","diagnostics")),
+            _p("drive.phase_a_current_reference", "SRM phase-A current reference", C, A, "A", ("control","diagnostics")),
+            _p("drive.phase_b_current_reference", "SRM phase-B current reference", C, B, "A", ("control","diagnostics")),
+            _p("drive.phase_c_current_reference", "SRM phase-C current reference", C, CPH, "A", ("control","diagnostics")),
+            _p("machine.phase_a_inductance", "SRM phase-A inductance", X, A, "H", ("analysis","commissioning")),
+            _p("machine.phase_b_inductance", "SRM phase-B inductance", X, B, "H", ("analysis","commissioning")),
+            _p("machine.phase_c_inductance", "SRM phase-C inductance", X, CPH, "H", ("analysis","commissioning")),
+            _p("drive.rotor_alignment_position", "Rotor alignment position", X, N, "deg", ("control","diagnostics")),
+        ]
     if family == MotorFamily.BRUSHLESS_DC:
         # Drive telemetry is distinct from motor-terminal CT/VT measurements.
         # Optional points are provisioned only when the inverter exposes them.

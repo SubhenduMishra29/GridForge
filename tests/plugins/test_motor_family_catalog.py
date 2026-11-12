@@ -36,6 +36,8 @@ def test_dynamic_solver_availability_is_explicit_by_family() -> None:
     assert motor_family_profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS).dynamic_model == "pmsm_dq"
     assert motor_family_profile(MotorFamily.TRACTION_PERMANENT_MAGNET).dynamic_model == "pmsm_dq"
     assert motor_family_profile(MotorFamily.BRUSHLESS_DC).dynamic_model == "bldc_trapezoidal"
+    assert motor_family_profile(MotorFamily.SYNCHRONOUS_RELUCTANCE).dynamic_model == "synrm_dq"
+    assert motor_family_profile(MotorFamily.SWITCHED_RELUCTANCE).dynamic_model == "srm_phase_inductance"
 
 
 
@@ -262,3 +264,68 @@ def test_bldc_instrumentation_exposes_commutation_and_phase_back_emf_points() ->
     }.issubset(points)
     assert points["drive.commutation_sector"].unit == "sector"
     assert points["machine.phase_a_back_emf"].unit == "V"
+
+
+
+from plugins.motor_dynamics.transient_solver import SynRMParameters, solve_synrm_transient_cpu, SRMParameters, solve_srm_transient_cpu
+
+
+def _synrm_parameters(**kw):
+    values=dict(stator_resistance_ohm=0.42,d_axis_inductance_h=0.018,q_axis_inductance_h=0.006,pole_pairs=2,inertia_kg_m2=0.012,thermal_capacity_j_k=3500.,thermal_conductance_w_k=20.)
+    values.update(kw); return SynRMParameters(**values)
+
+
+def test_synrm_reluctance_torque_and_shared_solver_channels():
+    import numpy as np
+    p=_synrm_parameters()
+    result=solve_synrm_transient_cpu("synrm-01",p,0.02,0.0001,stator_voltage_d_v=12.,stator_voltage_q_v=18.,load_torque_nm=0.02)
+    channels=result.channels(p)
+    assert result.backend=="cpu-rk4" and result.sample_count==201
+    assert np.isfinite(result.state_data).all() and channels["electromagnetic_torque_nm"][-1]>0
+    assert not result.state_data.flags.writeable
+
+
+def test_synrm_zero_voltage_rest_and_profile_validation():
+    result=solve_synrm_transient_cpu("synrm-rest",_synrm_parameters(),0.01,0.001,stator_voltage_d_v=0.,stator_voltage_q_v=0.)
+    assert result.state("rotor_speed_rad_s")[-1]==pytest.approx(0.)
+    with pytest.raises(ValueError,match="stator_voltage_d_v profile must contain exactly"):
+        solve_synrm_transient_cpu("synrm-bad",_synrm_parameters(),0.01,0.001,stator_voltage_d_v=[0.]*5,stator_voltage_q_v=0.)
+
+
+def test_synrm_requires_positive_saliency():
+    with pytest.raises(ValueError,match="d-axis inductance must exceed"):
+        _synrm_parameters(d_axis_inductance_h=0.005,q_axis_inductance_h=0.006)
+
+
+def _srm_parameters(**kw):
+    values=dict(phase_resistance_ohm=0.28,unaligned_inductance_h=0.0015,aligned_inductance_h=0.012,rotor_poles=6,inertia_kg_m2=0.009,saturation_current_a=80.,thermal_capacity_j_k=3200.,thermal_conductance_w_k=19.)
+    values.update(kw); return SRMParameters(**values)
+
+
+def test_srm_position_dependent_inductance_and_torque_channels():
+    import numpy as np
+    p=_srm_parameters()
+    result=solve_srm_transient_cpu("srm-01",p,0.02,0.0001,phase_a_voltage_v=24.,phase_b_voltage_v=0.,phase_c_voltage_v=0.,load_torque_nm=0.01)
+    ch=result.channels(p)
+    assert result.backend=="cpu-rk4" and result.sample_count==201
+    assert np.isfinite(result.state_data).all()
+    assert np.all(ch["phase_a_inductance_h"]>=p.unaligned_inductance_h)
+    assert np.all(ch["phase_a_inductance_h"]<=p.aligned_inductance_h)
+    assert not ch["electromagnetic_torque_nm"].flags.writeable
+
+
+def test_srm_zero_voltage_rest_and_parameter_validation():
+    result=solve_srm_transient_cpu("srm-rest",_srm_parameters(),0.01,0.001,phase_a_voltage_v=0.,phase_b_voltage_v=0.,phase_c_voltage_v=0.)
+    assert result.state("rotor_speed_rad_s")[-1]==pytest.approx(0.)
+    assert result.state("phase_a_current_a")[-1]==pytest.approx(0.)
+    with pytest.raises(ValueError,match="aligned_inductance_h must exceed"):
+        _srm_parameters(aligned_inductance_h=0.001)
+    with pytest.raises(ValueError,match="rotor_poles must be"):
+        _srm_parameters(rotor_poles=1)
+
+
+def test_reluctance_motor_instrumentation_is_family_specific():
+    synrm={p.point_id for p in motor_measurement_points(MotorFamily.SYNCHRONOUS_RELUCTANCE)}
+    srm={p.point_id for p in motor_measurement_points(MotorFamily.SWITCHED_RELUCTANCE)}
+    assert {"drive.d_axis_current_reference","drive.q_axis_current_reference","machine.d_axis_inductance","machine.q_axis_inductance","machine.reluctance_torque"}.issubset(synrm)
+    assert {"drive.phase_a_voltage_command","drive.phase_b_voltage_command","drive.phase_c_voltage_command","machine.phase_a_inductance","machine.phase_b_inductance","machine.phase_c_inductance","drive.rotor_alignment_position"}.issubset(srm)

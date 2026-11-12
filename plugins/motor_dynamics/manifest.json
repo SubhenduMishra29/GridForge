@@ -4,7 +4,7 @@
   "name": "Multi-Physics Dynamic Motor Extension",
   "version": "2.0.0",
   "api_version": "V2.0",
-  "description": "Family-aware motor catalogue and instrumentation with experimental induction dq, PMSM dq and BLDC trapezoidal phase-domain CPU transient models.",
+  "description": "Family-aware motor catalogue and instrumentation with experimental induction dq, PMSM dq, BLDC phase-domain, SynRM dq and SRM phase-inductance CPU transient models.",
   "author": "Subhendu Mishra",
   "entry_point": "plugin.MotorDynamicsPlugin",
   "capabilities": [
@@ -20,7 +20,9 @@
     "family_specific_instrumentation",
     "canonical_measurement_channel_provisioning",
     "pmsm_dq_cpu_transient",
-    "bldc_trapezoidal_cpu_transient"
+    "bldc_trapezoidal_cpu_transient",
+    "synrm_dq_cpu_transient",
+    "srm_phase_inductance_cpu_transient"
   ],
   "runtime": {
     "python": ">=3.10",

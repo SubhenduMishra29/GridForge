@@ -351,3 +351,14 @@ This is an experimental CPU/RK4 reference model. It does not simulate PWM carrie
 
 
 BLDC instrumentation also exposes optional inverter commutation-sector and phase-duty telemetry, Hall state, and per-phase back-EMF points. These are provisioned only when actual drive/source endpoints are configured; the plugin does not fabricate sensor channels.
+
+
+## Synchronous-reluctance motor (SynRM) transient model (experimental)
+
+`solve_synrm_transient_cpu(...)` implements a rotor-aligned dq current model with d/q inductance saliency, reluctance torque, mechanical inertia/friction and a lumped winding thermal state. It accepts d/q stator-voltage and load-torque profiles and uses the shared Core RK4 engine. This linear model requires Ld > Lq. It excludes magnetic saturation, iron loss, cross-saturation, PWM switching and inverter current-loop control.
+
+## Switched-reluctance motor (SRM) transient model (experimental)
+
+`solve_srm_transient_cpu(...)` implements a three-phase averaged phase-domain model. Each phase has rotor-position-dependent inductance, an approximate current-saturation correction, phase voltage input, copper loss and phase torque contribution T = sum(0.5 * i_phase^2 * dL_phase/dtheta). The cosine inductance profile is a reduced-order analytical approximation, not measured nonlinear flux-linkage maps. Asymmetric-bridge switching, current chopping, demagnetisation paths, hysteresis, mutual coupling and detailed saturation are not modeled.
+
+Both are experimental CPU reference solvers using the shared Core numerical RK4 engine. No GPU/NPU capability is declared for these state-recurrent models.

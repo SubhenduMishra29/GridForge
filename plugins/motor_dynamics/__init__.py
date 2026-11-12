@@ -14,6 +14,8 @@ from .transient_solver import (
     BLDCParameters,
     BLDCSimulationResult,
     solve_bldc_transient_cpu,
+    SynRMParameters, SynRMSimulationResult, solve_synrm_transient_cpu,
+    SRMParameters, SRMSimulationResult, solve_srm_transient_cpu,
 )
 
 __all__ = [
@@ -29,6 +31,8 @@ __all__ = [
     "BLDCParameters",
     "BLDCSimulationResult",
     "solve_bldc_transient_cpu",
+    "SynRMParameters", "SynRMSimulationResult", "solve_synrm_transient_cpu",
+    "SRMParameters", "SRMSimulationResult", "solve_srm_transient_cpu",
     "solve_transient_cpu",
     "solve_transient_batch",
     "cuda_available",
