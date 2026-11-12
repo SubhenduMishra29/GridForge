@@ -11,7 +11,7 @@ from core.application.read_models import (
 )
 
 
-def _wiring():
+def _wiring(accessory_state="CLOSED"):
     return InstrumentationWiringReadModel(
         project_id="project-1",
         activation_generation=7,
@@ -97,7 +97,7 @@ def _wiring():
         ),
         terminal_accessories=({
             "id": "link-1", "tag": "TB-101-L1", "terminal_block_id": "TB-101",
-            "kind": "TEST_DISCONNECT", "state": "OPEN",
+            "kind": "TEST_DISCONNECT", "state": accessory_state,
             "terminal_point_ids": ("tb-point-1", "tb-point-2"),
             "conductive_pairs": (("tb-point-1", "tb-point-2"),),
         },),
@@ -135,7 +135,7 @@ def test_schedules_derive_cable_core_terminal_loop_and_point_to_point_rows():
     assert schedules.core_schedule[0]["signal_tags"] == ("IA_A",)
     assert schedules.terminal_plan[0]["terminals"][0]["terminal_point_id"] == "tb-point-1"
     assert schedules.terminal_plan[0]["terminals"][0]["connected_carriers"][0]["carrier_tag"] == "IC-101/1"
-    assert schedules.terminal_plan[0]["accessories"][0]["state"] == "OPEN"
+    assert schedules.terminal_plan[0]["accessories"][0]["state"] == "CLOSED"
     assert schedules.instrument_loop_schedule[0]["resolution_status"] == "RESOLVED"
     assert len(schedules.interconnection_list) == 2
     assert len(schedules.point_to_point_list) == 2
@@ -143,7 +143,7 @@ def test_schedules_derive_cable_core_terminal_loop_and_point_to_point_rows():
 
 
 def test_schedules_propagate_unresolved_endpoint_diagnostics():
-    schedules = build_instrumentation_wiring_schedules(_wiring(), _resolutions("UNRESOLVED"))
+    schedules = build_instrumentation_wiring_schedules(_wiring("OPEN"), _resolutions("UNRESOLVED"))
     loop = schedules.instrument_loop_schedule[0]
     assert loop["resolution_status"] == "UNRESOLVED"
     assert "Terminal link is open." in loop["diagnostics"]
