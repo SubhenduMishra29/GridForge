@@ -4079,10 +4079,14 @@ Correction:
 - MeasurementChannel references resolve only by stable channel ID.
 - Control references require an exact Control ID/component ID/input-name
   destination match. Measurement-domain Control sources additionally require
-  the same signal designation to reference that exact active channel.
+  the same signal designation to reference that exact active channel; Core
+  signal sources are resolved through the Application read service.
 - Protection references require the exact ProtectionMeasurementBinding ID,
   matching protection element and relay input, configured channel agreement,
   and a matching signal-to-MeasurementChannel endpoint reference.
+- MeasurementChannel read models expose detached source equipment and
+  terminal identities; the resolver requires the exact source terminal to
+  occur on a signal-bound cable core or panel wire.
 - Explicit residual-current bindings are checked against the configured
   ANSI 50N/51N residual source membership; unsupported residual endpoint
   use fails closed.
@@ -4091,14 +4095,14 @@ Correction:
   display-name or proximity inference is performed.
 - Exposed the resolver through Application.read_instrumentation_wiring_endpoint_resolution().
 - Added regression-test source for channel, Control and Protection endpoint
-  resolution and missing-target diagnostics.
+  resolution, missing-target diagnostics and source-terminal mismatch.
 
 Boundary:
 - The resolver does not alter ControlSignalMapping, ProtectionMeasurementBinding,
   MeasurementChannel runtime state or execution semantics.
-- It does not yet validate physical signal-carrier continuity against channel
-  source terminal metadata, nor project provenance into the Control and
-  Protection canvases. Those remain open #1203 work.
+- Full multi-segment carrier continuity, terminal-block/jumper reconciliation,
+  canvas provenance projection, cross-canvas navigation and schedules remain
+  open #1203 work.
 
 Verification:
 - Source-level review only; no tests, CI, imports, startup, GUI or
