@@ -39,6 +39,7 @@ __all__ = [
     "HYGOVReducedParameters", "HYGOVReducedHydroGovernor", "GGOV1Parameters",
     "GGOV1PIDGovernor", "GGOV1ValveActuator", "GGOV1TurbineFuelPath",
     "GGOV1LowValueSelector", "GGOV1Selection", "GGOV1ControlCoordinator",
-    "GGOV1ControlDecision", "GGOV1OperatingPoint",\n    "calculate_ggov1_operating_point", "GGOV1AccelerationLimiter",
+    "GGOV1ControlDecision", "GGOV1OperatingPoint",
+    "calculate_ggov1_operating_point", "GGOV1AccelerationLimiter",
     "GGOV1LoadLimiter", "GGOV1TemperatureMeasurement",
 ]
