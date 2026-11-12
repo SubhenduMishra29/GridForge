@@ -32,6 +32,8 @@ class SLDPhysicalWiringSegment:
     signal_tags: tuple[str, ...] = ()
     signal_ids: tuple[str, ...] = ()
     label_signal_ids: tuple[str, ...] = ()
+    source_terminal_point_id: str | None = None
+    target_terminal_point_id: str | None = None
     route: SLDRoute = SLDRoute()
 
 
@@ -213,6 +215,8 @@ class SLDInstrumentationWiringAdapter:
                 signal_tags=signal_tags,
                 signal_ids=signal_ids,
                 label_signal_ids=signal_ids if index == len(endpoints) - 2 else (),
+                source_terminal_point_id=endpoints[index].get("terminal_point_id"),
+                target_terminal_point_id=endpoints[index + 1].get("terminal_point_id"),
                 route=SLDRoute.from_dict(route_overrides[f"{carrier_kind}:{carrier_id}:{index + 1}"]) if f"{carrier_kind}:{carrier_id}:{index + 1}" in route_overrides else SLDRoute(),
             )
             for index in range(len(endpoints) - 1)
