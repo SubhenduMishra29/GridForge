@@ -4426,3 +4426,29 @@ Limitations:
 Verification:
 - Source files and test source were committed and fetched back from the feature branch.
 - No tests, Python imports, GUI interactions, schedule exports, or project save/reopen checks were executed.
+
+======================================================================
+GridForge V2 — Fail-closed instrumentation receiver compatibility
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Canonical SignalDefinition and carrier bindings were not checked against the existing Control destination contract or Protection function/input contract before a signal loop could be considered compatible.
+- SignalKind.ANALOG, TEMPERATURE, COMMUNICATION and CUSTOM do not, by themselves, establish a specific MeasurementSignalType or receiver engineering semantics. Exact unit conversion cannot be inferred.
+
+Correction:
+- Added Application-level validate_control_receiver() using the existing ControlSignalDestination accepted type/phase/unit declarations.
+- Added validate_protection_receiver() using the canonical Protection function catalog and ProtectionInputContract for the exact function/input pair.
+- Only explicitly defensible signal-kind mappings are accepted (CURRENT, VOLTAGE, DIGITAL). Ambiguous/unmapped kinds fail closed.
+- Required phase and unit declarations are checked; units are exact-match only and no scaling/conversion is inferred.
+- Unsupported Protection functions/inputs and unsupported catalog contracts return explicit incompatibility diagnostics.
+- Exported the validators and added source regression coverage for valid matches, unit/phase mismatch, missing metadata, ambiguous signal kinds and unsupported Protection contracts.
+
+Limitations:
+- This batch provides validation functions; it does not persist receiver bindings, alter ControlSignalMapping or ProtectionConfiguration, attach validation to a mutation/activation gate, or create duplicate signal definitions.
+- Temperature, analog generic, communication/fibre protocol, polarity, CT/PT/RTD/thermocouple semantics require explicit engineering contracts before they can be accepted.
+
+Verification:
+- Source and test files were committed and fetched from the feature branch.
+- No tests, Python imports, runtime Control/Protection evaluation, GUI, or project activation checks were executed.
