@@ -92,7 +92,7 @@ __all__ = [
     "GeneratorDynamicStageError", "GeneratorDynamicStageResult",
     "TerminalVoltageProjector", "ElectricalPowerEvaluator",
     "GeneratorMachineDerivativeEvaluator", "evaluate_generator_dynamic_stage",
-    "GeneratorNetworkStageError", "GeneratorNetworkStageRequest",
+    "GeneratorNetworkStageError",\n    "GeneratorNetworkConvergenceEvidence",\n    "GeneratorNetworkSolveResult", "GeneratorNetworkStageRequest",
     "GeneratorNetworkStageSolution", "GeneratorNetworkSolver",
     "solve_generator_network_stage",
 ]
