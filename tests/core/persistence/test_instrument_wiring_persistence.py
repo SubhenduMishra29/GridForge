@@ -724,3 +724,16 @@ def test_in_service_ct_open_secondary_requires_closed_explicit_shorting_link():
     ))
     with pytest.raises(ValueError, match="without a CLOSED"):
         InstrumentationWiringService._validate_ct_secondary_circuits(network, inventory)
+
+    from dataclasses import replace
+    closed_link = replace(shorting, state=TerminalAccessoryState.CLOSED)
+    normal_service_circuit = replace(circuit, secondary_state=CTSecondaryCircuitState.CLOSED)
+    normal_service_inventory = replace(
+        inventory,
+        terminal_accessories=(closed_link,),
+        ct_secondary_circuits=(normal_service_circuit,),
+    )
+    with pytest.raises(ValueError, match="requires the shorting link to be explicitly OPEN"):
+        InstrumentationWiringService._validate_ct_secondary_circuits(
+            network, normal_service_inventory
+        )
