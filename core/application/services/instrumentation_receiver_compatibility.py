@@ -269,10 +269,94 @@ def validate_protection_configuration_binding(
 
 
 
+def validate_inventory_receiver_bindings(
+    inventory: Any,
+    *,
+    control_mapping: Any,
+    protection_configuration: Any,
+    channels: Any,
+    signal_channel_ids: Any,
+) -> tuple[ReceiverCompatibility, ...]:
+    """Reconcile explicitly declared instrumentation receivers for one project snapshot.
+
+    signal_channel_ids is an explicit signal-ID -> MeasurementChannel-ID
+    mapping supplied by Application composition. No join by tag, description,
+    carrier, or list position is performed.
+    """
+    from collections.abc import Mapping
+    from core.model.instrument_wiring import InstrumentationWiringInventory
+    from core.application.control_signal_mapping import ControlSignalMapping
+    from core.protection.project_configuration import ProtectionProjectConfiguration
+
+    if not isinstance(inventory, InstrumentationWiringInventory):
+        raise TypeError("inventory must be an InstrumentationWiringInventory.")
+    if not isinstance(control_mapping, ControlSignalMapping):
+        raise TypeError("control_mapping must be a ControlSignalMapping.")
+    if not isinstance(protection_configuration, ProtectionProjectConfiguration):
+        raise TypeError("protection_configuration must be a ProtectionProjectConfiguration.")
+    if not isinstance(channels, Mapping) or not isinstance(signal_channel_ids, Mapping):
+        raise TypeError("channels and signal_channel_ids must be mappings.")
+
+    signals = {item.id: item for item in inventory.signals}
+    results: list[ReceiverCompatibility] = []
+
+    for binding in control_mapping.bindings:
+        source = binding.source
+        if source.domain != "instrumentation":
+            continue
+        signal = signals.get(source.object_id)
+        if signal is None or source.element_type != "signal":
+            results.append(ReceiverCompatibility(
+                False, "CONTROL", binding.destination.component_id,
+                binding.destination.input_name,
+                (f"Control mapping references unknown/non-signal instrumentation identity "
+                 f"{source.element_type!r}:{source.object_id!r}.",),
+            ))
+            continue
+        results.append(validate_control_mapping_binding(
+            signal, control_mapping, binding.destination
+        ))
+
+    channel_to_signal: dict[str, str] = {}
+    for signal_id, channel_id in signal_channel_ids.items():
+        if not isinstance(signal_id, str) or not isinstance(channel_id, str):
+            raise TypeError("signal_channel_ids must map string signal IDs to string channel IDs.")
+        if signal_id not in signals:
+            results.append(ReceiverCompatibility(
+                False, "PROTECTION", signal_id, channel_id,
+                (f"Explicit signal-to-channel mapping references unknown signal {signal_id!r}.",),
+            ))
+            continue
+        if channel_id in channel_to_signal:
+            results.append(ReceiverCompatibility(
+                False, "PROTECTION", channel_id, "CHANNEL",
+                (f"MeasurementChannel {channel_id!r} is mapped to more than one instrumentation signal.",),
+            ))
+            continue
+        channel_to_signal[channel_id] = signal_id
+
+    for element in protection_configuration.elements:
+        for input_name, channel_id in element.input_channel_ids.items():
+            signal_id = channel_to_signal.get(channel_id)
+            if signal_id is None:
+                continue
+            results.append(validate_protection_configuration_binding(
+                signals[signal_id],
+                protection_configuration,
+                element_id=element.element_id,
+                input_name=input_name,
+                channel_id=channel_id,
+                channels=channels,
+            ))
+
+    return tuple(results)
+
+
 __all__ = [
     "ReceiverCompatibility",
     "validate_control_receiver",
     "validate_protection_receiver",
     "validate_control_mapping_binding",
     "validate_protection_configuration_binding",
+    "validate_inventory_receiver_bindings",
 ]
