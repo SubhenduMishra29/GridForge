@@ -109,6 +109,8 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
                 "failure does not carry an accepted GeneratorAugmentedStepResult"
             )
         prior_steps = tuple(accepted_steps)
+        if any(not isinstance(step, GeneratorAugmentedStepResult) for step in prior_steps):
+            raise TypeError("accepted_steps must contain GeneratorAugmentedStepResult values")
         if prior_steps and accepted_step.simulation_time_s <= prior_steps[-1].simulation_time_s:
             raise ValueError("failed checkpoint time must follow all previously accepted steps")
         if termination is not None and not isinstance(termination, Mapping):
