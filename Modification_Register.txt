@@ -4662,3 +4662,52 @@ Protection consumer integration; canvas projections/schedules; runtime and
 save/reopen verification.
 
 ======================================================================
+
+
+======================================================================
+
+GridForge V2 — Project-configurable thermocouple extension/compensating cable catalogue
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Engineering basis:
+- IEC 60584-3:2021 distinguishes extension cables (same nominal conductor
+  composition as the corresponding thermocouple; designation suffix X) from
+  compensating cables (different conductor composition; designation suffix C).
+- Each cable is a specific positive/negative conductor pair. The pair must
+  have thermoelectric properties close to the corresponding thermocouple and
+  meet the applicable EMF tolerance class. GridForge does not infer alloy
+  compatibility from type labels, cable colour or free-text service.
+- The standard is referenced, not reproduced as a baked-in catalogue. The
+  project must explicitly approve cable designation, cable class, positive and
+  negative conductor material identifiers, standard reference and tolerance
+  class for each thermocouple type/designation pair.
+
+Implementation:
+- Added immutable TemperatureThermocoupleCableSpec and explicit EXTENSION /
+  COMPENSATING classification to the temperature inventory.
+- Catalogue entries are unique by thermocouple type + cable designation and
+  persist through the existing schema-1 temperature inventory codec. Older
+  payloads without this optional catalogue remain readable but cannot verify
+  a mapped TC route.
+- CableCore segments resolve their parent CableAssembly.cable_type against the
+  project catalogue; PanelWire segments carry an explicit cable designation.
+  Every mapped positive/negative conductor must match the catalogue's exact
+  material identifier for that polarity and the declared thermocouple type.
+  Missing catalogue rows, cable designation, construction or material fail
+  closed for mapped TC sensor-to-interface continuity.
+- No vendor-specific or universal K/J/T/N alloy table is embedded. A project
+  engineer must enter and approve the actual material identifiers and
+  designation/tolerance data from its procurement specification or supplier
+  certificate.
+- Added model round-trip/uniqueness and physical-route compatibility regression
+  source. Not executed.
+
+Remaining: verify catalogue entries against approved supplier datasheets and
+project temperature limits; apply the same typed catalogue to direct-sensor TC
+receiver routes; complete RTD 2/3/4-wire accessory/link topology; model separate
+shield/drain/armour/PE bonding; analog scaling/calibration; Control/Protection
+integration; canvas projections/schedules; runtime and save/reopen verification.
+
+======================================================================
