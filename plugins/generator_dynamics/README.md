@@ -466,3 +466,32 @@ Core still needs one global state-layout and derivative-composition protocol
 that preserves classical-machine behavior and accepted/rejected-step
 transaction semantics before this handoff can be wired into production DAE
 execution.
+
+
+### Core dynamic-state component protocol (contract milestone)
+
+The Core dynamics package now defines and exports a structural
+`DynamicStateComponent` protocol with immutable `DynamicComponentInputs`
+and `DynamicComponentEvaluation` values. It separates non-electrical
+controller state from canonical electrical-machine identity and carries
+terminal voltages by terminal ID, machine electrical/mechanical powers by
+machine ID, derivative contributions, and optional mechanical-power outputs
+for canonical machine IDs.
+
+The contract requires referentially transparent evaluation: a component may
+not advance time, mutate its state, dispatch events, or commit sampled
+feedback while a solver evaluates a derivative. Inputs and returned
+power maps are defensively frozen and numerical values are checked for
+finiteness. A component's stable ID and positive state dimension are
+structural requirements for a future host registration/layout owner.
+
+This milestone intentionally defines and exports the Core boundary only.
+`MultiMachineSystem` still registers `ClassicalSynchronousMachine` objects
+and owns the active global vector; `DAESolver` still delegates to that
+machine system. The new protocol is not yet consumed by either class, does
+not append GGOV1 state to a production trajectory, and does not alter the
+classical API. A coordinated follow-on must add a global component layout,
+derivative assembly, validated machine/component identity binding, and
+accepted-step commit/reject participants together. It must also solve the
+electrical feedback coupling (AVR terminal-voltage/internal-emf interaction)
+before claiming a full generator transient model.
