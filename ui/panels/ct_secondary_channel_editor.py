@@ -227,6 +227,7 @@ class CTSecondaryChannelEditor(QGroupBox):
             channels = tuple(
                 item for item in self._application.read_measurement_channel_configurations()
                 if item.source_id == self._target_id
+                and item.source_equipment_type == "ct"
                 and item.source_terminal_reference is not None
                 and item.source_terminal_reference.get("terminal_role") in {"S1", "S2"}
                 and item.signal_type == "CURRENT"
