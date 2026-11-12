@@ -57,6 +57,8 @@ from .stage_evaluation import (
 )
 from .network_stage import (
     GeneratorNetworkStageError,
+    GeneratorNetworkConvergenceEvidence,
+    GeneratorNetworkSolveResult,
     GeneratorNetworkStageRequest,
     GeneratorNetworkStageSolution,
     GeneratorNetworkSolver,
@@ -92,7 +94,8 @@ __all__ = [
     "GeneratorDynamicStageError", "GeneratorDynamicStageResult",
     "TerminalVoltageProjector", "ElectricalPowerEvaluator",
     "GeneratorMachineDerivativeEvaluator", "evaluate_generator_dynamic_stage",
-    "GeneratorNetworkStageError",\n    "GeneratorNetworkConvergenceEvidence",\n    "GeneratorNetworkSolveResult", "GeneratorNetworkStageRequest",
+    "GeneratorNetworkStageError", "GeneratorNetworkConvergenceEvidence",
+    "GeneratorNetworkSolveResult", "GeneratorNetworkStageRequest",
     "GeneratorNetworkStageSolution", "GeneratorNetworkSolver",
     "solve_generator_network_stage",
 ]
