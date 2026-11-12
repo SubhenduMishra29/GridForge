@@ -380,6 +380,8 @@ class MeasurementChannelService:
                     "channel_id": normalized_id,
                     "source_id": channel.source_id,
                     "terminal_role": channel.source_terminal.terminal_role,
+                    "previous_source_id": previous_channel.source_id,
+                    "previous_terminal_role": previous_channel.source_terminal.terminal_role,
                 },
             )
 
