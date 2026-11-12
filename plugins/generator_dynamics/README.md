@@ -146,12 +146,12 @@ References for model selection and parameter boundaries:
   the operating-point-dependent penstock linearization:
   https://www.osti.gov/servlets/purl/1098022
 
-These model-selection notes do not claim that HYGOV, GAST or GGOV1 is
-implemented by this plugin yet. The executable controller set remains the
-generic AVR/governor/PSS blocks and the focused TGOV1 steam block documented
-above. Model-specific hydro and gas-turbine equations remain separate
-implementation milestones; no controller is connected to the transient DAE
-until the canonical augmented-state contract is available.
+These model-selection notes do not claim full HYGOV, GAST or GGOV1 plant-model
+equivalence. The plugin contains a reduced nonlinear HYGOV block and a
+GGOV1 frequency-control PID/reset sub-block; neither is a complete plant
+model. Model-specific hydro and gas-turbine actuator, turbine/fuel and limiter
+paths remain separate implementation milestones. No controller is connected
+to the transient DAE until the canonical augmented-state contract is available.
 
 ## Reduced nonlinear HYGOV hydro-governor block
 
