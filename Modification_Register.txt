@@ -4066,3 +4066,20 @@ Verification:
   remain to be completed.
 - No Python syntax/import execution, Qt GUI interaction, runtime shortcut
   acceptance, undo/redo runtime, or save/reopen acceptance was performed.
+
+
+Follow-up correction — canonical rotation shortcut routing
+Date: 2026-11-12
+- Added canonical SLD actions for R, Shift+R, E, and Q. They are installed
+  by GraphicsView.bind_action_router() and dispatched only through
+  UIActionRouter in the active SLD widget focus scope.
+- R/Shift+R now call one composition-root rotation handler: a single selected
+  symbol uses the contextual symbol operation; a multi-symbol selection uses
+  SelectTool.apply_group_transform() as one group operation.
+- E/Q remain single-symbol contextual rotation actions.
+- Removed the competing E/Q QAction construction from GraphicsView and removed
+  the direct R/Shift+R key handler from SelectTool, preventing duplicate paths.
+- Added the new rotation actions to SLD-only enabled-state checks.
+- No Core/Application model, electrical topology, terminal identity, or
+  connection state is modified by this shortcut-routing change.
+- Runtime keyboard, undo/redo and focus behavior remain to be verified.
