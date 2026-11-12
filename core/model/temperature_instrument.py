@@ -381,6 +381,8 @@ class TemperatureInstrumentInventory:
         if len(interface_tags) != len(set(interface_tags)):
             raise ValueError("Temperature interface tags must be unique within this inventory.")
         for instrument in self.instruments:
+            if instrument.sensor_technology is TemperatureSensorTechnology.THERMOCOUPLE and instrument.sensor_input_mappings and not instrument.thermocouple_type:
+                raise ValueError(f"Temperature instrument '{instrument.id}' has mapped thermocouple pins but no explicit thermocouple_type.")
             if instrument.interface_equipment_id:
                 interface = interfaces.get(instrument.interface_equipment_id)
                 if interface is None:
