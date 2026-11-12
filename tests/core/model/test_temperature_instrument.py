@@ -96,3 +96,55 @@ def test_alarm_trip_binding_requires_explicit_consumer_and_stage():
         ),),
         alarm_trip_bindings=(binding,),
     )
+
+def test_temperature_sensor_pin_mapping_is_explicit_and_round_trips():
+    from core.model import TemperatureTerminalMapping
+
+    sensor_a, sensor_b = terminal("rtd-2", "A"), terminal("rtd-2", "B")
+    input_a, input_b = terminal("tx-1", "SENSOR_A"), terminal("tx-1", "SENSOR_B")
+    interface = TemperatureInterfaceDevice(
+        id="tx-1", tag="TT-002", equipment_kind=TemperatureInputMode.TRANSMITTER,
+        supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
+        supported_sensor_configurations=("Pt100 2-wire",),
+        input_terminals=(input_a, input_b),
+        output_terminals=(terminal("tx-1", "+"), terminal("tx-1", "-")),
+        output_signal_kind="4-20mA", output_unit="degC",
+    )
+    instrument = TemperatureInstrument(
+        id="temp-map-1", tag="OTD-002", service=TemperatureService.OTD,
+        asset_id="transformer-1", location="main tank",
+        sensor_equipment_id="rtd-2", sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx-1",
+        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor_a, sensor_b),
+        sensor_input_mappings=(
+            TemperatureTerminalMapping(sensor_a, input_a),
+            TemperatureTerminalMapping(sensor_b, input_b),
+        ),
+    )
+    inventory = TemperatureInstrumentInventory((instrument,), (interface,))
+    restored = deserialize_temperature_instruments(serialize_temperature_instruments(inventory))
+    assert restored == inventory
+
+
+def test_temperature_sensor_pin_mapping_must_be_bijective():
+    from core.model import TemperatureTerminalMapping
+
+    sensor_a, sensor_b = terminal("rtd-3", "A"), terminal("rtd-3", "B")
+    input_a, input_b = terminal("tx-3", "IN_A"), terminal("tx-3", "IN_B")
+    interface = TemperatureInterfaceDevice(
+        id="tx-3", tag="TT-003", equipment_kind=TemperatureInputMode.TRANSMITTER,
+        supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
+        supported_sensor_configurations=("Pt100 2-wire",),
+        input_terminals=(input_a, input_b), output_terminals=(terminal("tx-3", "OUT"),),
+        output_signal_kind="4-20mA", output_unit="degC",
+    )
+    instrument = TemperatureInstrument(
+        id="temp-map-3", tag="OTD-003", service=TemperatureService.OTD,
+        asset_id="transformer-1", location="main tank",
+        sensor_equipment_id="rtd-3", sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx-3",
+        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor_a, sensor_b),
+        sensor_input_mappings=(TemperatureTerminalMapping(sensor_a, input_a),),
+    )
+    with pytest.raises(ValueError, match="cover every declared"):
+        TemperatureInstrumentService().validate_measurement_channels({})
