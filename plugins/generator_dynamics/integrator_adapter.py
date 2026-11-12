@@ -222,6 +222,64 @@ class GeneratorAugmentedDAEAdapter:
             )
         return state.copy()
 
+    def continue_from_checkpoint(
+        self,
+        checkpoint: object,
+        *,
+        expected_identity: object,
+        step_sizes_s: Sequence[float],
+        accepted_step_observer: AcceptedStepObserver | None = None,
+        continue_predicate: Callable[[float, int], bool] | None = None,
+    ) -> tuple[GeneratorAugmentedStepResult, ...]:
+        """Continue a validated archive checkpoint using this configured Core integrator.
+
+        The host supplies the active identity (including solver and layout
+        fingerprints), the remaining step schedule, and an optional boundary
+        predicate. The predicate is evaluated only between accepted steps;
+        returning False stops cleanly without creating a synthetic checkpoint.
+        This method does not restore solver internals or own study cancellation.
+        """
+        if isinstance(step_sizes_s_sentinel := step_sizes_s, (str, bytes)) or not isinstance(
+            step_sizes_s_sentinel, Sequence
+        ):
+            raise TypeError("step_sizes_s must be an ordered sequence")
+        if not step_sizes_s:
+            raise ValueError("step_sizes_s must contain at least one continuation interval")
+        if continue_predicate is not None and not callable(continue_predicate):
+            raise TypeError("continue_predicate must be callable when supplied")
+        state = self.restore_checkpoint_state(
+            checkpoint,
+            expected_identity=expected_identity,
+        )
+        current_time = float(checkpoint.simulation_time_s)
+        accepted: list[GeneratorAugmentedStepResult] = []
+        for index, raw_interval in enumerate(step_sizes_s):
+            if continue_predicate is not None and not continue_predicate(current_time, index):
+                break
+            if (
+                isinstance(raw_interval, bool)
+                or not isinstance(raw_interval, (int, float))
+                or not np.isfinite(float(raw_interval))
+                or float(raw_interval) <= 0.0
+            ):
+                raise GeneratorAugmentedIntegratorError(
+                    f"continuation step size at index {index} must be finite and positive"
+                )
+            result = self.step(
+                state,
+                current_time,
+                float(raw_interval),
+                accepted_step_observer=accepted_step_observer,
+            )
+            if result.simulation_time_s <= current_time:
+                raise GeneratorAugmentedIntegratorError(
+                    "continued accepted-step time did not advance beyond its checkpoint"
+                )
+            accepted.append(result)
+            state = result.state.copy()
+            current_time = result.simulation_time_s
+        return tuple(accepted)
+
     def initialize_state(
         self,
         machine_state: Sequence[float] | np.ndarray,
