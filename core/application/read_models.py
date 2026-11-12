@@ -136,16 +136,97 @@ class InstrumentationWiringReadModel:
     signals: tuple[Mapping[str, Any], ...]
     signal_bindings: tuple[Mapping[str, Any], ...]
     tag_policy: tuple[Mapping[str, Any], ...]
+    endpoint_bindings: tuple[Mapping[str, Any], ...] = ()
+    terminal_blocks: tuple[Mapping[str, Any], ...] = ()
+    terminal_points: tuple[Mapping[str, Any], ...] = ()
+    terminal_accessories: tuple[Mapping[str, Any], ...] = ()
+    ct_secondary_circuits: tuple[Mapping[str, Any], ...] = ()
+    pt_secondary_circuits: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
             raise ValueError("InstrumentationWiringReadModel.project_id must be non-empty")
         if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
             raise ValueError("InstrumentationWiringReadModel.activation_generation must be positive")
-        for name in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"):
+        for name in (
+            "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy",
+            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories",
+            "ct_secondary_circuits", "pt_secondary_circuits",
+        ):
             values = tuple(getattr(self, name))
             if any(not isinstance(item, Mapping) for item in values):
                 raise TypeError(f"InstrumentationWiringReadModel.{name} must contain mappings")
+            object.__setattr__(self, name, tuple(_freeze(item) for item in values))
+
+
+
+@dataclass(frozen=True, slots=True)
+class SignalEndpointResolutionReadModel:
+    """Detached resolution status for one canonical signal endpoint binding."""
+
+    binding_id: str
+    signal_id: str
+    endpoint_kind: str
+    endpoint_id: str
+    owner_id: str | None
+    port: str | None
+    status: str
+    diagnostics: tuple[str, ...] = ()
+    direction: str = "SOURCE_TO_SINK"
+    physical_sink_terminal: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("binding_id", "signal_id", "endpoint_kind", "endpoint_id", "status"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        for name in ("owner_id", "port"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string or None.")
+        if self.status not in {"RESOLVED", "UNRESOLVED", "AMBIGUOUS"}:
+            raise ValueError("status must be RESOLVED, UNRESOLVED or AMBIGUOUS.")
+        direction = str(self.direction).strip().upper()
+        if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
+            raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
+        object.__setattr__(self, "direction", direction)
+        if self.physical_sink_terminal is not None:
+            if not isinstance(self.physical_sink_terminal, Mapping):
+                raise TypeError("physical_sink_terminal must be a mapping or None.")
+            object.__setattr__(self, "physical_sink_terminal", _freeze(self.physical_sink_terminal))
+        object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+
+
+@dataclass(frozen=True, slots=True)
+class InstrumentationWiringSchedulesReadModel:
+    """Immutable, derived engineering schedules for one active project revision."""
+
+    project_id: str
+    activation_generation: int
+    cable_schedule: tuple[Mapping[str, Any], ...] = ()
+    core_schedule: tuple[Mapping[str, Any], ...] = ()
+    terminal_plan: tuple[Mapping[str, Any], ...] = ()
+    instrument_loop_schedule: tuple[Mapping[str, Any], ...] = ()
+    interconnection_list: tuple[Mapping[str, Any], ...] = ()
+    point_to_point_list: tuple[Mapping[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("InstrumentationWiringSchedulesReadModel.project_id must be non-empty.")
+        if (
+            isinstance(self.activation_generation, bool)
+            or not isinstance(self.activation_generation, int)
+            or self.activation_generation < 1
+        ):
+            raise ValueError("InstrumentationWiringSchedulesReadModel.activation_generation must be positive.")
+        for name in (
+            "cable_schedule", "core_schedule", "terminal_plan",
+            "instrument_loop_schedule", "interconnection_list", "point_to_point_list",
+        ):
+            values = tuple(getattr(self, name))
+            if any(not isinstance(item, Mapping) for item in values):
+                raise TypeError(f"InstrumentationWiringSchedulesReadModel.{name} must contain mappings.")
             object.__setattr__(self, name, tuple(_freeze(item) for item in values))
 
 
@@ -863,6 +944,8 @@ __all__ = [
     "NetworkReadModel",
     "SimpleWireReadModel",
     "InstrumentationWiringReadModel",
+    "InstrumentationWiringSchedulesReadModel",
+    "SignalEndpointResolutionReadModel",
     "ProtectionReadModel",
     "MeasurementChannelReadModel",
     "MeasurementChannelConfigurationReadModel",
