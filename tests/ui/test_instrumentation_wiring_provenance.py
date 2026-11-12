@@ -43,6 +43,7 @@ def test_signal_provenance_preserves_signal_cable_core_and_panel_wire_tags():
             "equipment_id": "PLC-101",
             "terminal_role": "AI-01+",
             "designation": "AI-01+",
+            "terminal_point_id": "terminal-point-101",
         },
     )
     result = project_signal_provenance(_wiring(), (resolution,))
@@ -53,7 +54,7 @@ def test_signal_provenance_preserves_signal_cable_core_and_panel_wire_tags():
     assert item.short_label == "PT-101-V | C-101 / core PT101-B, W-101"
     assert "Endpoint: CONTROL_INPUT" in item.detail_text
     assert "Direction: SOURCE_TO_SINK" in item.detail_text
-    assert "PLC-101 / AI-01+ / AI-01+" in item.detail_text
+    assert "PLC-101 / AI-01+ / AI-01+ / terminal-point-101" in item.detail_text
 
 
 def test_signal_provenance_marks_unresolved_endpoint_and_preserves_diagnostics():
