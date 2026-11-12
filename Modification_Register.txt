@@ -5104,8 +5104,13 @@ Architecture:
   dependency was added to Core, and no graphical route is treated as electrical
   connectivity.
 
-Verification boundary:
-- Source and regression-test changes are prepared for review.
-- No tests or CI were run. Python import/runtime and Qt GUI refresh remain
-  unverified; the final PR diff is the acceptance artifact for this batch.
+Outcome:
+- PR #1219 merged into authoritative main at commit
+  373aba4ce4ded17fccfa3fb616f76dd23378d2fb.
+- Issue #1203 remains open. This correction closes the semantic
+  projection-invalidation gap only; it does not complete the parent issue.
+- No tests or CI were run. Syntax was checked for the newly added event,
+  publisher and regression-test fragments only.
+- Full module imports, Qt GUI refresh, project save/reopen and runtime
+  verification remain unperformed.
 ======================================================================
