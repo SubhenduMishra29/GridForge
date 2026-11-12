@@ -334,6 +334,8 @@ class ProjectPersistenceService:
         if len({item.study_id for item in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("study_cases contains duplicate study identities.")
 
+        self._validate_temperature_instrument_channels(temperature_instruments, measurement_definitions)
+
         target = normalize_package_path(path)
         parent = target.parent
         parent.mkdir(parents=True, exist_ok=True)
