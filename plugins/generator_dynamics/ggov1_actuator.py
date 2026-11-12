@@ -17,8 +17,9 @@ class GGOV1ValveActuator(DynamicPlugin):
     """Single-state GGOV1 fuel-valve actuator sub-block.
 
     State: actual valve position (pu).
-    Input: governor_fuel_command_pu, the post-selector/post-limiter fuel
-    stroke request. Caller must provide the already selected GGOV1 command.
+    Input: governor_fuel_command_pu, the final common-limited command from
+    GGOV1ControlCoordinator.actuator_command_pu. The actuator retains its own
+    defensive position clamp and independent asymmetric slew limits.
     """
 
     model_type = "PSS_E_GGOV1_VALVE_ACTUATOR"
@@ -89,7 +90,7 @@ class GGOV1ValveActuator(DynamicPlugin):
                 self.parameters.valve_open_rate_pu_per_s,
             ),
             "scope": "GGOV1 first-order fuel-valve actuator only",
-            "outer_ggov1_integration": "not implemented",
+            "outer_ggov1_integration": "command handoff is provided by GGOV1ControlCoordinator; host owns scheduling and state integration",
         }
 
 
