@@ -360,6 +360,12 @@ class TemperatureInstrumentInventory:
         instruments = {item.id: item for item in self.instruments}
         interfaces = {item.id: item for item in self.interfaces}
         receiver_inputs = {item.id: item for item in self.receiver_inputs}
+        receiver_channel_keys = [
+            (item.module_equipment_id, item.channel_designation)
+            for item in self.receiver_inputs
+        ]
+        if len(receiver_channel_keys) != len(set(receiver_channel_keys)):
+            raise ValueError("Receiver module channel designations must be unique within each module.")
         tags = [item.tag for item in self.instruments]
         if len(tags) != len(set(tags)):
             raise ValueError("Temperature instrument tags must be unique within this inventory.")
