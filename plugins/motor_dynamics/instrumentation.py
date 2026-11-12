@@ -281,7 +281,7 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("linear.end_effect_compensation_state", "End-effect compensation state", D, N, "state", ("control","diagnostics"))]
 
     if family == MotorFamily.VOICE_COIL:
-        pts += [_p("voice_coil.current", "Voice-coil winding current", I, N, "A", ("control","protection","monitoring"), True),
+        pts += [_p("voice_coil.current", "Voice-coil winding current", C, N, "A", ("control","protection","monitoring"), True),
                 _p("voice_coil.drive_voltage", "Voice-coil drive voltage", V, N, "V", ("control","diagnostics")),
                 _p("voice_coil.position", "Actuator position", X, N, "m", ("control","monitoring"), True),
                 _p("voice_coil.velocity", "Moving-coil velocity", X, N, "m/s", ("control","monitoring")),
