@@ -614,7 +614,8 @@ class SnapSystem:
         if use_object:
             object_result = (
                 self._find_object_snap(
-                    scene_pos
+                    scene_pos,
+                    allow_item_hit=resolved_intent in {SnapIntent.WIRE_START, SnapIntent.WIRE_TARGET},
                 )
             )
 
@@ -782,90 +783,95 @@ class SnapSystem:
     def _find_object_snap(
         self,
         scene_pos: Any,
+        *,
+        allow_item_hit: bool = False,
     ) -> Optional[SnapResult]:
         """
         Find the nearest valid object snap candidate.
 
-        Candidate order is explicitly preserved so equal-distance
-        candidates resolve deterministically.
+        For wire authoring only, a click inside a realized electrical symbol
+        may resolve to that symbol's nearest declared terminal/Bus attachment.
+        The hit test is performed against the item's own presentation shape;
+        it never promotes arbitrary scene geometry into an electrical endpoint.
         """
-
         if self.scene is None:
             return None
 
         best: Optional[tuple[float, int, SnapResult]] = None
-        # Equal-distance candidates with different electrical endpoint
-        # identities are ambiguous. Never let discovery order silently pick
-        # a terminal/Bus attachment at a geometric midpoint.
         ambiguous_best = False
         candidate_order = 0
 
-        # The renderer-owned registry is the sole electrical snap discovery
-        # path. This keeps snapping bound to the same active SLD scene that
-        # realizes the equipment and prevents hidden/duplicate snap objects.
         for item in tuple(self._registered_items.values()):
             if callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
                 continue
-            candidates = (
-                self._get_item_snap_points(
-                    item
-                )
-            )
 
-            for candidate in candidates:
+            item_candidates: list[tuple[float, int, SnapResult]] = []
+            for candidate in self._get_item_snap_points(item):
                 position, object_id, terminal_id, terminal_name, bus_id, attachment_id, draft_id, draft_terminal_role, draft_equipment_type = self._normalize_candidate(candidate, item)
-
-                distance = self._distance(
-                    scene_pos,
-                    position,
+                distance = self._distance(scene_pos, position)
+                result = SnapResult(
+                    position=QPointF(float(position.x()), float(position.y())),
+                    snap_type=SnapType.OBJECT,
+                    object_id=object_id,
+                    source=item,
+                    terminal_id=terminal_id,
+                    terminal_name=terminal_name,
+                    bus_id=bus_id,
+                    attachment_id=attachment_id,
+                    draft_id=draft_id,
+                    draft_terminal_role=draft_terminal_role,
+                    draft_equipment_type=draft_equipment_type,
+                    distance=distance,
                 )
-
-                if distance <= self.tolerance:
-                    result = SnapResult(
-                        position=QPointF(
-                            float(position.x()),
-                            float(position.y()),
-                        ),
-                        snap_type=SnapType.OBJECT,
-                        object_id=object_id,
-                        source=item,
-                        terminal_id=terminal_id,
-                        terminal_name=terminal_name,
-                        bus_id=bus_id,
-                        attachment_id=attachment_id,
-                        draft_id=draft_id,
-                        draft_terminal_role=draft_terminal_role,
-                        draft_equipment_type=draft_equipment_type,
-                        distance=distance,
-                    )
-
-                    candidate_key = (
-                        distance,
-                        candidate_order,
-                    )
-
-                    if best is None or distance < best[0] - 1e-9:
-                        best = (distance, candidate_order, result)
-                        ambiguous_best = False
-                    elif abs(distance - best[0]) <= 1e-9:
-                        previous = best[2]
-                        same_endpoint = (
-                            str(previous.object_id) == str(result.object_id)
-                            and str(previous.terminal_id) == str(result.terminal_id)
-                            and str(previous.terminal_name) == str(result.terminal_name)
-                            and str(previous.bus_id) == str(result.bus_id)
-                            and str(previous.attachment_id) == str(result.attachment_id)
-                            and str(previous.draft_id) == str(result.draft_id)
-                            and str(previous.draft_terminal_role) == str(result.draft_terminal_role)
-                        )
-                        if not same_endpoint:
-                            ambiguous_best = True
-
+                item_candidates.append((distance, candidate_order, result))
                 candidate_order += 1
+
+            eligible = [entry for entry in item_candidates if entry[0] <= self.tolerance]
+            if not eligible and allow_item_hit and item_candidates:
+                contains = getattr(item, "contains", None)
+                map_from_scene = getattr(item, "mapFromScene", None)
+                if callable(contains) and callable(map_from_scene):
+                    local_position = map_from_scene(scene_pos)
+                    try:
+                        hit = bool(contains(local_position))
+                    except (TypeError, ValueError, RuntimeError):
+                        hit = False
+                    if hit:
+                        nearest_distance = min(entry[0] for entry in item_candidates)
+                        nearest = [
+                            entry for entry in item_candidates
+                            if abs(entry[0] - nearest_distance) <= 1e-9
+                        ]
+                        # A Bus bar is a multi-attachment conductor: when a
+                        # click is exactly midway between available attachment
+                        # points, choose the first stable attachment in the
+                        # item's declared snap-point order. Equipment terminal
+                        # ties remain ambiguous and therefore fail closed.
+                        if isinstance(item, BusItem) and nearest:
+                            eligible = [min(nearest, key=lambda entry: entry[1])]
+                        else:
+                            eligible = nearest
+
+            for distance, order, result in eligible:
+                if best is None or distance < best[0] - 1e-9:
+                    best = (distance, order, result)
+                    ambiguous_best = False
+                elif abs(distance - best[0]) <= 1e-9:
+                    previous = best[2]
+                    same_endpoint = (
+                        str(previous.object_id) == str(result.object_id)
+                        and str(previous.terminal_id) == str(result.terminal_id)
+                        and str(previous.terminal_name) == str(result.terminal_name)
+                        and str(previous.bus_id) == str(result.bus_id)
+                        and str(previous.attachment_id) == str(result.attachment_id)
+                        and str(previous.draft_id) == str(result.draft_id)
+                        and str(previous.draft_terminal_role) == str(result.draft_terminal_role)
+                    )
+                    if not same_endpoint:
+                        ambiguous_best = True
 
         if best is None or ambiguous_best:
             return None
-
         return best[2]
 
     # --------------------------------------------------------
