@@ -67,6 +67,60 @@ class TemperatureConsumerKind(str, Enum):
     TRIP = "TRIP"
 
 
+class TemperatureReceiverInputKind(str, Enum):
+    RTD = "RTD"
+    THERMOCOUPLE = "THERMOCOUPLE"
+    ANALOG_CURRENT = "ANALOG_CURRENT"
+    ANALOG_VOLTAGE = "ANALOG_VOLTAGE"
+    DIGITAL = "DIGITAL"
+    THERMAL_IMAGE = "THERMAL_IMAGE"
+
+
+@dataclass(frozen=True, slots=True)
+class TemperatureReceiverInput:
+    """Explicit capability record for one receiver input channel."""
+
+    id: str
+    module_equipment_id: str
+    channel_designation: str
+    input_kind: TemperatureReceiverInputKind
+    terminals: tuple[WiringTerminalReference, ...]
+    engineering_unit: str
+    supported_sensor_technologies: tuple[TemperatureSensorTechnology, ...] = ()
+    supported_sensor_configurations: tuple[str, ...] = ()
+    range_min: Optional[float] = None
+    range_max: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        for field in ("id", "module_equipment_id", "channel_designation", "engineering_unit"):
+            object.__setattr__(self, field, _text(getattr(self, field), field))
+        if not isinstance(self.input_kind, TemperatureReceiverInputKind):
+            raise TypeError("input_kind must be a TemperatureReceiverInputKind.")
+        terminals = tuple(self.terminals)
+        if not terminals or any(not isinstance(item, WiringTerminalReference) for item in terminals):
+            raise ValueError("Receiver input must declare physical terminal references.")
+        if any(item.equipment_id != self.module_equipment_id for item in terminals):
+            raise ValueError("Receiver terminals must belong to module_equipment_id.")
+        if len({item.identity for item in terminals}) != len(terminals):
+            raise ValueError("Receiver input contains duplicate terminals.")
+        technologies = tuple(self.supported_sensor_technologies)
+        if any(not isinstance(item, TemperatureSensorTechnology) for item in technologies):
+            raise TypeError("Invalid receiver sensor technology.")
+        configs = tuple(_text(item, "supported_sensor_configurations entry") for item in self.supported_sensor_configurations)
+        low, high = _number(self.range_min, "range_min"), _number(self.range_max, "range_max")
+        if (low is None) != (high is None) or (low is not None and high <= low):
+            raise ValueError("Receiver range bounds must both be supplied with maximum greater than minimum.")
+        if self.input_kind in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and not technologies:
+            raise ValueError("Direct sensor receiver inputs must declare supported sensor technologies.")
+        if self.input_kind not in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and technologies:
+            raise ValueError("Analog/digital receiver inputs must not declare direct sensor technologies.")
+        object.__setattr__(self, "terminals", terminals)
+        object.__setattr__(self, "supported_sensor_technologies", technologies)
+        object.__setattr__(self, "supported_sensor_configurations", configs)
+        object.__setattr__(self, "range_min", low)
+        object.__setattr__(self, "range_max", high)
+
+
 @dataclass(frozen=True, slots=True)
 class TemperatureTerminalMapping:
     """Manufacturer-declared sensor pin to interface input terminal mapping."""
@@ -113,6 +167,7 @@ class TemperatureInstrument:
     sensor_terminals: tuple[WiringTerminalReference, ...] = ()
     receiver_terminals: tuple[WiringTerminalReference, ...] = ()
     sensor_input_mappings: tuple[TemperatureTerminalMapping, ...] = ()
+    receiver_input_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "tag", "asset_id", "location", "sensor_equipment_id"):
@@ -124,7 +179,7 @@ class TemperatureInstrument:
         ):
             if not isinstance(getattr(self, field), enum_type):
                 raise TypeError(f"{field} must be a {enum_type.__name__}.")
-        for field in ("sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit"):
+        for field in ("sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "receiver_input_id"):
             object.__setattr__(self, field, _optional(getattr(self, field), field))
         low = _number(self.range_min, "range_min")
         high = _number(self.range_max, "range_max")
@@ -260,12 +315,14 @@ class TemperatureInstrumentInventory:
 
     instruments: tuple[TemperatureInstrument, ...] = ()
     interfaces: tuple[TemperatureInterfaceDevice, ...] = ()
+    receiver_inputs: tuple[TemperatureReceiverInput, ...] = ()
     alarm_trip_bindings: tuple[TemperatureAlarmTripBinding, ...] = ()
 
     def __post_init__(self) -> None:
         groups = (
             ("instruments", self.instruments, TemperatureInstrument),
             ("interfaces", self.interfaces, TemperatureInterfaceDevice),
+            ("receiver_inputs", self.receiver_inputs, TemperatureReceiverInput),
             ("alarm_trip_bindings", self.alarm_trip_bindings, TemperatureAlarmTripBinding),
         )
         all_ids: list[str] = []
@@ -282,6 +339,7 @@ class TemperatureInstrumentInventory:
             raise ValueError("Temperature instrument records must have globally unique IDs.")
         instruments = {item.id: item for item in self.instruments}
         interfaces = {item.id: item for item in self.interfaces}
+        receiver_inputs = {item.id: item for item in self.receiver_inputs}
         tags = [item.tag for item in self.instruments]
         if len(tags) != len(set(tags)):
             raise ValueError("Temperature instrument tags must be unique within this inventory.")
@@ -299,6 +357,35 @@ class TemperatureInstrumentInventory:
                     raise ValueError(f"Temperature interface '{interface.id}' does not support the declared sensor technology.")
                 if instrument.sensor_configuration and interface.supported_sensor_configurations and instrument.sensor_configuration not in interface.supported_sensor_configurations:
                     raise ValueError(f"Temperature interface '{interface.id}' does not support the declared sensor configuration.")
+        for instrument in self.instruments:
+            if instrument.receiver_input_id:
+                receiver = receiver_inputs.get(instrument.receiver_input_id)
+                if receiver is None:
+                    raise ValueError(f"Temperature instrument '{instrument.id}' references a missing receiver input.")
+                if tuple(t.identity for t in instrument.receiver_terminals) != tuple(t.identity for t in receiver.terminals):
+                    raise ValueError(f"Temperature instrument '{instrument.id}' receiver terminals do not match its receiver input.")
+                if receiver.engineering_unit != instrument.unit:
+                    raise ValueError(f"Temperature instrument '{instrument.id}' unit does not match receiver input engineering unit.")
+                if instrument.input_mode is TemperatureInputMode.DIRECT_SENSOR:
+                    if receiver.input_kind.value not in {"RTD", "THERMOCOUPLE"}:
+                        raise ValueError(f"Receiver input '{receiver.id}' is not a direct sensor input.")
+                    if instrument.sensor_technology not in receiver.supported_sensor_technologies:
+                        raise ValueError(f"Receiver input '{receiver.id}' does not support the declared sensor technology.")
+                    if instrument.sensor_configuration and receiver.supported_sensor_configurations and instrument.sensor_configuration not in receiver.supported_sensor_configurations:
+                        raise ValueError(f"Receiver input '{receiver.id}' does not support the declared sensor configuration.")
+                else:
+                    interface = interfaces[instrument.interface_equipment_id]
+                    signal_kind = interface.output_signal_kind.strip().upper().replace(" ", "").replace("-", "_")
+                    aliases = {"4_20MA": "ANALOG_CURRENT", "0_20MA": "ANALOG_CURRENT", "0_10V": "ANALOG_VOLTAGE", "1_5V": "ANALOG_VOLTAGE", "DIGITAL": "DIGITAL", "THERMAL_IMAGE": "THERMAL_IMAGE"}
+                    expected_kind = aliases.get(signal_kind)
+                    if expected_kind is None or receiver.input_kind.value != expected_kind:
+                        raise ValueError(f"Receiver input '{receiver.id}' capability does not match interface output signal kind '{interface.output_signal_kind}'.")
+                    if receiver.engineering_unit != interface.output_unit:
+                        raise ValueError(f"Receiver input '{receiver.id}' engineering unit does not match interface output unit.")
+                    if (interface.output_range_min is None) != (receiver.range_min is None) or (interface.output_range_max is None) != (receiver.range_max is None):
+                        raise ValueError(f"Receiver input '{receiver.id}' range declaration does not match interface output range declaration.")
+                    if interface.output_range_min is not None and (interface.output_range_min != receiver.range_min or interface.output_range_max != receiver.range_max):
+                        raise ValueError(f"Receiver input '{receiver.id}' range does not match interface output range.")
         for binding in self.alarm_trip_bindings:
             if binding.instrument_id not in instruments:
                 raise ValueError(f"Temperature alarm/trip binding '{binding.id}' references a missing instrument.")
@@ -307,5 +394,6 @@ class TemperatureInstrumentInventory:
 __all__ = [
     "TemperatureService", "TemperatureSensorTechnology", "TemperatureInputMode",
     "TemperatureConsumerKind", "TemperatureInstrument", "TemperatureInterfaceDevice",
-    "TemperatureTerminalMapping", "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory",
+    "TemperatureTerminalMapping", "TemperatureReceiverInputKind", "TemperatureReceiverInput",
+    "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory",
 ]
