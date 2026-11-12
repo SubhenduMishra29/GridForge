@@ -56,12 +56,16 @@ from .read_models import (
     RelayInputBindingReadModel,
     RelayReadModel,
     SimpleWireReadModel,
+    InstrumentationWiringReadModel,
+    InstrumentationWiringSchedulesReadModel,
+    SignalEndpointResolutionReadModel,
     StudyResultReadModel,
     TransientSignalReadModel,
     TransientAlgebraicQualityReadModel,
     TransientEventReadModel,
     TransientResultPresentationReadModel,
 )
+from .instrumentation_wiring_schedules import build_instrumentation_wiring_schedules
 from .read_service import (
     ArchivedStudyResultReadModel,
     MeasurementChannelReadService,
@@ -135,6 +139,10 @@ __all__ = [
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "SimpleWireReadModel",
+    "InstrumentationWiringReadModel",
+    "InstrumentationWiringSchedulesReadModel",
+    "SignalEndpointResolutionReadModel",
+    "build_instrumentation_wiring_schedules",
     "StudyResultReadModel",
     "TransientSignalReadModel",
     "TransientAlgebraicQualityReadModel",
