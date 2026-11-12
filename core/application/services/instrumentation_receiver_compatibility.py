@@ -163,8 +163,116 @@ def validate_protection_receiver(
     )
 
 
+def validate_control_mapping_binding(
+    signal: SignalDefinition,
+    mapping: Any,
+    destination: Any,
+) -> ReceiverCompatibility:
+    """Require an existing persisted Control mapping to reference this signal ID."""
+    from core.application.control_signal_mapping import (
+        ControlSignalBinding,
+        ControlSignalDestination,
+        ControlSignalMapping,
+    )
+
+    if not isinstance(mapping, ControlSignalMapping):
+        raise TypeError("mapping must be a ControlSignalMapping.")
+    if not isinstance(destination, ControlSignalDestination):
+        raise TypeError("destination must be a ControlSignalDestination.")
+    matches = tuple(
+        binding for binding in mapping.bindings
+        if binding.destination == destination
+    )
+    if len(matches) != 1:
+        return ReceiverCompatibility(
+            False, "CONTROL", destination.component_id, destination.input_name,
+            (f"Control receiver {destination.component_id!r}/{destination.input_name!r} "
+             f"must have exactly one persisted canonical mapping; found {len(matches)}.",),
+        )
+    binding = matches[0]
+    if not isinstance(binding, ControlSignalBinding):
+        raise TypeError("Control mapping contains an invalid binding.")
+    if binding.source.object_id != signal.id:
+        return ReceiverCompatibility(
+            False, "CONTROL", destination.component_id, destination.input_name,
+            (f"Persisted Control mapping source {binding.source.object_id!r} "
+             f"does not identify instrumentation signal {signal.id!r}.",),
+        )
+    if binding.source.domain != "instrumentation" or binding.source.element_type != "signal":
+        return ReceiverCompatibility(
+            False, "CONTROL", destination.component_id, destination.input_name,
+            ("Persisted Control mapping source is not an instrumentation signal reference.",),
+        )
+    return validate_control_receiver(signal, destination)
+
+
+def validate_protection_configuration_binding(
+    signal: SignalDefinition,
+    configuration: Any,
+    *,
+    element_id: str,
+    input_name: str,
+    channel_id: str,
+    channels: Any,
+) -> ReceiverCompatibility:
+    """Require the persisted Protection input to reference the matching canonical channel."""
+    from core.protection.project_configuration import ProtectionProjectConfiguration
+    from core.measurement.measurement_channel import MeasurementChannel
+
+    if not isinstance(configuration, ProtectionProjectConfiguration):
+        raise TypeError("configuration must be a ProtectionProjectConfiguration.")
+    if not isinstance(channels, dict) and not hasattr(channels, "get"):
+        raise TypeError("channels must be a channel-ID mapping.")
+    elements = tuple(
+        item for item in configuration.elements if item.element_id == element_id
+    )
+    if len(elements) != 1:
+        return ReceiverCompatibility(
+            False, "PROTECTION", element_id, input_name,
+            (f"Protection element {element_id!r} must resolve uniquely; found {len(elements)}.",),
+        )
+    element = elements[0]
+    configured_channel_id = element.input_channel_ids.get(input_name)
+    if configured_channel_id != channel_id:
+        return ReceiverCompatibility(
+            False, "PROTECTION", element_id, input_name,
+            (f"Persisted Protection input references {configured_channel_id!r}, not requested channel {channel_id!r}.",),
+        )
+    channel = channels.get(channel_id)
+    if not isinstance(channel, MeasurementChannel):
+        return ReceiverCompatibility(
+            False, "PROTECTION", element_id, input_name,
+            (f"Canonical MeasurementChannel {channel_id!r} is missing or invalid.",),
+        )
+    expected_type = _SIGNAL_TYPE_MAP.get(signal.kind)
+    diagnostics: list[str] = []
+    if expected_type is None or channel.signal_type is not expected_type:
+        diagnostics.append(
+            f"Instrumentation signal kind {signal.kind.value!r} does not match channel signal type {channel.signal_type.value!r}."
+        )
+    if signal.phase is None or channel.phase.value != signal.phase.upper():
+        diagnostics.append(
+            f"Instrumentation signal phase {signal.phase!r} does not match channel phase {channel.phase.value!r}."
+        )
+    if signal.unit is None or channel.unit.casefold() != signal.unit.casefold():
+        diagnostics.append(
+            f"Instrumentation signal unit {signal.unit!r} does not match channel unit {channel.unit!r}."
+        )
+    if diagnostics:
+        return ReceiverCompatibility(False, "PROTECTION", element_id, input_name, tuple(diagnostics))
+    return validate_protection_receiver(
+        signal,
+        function_code=element.function_code,
+        input_name=input_name,
+        element_id=element_id,
+    )
+
+
+
 __all__ = [
     "ReceiverCompatibility",
     "validate_control_receiver",
     "validate_protection_receiver",
+    "validate_control_mapping_binding",
+    "validate_protection_configuration_binding",
 ]
