@@ -69,7 +69,11 @@ class GeneratorStudyCheckpointIdentity:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
             object.__setattr__(self, name, value.strip())
-        for name in (\n            "activation_generation", "model_revision", "topology_revision",\n            "instrumentation_revision", "protection_equipment_revision",\n            "protection_configuration_revision",\n        ):
+        for name in (
+            "activation_generation", "model_revision", "topology_revision",
+            "instrumentation_revision", "protection_equipment_revision",
+            "protection_configuration_revision",
+        ):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
