@@ -23,7 +23,7 @@ class GGOV1TurbineFuelPath(DynamicPlugin):
       * delayed_fuel_flow_pu: required only when Teng > 0, from a solver-owned
         transport-delay implementation.
 
-    The state is the lagged net fuel flow (fuel flow minus Wfnl). For Tb > 0,
+    The state is the lagged net fuel flow (fuel flow minus Wfnl). The temperature-proxy input is the un-delayed net fuel flow multiplied by the Dm-dependent speed factor. For Tb > 0,
     the transfer (1+s*Tc)/(1+s*Tb) is represented by a first-order lag state
     and its algebraic lead term. Tb=Tc=0 is an algebraic bypass.
     """
@@ -155,6 +155,7 @@ class GGOV1TurbineFuelPath(DynamicPlugin):
             "state_names": self.state_names,
             "parameters": p,
             "fuel_speed_rule": "Flag=1: valve stroke times absolute shaft speed; Flag=0: valve stroke",
+            "temperature_proxy": "net fuel flow multiplied by Dm_select(speed)",
             "transport_delay": (
                 "solver-supplied delayed_fuel_flow_pu"
                 if p.engine_transport_time_constant_s > 0.0
