@@ -813,9 +813,14 @@ If the observer raises, the integration step has already been numerically
 accepted. The adapter raises `GeneratorAugmentedIntegratorError` with the
 `accepted_step_result` and `cause_type` attributes so the host can distinguish
 checkpoint publication failure from solver rejection and reconcile the
-accepted state explicitly. The adapter does not write files, persist results,
-advance a study clock, or own cancellation; `StudyService` remains the sole
-owner of study lifecycle and durable terminal-result archival.
+accepted state explicitly. `GeneratorAugmentedStudyEvidence.from_checkpoint_publication_failure(...)`
+combines the previously accepted trajectory with that attached accepted step
+and produces failed/incomplete evidence with the failure time and cause. A host
+can attach that evidence as `partial_result` to the exception passed through
+StudyService, allowing the normal failure path to archive the accepted state
+even though checkpoint publication failed. The adapter does not write files,
+persist results, advance a study clock, or own cancellation; `StudyService`
+remains the sole owner of study lifecycle and durable terminal-result archival.
 
 ### StudyService-compatible augmented trajectory evidence
 
