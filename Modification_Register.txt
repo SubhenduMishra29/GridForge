@@ -4108,3 +4108,45 @@ Verification:
 - Source-level review only; no tests, CI, imports, startup, GUI or
   save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Multi-Carrier Physical Signal Continuity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Replaced source-terminal membership-only validation with a terminal graph
+  assembled from every explicitly signal-bound cable core and panel wire.
+- Each bound physical carrier must have a complete ordered terminal path
+  containing at least two distinct terminal identities.
+- Consecutive terminal hops form the physical continuity graph. All terminal
+  nodes from every carrier bound to the signal must be reachable from the
+  MeasurementChannel's exact source equipment/terminal identity.
+- Multi-carrier routes may join at stable terminal identities (for example,
+  field cable core -> junction/terminal block -> panel jumper -> I/O terminal).
+  Disconnected carrier branches are reported as unresolved.
+- Fibre and logical carrier bindings remain unresolved until their typed
+  media/endpoint path registries exist; no fabricated terminal paths.
+- MeasurementChannel, Control measurement inputs and Protection inputs all
+  use the same physical continuity validation.
+- Added regression-test source for a continuous cable-core-to-panel-wire
+  chain and a disconnected jumper.
+
+Boundary:
+- This verifies continuity of the explicitly bound carrier graph from the
+  physical MeasurementChannel source terminal. It does not yet prove the
+  final physical sink terminal for a PLC/relay input, because those existing
+  logical endpoint records do not carry a canonical physical terminal reference.
+- Directional electrical signal-flow constraints, cable shield/earth and
+  communication pair/fibre media paths remain separate typed validation work.
+- Canvas projection, cross-canvas navigation and engineering schedules remain
+  open #1203 work.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
