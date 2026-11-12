@@ -836,3 +836,25 @@ and returns the evidence to `StudyService`. The Application service remains
 responsible for terminal status, events and durable archive writes. The plugin
 contract does not yet install an augmented runner into the production
 composition root.
+
+### Opt-in augmented transient StudyService handler
+
+`GeneratorAugmentedTransientStudyHandler` is a separate, explicit adapter for
+an Application composition that has a host runner implementing
+`solve_generator_augmented_transient(request=..., execution_context=...,
+cancellation=..., augmented_adapter=...)`. Its factory must return the
+canonical `GeneratorAugmentedDAEAdapter`; its runner must return
+`GeneratorAugmentedStudyEvidence`.
+
+The handler validates request/context provenance and the concrete adapter
+and evidence contracts, and passes through the canonical
+`StudyCancellationToken`. The host runner must check cancellation between
+accepted integrator steps, publish only accepted checkpoints, and return
+interrupted evidence when cancellation is observed. It must not convert
+intermediate RK/Newton evaluations into trajectory checkpoints.
+
+This handler is not registered automatically and does not replace the
+existing sampled GGOV1 handler. The Application composition root must choose
+one handler for the `generator_transient` study type and supply the matching
+host solver/factory. Until that explicit composition is installed, the
+production transient-study path remains the existing sampled path.
