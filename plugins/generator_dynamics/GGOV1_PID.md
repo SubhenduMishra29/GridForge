@@ -122,8 +122,8 @@ final-command-minus-request errors for each active controller. The
 coordinator owns no dynamic state, clock or integration schedule.
 
 `calculate_ggov1_operating_point()` derives a common initial FSR and valve
-target, Flag-dependent fuel flow, temperature-proxy input, and the initial
-PID/load-limiter integral targets. It reports two residuals: integral
+target, Flag-dependent fuel flow, temperature-proxy input, Rselect-consistent
+PID power reference, and the initial PID/load-limiter integral targets. It reports two residuals: integral
 alignment (mechanical versus electrical power initialization) and the
 temperature/load limiter's initial output versus the common FSR.
 `require_balanced()` rejects either mismatch when that limiter is active.
