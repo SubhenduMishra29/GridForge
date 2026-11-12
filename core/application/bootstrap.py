@@ -70,6 +70,7 @@ from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
 from .services.instrumentation_wiring_service import InstrumentationWiringService, InstrumentationWiringCommandHandlers
+from .services.instrumentation_receiver_compatibility import validate_inventory_receiver_bindings
 from .synchronism_check import (
     BypassAuthorization,
     ProjectScopedSynchronismAuditSink,
@@ -136,8 +137,38 @@ def create_application(
             target[command_type] = handler
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
-    instrumentation_wiring_service = InstrumentationWiringService()
     application: Application | None = None
+
+    def validate_instrumentation_receivers(candidate_inventory: Any) -> None:
+        """Validate persisted signal relationships against this candidate project's registries."""
+        mapping = (
+            application.control_signal_mapping
+            if application is not None and application.control_signal_mapping is not None
+            else ControlSignalMapping()
+        )
+        outcomes = validate_inventory_receiver_bindings(
+            candidate_inventory,
+            control_mapping=mapping,
+            protection_configuration=protection_configuration_service.configuration,
+            channels=measurement_channel_service.channels,
+        )
+        failures = tuple(
+            outcome for outcome in outcomes if not outcome.compatible
+        )
+        if failures:
+            details = "; ".join(
+                f"{item.receiver_kind} {item.receiver_id}/{item.input_id}: "
+                + ", ".join(item.diagnostics)
+                for item in failures
+            )
+            raise ValueError(
+                "Instrumentation receiver reconciliation failed; candidate inventory was not activated: "
+                + details
+            )
+
+    instrumentation_wiring_service = InstrumentationWiringService(
+        receiver_validator=validate_instrumentation_receivers
+    )
     synchronism_guard: Any = None
 
     def authorize_breaker_close(breaker: Breaker, operation: str) -> bool:
@@ -820,6 +851,10 @@ def create_application(
                 loaded.instrumentation_wiring if context is not None and loaded is not None else None,
                 network=network if context is not None else None,
                 generation=generation,
+                # Receiver registries are not activated yet; validate below,
+                # after candidate MeasurementChannel, Protection and Control
+                # configuration have all been installed inside this rollback scope.
+                validate_receivers=False,
             )
             measurement_channel_service.activate(
                 context,
@@ -879,6 +914,10 @@ def create_application(
                 application.configure_control_signal_mapping(
                     loaded.control_signal_mapping if loaded is not None else None
                 )
+                # All receiver authorities now belong to the candidate project.
+                # A failure raises inside the lifecycle transaction and restores
+                # the previous wiring, channel, Protection and Control state.
+                instrumentation_wiring_service.validate_receiver_bindings()
                 if loaded is None:
                     dynamic_models.replace(())
                 else:
