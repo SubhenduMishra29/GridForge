@@ -31,6 +31,7 @@ class GeneratorAugmentedIntegratorError(ValueError):
 
 
 MachineConnectionResolver = Callable[[str], bool]
+AcceptedStepObserver = Callable[["GeneratorAugmentedStepResult"], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,8 +325,19 @@ class GeneratorAugmentedDAEAdapter:
         global_state: Sequence[float] | np.ndarray,
         simulation_time_s: float,
         dt: float,
+        *,
+        accepted_step_observer: AcceptedStepObserver | None = None,
     ) -> GeneratorAugmentedStepResult:
-        """Advance the full augmented state using Core's configured integrator."""
+        """Advance one step and optionally publish its accepted checkpoint.
+
+        The observer runs exactly once, after Core's integrator has returned a
+        finite state and the final-time algebraic stage has succeeded. It never
+        sees RK/Newton trial states. The caller remains responsible for checking
+        StudyCancellationToken at the boundary between calls and for persisting
+        the supplied versioned archive payload through Application StudyService.
+        """
+        if accepted_step_observer is not None and not callable(accepted_step_observer):
+            raise TypeError("accepted_step_observer must be callable when supplied")
         state = np.asarray(global_state, dtype=float)
         if state.ndim != 1 or state.size != self.layout.state_size or not np.all(np.isfinite(state)):
             raise GeneratorAugmentedIntegratorError("global_state must match the finite augmented state layout")
@@ -364,12 +376,26 @@ class GeneratorAugmentedDAEAdapter:
             raise GeneratorAugmentedIntegratorError("integrator returned an invalid augmented state")
         final_time = start + interval
         final_stage = self.evaluate_stage(accepted_state, final_time)
-        return GeneratorAugmentedStepResult(
+        result = GeneratorAugmentedStepResult(
             state=accepted_state,
             simulation_time_s=final_time,
             final_stage=final_stage,
             derivative_stages=tuple(derivative_stages),
         )
+        if accepted_step_observer is not None:
+            try:
+                accepted_step_observer(result)
+            except Exception as exc:
+                # The numerical step is already accepted. Preserve its exact
+                # evidence on the raised exception so the Application host can
+                # distinguish checkpoint failure from solver rejection.
+                failure = GeneratorAugmentedIntegratorError(
+                    "accepted generator step could not be published to its host observer"
+                )
+                failure.accepted_step_result = result
+                failure.cause_type = type(exc).__name__
+                raise failure from exc
+        return result
 
 
 __all__ = [
