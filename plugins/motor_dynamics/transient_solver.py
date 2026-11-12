@@ -684,6 +684,7 @@ __all__ = [
     "MotorParameters", "MotorSimulationResult", "solve_transient_cpu",
     "solve_transient_batch", "cuda_available",
     "PMSMParameters", "PMSMSimulationResult", "solve_pmsm_transient_cpu",
+    "BLDCParameters", "BLDCSimulationResult", "solve_bldc_transient_cpu",
 ]
 
 

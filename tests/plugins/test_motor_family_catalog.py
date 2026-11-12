@@ -35,7 +35,7 @@ def test_dynamic_solver_availability_is_explicit_by_family() -> None:
     assert motor_family_profile(MotorFamily.THREE_PHASE_SQUIRREL_CAGE_INDUCTION).dynamic_model == "induction_dq"
     assert motor_family_profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS).dynamic_model == "pmsm_dq"
     assert motor_family_profile(MotorFamily.TRACTION_PERMANENT_MAGNET).dynamic_model == "pmsm_dq"
-    assert motor_family_profile(MotorFamily.BRUSHLESS_DC).dynamic_model is None
+    assert motor_family_profile(MotorFamily.BRUSHLESS_DC).dynamic_model == "bldc_trapezoidal"
 
 
 
