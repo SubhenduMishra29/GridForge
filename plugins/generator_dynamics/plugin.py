@@ -30,6 +30,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "ggov1_parameter_contract",
         "ggov1_pid_subblock",
         "ggov1_valve_actuator_subblock",
+        "ggov1_turbine_fuel_path_subblock",
         "excitation_and_governor_configuration",
         "instrumentation_templates",
         "measurement_channel_provisioning",
