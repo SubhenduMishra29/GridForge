@@ -4616,3 +4616,14 @@ PR: #1214
 - Added direct RTD receiver capability regression source. Not executed.
 
 ======================================================================
+
+GridForge V2 — Receiver channel identity uniqueness
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Receiver channel designation is unique within its module equipment identity;
+  duplicate module/channel keys are rejected even when stable record IDs differ.
+- Added source-level regression coverage. Not executed.
+
+======================================================================
