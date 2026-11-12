@@ -268,6 +268,11 @@ def resolve_signal_endpoint_bindings(
                                 attributes = getattr(source_model, "attributes", {})
                                 if source.signal not in attributes:
                                     raise KeyError(source.signal)
+                                status = "UNRESOLVED"
+                                diagnostics.append(
+                                    "Core-domain Control source has no explicit physical source-terminal contract; "
+                                    "the physical signal route cannot be proven."
+                                )
                             except (KeyError, TypeError, ValueError) as exc:
                                 status = "UNRESOLVED"
                                 diagnostics.append(
