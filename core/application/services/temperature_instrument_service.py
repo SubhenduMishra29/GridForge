@@ -153,7 +153,10 @@ class TemperatureInstrumentService:
             cls._validate_terminal(network, reference)
 
     @staticmethod
-    def _has_physical_route(wiring_inventory: Any, starts: tuple[Any, ...], ends: tuple[Any, ...]) -> bool:
+    def _has_physical_route(
+        wiring_inventory: Any, starts: tuple[Any, ...], ends: tuple[Any, ...], *,
+        thermocouple_type: str | None = None, polarity: str | None = None,
+    ) -> bool:
         """Return whether every declared terminal has a path to the opposite endpoint set.
 
         Edges come only from ordered terminal paths in canonical cable cores and
@@ -161,10 +164,20 @@ class TemperatureInstrumentService:
         as evidence of physical continuity.
         """
         adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        cable_by_id = {item.id: item for item in wiring_inventory.cables}
         for carrier in tuple(wiring_inventory.cores) + tuple(wiring_inventory.panel_wires):
             role = getattr(getattr(carrier, "role", None), "value", getattr(carrier, "role", None))
             if role not in {"SIGNAL", "RETURN", "COMMUNICATION"}:
                 continue
+            if thermocouple_type is not None:
+                if (getattr(carrier, "thermocouple_type", None) != thermocouple_type
+                        or getattr(carrier, "thermocouple_polarity", None) != polarity
+                        or not getattr(carrier, "conductor_material", None)):
+                    continue
+                if hasattr(carrier, "cable_id"):
+                    cable = cable_by_id.get(carrier.cable_id)
+                    if cable is None or not cable.cable_type or not cable.conductor_material:
+                        continue
             path = tuple(carrier.terminal_path)
             for left, right in zip(path, path[1:]):
                 a, b = left.identity, right.identity
@@ -220,12 +233,39 @@ class TemperatureInstrumentService:
                     (instrument.sensor_terminals, interface.input_terminals, "sensor-to-interface-input"),
                     (interface.output_terminals, instrument.receiver_terminals, "interface-output-to-receiver"),
                 )
-            for starts, ends, stage in stages:
-                if not cls._has_physical_route(wiring_inventory, tuple(starts), tuple(ends)):
+            if (instrument.sensor_technology.value == "THERMOCOUPLE"
+                    and instrument.input_mode.value != "DIRECT_SENSOR"
+                    and instrument.sensor_input_mappings):
+                if not instrument.thermocouple_type:
                     raise ValueError(
-                        f"Temperature instrument '{instrument.id}' has no continuous canonical cable-core/"
-                        f"panel-wire route for {stage}."
+                        f"Temperature instrument '{instrument.id}' has mapped thermocouple terminals "
+                        "but no explicit thermocouple_type."
                     )
+                for mapping in instrument.sensor_input_mappings:
+                    if not cls._has_physical_route(
+                        wiring_inventory, (mapping.sensor_terminal,), (mapping.interface_terminal,),
+                        thermocouple_type=instrument.thermocouple_type, polarity=mapping.polarity,
+                    ):
+                        raise ValueError(
+                            f"Temperature instrument '{instrument.id}' thermocouple {mapping.polarity.lower()} "
+                            "conductor path lacks matching type, polarity, conductor material, or declared cable construction."
+                        )
+            elif instrument.sensor_input_mappings and interface is not None:
+                for mapping in instrument.sensor_input_mappings:
+                    if not cls._has_physical_route(
+                        wiring_inventory, (mapping.sensor_terminal,), (mapping.interface_terminal,)
+                    ):
+                        raise ValueError(
+                            f"Temperature instrument '{instrument.id}' has no continuous canonical "
+                            "per-lead sensor-to-interface terminal path."
+                        )
+            else:
+                for starts, ends, stage in stages:
+                    if not cls._has_physical_route(wiring_inventory, tuple(starts), tuple(ends)):
+                        raise ValueError(
+                            f"Temperature instrument '{instrument.id}' has no continuous canonical cable-core/"
+                            f"panel-wire route for {stage}."
+                        )
         return tuple(unverified)
 
     def validate_wiring_inventory(self, wiring_inventory: Any) -> tuple[str, ...]:
