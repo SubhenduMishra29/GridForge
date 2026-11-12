@@ -31,7 +31,10 @@ class InstrumentationWiringServiceState:
 class InstrumentationWiringService:
     """Project lifecycle, canonical terminal validation and controlled mutation."""
 
-    def __init__(self) -> None:
+    def __init__(self, receiver_validator: Any | None = None) -> None:
+        if receiver_validator is not None and not callable(receiver_validator):
+            raise TypeError("receiver_validator must be callable when supplied.")
+        self._receiver_validator = receiver_validator
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Any | None = None
@@ -48,6 +51,16 @@ class InstrumentationWiringService:
     @property
     def inventory(self) -> InstrumentationWiringInventory:
         return self._inventory
+
+    def validate_receiver_bindings(
+        self, inventory: InstrumentationWiringInventory | None = None
+    ) -> None:
+        """Fail closed against the active project's persisted receiver contracts."""
+        candidate = self._inventory if inventory is None else inventory
+        if not isinstance(candidate, InstrumentationWiringInventory):
+            raise TypeError("inventory must be an InstrumentationWiringInventory.")
+        if self._receiver_validator is not None:
+            self._receiver_validator(candidate)
 
     def snapshot_state(self) -> InstrumentationWiringServiceState:
         return InstrumentationWiringServiceState(
@@ -359,6 +372,9 @@ class InstrumentationWiringService:
         if self._inventory is not expected:
             raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
         self._validate_inventory_terminals(network, replacement)
+        # Receiver reconciliation is a precondition: the active inventory is
+        # unchanged if any persisted Control/Protection binding is incompatible.
+        self.validate_receiver_bindings(replacement)
         previous = self._inventory
         project_id = self._project_id
         generation = self._activation_generation
@@ -404,6 +420,7 @@ class InstrumentationWiringService:
         *,
         network: Any | None = None,
         generation: int = 0,
+        validate_receivers: bool = True,
     ) -> InstrumentationWiringServiceState:
         """Install a candidate project inventory after validating terminal owners."""
         candidate = inventory if inventory is not None else InstrumentationWiringInventory()
@@ -424,6 +441,8 @@ class InstrumentationWiringService:
             if network is None or not callable(getattr(network, "get_by_identity", None)):
                 raise ValueError("An active project wiring inventory requires the canonical Core Network.")
             self._validate_inventory_terminals(network, candidate)
+            if validate_receivers:
+                self.validate_receiver_bindings(candidate)
             next_project_id = project_id.strip()
             next_generation = generation
             next_network = network
