@@ -11,6 +11,7 @@ from typing import Any, Iterable, Mapping
 
 from core.application.read_models import SignalEndpointResolutionReadModel
 from core.model.instrument_wiring import (
+    CarrierKind,
     InstrumentationWiringInventory,
     SignalEndpointKind,
 )
@@ -49,6 +50,45 @@ def resolve_signal_endpoint_bindings(
     protection_get_binding = getattr(protection_configuration, "get_measurement_binding", None)
     protection_get_element = getattr(protection_configuration, "get", None)
 
+    cores_by_id = {item.id: item for item in inventory.cores}
+    panel_wires_by_id = {item.id: item for item in inventory.panel_wires}
+
+    def physical_source_diagnostics(signal_id: str, channel_id: str) -> tuple[str, ...]:
+        channel = channels.get(channel_id)
+        if channel is None:
+            return (f"MeasurementChannel {channel_id!r} is not active.",)
+        source_id = getattr(channel, "source_id", None)
+        source_terminal = getattr(channel, "source_terminal", None)
+        if not isinstance(source_id, str) or not source_id.strip():
+            return ("MeasurementChannel has no explicit physical source identity.",)
+        if not isinstance(source_terminal, Mapping) or source_terminal.get("kind") != "TERMINAL":
+            return ("MeasurementChannel has no explicit physical source terminal reference.",)
+        equipment_id = source_terminal.get("equipment_id")
+        terminal_role = source_terminal.get("terminal_role")
+        if equipment_id != source_id:
+            return ("MeasurementChannel source equipment and source terminal owner identities disagree.",)
+        matching_carriers = []
+        for carrier_binding in inventory.signal_bindings:
+            if carrier_binding.signal_id != signal_id:
+                continue
+            if carrier_binding.carrier_kind is CarrierKind.CABLE_CORE:
+                carrier = cores_by_id.get(carrier_binding.carrier_id)
+            elif carrier_binding.carrier_kind is CarrierKind.PANEL_WIRE:
+                carrier = panel_wires_by_id.get(carrier_binding.carrier_id)
+            else:
+                continue
+            if carrier is not None and any(
+                terminal.equipment_id == equipment_id
+                and terminal.terminal_role == terminal_role
+                for terminal in carrier.terminal_path
+            ):
+                matching_carriers.append(carrier_binding.id)
+        if not matching_carriers:
+            return (
+                "No physical cable-core or panel-wire path for this signal includes the MeasurementChannel source terminal.",
+            )
+        return ()
+
     channel_refs_by_signal: dict[str, set[str]] = {}
     for reference in inventory.endpoint_bindings:
         endpoint = reference.endpoint
@@ -70,6 +110,13 @@ def resolve_signal_endpoint_bindings(
                 diagnostics.append(
                     f"MeasurementChannel {endpoint.endpoint_id!r} is not present in the active project."
                 )
+            else:
+                physical_diagnostics = physical_source_diagnostics(
+                    binding.signal_id, endpoint.endpoint_id
+                )
+                if physical_diagnostics:
+                    status = "UNRESOLVED"
+                    diagnostics.extend(physical_diagnostics)
 
         elif endpoint.kind is SignalEndpointKind.CONTROL_INPUT:
             if control_signal_mapping is None:
@@ -179,11 +226,13 @@ def resolve_signal_endpoint_bindings(
                         diagnostics.append(
                             "Protection input has no matching signal-to-MeasurementChannel binding."
                         )
-                    if status == "RESOLVED" and protection_binding.channel_id not in channels:
-                        status = "UNRESOLVED"
-                        diagnostics.append(
-                            f"Protection MeasurementChannel {protection_binding.channel_id!r} is not active."
+                    if status == "RESOLVED":
+                        physical_diagnostics = physical_source_diagnostics(
+                            binding.signal_id, protection_binding.channel_id
                         )
+                        if physical_diagnostics:
+                            status = "UNRESOLVED"
+                            diagnostics.extend(physical_diagnostics)
 
         results.append(SignalEndpointResolutionReadModel(
             binding_id=binding.id,
