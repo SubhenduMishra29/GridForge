@@ -82,7 +82,7 @@ from core.model import (
     Battery, Breaker, Bus, Cable, Capacitor, CVT, CurrentTransformer,
     Disconnector, ElectricalObject, Fuse, Generator, Grid, Injection, Line,
     Load, Motor, PT, Reactor, Relay, Shunt, Solar, Switch,
-    SynchronousMachine, Transformer, Branch, RTD, Thermocouple,
+    SynchronousMachine, Transformer, Branch, RTD, Thermocouple, Terminal,
 )
 
 
@@ -249,11 +249,14 @@ class EndpointReference:
                     "endpoint."
                 )
 
-            object.__setattr__(
-                self,
-                "terminal_role",
-                self.terminal_role.strip(),
-            )
+            normalized_role = self.terminal_role.strip()
+            role_contract = Terminal.ROLE_CONTRACT_BY_TYPE.get(self.equipment_type.value)
+            if role_contract is None or normalized_role not in role_contract:
+                raise ValueError(
+                    f"Terminal role {normalized_role!r} is not valid for "
+                    f"equipment type {self.equipment_type.value!r}."
+                )
+            object.__setattr__(self, "terminal_role", normalized_role)
 
             return
 
