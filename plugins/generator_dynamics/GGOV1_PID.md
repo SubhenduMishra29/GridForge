@@ -171,3 +171,21 @@ complete Application execution integration or a plant-validated GGOV1
 simulation. The canonical Application composition root and transient solver
 must still decide when to call it, how to reconcile algebraic feedback, how
 to integrate all states, and how to handle solver rollback/rejected steps.
+
+## Application StudyService lifecycle boundary
+
+The plugin registers `generator_transient` with the canonical Application
+StudyService and removes that exact handler on shutdown. StudyService remains
+the sole scheduler, cancellation authority, provenance validator, result
+persister and event publisher. The plugin-side handler delegates to a
+host-provided solver capability and requests a fresh sampled GGOV1 adapter
+for each study.
+
+The Application composition service must provide
+`generator_transient_solver.solve_generator_transient(...)` and
+`create_generator_sampled_adapter(request=..., execution_context=...)`.
+The solver owns numerical integration, accepted/rejected-step handling,
+rollback and partial-result retention. These capabilities are explicit
+activation requirements; this change does not invent a solver or claim DAE
+integration is complete. The actual Application composition root must still
+supply and wire these dependencies before the study can run.
