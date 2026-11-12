@@ -15,6 +15,12 @@ from .machine_models import (
     MachineElectricalOutput,
 )
 from .multimachine import MultiMachineSystem
+from .component_contract import (
+    DynamicComponentContractError,
+    DynamicComponentInputs,
+    DynamicComponentEvaluation,
+    DynamicStateComponent,
+)
 from .events import EventBatchConflictError, EventExecution, EventManager, EventOperation, EventTransition, SimulationEvent
 from .dae_solver import (
     AlgebraicNetworkSolution,
@@ -42,6 +48,10 @@ __all__ = [
     "ClassicalSynchronousMachine",
     "MachineElectricalOutput",
     "MultiMachineSystem",
+    "DynamicComponentContractError",
+    "DynamicComponentInputs",
+    "DynamicComponentEvaluation",
+    "DynamicStateComponent",
     "SimulationEvent",
     "EventOperation",
     "EventBatchConflictError",
