@@ -358,7 +358,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         cls,
         payload: Mapping[str, object],
         *,
-        checkpoint_identity: GeneratorStudyCheckpointIdentity,
+        checkpoint_identity: GeneratorStudyCheckpointIdentity | None,
     ) -> "GeneratorAugmentedStudyEvidence":
         """Rehydrate immutable evidence after its archive envelope is validated."""
         provenance = payload.get("provenance")
@@ -474,6 +474,12 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         prior_resume = previous.provenance.get("resume", {})
         if not isinstance(prior_resume, Mapping):
             raise ValueError("previous resume provenance is malformed")
+        prior_restart_metadata = previous.provenance.get("solver_restart_metadata", {})
+        if not isinstance(prior_restart_metadata, Mapping):
+            raise ValueError("previous solver restart metadata is malformed")
+        effective_restart_metadata = (
+            prior_restart_metadata if solver_restart_metadata is None else solver_restart_metadata
+        )
         continued = cls(
             continuation,
             execution_status=execution_status,
@@ -482,7 +488,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             termination_history=termination_history,
             event_schedule=(*prior_events, *tuple(event_schedule)),
             checkpoint_identity=checkpoint_identity,
-            solver_restart_metadata=solver_restart_metadata,
+            solver_restart_metadata=effective_restart_metadata,
             resume_provenance={
                 "previous_schema": "gridforge.generator_augmented_study",
                 "previous_schema_version": 1,
@@ -490,13 +496,14 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
                 "checkpoint_time_s": previous.time[-1],
                 "resumed_step_count": len(continuation),
                 "previous_resume": dict(prior_resume),
+                "previous_solver_restart_metadata": dict(prior_restart_metadata),
             },
         )
         combined_payload = _freeze_archive_value({
             "schema": "gridforge.generator_augmented_study",
             "schema_version": 1,
             "provenance": dict(continued.provenance),
-            "checkpoint_identity": checkpoint_identity.to_archive_payload(),
+            "checkpoint_identity": None if checkpoint_identity is None else checkpoint_identity.to_archive_payload(),
             "accepted_steps": (*prior_steps, *(step.to_archive_payload() for step in continuation)),
         }, path="continued_study_evidence")
         if not isinstance(combined_payload, Mapping):
