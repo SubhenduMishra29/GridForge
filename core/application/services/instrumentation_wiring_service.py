@@ -226,6 +226,110 @@ class InstrumentationWiringService:
         if len(remaining) == len(records):
             raise KeyError(f"Instrumentation wiring record {record_id!r} does not exist.")
         return self.create_replace_command(replace(self._inventory, **{field: remaining}))
+    def create_update_carrier_route_command(
+        self,
+        carrier_kind: Any,
+        carrier_id: str,
+        terminal_path: tuple[Any, ...] | list[Any],
+        *,
+        new_hop_ids: tuple[str, ...] | list[str] = (),
+    ) -> SetInstrumentationWiringInventoryCommand:
+        """Prepare a route revision while retaining IDs for unchanged segments.
+
+        new_hop_ids supplies explicit IDs only for newly introduced adjacent
+        segments, in route order. Removed active segments remain as RETIRED
+        history records; no ID is generated or inferred.
+        """
+        from core.model.instrument_wiring import CarrierKind, WiringTerminalReference
+
+        if not isinstance(carrier_kind, CarrierKind):
+            raise TypeError("carrier_kind must be a CarrierKind.")
+        if carrier_kind not in {CarrierKind.CABLE_CORE, CarrierKind.PANEL_WIRE}:
+            raise ValueError("Only cable-core and panel-wire routes can be revised.")
+        if not isinstance(carrier_id, str) or not carrier_id.strip():
+            raise ValueError("carrier_id must be a non-empty string.")
+        path = tuple(terminal_path)
+        if len(path) < 2 or any(not isinstance(item, WiringTerminalReference) for item in path):
+            raise ValueError("terminal_path must contain at least two terminal references.")
+        if len({item.identity for item in path}) != len(path):
+            raise ValueError("terminal_path must not repeat a terminal.")
+        supplied_ids = tuple(new_hop_ids)
+        if any(not isinstance(item, str) or not item.strip() for item in supplied_ids):
+            raise ValueError("new_hop_ids must contain non-empty explicit IDs.")
+
+        field = "cores" if carrier_kind is CarrierKind.CABLE_CORE else "panel_wires"
+        records = list(getattr(self._inventory, field))
+        matches = [index for index, item in enumerate(records) if item.id == carrier_id]
+        if len(matches) != 1:
+            raise KeyError(f"Instrumentation wiring carrier {carrier_id!r} does not exist uniquely.")
+        carrier_index = matches[0]
+        carrier = records[carrier_index]
+        new_pairs = [
+            frozenset((path[index].identity, path[index + 1].identity))
+            for index in range(len(path) - 1)
+        ]
+        if len(new_pairs) != len(set(new_pairs)):
+            raise ValueError("A route cannot contain a repeated physical segment.")
+
+        existing = [
+            hop for hop in self._inventory.connection_hops
+            if hop.carrier_kind is carrier_kind and hop.carrier_id == carrier_id
+        ]
+        active_by_pair = {
+            frozenset((hop.from_terminal.identity, hop.to_terminal.identity)): hop
+            for hop in existing if hop.lifecycle_status in {"PLANNED", "INSTALLED"}
+        }
+        preserved_pairs = set(active_by_pair).intersection(new_pairs)
+        added_pairs = [pair for pair in new_pairs if pair not in preserved_pairs]
+        if len(supplied_ids) != len(added_pairs):
+            raise ValueError(
+                f"Route revision requires exactly {len(added_pairs)} new_hop_ids; "
+                f"received {len(supplied_ids)}."
+            )
+        existing_ids = {item.id for item in self._inventory.connection_hops}
+        if len(supplied_ids) != len(set(supplied_ids)) or existing_ids.intersection(supplied_ids):
+            raise ValueError("New hop IDs must be unique and must not reuse existing hop IDs.")
+
+        new_hops = []
+        id_iter = iter(supplied_ids)
+        for index in range(len(path) - 1):
+            left, right = path[index], path[index + 1]
+            pair = frozenset((left.identity, right.identity))
+            if pair in preserved_pairs:
+                continue
+            new_hops.append(PhysicalConnectionHop(
+                id=next(id_iter),
+                from_terminal=left,
+                to_terminal=right,
+                carrier_kind=carrier_kind,
+                carrier_id=carrier_id,
+                revision=1,
+                lifecycle_status="PLANNED",
+            ))
+
+        revised_hops = []
+        for hop in self._inventory.connection_hops:
+            if hop.carrier_kind is not carrier_kind or hop.carrier_id != carrier_id:
+                revised_hops.append(hop)
+                continue
+            pair = frozenset((hop.from_terminal.identity, hop.to_terminal.identity))
+            if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in new_pairs:
+                revised_hops.append(replace(
+                    hop, revision=hop.revision + 1, lifecycle_status="RETIRED",
+                ))
+            else:
+                revised_hops.append(hop)
+        revised_hops.extend(new_hops)
+
+        records[carrier_index] = replace(
+            carrier, terminal_path=path, revision=carrier.revision + 1,
+        )
+        replacement = replace(
+            self._inventory,
+            **{field: tuple(records), "connection_hops": tuple(revised_hops)},
+        )
+        return self.create_replace_command(replacement)
+
     def create_replace_command(
         self, replacement: InstrumentationWiringInventory
     ) -> SetInstrumentationWiringInventoryCommand:
