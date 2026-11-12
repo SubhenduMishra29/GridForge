@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from ..command import Command
