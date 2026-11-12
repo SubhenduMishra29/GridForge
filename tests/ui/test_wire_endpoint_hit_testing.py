@@ -126,7 +126,7 @@ def test_clicked_device_shape_takes_precedence_over_nearby_bus_anchor(monkeypatc
     bus = _BusCandidate(
         "BUS-001",
         scene,
-        ({"position": QPointF(45, 0), "object_id": "BUS-001", "bus_id": "BUS-001", "attachment_id": "attachment-0"},),
+        ({"position": QPointF(48, 0), "object_id": "BUS-001", "bus_id": "BUS-001", "attachment_id": "attachment-0"},),
         (0, -5, 40, 5),
     )
     equipment = _EquipmentCandidate(
