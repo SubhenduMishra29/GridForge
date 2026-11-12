@@ -132,6 +132,117 @@ class GeneratorStudyCheckpointIdentity:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class GeneratorAugmentedArchivedCheckpoint:
+    """Validated detached restart point reconstructed from an archive payload."""
+
+    simulation_time_s: float
+    accepted_state: tuple[float, ...]
+    identity: GeneratorStudyCheckpointIdentity
+    study_schema_version: int
+    execution_status: str
+    trajectory_status: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.simulation_time_s, bool) or not isinstance(self.simulation_time_s, (int, float)) or not math.isfinite(float(self.simulation_time_s)) or self.simulation_time_s < 0:
+            raise ValueError("checkpoint time must be finite and non-negative")
+        if not isinstance(self.identity, GeneratorStudyCheckpointIdentity):
+            raise TypeError("identity must be GeneratorStudyCheckpointIdentity")
+        if self.study_schema_version != 1:
+            raise ValueError("unsupported generator study schema version")
+        if self.execution_status not in {"cancelled", "failed"}:
+            raise ValueError("only interrupted or failed studies can be restored for resume")
+        if self.trajectory_status not in {"interrupted", "incomplete"}:
+            raise ValueError("archived trajectory is not resumable")
+        state = tuple(self.accepted_state)
+        if not state or any(
+            isinstance(value, bool) or not isinstance(value, (int, float))
+            or not math.isfinite(float(value)) for value in state
+        ):
+            raise ValueError("checkpoint state must be a non-empty finite numeric vector")
+        object.__setattr__(self, "simulation_time_s", float(self.simulation_time_s))
+        object.__setattr__(self, "accepted_state", tuple(float(value) for value in state))
+
+    @classmethod
+    def from_archive_payload(
+        cls,
+        payload: Mapping[str, object],
+        *,
+        expected_identity: GeneratorStudyCheckpointIdentity,
+    ) -> "GeneratorAugmentedArchivedCheckpoint":
+        """Validate the complete evidence envelope and reconstruct its last checkpoint."""
+        if not isinstance(payload, Mapping):
+            raise TypeError("archive payload must be a mapping")
+        if not isinstance(expected_identity, GeneratorStudyCheckpointIdentity):
+            raise TypeError("expected_identity must be GeneratorStudyCheckpointIdentity")
+        frozen = _freeze_archive_value(payload, path="archive")
+        if not isinstance(frozen, Mapping):
+            raise TypeError("archive payload must be a mapping")
+        if frozen.get("schema") != "gridforge.generator_augmented_study":
+            raise ValueError("archive payload is not generator augmented study evidence")
+        version = frozen.get("schema_version")
+        if type(version) is not int or version != 1:
+            raise ValueError(f"unsupported generator study schema version: {version!r}")
+        raw_identity = frozen.get("checkpoint_identity")
+        if not isinstance(raw_identity, Mapping):
+            raise ValueError("archive payload has no checkpoint identity")
+        identity_fields = {
+            "study_id", "project_id", "activation_generation", "study_type",
+            "model_revision", "topology_revision", "instrumentation_revision",
+            "protection_equipment_revision", "protection_configuration_revision",
+            "study_configuration_fingerprint", "state_layout_fingerprint", "solver_id",
+        }
+        if set(raw_identity) != identity_fields:
+            raise ValueError("checkpoint identity fields are incomplete or unexpected")
+        identity = GeneratorStudyCheckpointIdentity(**dict(raw_identity))
+        if identity != expected_identity:
+            raise ValueError("archived checkpoint identity does not match the requested study")
+        provenance = frozen.get("provenance")
+        if not isinstance(provenance, Mapping):
+            raise ValueError("archive provenance is missing or malformed")
+        execution_status = provenance.get("execution_status")
+        trajectory_status = provenance.get("trajectory_status")
+        steps = frozen.get("accepted_steps")
+        if not isinstance(steps, tuple) or not steps:
+            raise ValueError("archive contains no accepted steps")
+        previous_time = -1.0
+        last_time = None
+        last_state = None
+        for index, step in enumerate(steps):
+            if not isinstance(step, Mapping):
+                raise ValueError(f"accepted step {index} is malformed")
+            if step.get("schema") != "gridforge.generator_augmented_step" or step.get("schema_version") != 1:
+                raise ValueError(f"accepted step {index} has an unsupported schema")
+            step_time = step.get("simulation_time_s")
+            state = step.get("accepted_state")
+            final_stage = step.get("final_stage")
+            if isinstance(step_time, bool) or not isinstance(step_time, (int, float)) or not math.isfinite(float(step_time)) or step_time <= previous_time:
+                raise ValueError("archived accepted-step times must be finite and strictly increasing")
+            if not isinstance(state, tuple) or not state or any(
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) for value in state
+            ):
+                raise ValueError(f"accepted step {index} state vector is malformed")
+            if not isinstance(final_stage, Mapping) or final_stage.get("simulation_time_s") != step_time:
+                raise ValueError(f"accepted step {index} final stage time is inconsistent")
+            for section in ("excitation", "network", "inputs", "derivatives"):
+                if not isinstance(final_stage.get(section), Mapping):
+                    raise ValueError(f"accepted step {index} is missing {section} evidence")
+            previous_time = float(step_time)
+            last_time = previous_time
+            last_state = tuple(float(value) for value in state)
+        if execution_status not in {"cancelled", "failed"} or trajectory_status not in {"interrupted", "incomplete"}:
+            raise ValueError("archive status is not eligible for restart")
+        return cls(
+            simulation_time_s=last_time,
+            accepted_state=last_state,
+            identity=identity,
+            study_schema_version=version,
+            execution_status=execution_status,
+            trajectory_status=trajectory_status,
+        )
+
+
 class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
     """Immutable accepted-step trajectory evidence returned by a host solver.
 
@@ -320,4 +431,4 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         return len(self._payload)
 
 
-__all__ = ["GeneratorAugmentedStudyEvidence", "GeneratorStudyCheckpointIdentity"]
+__all__ = [\n    "GeneratorAugmentedStudyEvidence",\n    "GeneratorStudyCheckpointIdentity",\n    "GeneratorAugmentedArchivedCheckpoint",\n]
