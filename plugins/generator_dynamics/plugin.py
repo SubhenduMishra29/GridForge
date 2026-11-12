@@ -31,6 +31,8 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "ggov1_pid_subblock",
         "ggov1_valve_actuator_subblock",
         "ggov1_turbine_fuel_path_subblock",
+        "ggov1_low_value_selector",
+        "ggov1_pid_tracking_input",
         "excitation_and_governor_configuration",
         "instrumentation_templates",
         "measurement_channel_provisioning",
