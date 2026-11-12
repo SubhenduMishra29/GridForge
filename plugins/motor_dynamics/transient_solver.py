@@ -1709,3 +1709,139 @@ def solve_dc_motor_transient_cpu(motor_id,parameters,duration_s,step_s,*,armatur
          "flux_model":"saturating_tanh","input_profile":"zero_order_hold",
          "model_fidelity":"averaged_armature_field_circuits_no_commutation_or_brush_arc",
          "integration_engine":"core.numerics.ode.solve_rk4"})
+
+
+_SINGLE_PHASE_STATE_NAMES = ("main_current_a", "auxiliary_current_a", "rotor_speed_rad_s", "rotor_position_rad", "winding_temperature_c")
+
+
+@dataclass(frozen=True, slots=True)
+class SinglePhaseMotorParameters:
+    """Reduced-order RMS-envelope parameters for single-phase induction families."""
+    family: str
+    main_resistance_ohm: float
+    main_inductance_h: float
+    auxiliary_resistance_ohm: float
+    auxiliary_inductance_h: float
+    inertia_kg_m2: float
+    torque_constant_nm_per_a2: float
+    frequency_hz: float = 50.0
+    auxiliary_capacitance_f: float = 0.0
+    auxiliary_cutout_speed_pu: float = 0.75
+    shaded_pole_torque_factor: float = 0.12
+    friction_n_m_s: float = 0.0
+    thermal_capacity_j_k: float = 5000.0
+    thermal_conductance_w_k: float = 20.0
+    ambient_temperature_c: float = 25.0
+    initial_speed_rad_s: float = 0.0
+    initial_temperature_c: float = 25.0
+
+    def __post_init__(self):
+        allowed={"split_phase","capacitor_start","permanent_split_capacitor","capacitor_start_run","shaded_pole"}
+        if self.family not in allowed: raise ValueError("unsupported single-phase motor family")
+        for name in ("main_resistance_ohm","main_inductance_h","auxiliary_resistance_ohm","auxiliary_inductance_h","inertia_kg_m2","torque_constant_nm_per_a2","thermal_capacity_j_k"):
+            v=getattr(self,name)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or v<=0: raise ValueError(f"{name} must be finite and positive")
+        for name in ("frequency_hz","auxiliary_capacitance_f","auxiliary_cutout_speed_pu","shaded_pole_torque_factor","friction_n_m_s","thermal_conductance_w_k","ambient_temperature_c","initial_speed_rad_s","initial_temperature_c"):
+            v=getattr(self,name)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)): raise ValueError(f"{name} must be finite and numeric")
+        if self.frequency_hz<=0 or self.auxiliary_capacitance_f<0 or self.friction_n_m_s<0 or self.thermal_conductance_w_k<0: raise ValueError("frequency must be positive and passive parameters non-negative")
+        if not 0<self.auxiliary_cutout_speed_pu<=1: raise ValueError("auxiliary_cutout_speed_pu must be in (0, 1]")
+        if not 0<=self.shaded_pole_torque_factor<=1: raise ValueError("shaded_pole_torque_factor must be in [0, 1]")
+        if self.family in {"capacitor_start","permanent_split_capacitor","capacitor_start_run"} and self.auxiliary_capacitance_f<=0: raise ValueError("capacitor motor families require auxiliary_capacitance_f > 0")
+
+
+@dataclass(frozen=True, slots=True)
+class SinglePhaseMotorSimulationResult:
+    motor_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    supply_voltage_v: np.ndarray
+    load_torque_nm: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self):
+        if not isinstance(self.motor_id,str) or not self.motor_id.strip(): raise ValueError("motor_id must be non-empty")
+        for name in ("time_s","state_data","supply_voltage_v","load_torque_nm"):
+            v=np.asarray(getattr(self,name),dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(v).all(): raise ValueError(f"{name} must be finite")
+            v.setflags(write=False); object.__setattr__(self,name,v)
+        if self.state_data.size!=self.time_s.size*len(_SINGLE_PHASE_STATE_NAMES): raise ValueError("single-phase state buffer size mismatch")
+        if self.supply_voltage_v.size!=self.time_s.size or self.load_torque_nm.size!=self.time_s.size: raise ValueError("single-phase profiles must align to time grid")
+        if not isinstance(self.diagnostics,Mapping): raise TypeError("diagnostics must be a mapping")
+        object.__setattr__(self,"diagnostics",MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self): return int(self.time_s.size)
+    @property
+    def state_names(self): return _SINGLE_PHASE_STATE_NAMES
+    def state(self,name):
+        try: i=_SINGLE_PHASE_STATE_NAMES.index(name)
+        except ValueError as exc: raise KeyError(name) from exc
+        v=self.state_data.reshape(self.sample_count,len(_SINGLE_PHASE_STATE_NAMES))[:,i].view(); v.setflags(write=False); return v
+
+    def channels(self,p):
+        if not isinstance(p,SinglePhaseMotorParameters): raise TypeError("parameters must be SinglePhaseMotorParameters")
+        m=self.state_data.reshape(self.sample_count,len(_SINGLE_PHASE_STATE_NAMES))
+        im,ia,w,pos,temp=(m[:,i] for i in range(len(_SINGLE_PHASE_STATE_NAMES)))
+        omega=2*np.pi*p.frequency_hz
+        xa=omega*p.auxiliary_inductance_h-(1/(omega*p.auxiliary_capacitance_f) if p.auxiliary_capacitance_f>0 else 0.0)
+        phase=np.arctan2(xa,p.auxiliary_resistance_ohm)-np.arctan2(omega*p.main_inductance_h,p.main_resistance_ohm)
+        torque=p.torque_constant_nm_per_a2*im*ia*np.sin(phase)
+        if p.family=="shaded_pole": torque*=p.shaded_pole_torque_factor
+        active=np.ones(self.sample_count)
+        if p.family in {"split_phase","capacitor_start"}: active=(w<p.auxiliary_cutout_speed_pu*omega).astype(float)
+        vals={"line_voltage_rms_v":self.supply_voltage_v,"line_current_rms_a":np.hypot(im,ia*active),
+              "main_winding_current_rms_a":im,"auxiliary_winding_current_rms_a":ia*active,
+              "main_winding_copper_loss_w":p.main_resistance_ohm*im**2,
+              "auxiliary_winding_copper_loss_w":p.auxiliary_resistance_ohm*ia**2*active,
+              "auxiliary_phase_displacement_rad":np.full(self.sample_count,phase),
+              "electromagnetic_torque_nm":torque,"rotor_speed_rad_s":w,"rotor_speed_rpm":w*60/(2*np.pi),
+              "rotor_position_rad":pos,"winding_temperature_c":temp,
+              "electrical_input_power_w":self.supply_voltage_v*np.hypot(im,ia*active),
+              "mechanical_output_power_w":torque*w,"load_torque_nm":self.load_torque_nm}
+        for v in vals.values(): v.setflags(write=False)
+        return vals
+
+
+def _single_phase_targets(p, voltage):
+    omega=2*np.pi*p.frequency_hz
+    zm=np.hypot(p.main_resistance_ohm,omega*p.main_inductance_h)
+    xa=omega*p.auxiliary_inductance_h-(1/(omega*p.auxiliary_capacitance_f) if p.auxiliary_capacitance_f>0 else 0.0)
+    za=np.hypot(p.auxiliary_resistance_ohm,xa)
+    phase=np.arctan2(xa,p.auxiliary_resistance_ohm)-np.arctan2(omega*p.main_inductance_h,p.main_resistance_ohm)
+    return abs(voltage)/zm,abs(voltage)/za,phase
+
+
+def solve_single_phase_motor_transient_cpu(motor_id,parameters,duration_s,step_s,*,supply_voltage_rms_v,load_torque_nm=0.0):
+    """Integrate a reduced-order single-phase motor RMS-envelope response."""
+    if not isinstance(motor_id,str) or not motor_id.strip(): raise ValueError("motor_id must be non-empty")
+    if not isinstance(parameters,SinglePhaseMotorParameters): raise TypeError("parameters must be SinglePhaseMotorParameters")
+    if not _is_numeric_scalar(supply_voltage_rms_v) or not isfinite(float(supply_voltage_rms_v)) or supply_voltage_rms_v<0: raise ValueError("supply_voltage_rms_v must be finite and non-negative")
+    if not _is_numeric_scalar(load_torque_nm) or not isfinite(float(load_torque_nm)): raise ValueError("load_torque_nm must be finite and numeric")
+    count,_=_validate_time(duration_s,step_s)
+    voltage=np.full(count,float(supply_voltage_rms_v)); load=np.full(count,float(load_torque_nm))
+    im_target,ia_target,phase=_single_phase_targets(parameters,float(supply_voltage_rms_v))
+    tau_m=max(parameters.main_inductance_h/parameters.main_resistance_ohm,step_s)
+    tau_a=max(parameters.auxiliary_inductance_h/parameters.auxiliary_resistance_ohm,step_s)
+    omega=2*np.pi*parameters.frequency_hz
+    def derivative(x,u):
+        im,ia,w,_pos,temp=x
+        active=not (parameters.family in {"split_phase","capacitor_start"} and w>=parameters.auxiliary_cutout_speed_pu*omega)
+        dia=(ia_target-ia)/tau_a if active else -ia/tau_a
+        torque=parameters.torque_constant_nm_per_a2*im*ia*np.sin(phase)
+        if parameters.family=="shaded_pole": torque*=parameters.shaded_pole_torque_factor
+        loss=parameters.main_resistance_ohm*im**2+(parameters.auxiliary_resistance_ohm*ia**2 if active else 0.)
+        return np.asarray(((im_target-im)/tau_m,dia,(torque-u[0]-parameters.friction_n_m_s*w)/parameters.inertia_kg_m2,w,
+            (loss-parameters.thermal_conductance_w_k*(temp-parameters.ambient_temperature_c))/parameters.thermal_capacity_j_k),dtype=np.float64)
+    initial=np.asarray((0.,0.,parameters.initial_speed_rad_s,0.,parameters.initial_temperature_c))
+    problem=NumericalProblem(problem_id=motor_id.strip(),workload="single_phase_motor_rms_envelope_single",
+        derivative=derivative,initial_state=initial,duration_s=duration_s,maximum_step_s=step_s,
+        input_at=lambda i,_t:(float(load[i]),),precision="float64")
+    result=solve_numerical_problem(problem)
+    if result.sample_count!=count: raise RuntimeError("shared ODE engine returned an unexpected single-phase sample count")
+    return SinglePhaseMotorSimulationResult(motor_id.strip(),result.time_s,result.state_data,voltage,load,result.sample_period_s,"cpu-rk4",
+        {"integrator":result.integrator,"precision":"float64","workload":"single_phase_motor_rms_envelope_single",
+         "model":"single_phase_asymmetric_winding_rms_envelope","family":parameters.family,
+         "model_fidelity":"reduced_order_rms_envelope_not_cycle_resolved","integration_engine":"core.numerics.ode.solve_rk4"})

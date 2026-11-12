@@ -15,11 +15,13 @@ from .transient_solver import (
     BLDCSimulationResult,
     solve_bldc_transient_cpu,
     SynRMParameters, SynRMSimulationResult, solve_synrm_transient_cpu,
-    SRMParameters, SRMSimulationResult, solve_srm_transient_cpu,\n    DCMotorParameters, DCMotorSimulationResult, solve_dc_motor_transient_cpu,\n    SinglePhaseMotorParameters, SinglePhaseMotorSimulationResult, solve_single_phase_motor_transient_cpu,
+    SRMParameters, SRMSimulationResult, solve_srm_transient_cpu,\n    DCMotorParameters, DCMotorSimulationResult, solve_dc_motor_transient_cpu,
+    SinglePhaseMotorParameters, SinglePhaseMotorSimulationResult, solve_single_phase_motor_transient_cpu,\n    SinglePhaseMotorParameters, SinglePhaseMotorSimulationResult, solve_single_phase_motor_transient_cpu,
 )
 
 __all__ = [
-    "MotorDynamicsPlugin",\n    "DCMotorParameters", "DCMotorSimulationResult", "solve_dc_motor_transient_cpu",\n    "SinglePhaseMotorParameters", "SinglePhaseMotorSimulationResult", "solve_single_phase_motor_transient_cpu",
+    "MotorDynamicsPlugin",\n    "DCMotorParameters", "DCMotorSimulationResult", "solve_dc_motor_transient_cpu",
+    "SinglePhaseMotorParameters", "SinglePhaseMotorSimulationResult", "solve_single_phase_motor_transient_cpu",\n    "SinglePhaseMotorParameters", "SinglePhaseMotorSimulationResult", "solve_single_phase_motor_transient_cpu",
     "MotorFamily", "MotorFamilyProfile", "MotorNameplate", "MotorOperatingMode",
     "MOTOR_FAMILY_PROFILES", "motor_family_profile",
     "MotorMeasurementPoint", "motor_measurement_points", "provision_motor_measurement_channels",
