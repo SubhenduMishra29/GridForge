@@ -42,6 +42,8 @@ def test_canvas_snapshot_contains_transient_physical_wiring_connections():
     assert connection.properties["cable_id"] == "cable-1"
     assert connection.properties["core_id"] == "core-1"
     assert connection.properties["signal_tags"] == ("IA_A",)
+    assert connection.properties["signal_ids"] == ("signal-1",)
+    assert connection.properties["label_signal_ids"] == ("signal-1",)
     assert connection.source_endpoint.terminal_role == "S1"
     assert connection.target_endpoint.terminal_role == "1"
     assert snapshot.physical_wiring_diagnostics == ()
