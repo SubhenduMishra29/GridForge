@@ -684,3 +684,306 @@ __all__ = [
     "MotorParameters", "MotorSimulationResult", "solve_transient_cpu",
     "solve_transient_batch", "cuda_available",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Permanent-magnet synchronous motor (PMSM) reference transient model
+# ---------------------------------------------------------------------------
+
+_PMSM_STATE_COUNT = 5
+_PMSM_ID, _PMSM_IQ, _PMSM_OMEGA_M, _PMSM_THETA_E, _PMSM_TEMP_C = range(_PMSM_STATE_COUNT)
+_PMSM_STATE_NAMES = (
+    "stator_current_d_a",
+    "stator_current_q_a",
+    "rotor_speed_rad_s",
+    "electrical_position_rad",
+    "winding_temperature_c",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PMSMParameters:
+    """SI parameters for a sinusoidally modelled surface/interior PMSM.
+
+    Voltages and currents are rotor-flux-aligned dq quantities. The model
+    includes d/q inductance saliency, permanent-magnet flux, copper loss,
+    temperature-dependent stator resistance, mechanical inertia/friction,
+    and one lumped winding thermal node. It does not model PWM switching,
+    magnetic saturation, iron/magnet losses, demagnetisation, or inverter
+    current-loop dynamics.
+    """
+
+    stator_resistance_ohm: float
+    d_axis_inductance_h: float
+    q_axis_inductance_h: float
+    permanent_magnet_flux_wb: float
+    pole_pairs: int
+    inertia_kg_m2: float
+    friction_n_m_s: float = 0.0
+    thermal_capacity_j_k: float = 12000.0
+    thermal_conductance_w_k: float = 35.0
+    ambient_temperature_c: float = 25.0
+    resistance_temp_coefficient_per_k: float = 0.00393
+    initial_speed_rad_s: float = 0.0
+    initial_electrical_position_rad: float = 0.0
+    initial_temperature_c: float = 25.0
+
+    def __post_init__(self) -> None:
+        positive = (
+            "stator_resistance_ohm", "d_axis_inductance_h",
+            "q_axis_inductance_h", "permanent_magnet_flux_wb",
+            "inertia_kg_m2", "thermal_capacity_j_k",
+        )
+        for name in positive:
+            value = getattr(self, name)
+            if not _is_numeric_scalar(value):
+                raise TypeError(f"{name} must be numeric")
+            if not isfinite(float(value)) or float(value) <= 0.0:
+                raise ValueError(f"{name} must be finite and positive")
+        for name in (
+            "friction_n_m_s", "thermal_conductance_w_k",
+            "resistance_temp_coefficient_per_k", "ambient_temperature_c",
+            "initial_speed_rad_s", "initial_electrical_position_rad",
+            "initial_temperature_c",
+        ):
+            value = getattr(self, name)
+            if not _is_numeric_scalar(value):
+                raise TypeError(f"{name} must be numeric")
+            if not isfinite(float(value)):
+                raise ValueError(f"{name} must be finite")
+            if name in ("friction_n_m_s", "thermal_conductance_w_k") and value < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if (
+            isinstance(self.pole_pairs, (bool, np.bool_))
+            or not isinstance(self.pole_pairs, (int, np.integer))
+            or self.pole_pairs < 1
+        ):
+            raise ValueError("pole_pairs must be a positive integer")
+
+
+@dataclass(frozen=True)
+class PMSMSimulationResult:
+    """Immutable PMSM trajectory and its aligned dq input/load histories."""
+
+    motor_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    voltage_d_v: np.ndarray
+    voltage_q_v: np.ndarray
+    load_torque_nm: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.diagnostics, Mapping):
+            raise TypeError("diagnostics must be a mapping")
+        if not isinstance(self.motor_id, str) or not self.motor_id.strip():
+            raise ValueError("motor_id must be a non-empty string")
+        count = int(self.time_s.size)
+        if self.state_data.size != count * _PMSM_STATE_COUNT:
+            raise ValueError("PMSM state buffer does not match the time grid")
+        for name in ("time_s", "state_data", "voltage_d_v", "voltage_q_v", "load_torque_nm"):
+            value = np.asarray(getattr(self, name), dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(value).all():
+                raise ValueError(f"{name} must contain only finite values")
+            value.setflags(write=False)
+            object.__setattr__(self, name, value)
+        if any(getattr(self, name).size != count for name in ("voltage_d_v", "voltage_q_v", "load_torque_nm")):
+            raise ValueError("PMSM voltage and load profiles must align with the time grid")
+        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self) -> int:
+        return int(self.time_s.size)
+
+    @property
+    def state_names(self) -> tuple[str, ...]:
+        return _PMSM_STATE_NAMES
+
+    def state(self, name: str) -> np.ndarray:
+        try:
+            index = _PMSM_STATE_NAMES.index(name)
+        except ValueError as exc:
+            raise KeyError(name) from exc
+        view = self.state_data.reshape(self.sample_count, _PMSM_STATE_COUNT)[:, index].view()
+        view.setflags(write=False)
+        return view
+
+    def channels(self, parameters: PMSMParameters) -> dict[str, np.ndarray]:
+        """Derive electrical, mechanical, thermal and drive channels."""
+        if not isinstance(parameters, PMSMParameters):
+            raise TypeError("parameters must be PMSMParameters")
+        matrix = self.state_data.reshape(self.sample_count, _PMSM_STATE_COUNT)
+        ids, iqs, speed, theta, temp = (matrix[:, index] for index in range(_PMSM_STATE_COUNT))
+        resistance_factor = np.maximum(
+            0.05,
+            1.0 + parameters.resistance_temp_coefficient_per_k
+            * (temp - parameters.ambient_temperature_c),
+        )
+        resistance = parameters.stator_resistance_ohm * resistance_factor
+        torque = 1.5 * parameters.pole_pairs * (
+            parameters.permanent_magnet_flux_wb * iqs
+            + (parameters.d_axis_inductance_h - parameters.q_axis_inductance_h) * ids * iqs
+        )
+        values = {
+            "stator_current_a": np.hypot(ids, iqs),
+            "stator_current_d_a": ids,
+            "stator_current_q_a": iqs,
+            "electromagnetic_torque_nm": torque,
+            "rotor_speed_rad_s": speed,
+            "rotor_speed_rpm": speed * 60.0 / (2.0 * np.pi),
+            "electrical_position_rad": theta,
+            "electrical_speed_rad_s": parameters.pole_pairs * speed,
+            "electrical_frequency_hz": parameters.pole_pairs * speed / (2.0 * np.pi),
+            "winding_temperature_c": temp,
+            "load_torque_nm": self.load_torque_nm,
+            "electrical_input_power_w": 1.5 * (
+                self.voltage_d_v * ids + self.voltage_q_v * iqs
+            ),
+            "stator_copper_loss_w": 1.5 * resistance * (ids * ids + iqs * iqs),
+            "mechanical_output_power_w": torque * speed,
+        }
+        for value in values.values():
+            value.setflags(write=False)
+        return values
+
+    def publish_to(
+        self,
+        read_model_store: Any,
+        parameters: PMSMParameters,
+        *,
+        study_id: str | None = None,
+        study_order: int | None = None,
+    ) -> bool:
+        """Publish a completed trajectory snapshot; caller owns StudyCompleted."""
+        publish = getattr(read_model_store, "publish", None)
+        if not callable(publish):
+            raise TypeError("read_model_store must expose publish(...)")
+        return publish(
+            self.motor_id,
+            self.channels(parameters),
+            self.sample_period_s,
+            status="completed",
+            study_id=study_id,
+            study_order=study_order,
+            diagnostics=self.diagnostics,
+        )
+
+
+def _pmsm_derivative(
+    state: np.ndarray,
+    parameters: PMSMParameters,
+    voltage_d_v: float,
+    voltage_q_v: float,
+    load_torque_nm: float,
+) -> np.ndarray:
+    ids, iqs, omega_m, _theta_e, temperature = state
+    p = parameters
+    resistance = p.stator_resistance_ohm * max(
+        0.05,
+        1.0 + p.resistance_temp_coefficient_per_k
+        * (temperature - p.ambient_temperature_c),
+    )
+    omega_e = p.pole_pairs * omega_m
+    # Rotor dq convention:
+    # vd = R*id + Ld*did/dt - omega_e*Lq*iq
+    # vq = R*iq + Lq*diq/dt + omega_e*(Ld*id + psi_pm)
+    did = (voltage_d_v - resistance * ids + omega_e * p.q_axis_inductance_h * iqs) / p.d_axis_inductance_h
+    diq = (
+        voltage_q_v - resistance * iqs
+        - omega_e * (p.d_axis_inductance_h * ids + p.permanent_magnet_flux_wb)
+    ) / p.q_axis_inductance_h
+    torque = 1.5 * p.pole_pairs * (
+        p.permanent_magnet_flux_wb * iqs
+        + (p.d_axis_inductance_h - p.q_axis_inductance_h) * ids * iqs
+    )
+    copper_loss = 1.5 * resistance * (ids * ids + iqs * iqs)
+    return np.asarray(
+        (
+            did,
+            diq,
+            (torque - load_torque_nm - p.friction_n_m_s * omega_m) / p.inertia_kg_m2,
+            omega_e,
+            (copper_loss - p.thermal_conductance_w_k * (temperature - p.ambient_temperature_c))
+            / p.thermal_capacity_j_k,
+        ),
+        dtype=np.float64,
+    )
+
+
+def solve_pmsm_transient_cpu(
+    motor_id: str,
+    parameters: PMSMParameters,
+    duration_s: float,
+    step_s: float,
+    *,
+    stator_voltage_d_v: float | Sequence[float] | np.ndarray,
+    stator_voltage_q_v: float | Sequence[float] | np.ndarray,
+    load_torque_nm: float | Sequence[float] | np.ndarray = 0.0,
+) -> PMSMSimulationResult:
+    """Integrate a sinusoidal PMSM in rotor dq coordinates using shared RK4.
+
+    dq voltage and load profiles use zero-order hold and must be scalar or
+    contain exactly one value per output sample. The CPU implementation is
+    the reference; the induction CUDA kernel is intentionally not reused.
+    """
+    if not isinstance(motor_id, str) or not motor_id.strip():
+        raise ValueError("motor_id must be a non-empty string")
+    if not isinstance(parameters, PMSMParameters):
+        raise TypeError("parameters must be PMSMParameters")
+    count, times = _validate_time(duration_s, step_s)
+    vd = _voltage_profile(stator_voltage_d_v, count, "stator_voltage_d_v")
+    vq = _voltage_profile(stator_voltage_q_v, count, "stator_voltage_q_v")
+    load = _voltage_profile(load_torque_nm, count, "load_torque_nm")
+    initial = np.asarray(
+        (
+            0.0,
+            0.0,
+            parameters.initial_speed_rad_s,
+            parameters.initial_electrical_position_rad,
+            parameters.initial_temperature_c,
+        ),
+        dtype=np.float64,
+    )
+    problem = NumericalProblem(
+        problem_id=motor_id.strip(),
+        workload="pmsm_transient_single",
+        derivative=lambda state, inputs: _pmsm_derivative(
+            state, parameters, inputs[0], inputs[1], inputs[2]
+        ),
+        initial_state=initial,
+        duration_s=duration_s,
+        maximum_step_s=step_s,
+        input_at=lambda index, _time: (
+            float(vd[index]), float(vq[index]), float(load[index])
+        ),
+        precision="float64",
+    )
+    solution = solve_numerical_problem(problem)
+    if solution.sample_count != count:
+        raise RuntimeError("shared ODE engine returned an unexpected PMSM sample count")
+    return PMSMSimulationResult(
+        motor_id=motor_id.strip(),
+        time_s=solution.time_s,
+        state_data=solution.state_data,
+        voltage_d_v=vd,
+        voltage_q_v=vq,
+        load_torque_nm=load,
+        sample_period_s=solution.sample_period_s,
+        backend="cpu-rk4",
+        diagnostics={
+            "integrator": solution.integrator,
+            "precision": "float64",
+            "workload": "pmsm_transient_single",
+            "state_layout": "step_major_state_minor",
+            "state_count": _PMSM_STATE_COUNT,
+            "model": "pmsm_rotor_dq_electromechanical_lumped_thermal",
+            "model_fidelity": "linear_magnetic_parameters_no_pwm_or_iron_loss",
+            "voltage_profile": "zero_order_hold_rotor_dq",
+            "load_torque_profile": "zero_order_hold",
+            "requested_max_step_s": float(step_s),
+            "effective_step_s": solution.sample_period_s,
+            "integration_engine": "core.numerics.ode.solve_rk4",
+        },
+    )

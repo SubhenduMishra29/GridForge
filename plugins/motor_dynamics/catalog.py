@@ -71,7 +71,7 @@ class MotorFamilyProfile:
 def _profile(family: MotorFamily, supply: str, phases: int, principle: str,
              drive: str, *, dynamic_model: str | None = None,
              regenerative: bool = False, notes: str = "") -> MotorFamilyProfile:
-    status = "experimental_induction_dq" if dynamic_model == "induction_dq" else "catalogued_model_required"
+    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq"}.get(dynamic_model, "catalogued_model_required")
     return MotorFamilyProfile(family, supply, phases, principle, drive, dynamic_model, status, regenerative, notes)
 
 
@@ -84,7 +84,7 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN: _profile(MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN, "AC", 1, "capacitor-start/capacitor-run induction", "line / starter"),
     MotorFamily.SINGLE_PHASE_SHADED_POLE: _profile(MotorFamily.SINGLE_PHASE_SHADED_POLE, "AC", 1, "shaded-pole induction", "line"),
     MotorFamily.WOUND_FIELD_SYNCHRONOUS: _profile(MotorFamily.WOUND_FIELD_SYNCHRONOUS, "AC", 3, "DC-excited synchronous", "VFD / damper-start / exciter", regenerative=True),
-    MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS: _profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS, "AC", 3, "surface/interior PM synchronous", "FOC / inverter", regenerative=True),
+    MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS: _profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS, "AC", 3, "surface/interior PM synchronous", "FOC / inverter", dynamic_model="pmsm_dq", regenerative=True, notes="Experimental CPU dq transient model; linear magnetic parameters and no PWM switching."),
     MotorFamily.BRUSHLESS_DC: _profile(MotorFamily.BRUSHLESS_DC, "DC link", 3, "electronically commutated PM", "six-step / FOC", regenerative=True),
     MotorFamily.SYNCHRONOUS_RELUCTANCE: _profile(MotorFamily.SYNCHRONOUS_RELUCTANCE, "AC", 3, "synchronous reluctance", "VFD / vector control", regenerative=True),
     MotorFamily.SWITCHED_RELUCTANCE: _profile(MotorFamily.SWITCHED_RELUCTANCE, "DC link", 3, "switched reluctance", "asymmetric bridge converter", regenerative=True),
@@ -102,7 +102,7 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.LINEAR_INDUCTION: _profile(MotorFamily.LINEAR_INDUCTION, "AC", 3, "linear induction", "linear VFD", regenerative=True),
     MotorFamily.LINEAR_SYNCHRONOUS: _profile(MotorFamily.LINEAR_SYNCHRONOUS, "AC / DC link", 3, "linear synchronous / PM", "linear servo inverter", regenerative=True),
     MotorFamily.TRACTION_INDUCTION: _profile(MotorFamily.TRACTION_INDUCTION, "AC / DC link", 3, "traction induction", "traction inverter / FOC", regenerative=True),
-    MotorFamily.TRACTION_PERMANENT_MAGNET: _profile(MotorFamily.TRACTION_PERMANENT_MAGNET, "AC / DC link", 3, "traction PMSM / IPM", "traction inverter / FOC", regenerative=True),
+    MotorFamily.TRACTION_PERMANENT_MAGNET: _profile(MotorFamily.TRACTION_PERMANENT_MAGNET, "AC / DC link", 3, "traction PMSM / IPM", "traction inverter / FOC", dynamic_model="pmsm_dq", regenerative=True, notes="Uses the experimental sinusoidal PMSM dq model; traction thermal, field-weakening and inverter limits remain unmodeled."),
     MotorFamily.HYSTERESIS: _profile(MotorFamily.HYSTERESIS, "AC", 1, "hysteresis synchronous", "AC supply / inverter"),
     MotorFamily.TORQUE: _profile(MotorFamily.TORQUE, "AC / DC link", 3, "direct-drive torque motor", "servo inverter / FOC", regenerative=True),
 })

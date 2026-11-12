@@ -4,7 +4,7 @@
   "name": "Multi-Physics Dynamic Motor Extension",
   "version": "2.0.0",
   "api_version": "V2.0",
-  "description": "Family-aware electric motor catalogue, validated nameplates, explicit instrumentation templates, induction transient simulation, diagnostics and telemetry.",
+  "description": "Family-aware motor catalogue, validated nameplates and instrumentation, experimental induction and PMSM dq CPU transient models, diagnostics and telemetry.",
   "author": "Subhendu Mishra",
   "entry_point": "plugin.MotorDynamicsPlugin",
   "capabilities": [
@@ -18,7 +18,8 @@
     "motor_family_catalog",
     "motor_nameplate_validation",
     "family_specific_instrumentation",
-    "canonical_measurement_channel_provisioning"
+    "canonical_measurement_channel_provisioning",
+    "pmsm_dq_cpu_transient"
   ],
   "runtime": {
     "python": ">=3.10",

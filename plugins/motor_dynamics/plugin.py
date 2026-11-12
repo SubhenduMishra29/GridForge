@@ -47,6 +47,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "motor_nameplate_validation",
         "family_specific_instrumentation",
         "canonical_measurement_channel_provisioning",
+        "pmsm_dq_cpu_transient",
     }),
 )
 

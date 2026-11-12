@@ -328,3 +328,14 @@ Family-aware logical instrumentation points cover phase/armature voltage and cur
 Provisioning uses Core MeasurementProvisioning and requires explicit source equipment, authoritative Core terminals and EndpointReference for every configured point. Required electrical points must be supplied; optional points may be omitted. No physical sensor, CT/PT, terminal, topology or synthetic measurement channel is fabricated.
 
 CPU remains the deterministic engineering reference. CUDA is limited to its declared supported induction batch workload. ONNX NPU/GPU providers remain optional diagnostic inference only and must never become the authority for physics state, protection trips or interlocks.
+
+
+## PMSM transient model (experimental)
+
+`solve_pmsm_transient_cpu(...)` adds a separate CPU/RK4 PMSM model in rotor-aligned dq coordinates. It supports surface and interior PM parameterization through independent d/q inductances and permanent-magnet flux linkage, temperature-adjusted stator resistance, electromagnetic/reluctance torque, rotor acceleration and electrical position, lumped winding thermal response, and zero-order-held d-axis voltage, q-axis voltage and load-torque profiles.
+
+The solver returns immutable state/input arrays and derives stator current, dq currents, torque, rotor speed, electrical position/frequency, input power, copper loss and mechanical output power. It uses the shared Core numerical ODE engine. It does not reuse the induction CUDA kernel: no PMSM GPU workload is declared.
+
+The model is experimental and is not a switching inverter or protection model. It omits PWM, current-loop control, magnetic saturation, iron and magnet losses, demagnetisation, field weakening, voltage/current limits and multi-node thermal networks. Validate parameter identification, numerical step selection and reference cases before engineering use. The traction-PM profile references this same simplified PMSM dq model only; traction-specific thermal, inverter and field-weakening physics remain unimplemented.
+
+BLDC is deliberately not marked as solved by this PMSM model. Six-step trapezoidal back-EMF and commutation timing require a distinct phase-domain model.

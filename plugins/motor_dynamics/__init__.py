@@ -5,9 +5,12 @@ from .instrumentation import MotorMeasurementPoint, motor_measurement_points, pr
 from .transient_solver import (
     MotorParameters,
     MotorSimulationResult,
+    PMSMParameters,
+    PMSMSimulationResult,
     cuda_available,
     solve_transient_batch,
     solve_transient_cpu,
+    solve_pmsm_transient_cpu,
 )
 
 __all__ = [
@@ -17,6 +20,9 @@ __all__ = [
     "MotorMeasurementPoint", "motor_measurement_points", "provision_motor_measurement_channels",
     "MotorParameters",
     "MotorSimulationResult",
+    "PMSMParameters",
+    "PMSMSimulationResult",
+    "solve_pmsm_transient_cpu",
     "solve_transient_cpu",
     "solve_transient_batch",
     "cuda_available",
