@@ -4244,9 +4244,9 @@ Correction:
   optional canonical WiringTerminalReference for the physical input sink.
   MeasurementChannel endpoints remain source identities and reject sink
   terminal metadata.
-- Persisted the sink terminal losslessly in the schema-3 instrumentation
-  wiring codec while preserving compatibility with existing schema-3
-  payloads that omit the optional field and schema-2 read compatibility.
+- Persisted the sink terminal losslessly in the schema-4 instrumentation
+  wiring codec. The decoder continues to read legacy schema-3 payloads that
+  omit the optional sink field, as well as schema-2 payloads.
 - Application inventory activation/replacement now validates declared
   endpoint sink terminals against the active Core Network terminal registry.
 - Endpoint resolution now fails closed for Control measurement inputs and
