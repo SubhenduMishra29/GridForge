@@ -357,3 +357,157 @@ __all__ = [
     "FirstOrderAVRParameters", "FirstOrderAVR", "TGOV1Governor",
     "PSSParameters", "WashoutLeadLagPSS", "TGOV1Parameters", "TGOV1SteamGovernor",
 ]
+
+@dataclass(frozen=True, slots=True)
+class HYGOVReducedParameters:
+    """Reduced HYGOV hydro-governor parameters on one declared per-unit base.
+
+    This contract implements the permanent-droop PI governor, gate servo and
+    nonlinear inelastic single-penstock/turbine coupling. It intentionally
+    does not claim full PSS/E HYGOV equivalence.
+    """
+    permanent_droop_pu: float
+    temporary_droop_pu: float
+    governor_time_constant_s: float
+    filter_time_constant_s: float
+    gate_servo_time_constant_s: float
+    gate_velocity_limit_pu_per_s: float
+    gate_min_pu: float
+    gate_max_pu: float
+    water_time_constant_s: float
+    turbine_gain_pu: float
+    turbine_damping_pu: float
+    no_load_flow_pu: float
+    nominal_head_pu: float = 1.0
+
+    def __post_init__(self) -> None:
+        positive = (
+            "permanent_droop_pu", "temporary_droop_pu",
+            "governor_time_constant_s", "filter_time_constant_s",
+            "gate_servo_time_constant_s", "gate_velocity_limit_pu_per_s",
+            "water_time_constant_s", "turbine_gain_pu", "nominal_head_pu",
+        )
+        for name in positive:
+            value = _number(getattr(self, name), name)
+            if value <= 0.0:
+                raise ValueError(f"{name} must be greater than zero")
+            object.__setattr__(self, name, value)
+        for name in ("gate_min_pu", "gate_max_pu", "turbine_damping_pu",
+                     "no_load_flow_pu"):
+            object.__setattr__(self, name, _number(getattr(self, name), name))
+        if not 0.0 <= self.gate_min_pu < self.gate_max_pu <= 1.0:
+            raise ValueError("gate limits must satisfy 0 <= minimum < maximum <= 1")
+        if self.turbine_damping_pu < 0.0 or self.no_load_flow_pu < 0.0:
+            raise ValueError("turbine damping and no-load flow must be non-negative")
+
+
+class HYGOVReducedHydroGovernor(DynamicPlugin):
+    """Reduced hydro governor with nonlinear inelastic single-penstock dynamics.
+
+    States: filtered governor error, governor integrator, gate position and
+    penstock flow. Inputs are evaluated at every solver stage. The model owns
+    no integration clock or persistent state.
+    """
+    model_type = "HYGOV_REDUCED_NONLINEAR_PENSTOCK"
+    state_names: ClassVar[tuple[str, ...]] = (
+        "filtered_governor_error_pu", "governor_integrator_pu",
+        "gate_position_pu", "penstock_flow_pu",
+    )
+
+    def __init__(self, parameters: HYGOVReducedParameters) -> None:
+        if not isinstance(parameters, HYGOVReducedParameters):
+            raise TypeError("parameters must be HYGOVReducedParameters")
+        self.parameters = parameters
+
+    def _head(self, gate: float, flow: float) -> float:
+        if abs(gate) <= 1e-12:
+            if abs(flow) <= 1e-12:
+                return self.parameters.nominal_head_pu
+            raise ValueError("non-zero penstock flow is invalid at a closed gate")
+        return (flow / gate) ** 2
+
+    def initial_state(self, *, gate_position_pu: float, penstock_flow_pu: float,
+                      power_reference_pu: float, speed_deviation_pu: float = 0.0,
+                      **_: Any) -> tuple[float, ...]:
+        p = self.parameters
+        gate = _number(gate_position_pu, "gate_position_pu")
+        flow = _number(penstock_flow_pu, "penstock_flow_pu")
+        reference = _number(power_reference_pu, "power_reference_pu")
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        if not p.gate_min_pu <= gate <= p.gate_max_pu:
+            raise ValueError("initial gate position is outside configured limits")
+        if flow < 0.0:
+            raise ValueError("initial penstock flow must be non-negative")
+        head = self._head(gate, flow)
+        if abs(head - p.nominal_head_pu) > 1e-6:
+            raise ValueError(
+                "initial flow and gate must satisfy the configured steady-state head"
+            )
+        filtered_error = reference - speed - p.permanent_droop_pu * gate
+        integrator = gate - filtered_error / p.temporary_droop_pu
+        return (filtered_error, integrator, gate, flow)
+
+    def derivatives(self, state: tuple[float, ...] | list[float], *,
+                    power_reference_pu: float, speed_deviation_pu: float = 0.0,
+                    **_: Any) -> tuple[float, ...]:
+        self.validate_state(state)
+        filtered_error, integrator, gate, flow = (
+            _number(value, "HYGOV state") for value in state
+        )
+        p = self.parameters
+        reference = _number(power_reference_pu, "power_reference_pu")
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        if not p.gate_min_pu <= gate <= p.gate_max_pu:
+            raise ValueError("gate state is outside configured limits")
+        if flow < 0.0:
+            raise ValueError("penstock flow state must be non-negative")
+
+        error = reference - speed - p.permanent_droop_pu * gate
+        d_filtered = (error - filtered_error) / p.filter_time_constant_s
+        gate_command = integrator + filtered_error / p.temporary_droop_pu
+        limited_command = _clip(gate_command, p.gate_min_pu, p.gate_max_pu)
+        d_gate = (limited_command - gate) / p.gate_servo_time_constant_s
+        d_gate = _clip(d_gate, -p.gate_velocity_limit_pu_per_s,
+                       p.gate_velocity_limit_pu_per_s)
+        if (gate >= p.gate_max_pu and d_gate > 0.0) or (
+            gate <= p.gate_min_pu and d_gate < 0.0
+        ):
+            d_gate = 0.0
+
+        d_integrator = filtered_error / (
+            p.temporary_droop_pu * p.governor_time_constant_s
+        )
+        if (gate_command >= p.gate_max_pu and d_integrator > 0.0) or (
+            gate_command <= p.gate_min_pu and d_integrator < 0.0
+        ):
+            d_integrator = 0.0
+
+        head = self._head(gate, flow)
+        d_flow = (p.nominal_head_pu - head) / p.water_time_constant_s
+        if flow <= 0.0 and d_flow < 0.0:
+            d_flow = 0.0
+        return (d_filtered, d_integrator, d_gate, d_flow)
+
+    def output(self, state: tuple[float, ...] | list[float], *,
+               speed_deviation_pu: float = 0.0, **_: Any) -> float:
+        self.validate_state(state)
+        _, _, gate, flow = (_number(value, "HYGOV state") for value in state)
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        if not self.parameters.gate_min_pu <= gate <= self.parameters.gate_max_pu:
+            raise ValueError("gate state is outside configured limits")
+        head = self._head(gate, flow)
+        p = self.parameters
+        return (
+            p.turbine_gain_pu * head * (flow - p.no_load_flow_pu)
+            - p.turbine_damping_pu * speed * gate
+        )
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "model_type": self.model_type,
+            "state_names": self.state_names,
+            "parameters": self.parameters,
+            "equation_scope": "reduced_PI_governor_nonlinear_inelastic_single_penstock",
+            "power_base": "declared_connected_machine_per_unit_base",
+        }
+
