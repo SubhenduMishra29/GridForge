@@ -532,7 +532,7 @@ class CTSecondaryCircuit:
     shorting_accessory_id: str
     shorting_s1_terminal_point_id: str
     shorting_s2_terminal_point_id: str
-    secondary_state: CTSecondaryCircuitState = CTSecondaryCircuitState.CLOSED
+    secondary_state: CTSecondaryCircuitState = CTSecondaryCircuitState.UNKNOWN
     test_disconnect_accessory_id: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -677,6 +677,7 @@ class InstrumentationWiringInventory:
             [ref for core in self.cores for ref in core.terminal_path]
             + [ref for wire in self.panel_wires for ref in wire.terminal_path]
             + [binding.endpoint.physical_terminal for binding in self.endpoint_bindings if binding.endpoint.physical_terminal is not None]
+            + [terminal for circuit in self.ct_secondary_circuits for terminal in (circuit.s1_terminal, circuit.s2_terminal)]
         ):
             if reference.terminal_point_id is None:
                 if reference.equipment_id in terminal_blocks_by_id:
