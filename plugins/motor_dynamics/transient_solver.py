@@ -1488,9 +1488,12 @@ class SRMSimulationResult:
         offsets=(0.,2*np.pi/3,4*np.pi/3); inductances=[]; torque=np.zeros(self.sample_count)
         base=0.5*(p.aligned_inductance_h+p.unaligned_inductance_h); delta=0.5*(p.aligned_inductance_h-p.unaligned_inductance_h)
         for current,offset in zip(currents,offsets):
-            angle=p.rotor_poles*theta-offset; sat=1+(current/p.saturation_current_a)**2
+            angle=p.rotor_poles*theta-offset
+            ratio=current/p.saturation_current_a
+            sat=1+ratio**2
             inductances.append(base+delta*np.cos(angle)/sat)
-            torque += -0.5*current**2*delta*p.rotor_poles*np.sin(angle)/sat
+            # Co-energy integral for lambda(i,theta)=i*(Lbase+delta*cos(angle)/(1+(i/Isat)^2)).
+            torque += -0.5*delta*p.rotor_poles*np.sin(angle)*p.saturation_current_a**2*np.log1p(ratio**2)
         resistance=p.phase_resistance_ohm*np.maximum(0.05,1+p.resistance_temp_coefficient_per_k*(temp-p.ambient_temperature_c))
         power=sum(v*i for v,i in zip((self.phase_a_voltage_v,self.phase_b_voltage_v,self.phase_c_voltage_v),currents))
         values={"phase_a_current_a":currents[0],"phase_b_current_a":currents[1],"phase_c_current_a":currents[2],
@@ -1521,8 +1524,14 @@ def _srm_derivative(x,p,voltages,load):
     did=[]; torque=0.; copper=0.
     for current,voltage,offset in zip(currents,voltages,(0.,2*np.pi/3,4*np.pi/3)):
         inductance,dldtheta=_srm_phase_inductance(theta,float(current),p,offset)
-        did.append((voltage-r*current-current*dldtheta*omega)/max(inductance,1e-12))
-        torque += 0.5*current**2*dldtheta; copper += r*current**2
+        ratio=current/p.saturation_current_a
+        angle=p.rotor_poles*theta-offset
+        delta=0.5*(p.aligned_inductance_h-p.unaligned_inductance_h)
+        differential=0.5*(p.aligned_inductance_h+p.unaligned_inductance_h) + delta*np.cos(angle)*(1-ratio**2)/(1+ratio**2)**2
+        flux_angle=-current*delta*p.rotor_poles*np.sin(angle)/(1+ratio**2)
+        did.append((voltage-r*current-flux_angle*omega)/max(differential,1e-12))
+        torque += -0.5*delta*p.rotor_poles*np.sin(angle)*p.saturation_current_a**2*np.log1p(ratio**2)
+        copper += r*current**2
     return np.asarray((*did,(torque-load-p.friction_n_m_s*omega)/p.inertia_kg_m2,omega,(copper-p.thermal_conductance_w_k*(temp-p.ambient_temperature_c))/p.thermal_capacity_j_k),dtype=np.float64)
 
 
