@@ -62,12 +62,22 @@ class GGOV1AccelerationLimiter(DynamicPlugin):
         state: tuple[float, ...] | list[float],
         *,
         governor_fuel_command_pu: float,
+        shaft_acceleration_pu_per_s: float | None = None,
         **_: Any,
     ) -> float:
         self.validate_state(state)
         p = self.parameters
         governor_command = _number(governor_fuel_command_pu, "governor_fuel_command_pu")
-        acceleration = _number(state[0], "filtered_acceleration_pu_per_s")
+        if p.acceleration_filter_time_constant_s == 0.0:
+            if shaft_acceleration_pu_per_s is None:
+                raise ValueError(
+                    "shaft_acceleration_pu_per_s is required when Ta is zero"
+                )
+            acceleration = _number(
+                shaft_acceleration_pu_per_s, "shaft_acceleration_pu_per_s"
+            )
+        else:
+            acceleration = _number(state[0], "filtered_acceleration_pu_per_s")
         if p.acceleration_limiter_gain == 0.0:
             return governor_command
         excess_acceleration = max(
