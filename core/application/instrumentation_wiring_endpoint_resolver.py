@@ -22,6 +22,7 @@ def resolve_signal_endpoint_bindings(
     measurement_channels: Iterable[Any] | None,
     control_signal_mapping: Any | None,
     protection_configuration: Any | None,
+    read_service: Any | None = None,
 ) -> tuple[SignalEndpointResolutionReadModel, ...]:
     """Resolve every explicit endpoint against active Application-owned state.
 
@@ -91,7 +92,8 @@ def resolve_signal_endpoint_bindings(
                     diagnostics.append("More than one active ControlSignalMapping targets this input.")
                 else:
                     source = matches[0].source
-                    if getattr(source, "domain", None) == "measurement":
+                    source_domain = getattr(source, "domain", None)
+                    if source_domain == "measurement":
                         source_channel = str(getattr(source, "object_id", ""))
                         if source_channel not in channel_refs_by_signal.get(binding.signal_id, set()):
                             status = "UNRESOLVED"
@@ -103,6 +105,31 @@ def resolve_signal_endpoint_bindings(
                             diagnostics.append(
                                 f"Control source MeasurementChannel {source_channel!r} is not active."
                             )
+                        else:
+                            channel = channels[source_channel]
+                            if getattr(source, "signal", None) not in {
+                                "value", "engineering_value", str(getattr(channel, "signal_type", "")).lower()
+                            }:
+                                status = "UNRESOLVED"
+                                diagnostics.append("Control source signal selector is incompatible with its MeasurementChannel.")
+                    elif source_domain == "core":
+                        if read_service is None or not callable(getattr(read_service, "element", None)):
+                            status = "UNRESOLVED"
+                            diagnostics.append("Active Core read service is unavailable for the Control signal source.")
+                        else:
+                            try:
+                                source_model = read_service.element(source.element_type, source.object_id)
+                                attributes = getattr(source_model, "attributes", {})
+                                if source.signal not in attributes:
+                                    raise KeyError(source.signal)
+                            except Exception as exc:
+                                status = "UNRESOLVED"
+                                diagnostics.append(
+                                    f"Control Core source cannot be resolved: {type(exc).__name__}: {exc}."
+                                )
+                    else:
+                        status = "UNRESOLVED"
+                        diagnostics.append(f"Unsupported Control signal source domain {source_domain!r}.")
 
         elif endpoint.kind is SignalEndpointKind.PROTECTION_INPUT:
             if not callable(protection_get_binding) or not callable(protection_get_element):
