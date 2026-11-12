@@ -5112,6 +5112,7 @@ class Application:
             measurement_channels=channels,
             control_signal_mapping=control_mapping,
             protection_configuration=protection_configuration,
+            read_service=self._read_service,
         )
 
     def read_measurement_channels(self) -> tuple[MeasurementChannelReadModel, ...]:
