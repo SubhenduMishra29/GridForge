@@ -1,3 +1,37 @@
+GridForge V2 — BTD/OTD/WTD physical continuity validation
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Correction:
+- TemperatureInstrumentService now consumes the existing project-scoped
+  InstrumentationWiringService inventory; no second cable/core/wire graph was
+  introduced.
+- Temperature loop activation and inventory replacement validate declared
+  sensor-to-interface and interface-to-receiver paths (or direct sensor-to-
+  receiver paths) against ordered CableCore and PanelWire terminal paths.
+- Logical SignalCarrierBinding and MeasurementChannel identity are not treated
+  as proof of physical continuity.
+- A declared but discontinuous temperature loop is rejected. Records without
+  complete terminal maps remain unverified and are not represented as proven
+  wired; no terminal mapping is inferred.
+- Bootstrap composition injects the canonical wiring service into the
+  temperature service.
+
+Remaining:
+- Explicit one-to-one manufacturer pin mapping, including RTD lead assignment
+  and thermocouple polarity/extension-lead compatibility.
+- Receiver module input capability and MeasurementChannel signal/unit/scaling
+  compatibility. Current MeasurementSignalType does not yet define TEMPERATURE,
+  and current MeasurementChannel authoring is CT-specific.
+- Validate alarm/trip associations against configured Control/Protection
+  function registries and runtime semantics.
+- SLD/Control/Protection projections, authoring, provenance/highlighting and
+  dedicated temperature schedules.
+- Runtime/import/test/save-reopen/GUI verification not performed.
+
+======================================================================
+
 GridForge V2 — BTD/OTD/WTD Application lifecycle and command integration
 Date: 2026-11-12
 Issue: #1203
