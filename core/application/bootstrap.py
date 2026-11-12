@@ -141,11 +141,15 @@ def create_application(
 
     def validate_instrumentation_receivers(candidate_inventory: Any) -> None:
         """Validate persisted signal relationships against this candidate project's registries."""
+        # During ProjectLifecycleService's activation callback, the public
+        # project-scoped property may still resolve the previous context.
+        # Composition reads the just-installed candidate mapping directly;
+        # mutation-time calls observe the same canonical Application field.
         mapping = (
-            application.control_signal_mapping
-            if application is not None and application.control_signal_mapping is not None
-            else ControlSignalMapping()
-        )
+            getattr(application, "_control_signal_mapping", None)
+            if application is not None
+            else None
+        ) or ControlSignalMapping()
         outcomes = validate_inventory_receiver_bindings(
             candidate_inventory,
             control_mapping=mapping,
