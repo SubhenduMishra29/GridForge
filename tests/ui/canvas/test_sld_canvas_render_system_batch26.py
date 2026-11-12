@@ -14,7 +14,8 @@ from ui.equipment.symbol.built_in_symbol_catalogue import register_builtin_symbo
 from ui.equipment.symbol.symbol_registry import SymbolRegistry
 from ui.items.bus_item import BusItem
 from ui.items.equipment_item import EquipmentItem
-from ui.core.qt import QApplication, QGraphicsScene
+from ui.core.qt import QApplication, QGraphicsScene, QGraphicsLineItem
+from ui.items.signal_provenance_item import SignalProvenanceItem
 import os
 
 
@@ -412,3 +413,54 @@ def test_annotation_projection_priority_prefers_identity_then_type_then_secondar
     assert SLDCanvasProjection._annotation_priority(("parameter:voltage",)) == 20
     assert SLDCanvasProjection._annotation_priority(("label:name",)) == 30
     assert SLDCanvasProjection._annotation_priority(("attribute:rating",)) == 40
+
+
+
+def test_sld_physical_route_provenance_label_navigates_to_exact_peer_and_tracks_visibility(qapp):
+    realization, factory, _ = _composition()
+    scene = QGraphicsScene()
+    renderer = SLDCanvasRenderSystem(scene, factory, realization)
+    route = QGraphicsLineItem(0.0, 0.0, 120.0, 0.0)
+    route.setOpacity(0.4)
+    route.setVisible(False)
+    scene.addItem(route)
+    renderer._items["physical-route"] = (route,)
+    renderer._connection_signal_ids["physical-route"] = ("signal-1",)
+    navigations = []
+    renderer.set_provenance_navigation_callback(
+        lambda editor, object_id: navigations.append((editor, object_id))
+    )
+    renderer.set_signal_provenance_targets({
+        "signal-1": ({
+            "label": "IA_A | PROTECTION IA",
+            "detail": "Cable IC-001/1; sink IED-101/IA",
+            "target_editor": "protection",
+            "target_object_id": "element-1",
+        },),
+    })
+
+    labels = renderer._items["physical-route"][1:]
+    assert len(labels) == 1
+    label = labels[0]
+    assert isinstance(label, SignalProvenanceItem)
+    assert not label.isVisible()
+    assert label.opacity() == pytest.approx(0.4)
+    accepted = []
+    label.mouseDoubleClickEvent(SimpleNamespace(accept=lambda: accepted.append(True)))
+    assert navigations == [("protection", "element-1")]
+    assert accepted == [True]
+
+    route.setVisible(True)
+    renderer.set_signal_provenance_targets({
+        "signal-1": ({
+            "label": "IA_A | CONTROL PV",
+            "detail": "Cable IC-001/1; sink PLC-101/AI1",
+            "target_editor": "control",
+            "target_object_id": "component-1",
+        },),
+    })
+    current_label = renderer._items["physical-route"][1]
+    assert current_label.isVisible()
+    assert current_label.opacity() == pytest.approx(0.4)
+    renderer.dispose()
+    assert scene.items() == []
