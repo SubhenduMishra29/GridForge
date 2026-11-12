@@ -195,6 +195,33 @@ class GeneratorAugmentedDAEAdapter:
         self.machine_connection_state = machine_connection_state
         self.require_network_convergence_evidence = require_network_convergence_evidence
 
+    def restore_checkpoint_state(
+        self,
+        checkpoint: object,
+        *,
+        expected_identity: object,
+    ) -> np.ndarray:
+        """Restore only a validated archive checkpoint matching this study identity."""
+        from .study_evidence import (
+            GeneratorAugmentedArchivedCheckpoint,
+            GeneratorStudyCheckpointIdentity,
+        )
+
+        if not isinstance(checkpoint, GeneratorAugmentedArchivedCheckpoint):
+            raise TypeError("checkpoint must be a validated GeneratorAugmentedArchivedCheckpoint")
+        if not isinstance(expected_identity, GeneratorStudyCheckpointIdentity):
+            raise TypeError("expected_identity must be GeneratorStudyCheckpointIdentity")
+        if checkpoint.identity != expected_identity:
+            raise GeneratorAugmentedIntegratorError(
+                "archived checkpoint identity does not match the active study"
+            )
+        state = np.asarray(checkpoint.accepted_state, dtype=float)
+        if state.ndim != 1 or state.size != self.layout.state_size or not np.all(np.isfinite(state)):
+            raise GeneratorAugmentedIntegratorError(
+                "archived checkpoint state does not match the configured augmented state layout"
+            )
+        return state.copy()
+
     def initialize_state(
         self,
         machine_state: Sequence[float] | np.ndarray,
