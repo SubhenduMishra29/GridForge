@@ -81,6 +81,16 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("electrical.frequency", "Supply frequency", F, N, "Hz", ("control","protection","scada"), True),
                 _p("electrical.phase_sequence", "Phase sequence", D, N, "state", ("protection","commissioning"))]
 
+    if family in {MotorFamily.SINGLE_PHASE_SPLIT_PHASE, MotorFamily.SINGLE_PHASE_CAPACITOR_START, MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR, MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN, MotorFamily.SINGLE_PHASE_SHADED_POLE}:
+        pts += [_p("machine.main_winding_temperature", "Main winding temperature", X, N, "degC", ("monitoring","alarm","protection")),
+                _p("machine.auxiliary_winding_current", "Auxiliary winding current", C, N, "A", ("monitoring","protection")),
+                _p("machine.main_winding_copper_loss", "Main winding copper loss", P, N, "W", ("monitoring","analysis")),
+                _p("machine.auxiliary_winding_copper_loss", "Auxiliary winding copper loss", P, N, "W", ("monitoring","analysis")),
+                _p("machine.auxiliary_phase_displacement", "Auxiliary winding phase displacement", X, N, "rad", ("commissioning","analysis"))]
+        if family in {MotorFamily.SINGLE_PHASE_SPLIT_PHASE, MotorFamily.SINGLE_PHASE_CAPACITOR_START}:
+            pts.append(_p("drive.auxiliary_cutout", "Start winding cutout state", D, N, "state", ("control","monitoring")))
+        if family in {MotorFamily.SINGLE_PHASE_CAPACITOR_START, MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR, MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN}:
+            pts.append(_p("machine.auxiliary_capacitor_voltage", "Auxiliary capacitor voltage", V, N, "V", ("monitoring","maintenance")))
     if family == MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION:
         pts += [_p("rotor.external_resistance", "External rotor resistance", X, N, "ohm", ("control","commissioning","analysis")),
                 _p("rotor.rotor_current", "Rotor current magnitude", C, N, "A", ("monitoring","protection")),

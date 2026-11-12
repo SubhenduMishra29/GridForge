@@ -378,3 +378,10 @@ The reduced-order model omits commutator segmentation, brush contact drop/arcing
 The shared induction dq model accepts a non-negative fixed `external_rotor_resistance_ohm` in addition to rotor winding resistance. This enables comparative starting/torque-speed studies for a selected external resistance setting and publishes rotor current magnitude, total rotor-circuit resistance and rotor copper loss. The wound-rotor family is mapped to the existing induction dq solver.
 
 This is not a slip-ring starter sequence or resistor-bank thermal model: resistance is fixed for each run; brush/slip-ring contact, per-phase resistor switching, separate rotor/stator thermal nodes and unbalanced rotor circuits remain outside the current fidelity boundary.
+
+
+## Single-phase induction motor family model (experimental)
+
+A reduced-order RMS-envelope model is available for split-phase, capacitor-start, permanent-split-capacitor, capacitor-start/run and shaded-pole families. It tracks main and auxiliary winding current envelopes, auxiliary phase displacement, a starting-winding cutout approximation for split-phase/capacitor-start variants, torque estimate, rotor speed/position and lumped winding temperature.
+
+This is a comparative reduced-order envelope model, not a cycle-resolved double-revolving-field equivalent circuit. It omits spatial air-gap fields, rotor slot harmonics, magnetic saturation, detailed capacitor switching, centrifugal-switch mechanics, shading-coil eddy-current field solution, inverter switching and separate winding thermal nodes. Validate against manufacturer test data before engineering use. CPU/RK4 only; no GPU/NPU capability is declared.

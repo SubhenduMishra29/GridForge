@@ -404,3 +404,31 @@ def test_wound_rotor_family_uses_induction_dq_with_external_resistance():
             external_rotor_resistance_ohm=-.1, stator_leakage_inductance_h=.012,
             rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18,
             pole_pairs=2, inertia_kg_m2=.02)
+
+
+from plugins.motor_dynamics.transient_solver import SinglePhaseMotorParameters, solve_single_phase_motor_transient_cpu
+
+
+@pytest.mark.parametrize("family,kind",[
+    (MotorFamily.SINGLE_PHASE_SPLIT_PHASE,"split_phase"),
+    (MotorFamily.SINGLE_PHASE_CAPACITOR_START,"capacitor_start"),
+    (MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR,"permanent_split_capacitor"),
+    (MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN,"capacitor_start_run"),
+    (MotorFamily.SINGLE_PHASE_SHADED_POLE,"shaded_pole"),
+])
+def test_single_phase_family_profiles_and_solver(family,kind):
+    import numpy as np
+    assert motor_family_profile(family).dynamic_model=="single_phase_rms_envelope"
+    p=SinglePhaseMotorParameters(family=kind,main_resistance_ohm=8.,main_inductance_h=.04,
+        auxiliary_resistance_ohm=12.,auxiliary_inductance_h=.025,inertia_kg_m2=.02,
+        torque_constant_nm_per_a2=.5,auxiliary_capacitance_f=.0002 if "capacitor" in kind else 0.)
+    r=solve_single_phase_motor_transient_cpu("single-phase",p,.02,.0001,supply_voltage_rms_v=230.,load_torque_nm=.02)
+    ch=r.channels(p)
+    assert r.backend=="cpu-rk4" and np.isfinite(r.state_data).all()
+    assert ch["line_current_rms_a"][-1]>=0 and np.isfinite(ch["electromagnetic_torque_nm"]).all()
+
+
+def test_single_phase_capacitor_families_require_capacitance():
+    with pytest.raises(ValueError,match="require auxiliary_capacitance_f"):
+        SinglePhaseMotorParameters(family="capacitor_start",main_resistance_ohm=8.,main_inductance_h=.04,
+            auxiliary_resistance_ohm=12.,auxiliary_inductance_h=.025,inertia_kg_m2=.02,torque_constant_nm_per_a2=.5)

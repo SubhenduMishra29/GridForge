@@ -71,18 +71,18 @@ class MotorFamilyProfile:
 def _profile(family: MotorFamily, supply: str, phases: int, principle: str,
              drive: str, *, dynamic_model: str | None = None,
              regenerative: bool = False, notes: str = "") -> MotorFamilyProfile:
-    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal", "synrm_dq": "experimental_synrm_dq", "srm_phase_inductance": "experimental_srm_phase_inductance", "dc_excitation": "experimental_dc_excitation"}.get(dynamic_model, "catalogued_model_required")
+    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal", "synrm_dq": "experimental_synrm_dq", "srm_phase_inductance": "experimental_srm_phase_inductance", "dc_excitation": "experimental_dc_excitation", "single_phase_rms_envelope": "experimental_single_phase_rms_envelope"}.get(dynamic_model, "catalogued_model_required")
     return MotorFamilyProfile(family, supply, phases, principle, drive, dynamic_model, status, regenerative, notes)
 
 
 MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyType({
     MotorFamily.THREE_PHASE_SQUIRREL_CAGE_INDUCTION: _profile(MotorFamily.THREE_PHASE_SQUIRREL_CAGE_INDUCTION, "AC", 3, "asynchronous squirrel-cage induction", "DOL / soft starter / VFD", dynamic_model="induction_dq", regenerative=True, notes="Existing dq solver is experimental; saturation and unbalance are not covered."),
     MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION: _profile(MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION, "AC", 3, "asynchronous wound-rotor induction", "rotor-resistance starter / VFD", dynamic_model="induction_dq", regenerative=True, notes="Experimental CPU dq model supports a fixed external rotor resistance; slip-ring contact and separate resistor thermal dynamics remain unmodeled."),
-    MotorFamily.SINGLE_PHASE_SPLIT_PHASE: _profile(MotorFamily.SINGLE_PHASE_SPLIT_PHASE, "AC", 1, "single-phase split-phase induction", "line / starter"),
-    MotorFamily.SINGLE_PHASE_CAPACITOR_START: _profile(MotorFamily.SINGLE_PHASE_CAPACITOR_START, "AC", 1, "capacitor-start induction", "line / starter"),
-    MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR: _profile(MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR, "AC", 1, "permanent-split-capacitor induction", "line / VFD"),
-    MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN: _profile(MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN, "AC", 1, "capacitor-start/capacitor-run induction", "line / starter"),
-    MotorFamily.SINGLE_PHASE_SHADED_POLE: _profile(MotorFamily.SINGLE_PHASE_SHADED_POLE, "AC", 1, "shaded-pole induction", "line"),
+    MotorFamily.SINGLE_PHASE_SPLIT_PHASE: _profile(MotorFamily.SINGLE_PHASE_SPLIT_PHASE, "AC", 1, "single-phase split-phase induction", "line / starter", dynamic_model="single_phase_rms_envelope"),
+    MotorFamily.SINGLE_PHASE_CAPACITOR_START: _profile(MotorFamily.SINGLE_PHASE_CAPACITOR_START, "AC", 1, "capacitor-start induction", "line / starter", dynamic_model="single_phase_rms_envelope"),
+    MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR: _profile(MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR, "AC", 1, "permanent-split-capacitor induction", "line / VFD", dynamic_model="single_phase_rms_envelope"),
+    MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN: _profile(MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN, "AC", 1, "capacitor-start/capacitor-run induction", "line / starter", dynamic_model="single_phase_rms_envelope"),
+    MotorFamily.SINGLE_PHASE_SHADED_POLE: _profile(MotorFamily.SINGLE_PHASE_SHADED_POLE, "AC", 1, "shaded-pole induction", "line", dynamic_model="single_phase_rms_envelope"),
     MotorFamily.WOUND_FIELD_SYNCHRONOUS: _profile(MotorFamily.WOUND_FIELD_SYNCHRONOUS, "AC", 3, "DC-excited synchronous", "VFD / damper-start / exciter", regenerative=True),
     MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS: _profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS, "AC", 3, "surface/interior PM synchronous", "FOC / inverter", dynamic_model="pmsm_dq", regenerative=True, notes="Experimental CPU dq transient model; linear magnetic parameters and no PWM switching."),
     MotorFamily.BRUSHLESS_DC: _profile(MotorFamily.BRUSHLESS_DC, "DC link", 3, "electronically commutated PM", "six-step / FOC", dynamic_model="bldc_trapezoidal", regenerative=True, notes="Experimental CPU phase-domain model with trapezoidal back-EMF and averaged six-step inverter commands; PWM switching and closed-loop commutation are not modeled."),
