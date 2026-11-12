@@ -90,6 +90,7 @@ class TemperatureReceiverInput:
     supported_sensor_configurations: tuple[str, ...] = ()
     range_min: Optional[float] = None
     range_max: Optional[float] = None
+    range_unit: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "module_equipment_id", "channel_designation", "engineering_unit"):
@@ -108,8 +109,11 @@ class TemperatureReceiverInput:
             raise TypeError("Invalid receiver sensor technology.")
         configs = tuple(_text(item, "supported_sensor_configurations entry") for item in self.supported_sensor_configurations)
         low, high = _number(self.range_min, "range_min"), _number(self.range_max, "range_max")
+        range_unit = _optional(self.range_unit, "range_unit")
         if (low is None) != (high is None) or (low is not None and high <= low):
             raise ValueError("Receiver range bounds must both be supplied with maximum greater than minimum.")
+        if low is not None and range_unit is None:
+            raise ValueError("range_unit is required when receiver input range is declared.")
         if self.input_kind in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and not technologies:
             raise ValueError("Direct sensor receiver inputs must declare supported sensor technologies.")
         if self.input_kind not in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and technologies:
@@ -119,6 +123,7 @@ class TemperatureReceiverInput:
         object.__setattr__(self, "supported_sensor_configurations", configs)
         object.__setattr__(self, "range_min", low)
         object.__setattr__(self, "range_max", high)
+        object.__setattr__(self, "range_unit", range_unit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +254,7 @@ class TemperatureInterfaceDevice:
     output_unit: str
     output_range_min: Optional[float] = None
     output_range_max: Optional[float] = None
+    output_range_unit: Optional[str] = None
     measurement_channel_id: Optional[str] = None
 
     def __post_init__(self) -> None:
@@ -277,7 +283,11 @@ class TemperatureInterfaceDevice:
         object.__setattr__(self, "output_signal_kind", _text(self.output_signal_kind, "output_signal_kind"))
         object.__setattr__(self, "output_unit", _text(self.output_unit, "output_unit"))
         object.__setattr__(self, "output_range_min", low)
+        output_range_unit = _optional(self.output_range_unit, "output_range_unit")
+        if low is not None and output_range_unit is None:
+            raise ValueError("output_range_unit is required when interface output range is declared.")
         object.__setattr__(self, "output_range_max", high)
+        object.__setattr__(self, "output_range_unit", output_range_unit)
         object.__setattr__(self, "measurement_channel_id", _optional(self.measurement_channel_id, "measurement_channel_id"))
 
 
@@ -358,6 +368,8 @@ class TemperatureInstrumentInventory:
                 if instrument.sensor_configuration and interface.supported_sensor_configurations and instrument.sensor_configuration not in interface.supported_sensor_configurations:
                     raise ValueError(f"Temperature interface '{interface.id}' does not support the declared sensor configuration.")
         for instrument in self.instruments:
+            if instrument.receiver_terminals and not instrument.receiver_input_id:
+                raise ValueError(f"Temperature instrument '{instrument.id}' declares receiver terminals without a receiver input capability record.")
             if instrument.receiver_input_id:
                 receiver = receiver_inputs.get(instrument.receiver_input_id)
                 if receiver is None:
@@ -382,10 +394,10 @@ class TemperatureInstrumentInventory:
                         raise ValueError(f"Receiver input '{receiver.id}' capability does not match interface output signal kind '{interface.output_signal_kind}'.")
                     if receiver.engineering_unit != interface.output_unit:
                         raise ValueError(f"Receiver input '{receiver.id}' engineering unit does not match interface output unit.")
-                    if (interface.output_range_min is None) != (receiver.range_min is None) or (interface.output_range_max is None) != (receiver.range_max is None):
+                    if (interface.output_range_min is None) != (receiver.range_min is None) or (interface.output_range_max is None) != (receiver.range_max is None) or (interface.output_range_unit is None) != (receiver.range_unit is None):
                         raise ValueError(f"Receiver input '{receiver.id}' range declaration does not match interface output range declaration.")
-                    if interface.output_range_min is not None and (interface.output_range_min != receiver.range_min or interface.output_range_max != receiver.range_max):
-                        raise ValueError(f"Receiver input '{receiver.id}' range does not match interface output range.")
+                    if interface.output_range_min is not None and (interface.output_range_min != receiver.range_min or interface.output_range_max != receiver.range_max or interface.output_range_unit != receiver.range_unit):
+                        raise ValueError(f"Receiver input '{receiver.id}' range/value unit does not match interface output range.")
         for binding in self.alarm_trip_bindings:
             if binding.instrument_id not in instruments:
                 raise ValueError(f"Temperature alarm/trip binding '{binding.id}' references a missing instrument.")
