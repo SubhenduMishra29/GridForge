@@ -4229,3 +4229,53 @@ Verification:
 - Source-level review only; no pytest, CI, imports, startup, GUI interaction
   or save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Physical Signal Sink Identity and Directed Continuity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Extended typed Control/Protection SignalEndpointReference records with an
+  optional canonical WiringTerminalReference for the physical input sink.
+  MeasurementChannel endpoints remain source identities and reject sink
+  terminal metadata.
+- Persisted the sink terminal losslessly in the schema-3 instrumentation
+  wiring codec while preserving compatibility with existing schema-3
+  payloads that omit the optional field and schema-2 read compatibility.
+- Application inventory activation/replacement now validates declared
+  endpoint sink terminals against the active Core Network terminal registry.
+- Endpoint resolution now fails closed for Control measurement inputs and
+  Protection relay inputs without an explicit physical sink terminal.
+- Directed carrier adjacency is derived from each SignalCarrierBinding's
+  SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL contract. Resolution checks
+  the endpoint binding's direction between the exact MeasurementChannel
+  source terminal and declared physical sink terminal.
+- Control and Protection provenance read models now expose the endpoint
+  direction and physical sink terminal; canvas hover detail presents both.
+- Added regression-test source for missing sink terminals, sinks absent from
+  the physical carrier graph, reversed carrier direction, persistence
+  round-trip and UI provenance display.
+
+Boundary:
+- Existing ControlSignalMapping and ProtectionMeasurementBinding remain the
+  authoritative logical/runtime mappings. Physical sink identity is an
+  additional cross-reference and does not replace either mapping.
+- Control sources in the Core domain are checked for explicit sink identity
+  and active Core source existence; a full directed physical route from a
+  Core-domain source still requires an explicit source-terminal contract.
+- CT polarity, PT polarity, return/shorting arrangements, shield/earth paths,
+  RTD/thermocouple conductor arrangements and communication media remain
+  domain-specific follow-up validation. They must not be inferred from tags.
+- SLD-to-Control/Protection navigation and generated cable/core/terminal/
+  loop/interconnection/point-to-point schedules remain open #1203 scope.
+
+Verification:
+- Source-level inspection only. Regression-test source was added but tests,
+  imports, startup, GUI interaction and project save/reopen were not run.
+- No CI gate was requested or treated as acceptance evidence.
+======================================================================
