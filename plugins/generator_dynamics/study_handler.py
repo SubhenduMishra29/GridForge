@@ -71,4 +71,86 @@ class GeneratorTransientStudyHandler:
         )
 
 
-__all__ = ["GeneratorTransientStudyHandler"]
+class GeneratorAugmentedTransientStudyHandler:
+    """Explicit StudyService bridge for hosts implementing augmented DAE runs.
+
+    This handler is opt-in and deliberately separate from the sampled GGOV1
+    handler. The injected host runner owns accepted/rejected-step policy and
+    must inspect the canonical cancellation token between accepted steps.
+    """
+
+    def __init__(self, solver: Any, augmented_adapter_factory: Any) -> None:
+        if solver is None or not callable(
+            getattr(solver, "solve_generator_augmented_transient", None)
+        ):
+            raise TypeError(
+                "augmented generator solver must expose "
+                "solve_generator_augmented_transient(...)"
+            )
+        if not callable(augmented_adapter_factory):
+            raise TypeError("augmented_adapter_factory must be callable")
+        self._solver = solver
+        self._augmented_adapter_factory = augmented_adapter_factory
+
+    def __call__(
+        self,
+        request: StudyRequest,
+        execution_context: StudyExecutionContext,
+        cancellation: StudyCancellationToken,
+    ) -> Any:
+        from .integrator_adapter import GeneratorAugmentedDAEAdapter
+        from .study_evidence import GeneratorAugmentedStudyEvidence
+
+        if not isinstance(request, StudyRequest):
+            raise TypeError("request must be StudyRequest")
+        if not isinstance(execution_context, StudyExecutionContext):
+            raise TypeError("execution_context must be StudyExecutionContext")
+        if not isinstance(cancellation, StudyCancellationToken):
+            raise TypeError("cancellation must be StudyCancellationToken")
+        if request.study_type != "generator_transient":
+            raise ValueError(
+                "GeneratorAugmentedTransientStudyHandler only accepts generator_transient"
+            )
+        if (
+            request.project_id != execution_context.project_id
+            or request.activation_generation != execution_context.activation_generation
+            or request.source_revision != execution_context.source_revision
+        ):
+            raise ValueError("generator transient request/context provenance mismatch")
+        if cancellation.cancelled:
+            return None
+
+        adapter = self._augmented_adapter_factory(
+            request=request, execution_context=execution_context
+        )
+        if not isinstance(adapter, GeneratorAugmentedDAEAdapter):
+            raise TypeError(
+                "augmented adapter factory must return GeneratorAugmentedDAEAdapter"
+            )
+        evidence = self._solver.solve_generator_augmented_transient(
+            request=request,
+            execution_context=execution_context,
+            cancellation=cancellation,
+            augmented_adapter=adapter,
+        )
+        if not isinstance(evidence, GeneratorAugmentedStudyEvidence):
+            raise TypeError(
+                "augmented transient solver must return GeneratorAugmentedStudyEvidence"
+            )
+        if evidence.provenance.get("execution_status") not in {
+            "completed", "cancelled", "failed"
+        }:
+            raise ValueError("augmented study evidence has invalid execution status")
+        if cancellation.cancelled and evidence.provenance.get("execution_status") != "cancelled":
+            raise RuntimeError(
+                "augmented solver returned without recording the requested cancellation"
+            )
+        return evidence
+
+
+
+
+__all__ = [
+    "GeneratorTransientStudyHandler",
+    "GeneratorAugmentedTransientStudyHandler",
+]
