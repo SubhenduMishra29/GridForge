@@ -2016,13 +2016,38 @@ class MeasurementChannelReadService:
             stale_after=channel.stale_after,
             producer_id=getattr(channel, "producer_id", None),
             validity=validity.value,
-            source_id=str(channel.source_id) if channel.source_id is not None else None,
-            source_terminal_role=getattr(channel.source_terminal, "terminal_role", None),
+        )
+
+    def configuration(self, channel_id: str) -> MeasurementChannelConfigurationReadModel:
+        normalized = str(channel_id).strip()
+        if not normalized:
+            raise ValueError("channel_id must be non-empty.")
+        channel = self._measurement_service.get(normalized)
+        if channel is None:
+            raise KeyError(f"MeasurementChannel '{normalized}' is not available.")
+        reference = channel.source_terminal
+        if reference is None or not callable(getattr(reference, "to_mapping", None)):
+            raise ValueError(f"MeasurementChannel '{normalized}' has no canonical source terminal reference.")
+        return MeasurementChannelConfigurationReadModel(
+            channel_id=str(channel.id),
             name=str(channel.name),
+            source_id=str(channel.source_id),
+            source_equipment_type=str(reference.equipment_type.value),
+            source_terminal_reference=reference.to_mapping(),
+            signal_type=channel.signal_type.value,
+            phase=channel.phase.value,
+            unit=str(channel.unit),
             nominal_value=float(channel.nominal_value),
             scale=float(channel.scale),
             polarity=float(channel.polarity),
+            timestamp_domain=channel.timestamp_domain,
+            stale_after=channel.stale_after,
+            producer_id=getattr(channel, "producer_id", None),
         )
+
+    def configurations(self) -> tuple[MeasurementChannelConfigurationReadModel, ...]:
+        registry = getattr(self._measurement_service, "channels", {})
+        return tuple(self.configuration(channel_id) for channel_id in sorted(registry))
 
     def channels(self) -> tuple[MeasurementChannelReadModel, ...]:
         registry = getattr(self._measurement_service, "channels", {})
