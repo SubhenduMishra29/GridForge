@@ -230,12 +230,12 @@ class ProtectionGraphicsSurface(QGraphicsView):
                         peers = control_by_signal.get(input_provenance.signal_id, ())
                         peer_targets = {str(candidate.endpoint_id) for candidate in peers}
                         peer = peers[0] if len(peer_targets) == 1 else None
-                        detail = "\\n\\n".join(item.detail_text for item in input_provenances)
+                        detail = "\n\n".join(item.detail_text for item in input_provenances)
                         sld_target = input_provenance.status == "RESOLVED"
                         if peer is not None:
-                            detail += "\\nDouble-click to locate the matching Control input; right-click for the SLD route."
+                            detail += "\nDouble-click to locate the matching Control input; right-click for the SLD route."
                         elif sld_target:
-                            detail += "\\nDouble-click to highlight the complete physical SLD route."
+                            detail += "\nDouble-click to highlight the complete physical SLD route."
                         input_node.setToolTip(detail)
                         provenance_label = SignalProvenanceItem(
                             input_provenance.short_label,
