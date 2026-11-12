@@ -105,6 +105,9 @@ class TemperatureInstrumentService:
         """
         adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {}
         for carrier in tuple(wiring_inventory.cores) + tuple(wiring_inventory.panel_wires):
+            role = getattr(getattr(carrier, "role", None), "value", getattr(carrier, "role", None))
+            if role not in {"SIGNAL", "RETURN", "COMMUNICATION"}:
+                continue
             path = tuple(carrier.terminal_path)
             for left, right in zip(path, path[1:]):
                 a, b = left.identity, right.identity
