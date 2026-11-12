@@ -4234,3 +4234,19 @@ Scope and outstanding work:
 - Verification: static source reconciliation and GitHub fetch-back only.
   No Python imports, tests, CI, Qt startup or desktop GUI acceptance executed.
 ======================================================================
+
+
+UI/measurement follow-up — pre-merge reconciliation:
+- Kept MeasurementChannelReadModel strictly telemetry-only; moved nameplate,
+  source/terminal, signal configuration, scaling, polarity, timestamp domain,
+  stale threshold and producer provenance to the separate detached
+  MeasurementChannelConfigurationReadModel and its Application read API.
+- The CT editor now joins configuration and telemetry by stable channel ID;
+  producer provenance is read-only after activation and the timestamp domain
+  is read-only, sourced from the configured trusted Application clock.
+- CT channel authoring now fails closed when no trusted Application clock
+  domain is configured. CT endpoint references use canonical EquipmentType
+  value "ct", and project restore resets CT channels to unavailable/UNKNOWN.
+- The inspector scroll-area composition now preserves batch-editor mode by
+  hiding/showing the scroll viewport and its fixed action footer together.
+- These are source corrections only; no Python import or Qt runtime check.
