@@ -29,9 +29,9 @@ from ui.workspace.engineering_workspace_tabs import MapWorkspaceView, ReportsWor
 
 
 class ControlSurfaceHost(QWidget):
-    region_visibility_changed = Signal(str, str, bool)
-
     """Compatibility facade whose actual composition is the canonical editor host."""
+
+    region_visibility_changed = Signal(str, str, bool)
 
     def __init__(
         self,
