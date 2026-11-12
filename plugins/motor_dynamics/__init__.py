@@ -11,6 +11,7 @@ from .transient_solver import (
     DCMotorParameters, DCMotorSimulationResult, solve_dc_motor_transient_cpu,
     SinglePhaseMotorParameters, SinglePhaseMotorSimulationResult, solve_single_phase_motor_transient_cpu,
     UniversalMotorParameters, UniversalMotorSimulationResult, solve_universal_motor_transient_cpu,
+    WoundFieldSynchronousParameters, WoundFieldSynchronousSimulationResult, solve_wound_field_synchronous_transient_cpu,
 )
 
 __all__ = [
@@ -24,5 +25,6 @@ __all__ = [
     "DCMotorParameters", "DCMotorSimulationResult", "solve_dc_motor_transient_cpu",
     "SinglePhaseMotorParameters", "SinglePhaseMotorSimulationResult", "solve_single_phase_motor_transient_cpu",
     "UniversalMotorParameters", "UniversalMotorSimulationResult", "solve_universal_motor_transient_cpu",
+    "WoundFieldSynchronousParameters", "WoundFieldSynchronousSimulationResult", "solve_wound_field_synchronous_transient_cpu",
     "solve_transient_cpu", "solve_transient_batch", "cuda_available",
 ]
