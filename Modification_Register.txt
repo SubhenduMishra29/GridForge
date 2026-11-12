@@ -4379,3 +4379,24 @@ Limitations:
   fabricated. Historical route endpoint equipment/terminal deletion policy
   remains a separate lifecycle concern.
 - No tests, imports, GUI, or project save/reopen checks were run.
+
+======================================================================
+GridForge V2 — Durable instrumentation connection-hop persistence
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- The Core inventory and controlled route-revision command now carry stable PhysicalConnectionHop identities, but the wiring JSON codec omitted hop records and omitted CableCore/PanelWire revisions. A save/reopen would therefore lose the physical route history and revision state.
+- Existing schema-7 projects have terminal paths but no authoritative per-segment hop IDs. Assigning generated IDs during migration would fabricate engineering identity.
+
+Correction:
+- Advanced the canonical project schema to 8 and instrumentation wiring schema to 3.
+- Serialized and restored hop IDs, endpoint terminal references, carrier kind/ID, revision, lifecycle status, and superseded-hop reference.
+- Persisted CableCore and PanelWire revision counters.
+- Added the 7-to-8 migration, which preserves historical terminal paths and adds an empty connection_hops collection. No legacy hop IDs are fabricated.
+- Added source regression coverage for hop identity/lifecycle round-trip, conductor revision round-trip, geometry exclusion, and schema-7 migration behavior.
+
+Verification:
+- Updated persistence serializer, project schema declaration, migration pipeline, persistence test source, and this register were committed on the feature branch.
+- No Python syntax/import execution, tests, package save/reopen, GUI, or cross-canvas schedule checks were run.
