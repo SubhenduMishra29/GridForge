@@ -20,9 +20,9 @@ _LOG = logging.getLogger(__name__)
 
 
 class SLDEditor(QWidget):
-    region_visibility_changed = Signal(str, bool)
-
     """Professional 2D SLD authoring surface with contextual secondary regions."""
+
+    region_visibility_changed = Signal(str, bool)
 
     editor_type = "sld"
     DEFAULT_REGION_ID = "canvas"
