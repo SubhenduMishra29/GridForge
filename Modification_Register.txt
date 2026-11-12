@@ -4515,3 +4515,25 @@ Verification:
   record operations and CLOSED/OPEN terminal accessory continuity. Tests,
   imports, startup, GUI interaction and save/reopen were not run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Reject Duplicate Logical Protection Endpoint Bindings
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+PR: #1207
+
+Audit correction:
+- Removed the exception that allowed multiple SignalEndpointBinding records
+  for the same Protection relay input when they repeated the same signal ID.
+- Enforced one canonical endpoint binding per logical endpoint for
+  MeasurementChannel, Control input and Protection input alike.
+- Prevented duplicate Protection provenance rows and ambiguous duplicate
+  ownership while preserving multiple distinct MeasurementChannel endpoints
+  for a signal and multiple distinct consumers of the same signal.
+
+Verification:
+- Source-level invariant review only; no tests, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
