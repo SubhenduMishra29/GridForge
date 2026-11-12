@@ -152,3 +152,24 @@ generic AVR/governor/PSS blocks and the focused TGOV1 steam block documented
 above. Model-specific hydro and gas-turbine equations remain separate
 implementation milestones; no controller is connected to the transient DAE
 until the canonical augmented-state contract is available.
+
+## Reduced nonlinear HYGOV hydro-governor block
+
+`HYGOVReducedHydroGovernor` is the first executable hydro-governor milestone. It is deliberately named **reduced**: it implements a permanent-droop PI governor, first-order error filter, gate servo with position and velocity limits, and a nonlinear inelastic single-penstock water column. The parameter contract is explicit about per-unit quantities and seconds.
+
+With speed deviation Δω, reference Pref, filtered error xf, integrator xi, gate g, flow q and head H, the implemented equations are:
+
+- `e = Pref - Δω - R*g`
+- `d(xf)/dt = (e - xf)/Tf`
+- `c = xi + xf/r`; `d(xi)/dt = xf/(r*Tr)`
+- Gate command is clamped to `[GMIN, GMAX]`; `dg/dt = (clamped_command - g)/Tg`, bounded by `±VELM`. Motion farther through a hard gate-position limit is blocked, as is integrator motion that drives further into command saturation.
+- `H = (q/g)^2`; `dq/dt = (Hdam - H)/Tw` for an open gate. At the closed-gate, zero-flow point the model uses nominal head.
+- `Pm = At*H*(q - qNL) - Dturb*Δω*g`
+
+This corresponds to the nonlinear inelastic penstock relationship and turbine power form documented in GridKit; parameter names are cross-checked against OpenIPSL and OPAL-RT documentation. References: GridKit HYGOV equations and limitations (https://gridkit.readthedocs.io/en/latest/GridKit/Model/PhasorDynamics/Governor/HYGOV/README.html), OpenIPSL HYGOV parameter contract (https://build.openmodelica.org/Documentation/iPSL.Electrical.Controls.PSSE.TG.HYGOV.html), and OPAL-RT HYGOV parameter definitions (https://opal-rt.atlassian.net/wiki/spaces/PDOCHS/pages/150276051/HYGOV).
+
+### Explicit reduced-model limitations
+
+This is **not a drop-in claim of complete PSS/E or IEEE PES-TR1 HYGOV equivalence**. This first block uses a linear gate-to-flow characteristic (`P_GV(g)=g`) and fixed nominal dam head; it does not yet model the full gate characteristic curve, head-dependent dam/tailrace conditions, deadband/backlash variants, Kaplan blade servo, or turbine-rating conversion. Initialization requires a steady operating point satisfying `q = g * sqrt(Hdam)` and derives governor filter/integrator states for a bumpless initial gate command. Plant-specific parameter validation and comparison against a trusted reference implementation are still required.
+
+The class follows the existing `DynamicPlugin` local-state contract only. It does not own a clock, mutate Core, or connect itself to the transient DAE.
