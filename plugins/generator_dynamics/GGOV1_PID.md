@@ -143,3 +143,31 @@ path and are not interchangeable with actuator `Ropen` and `Rclose`.
 These are reference-derived sub-blocks, not a complete integrated GGOV1
 plant model. Vendor-specific thermal maps, ambient compensation, host scheduler/DELT ordering, delay execution, DAE integration and plant
 disturbance validation remain open.
+
+
+## Stateless sampled execution composition
+
+`GGOV1SampledExecutionAdapter` evaluates one complete local block handoff
+from an immutable `GGOV1SampleStates` snapshot and
+`GGOV1SampleInputs`. It reads actual valve stroke from the solver-owned
+actuator state, computes the fuel-derived temperature proxy and TEXM,
+calculates PID and load/temperature requests, and calculates FSRA using the
+previous sample's selected FSR plus the caller's positive DELT. It then
+performs the low-value selection and common valve clamp. The final bounded
+command is passed to PID and load-limiter tracking derivatives and to the
+actuator derivative. Turbine and temperature derivatives are returned in the
+same immutable derivative bundle.
+
+The adapter is intentionally stateless. It does not advance DELT, mutate
+state vectors, integrate derivatives, own a DAE, or persist history. The host
+must apply returned derivatives with its chosen solver and supply the next
+state snapshot. It must also supply the explicit governor-output feedback
+signal for Rselect=-2 and delayed fuel flow when Teng is positive. This
+makes those dependencies visible at the composition boundary rather than
+creating a private feedback loop or delay queue.
+
+This adapter establishes a single-sample composition contract; it is not a
+complete Application execution integration or a plant-validated GGOV1
+simulation. The canonical Application composition root and transient solver
+must still decide when to call it, how to reconcile algebraic feedback, how
+to integrate all states, and how to handle solver rollback/rejected steps.
