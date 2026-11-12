@@ -4711,3 +4711,6 @@ shield/drain/armour/PE bonding; analog scaling/calibration; Control/Protection
 integration; canvas projections/schedules; runtime and save/reopen verification.
 
 ======================================================================
+
+
+[2026-11-12] PR #1215 scope reconciliation: retained only the motor-dynamics family catalogue, family-aware measurement templates, explicitly experimental CPU transient models, manifest/exports and focused catalogue/solver coverage for a clean follow-up integration. Rejected generator-dynamics additions because current authoritative main has no generator_dynamics_composition or generator transient host service; rejected generic Core dynamic-component scaffolding because DAESolver/MultiMachineSystem do not consume that contract; rejected unrelated UI/CT editor changes. Transformer dynamics are not implemented by this retained motor-only scope. Original PR #1215 is superseded and must not be merged wholesale.
