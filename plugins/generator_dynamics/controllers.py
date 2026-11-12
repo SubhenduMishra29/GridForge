@@ -395,6 +395,8 @@ class HYGOVReducedParameters:
         for name in ("gate_min_pu", "gate_max_pu", "turbine_damping_pu",
                      "no_load_flow_pu"):
             object.__setattr__(self, name, _number(getattr(self, name), name))
+        if self.temporary_droop_pu <= self.permanent_droop_pu:
+            raise ValueError("temporary droop must exceed permanent droop")
         if not 0.0 <= self.gate_min_pu < self.gate_max_pu <= 1.0:
             raise ValueError("gate limits must satisfy 0 <= minimum < maximum <= 1")
         if self.turbine_damping_pu < 0.0 or self.no_load_flow_pu < 0.0:
