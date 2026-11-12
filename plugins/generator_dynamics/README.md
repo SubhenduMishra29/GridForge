@@ -263,3 +263,27 @@ solver/composition input rather than embedding an undocumented universal
 constant. The selector and tracking hook do not implement the missing
 acceleration, load, or exhaust-temperature controller dynamics, nor do they
 make the complete GGOV1 plant model executable.
+
+
+### GGOV1 reduced acceleration limiter
+
+`GGOV1AccelerationLimiter` contributes a one-state, filtered acceleration
+signal and a proportional reduction of the governor fuel request above
+`Aset`. It accepts shaft acceleration in pu/s from the host machine model,
+filters it with `Ta`, applies `Ka * max(0, acceleration - Aset)`, and returns
+a competing fuel-stroke candidate for `GGOV1LowValueSelector`. A zero `Ka`
+disables the reduction; a zero `Ta` bypasses the filter state. The output is
+bounded below by the configured valve minimum, while the canonical actuator
+continues to own actual valve-position/rate constraints.
+
+This is a deliberately reduced proportional realization, not a claim of
+bit-for-bit PSS/E or OEM GGOV1 acceleration-controller equivalence. OpenIPSL
+documents the block's `SPEED`, `ASET`, `FSRA`, `Ka` and `Ta` interface, but
+the public component description does not establish all internal realization
+details. The host must supply a physically consistent shaft-acceleration
+signal at each integration stage; this block does not finite-difference speed
+or own a simulation clock. It has no integral state, so it has no local
+integrator wind-up to track. The governor PID's selected-command tracking
+hook remains available for the active low-value selection. Full acceleration
+controller validation against the vendor/PSS/E implementation and plant data
+is still required.
