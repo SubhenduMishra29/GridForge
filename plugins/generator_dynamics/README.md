@@ -441,3 +441,28 @@ power map. A production extension still needs a Core-owned generalized dynamic
 state registry and machine/controller derivative composition, plus the
 accepted-step participant semantics described above. No generator states are
 currently appended to the production DAE vector by this change.
+
+
+### GGOV1-to-Core generator identity and mechanical-power handoff
+
+`GGOV1GeneratorBinding` associates one controller component with an existing
+Core generator machine ID, bus ID and authoritative terminal ID. The turbine
+MW rating and study system MVA base are explicit and independent; generator
+MVA is not silently substituted for turbine rating.
+
+`GGOV1MechanicalPowerHandoff` is an immutable, time- and accepted-sample-
+stamped value. It converts turbine-base mechanical power to system-base pu
+using:
+
+`P_m,system(pu) = P_m,turbine(pu) * turbine_rating(MW) / system_base(MVA)`
+
+The handoff is a value contract only. A future Core integration must verify
+that the machine, bus and terminal identities still belong to the active
+study snapshot, then consume the mechanical-power value through the canonical
+solver input path. This plugin contract does not mutate a Core machine, own
+machine identity, replace the DAE mechanical-power map, or register a second
+machine. It also does not solve the remaining generalized-state problem:
+Core still needs one global state-layout and derivative-composition protocol
+that preserves classical-machine behavior and accepted/rejected-step
+transaction semantics before this handoff can be wired into production DAE
+execution.
