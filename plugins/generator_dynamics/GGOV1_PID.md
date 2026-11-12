@@ -90,22 +90,35 @@ implemented, and does not claim the full GGOV1 limiter network is complete.
 
 ## Acceleration, load and temperature sub-block boundaries
 
-The acceleration path now follows the PSS/E/NERC integral form:
-`d(FSRA)/dt = Ka * (Aset - filtered_acceleration)`. The state vector contains
-both the filtered acceleration and FSRA integrator. A selected-command
-tracking correction is optional and uses a caller-supplied positive tracking
-time constant.
+The acceleration controller follows the PSS/E/OpenIPSL discrete block:
+the `Ta` derivative filter estimates `d(SPEED)/dt`, then
+`FSRA = FSR + Ka * DELT * (ASET - d(SPEED)/dt)`. It has one filtered-speed
+state, not an FSRA integrator. The caller supplies the currently selected
+`FSR` command and the model sample interval `DELT`; this is the feedback
+tracking path. `Ta` must be positive.
 
 `GGOV1LoadLimiter` implements the PSS/E-derived OpenIPSL `LoadLimiter.mo`
-signal path. It forms `TREF = Wfnl + LDREF / Kturb`, computes
+path. It forms `TREF = Wfnl + LDREF / Kturb`, computes
 `eT = TREF - TEXM`, integrates `Kiload * eT`, and produces
 `FSRT = min(1.0, Kpload * eT + integral)`. The integral operating-point
-initialization is `(PELEC + Dm) / Kturb + Wfnl`. `TEXM` is supplied by the
-separate `GGOV1TemperatureMeasurement` conditioner implementing the
-`Tfload` sensor lag followed by `(1+s*Tsa)/(1+s*Tsb)`. The lower fuel-stroke bound is not added because the
-referenced LoadLimiter applies only the upper 1.0 pu limit.
+initialization is `(PELEC + Dm) / Kturb + Wfnl`. The LoadLimiter itself
+applies only the upper 1.0 pu clamp; the common `[Vmin, Vmax]` clamp belongs
+after the three-way low-value selector.
 
-This is a PSS/E-derived sub-block topology, not a claim of universal OEM
-implementation equivalence. Ambient compensation, OEM firing-temperature
-maps, plant-specific calibration, complete limiter coordination and DAE
-integration remain open.
+`GGOV1TurbineFuelPath.temperature_proxy_input()` computes net fuel flow
+multiplied by the PSS/E `Dm_select(speed)` factor. The separate
+`GGOV1TemperatureMeasurement` block cascades the `(1+s*Tsa)/(1+s*Tsb)`
+temperature-detection lead/lag with `1/(1+s*Tfload)` and produces `TEXM`.
+This is a calculated model proxy, not a physical thermocouple model or an
+OEM firing-temperature map.
+
+The three requests `FSRN`, `FSRA`, and `FSRT` feed the minimum selector;
+its result is clamped to `[Vmin, Vmax]`, sent to the actuator, and fed back
+to the acceleration limiter. `Rup` and `Rdown` remain unimplemented source
+parameters in the OpenIPSL reference path and are not interchangeable with
+the actuator's `Ropen` and `Rclose`.
+
+These are reference-derived sub-blocks, not a complete integrated GGOV1
+plant model. Vendor-specific thermal maps, ambient compensation, complete
+tracking composition, delay execution, DAE integration and plant
+disturbance validation remain open.
