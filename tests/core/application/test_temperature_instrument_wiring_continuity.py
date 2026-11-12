@@ -104,3 +104,10 @@ def test_transmitter_temperature_loop_rejects_missing_output_segment():
     )
     with pytest.raises(ValueError, match="interface-output-to-receiver"):
         TemperatureInstrumentService._validate_physical_continuity(inventory, wiring)
+
+def test_spare_core_cannot_prove_temperature_signal_continuity():
+    sensor, receiver = terminal("sensor", "A"), terminal("plc", "AI+")
+    inventory = wiring_inventory(
+        CableCore("spare-core", "temporary", 1, WiringConductorRole.SPARE, (sensor, receiver)),
+    )
+    assert not TemperatureInstrumentService._has_physical_route(inventory, (sensor,), (receiver,))
