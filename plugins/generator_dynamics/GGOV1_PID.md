@@ -119,7 +119,22 @@ common `[Vmin, Vmax]` clamp and returns an immutable decision. Pass its
 same value as `selected_fuel_command_pu` to PID/load-limiter derivative calls
 when their explicit tracking inputs are enabled. The decision also exposes
 final-command-minus-request errors for each active controller. The
-coordinator owns no dynamic state, clock or integration schedule. `Rup` and
+coordinator owns no dynamic state, clock or integration schedule.
+
+`calculate_ggov1_operating_point()` derives a common initial FSR and valve
+target, Flag-dependent fuel flow, temperature-proxy input, and the initial
+PID/load-limiter integral targets. It reports two residuals: integral
+alignment (mechanical versus electrical power initialization) and the
+temperature/load limiter's initial output versus the common FSR.
+`require_balanced()` rejects either mismatch when that limiter is active.
+The helper rejects an initial FSR outside `[Vmin, Vmax]` or above 1.0 pu.
+It does not replace each block's `initial_state()` or own solver state.
+
+The acceleration limiter is a sampled feedback path. Use the previous
+selected FSR and host-supplied positive `DELT` to calculate the current
+`FSRA`; then select and clamp the three requests. Feed the final command to
+the actuator and back as the next sample's FSR input. The host owns sample
+ordering and time; this must not be wired as an instantaneous algebraic loop. `Rup` and
 `Rdown` remain unimplemented source parameters in the OpenIPSL reference
 path and are not interchangeable with actuator `Ropen` and `Rclose`.
 
