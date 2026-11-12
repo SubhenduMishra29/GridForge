@@ -4503,3 +4503,30 @@ Remaining:
 - Full runtime, import, persistence round-trip and GUI verification.
 
 ======================================================================
+
+GridForge V2 — Explicit temperature sensor pin mapping
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added TemperatureTerminalMapping to capture manufacturer-declared sensor pin
+  to transmitter/temperature-monitor input terminal correspondence.
+- RTD mappings are one-to-one by stable terminal identity. A supplied mapping
+  must cover every declared sensor terminal and every declared interface input
+  terminal exactly once; duplicate or undeclared pins are rejected.
+- Thermocouple mappings additionally require explicit POSITIVE and NEGATIVE
+  polarity labels. No polarity is inferred from terminal names or order.
+- Mapping is included in the strict temperature inventory serializer. The
+  decoder still accepts older schema-1 records where the optional mapping field
+  is absent; those records remain unmapped/unverified rather than guessed.
+- Added model/persistence regression-test source. Not executed.
+
+Remaining:
+- Receiver module input channel/pin mapping and capability (RTD/TC/analog input
+  types, ranges, scaling).
+- Explicit RTD 2/3/4-wire lead topology and TC extension/compensating conductor
+  material/type compatibility.
+- Control/Protection function binding validation and runtime integration.
+- Canvas projections, schedules and full runtime/save-reopen verification.
+
+======================================================================
