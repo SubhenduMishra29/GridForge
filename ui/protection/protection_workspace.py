@@ -24,6 +24,7 @@ from ui.core.qt import (
 )
 from ui.core.selection_manager import SelectionManager
 from ui.instrumentation_wiring_provenance import project_signal_provenance
+from ui.items.signal_provenance_item import SignalProvenanceItem
 from .protection_presentation import ProtectionPresentationDocument
 from .protection_tools import ProtectionInteractionController
 from .protection_engineering_panels import (
@@ -71,6 +72,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
         self._presentation = presentation
         self._nodes: dict[str, ProtectionGraphicsNode] = {}
         self._preview_line: QGraphicsLineItem | None = None
+        self._provenance_navigation_callback = None
         self._scene.selectionChanged.connect(self._on_scene_selection)
         selection_manager.selection_changed.connect(self._on_canonical_selection)
         self.setMinimumHeight(360)
@@ -78,6 +80,27 @@ class ProtectionGraphicsSurface(QGraphicsView):
     @property
     def presentation(self) -> ProtectionPresentationDocument:
         return self._presentation
+
+    def set_provenance_navigation_callback(self, callback: Any | None) -> None:
+        if callback is not None and not callable(callback):
+            raise TypeError("provenance navigation callback must be callable or None.")
+        self._provenance_navigation_callback = callback
+
+    def select_canonical_object(self, object_id: str) -> None:
+        """Select and centre a canonical Protection relay/function identity."""
+        normalized = str(object_id).strip()
+        if not normalized:
+            raise ValueError("object_id must be a non-empty string.")
+        self._selection_manager.select_single(normalized)
+        node = next(
+            (
+                candidate for candidate in self._nodes.values()
+                if candidate.object_id == normalized or candidate.element_id == normalized
+            ),
+            None,
+        )
+        if node is not None:
+            self.centerOn(node)
 
     def activate_tool_id(self, tool_id: str) -> None:
         """Activate a Protection tool through the discipline runtime."""
@@ -113,6 +136,10 @@ class ProtectionGraphicsSurface(QGraphicsView):
             for item in provenance
             if item.endpoint_kind == "PROTECTION_INPUT"
         }
+        control_by_signal: dict[str, list[Any]] = {}
+        for item in provenance:
+            if item.endpoint_kind == "CONTROL_INPUT":
+                control_by_signal.setdefault(item.signal_id, []).append(item)
 
         configuration_by_relay: dict[str, list[Any]] = {}
         for configuration in configurations:
@@ -200,8 +227,20 @@ class ProtectionGraphicsSurface(QGraphicsView):
                         channel_id=str(channel_id),
                     )
                     if input_provenance is not None:
-                        input_node.setToolTip(input_provenance.detail_text)
-                        provenance_label = QGraphicsTextItem(input_provenance.short_label, input_node)
+                        peers = control_by_signal.get(input_provenance.signal_id, ())
+                        peer = peers[0] if len(peers) == 1 else None
+                        detail = input_provenance.detail_text
+                        if peer is not None:
+                            detail += "\nDouble-click to locate the matching Control input."
+                        input_node.setToolTip(detail)
+                        provenance_label = SignalProvenanceItem(
+                            input_provenance.short_label,
+                            detail,
+                            target_editor="control" if peer is not None else None,
+                            target_object_id=str(peer.endpoint_id) if peer is not None else None,
+                            navigate=self._provenance_navigation_callback,
+                            parent=input_node,
+                        )
                         provenance_label.setPos(8.0, 52.0)
                         provenance_label.setScale(0.65)
                     source_node = self._nodes.get(str(channel_id))
