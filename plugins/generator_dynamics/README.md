@@ -173,3 +173,23 @@ This corresponds to the nonlinear inelastic penstock relationship and turbine po
 This is **not a drop-in claim of complete PSS/E or IEEE PES-TR1 HYGOV equivalence**. This first block uses a linear gate-to-flow characteristic (`P_GV(g)=g`) and fixed nominal dam head; it does not yet model the full gate characteristic curve, head-dependent dam/tailrace conditions, deadband/backlash variants, Kaplan blade servo, or turbine-rating conversion. Initialization requires a steady operating point satisfying `q = g * sqrt(Hdam)` and `Pref = Δω + R*g`; it sets the filtered error to zero and the integrator to the requested gate position for a bumpless initial command. Plant-specific parameter validation and comparison against a trusted reference implementation are still required.
 
 The class follows the existing `DynamicPlugin` local-state contract only. It does not own a clock, mutate Core, or connect itself to the transient DAE.
+
+
+## GGOV1 gas-turbine governor parameter contract
+
+\`GGOV1Parameters\` is the validated, immutable parameter contract for the next gas-turbine governor implementation milestone. It captures the distinct turbine MW rating, droop feedback selector (\`Rselect\`), fuel-speed selector (\`Flag\`), PID governor gains, electrical-power measurement lag, governor error and valve limits, actuator time/rate limits, turbine lead-lag and transport constants, no-load fuel flow, load limiter, plant power controller, acceleration limiter, speed deadband, temperature-detection lead/lag, and load-limit slew rates.
+
+**This is a parameter contract only. It is not an executable GGOV1 controller and must not be selected for a dynamic study.** The plugin descriptor advertises only \`ggov1_parameter_contract\`. No derivative, output, initialization, or DAE coupling is claimed in this milestone.
+
+The turbine rating is explicit and is not inferred from generator MVA. \`system_to_turbine_power_base_ratio()\` exposes the numerical system-base/turbine-rating ratio; the caller must still apply the correct MW/MVA and per-unit convention for the connected machine and study. No hidden base conversion is performed.
+
+The full GGOV1 behavior must not be reduced to a PID plus actuator lag. A faithful implementation must resolve the selected droop feedback, electrical-power measurement, PID derivative filtering and anti-windup, valve actuator rate and position limits, fuel/turbine response, load-controller tracking, low-value selection among governor/load/acceleration/temperature limiters, temperature proxy dynamics, optional transport delay, speed/fuel selector behavior, and mechanical damping. Initialization must be consistent across the active selector and limiter paths. Until those equations and state dependencies are reviewed against a complete reference, this package intentionally stops at typed configuration.
+
+NERC describes GGOV1 as a general-purpose PID governor with valve actuation, fuel-system dynamics, exhaust-temperature load limiting, load control, acceleration limiting, and governor deadband. It also emphasizes plant-specific verification, correct turbine MW rating, and avoiding confusion between turbine rating and generator MVA base. Manufacturer default values are starting points, not universal settings. References:
+
+- NERC, *Gas Turbine Governor Modeling* (2017), Appendix A and parameter/base guidance: https://www.nerc.com/comm/PC/NERCModelingNotifications/Gas_Turbine_Governor_Modeling.pdf
+- NERC, *Application Guide for Modeling Turbine-Governor and Active Power-Frequency Controls in Interconnection-Wide Stability Studies* (2019), Appendix C: https://www.nerc.com/globalassets/who-we-are/standing-committees/rstc/ppmvtf/reliability_guideline-application_guide_for_turbine-governor_modeling-2019-05-07-CLEAN.pdf
+- OpenIPSL GGOV1 parameter/model package documentation: https://build.openmodelica.org/Documentation/iPSL.Electrical.Controls.PSSE.TG.GGOV1.GGOV1.html
+- ORNL GridKit GGOV1 equations and explicit implementation caveats: https://github.com/ORNL/GridKit/blob/develop/GridKit/Model/PhasorDynamics/Governor/GGOV1/README.md
+
+ORNL GridKit currently marks multiple GGOV1 damping, fuel-flow, PID, limiter, temperature and transport-delay paths incomplete or unverified. Its equations are therefore useful for cross-checking signal/parameter names, but are not treated here as sufficient proof of a complete reference implementation. Plant/OEM data and disturbance-based model verification remain mandatory before study use.
