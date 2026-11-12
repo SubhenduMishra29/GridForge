@@ -399,6 +399,7 @@ def resolve_signal_endpoint_bindings(
                     "equipment_id": endpoint.physical_terminal.equipment_id,
                     "terminal_role": endpoint.physical_terminal.terminal_role,
                     "designation": endpoint.physical_terminal.designation,
+                    "terminal_point_id": endpoint.physical_terminal.terminal_point_id,
                 }
                 if endpoint.physical_terminal is not None else None
             ),
