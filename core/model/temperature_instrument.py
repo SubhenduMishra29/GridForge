@@ -67,6 +67,25 @@ class TemperatureConsumerKind(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class TemperatureTerminalMapping:
+    """Manufacturer-declared sensor pin to interface input terminal mapping."""
+
+    sensor_terminal: WiringTerminalReference
+    interface_terminal: WiringTerminalReference
+    polarity: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.sensor_terminal, WiringTerminalReference) or not isinstance(self.interface_terminal, WiringTerminalReference):
+            raise TypeError("Temperature terminal mappings require canonical terminal references.")
+        polarity = _optional(self.polarity, "polarity")
+        if polarity is not None:
+            polarity = polarity.upper()
+            if polarity not in {"POSITIVE", "NEGATIVE"}:
+                raise ValueError("Temperature terminal mapping polarity must be POSITIVE or NEGATIVE.")
+        object.__setattr__(self, "polarity", polarity)
+
+
+@dataclass(frozen=True, slots=True)
 class TemperatureInstrument:
     """Service-specific temperature instrument identity and declared endpoints.
 
@@ -92,6 +111,7 @@ class TemperatureInstrument:
     range_max: Optional[float] = None
     sensor_terminals: tuple[WiringTerminalReference, ...] = ()
     receiver_terminals: tuple[WiringTerminalReference, ...] = ()
+    sensor_input_mappings: tuple[TemperatureTerminalMapping, ...] = ()
 
     def __post_init__(self) -> None:
         for field in ("id", "tag", "asset_id", "location", "sensor_equipment_id"):
@@ -113,6 +133,9 @@ class TemperatureInstrument:
         object.__setattr__(self, "range_max", high)
         sensor_terms = tuple(self.sensor_terminals)
         receiver_terms = tuple(self.receiver_terminals)
+        mappings = tuple(self.sensor_input_mappings)
+        if any(not isinstance(item, TemperatureTerminalMapping) for item in mappings):
+            raise TypeError("sensor_input_mappings must contain TemperatureTerminalMapping values.")
         if any(not isinstance(item, WiringTerminalReference) for item in sensor_terms + receiver_terms):
             raise TypeError("sensor_terminals and receiver_terminals must contain WiringTerminalReference values.")
         if len({item.identity for item in sensor_terms}) != len(sensor_terms):
@@ -130,8 +153,21 @@ class TemperatureInstrument:
                 raise ValueError("THERMAL_IMAGE WTD must identify its non-direct sensing technology as OTHER.")
         if self.input_mode is TemperatureInputMode.THERMAL_IMAGE and self.service is not TemperatureService.WTD:
             raise ValueError("THERMAL_IMAGE input mode is reserved for an explicitly declared WTD.")
+        if len({item.sensor_terminal.identity for item in mappings}) != len(mappings):
+            raise ValueError("sensor_input_mappings contains duplicate sensor pins.")
+        if len({item.interface_terminal.identity for item in mappings}) != len(mappings):
+            raise ValueError("sensor_input_mappings contains duplicate interface input pins.")
+        if any(item.sensor_terminal not in sensor_terms for item in mappings):
+            raise ValueError("Every mapped sensor pin must be in sensor_terminals.")
+        if self.sensor_technology is TemperatureSensorTechnology.THERMOCOUPLE and mappings:
+            polarities = {item.polarity for item in mappings}
+            if None in polarities or polarities != {"POSITIVE", "NEGATIVE"}:
+                raise ValueError("Thermocouple mappings must explicitly identify positive and negative polarity.")
+        elif any(item.polarity is not None for item in mappings):
+            raise ValueError("Polarity labels are only valid for thermocouple terminal mappings.")
         object.__setattr__(self, "sensor_terminals", sensor_terms)
         object.__setattr__(self, "receiver_terminals", receiver_terms)
+        object.__setattr__(self, "sensor_input_mappings", mappings)
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,5 +298,5 @@ class TemperatureInstrumentInventory:
 __all__ = [
     "TemperatureService", "TemperatureSensorTechnology", "TemperatureInputMode",
     "TemperatureConsumerKind", "TemperatureInstrument", "TemperatureInterfaceDevice",
-    "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory",
+    "TemperatureTerminalMapping", "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory",
 ]
