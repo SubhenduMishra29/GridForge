@@ -365,11 +365,11 @@ class WiringTagPolicy:
         used_values = tuple(used_tags)
         if any(not isinstance(item, str) for item in used_values):
             raise TypeError("used_tags must contain strings.")
-        used = set(used_values)
+        used = {item.strip().casefold() for item in used_values}
         current = matches[0]
         number = current.next_number
         tag = current.format(number)
-        while tag in used:
+        while tag.casefold() in used:
             number += 1
             tag = current.format(number)
         advanced = WiringTagSeries(
