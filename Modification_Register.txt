@@ -4997,3 +4997,57 @@ Control runtime reconciliation clarification — same batch:
   binding that Control runtime cannot resolve.
 - Generic MeasurementChannel sources with no instrumentation SignalDefinition
   association remain outside this instrumentation-specific validator.
+
+
+======================================================================
+GridForge V2 — Instrumentation wiring reconciliation onto current main
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: reconcile/instrumentation-wiring-mainline
+
+Reconciliation record:
+- The original instrumentation-wiring-reconciliation branch diverged from
+  current main (58 commits ahead / 102 behind) and could not be merged cleanly.
+  It was not force-updated and was not merged.
+- A fresh integration branch was created from current main. Mainline
+  temperature-instrument service, RTD/thermocouple conductor metadata,
+  measurement-channel lifecycle, project persistence, motor dynamics and
+  existing UI changes were retained.
+- The instrumentation additions were ported onto that current-main baseline
+  rather than replacing overlapping mainline files with stale feature versions.
+
+Integrated additions:
+- Project-wide case-insensitive wiring tag namespace and allocator.
+- Stable PhysicalConnectionHop Core identity, route revision lifecycle and
+  read-only cable/core/panel-wire/signal-loop schedule projections.
+- Persisted SignalDefinition.measurement_channel_id; one-to-one channel
+  association invariant.
+- Instrumentation wiring schema 4 and project schema 9. Project schema 8-to-9
+  migration preserves existing temperature-instrument data and creates no
+  inferred signal/channel association or fabricated physical hop ID. Missing
+  legacy wiring is normalized to an empty schema-4 inventory.
+- Control and Protection receiver reconciliation uses persisted channel IDs,
+  existing ControlSignalMapping, ProtectionProjectConfiguration and the
+  active MeasurementChannel registry.
+- InstrumentationWiringService retains the existing temperature inventory
+  validator and adds an independent receiver validator. Mutation validation
+  runs before inventory replacement. Project activation reconciliation runs
+  after candidate measurement, Protection and Control authorities are active,
+  inside the existing lifecycle rollback scope.
+- Updated immutable wiring read-model and package exports; added model,
+  persistence, route-revision, schedule and receiver regression-test source.
+
+Architecture boundary:
+- Core stores stable channel ID references and physical hop records only.
+  MeasurementChannel remains owned by the MeasurementChannel service.
+- Application owns cross-domain receiver reconciliation and activation timing.
+- SLD/Control/Protection geometry remains presentation-only.
+- No legacy signal/channel relationship is inferred from tags, descriptions,
+  carrier identity, source_id or list order.
+
+Verification:
+- Reconciliation changes were applied to a branch created from current main
+  and fetched back for source-level inspection.
+- No Python syntax/import execution, tests, GUI startup, project save/reopen
+  or runtime project-activation check was performed.
+======================================================================
