@@ -59,7 +59,7 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
                 "interface_terminal": _terminal_to_dict(m.interface_terminal),
                 "polarity": m.polarity,
             } for m in x.sensor_input_mappings],
-            "receiver_input_id": x.receiver_input_id,
+            "receiver_input_id": x.receiver_input_id, "thermocouple_type": x.thermocouple_type,
         } for x in inventory.instruments],
         "interfaces": [{
             "id": x.id, "tag": x.tag, "equipment_kind": x.equipment_kind.value,
@@ -107,7 +107,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
         instruments = []
         for raw in data["instruments"]:
             x = _record(raw, {"id", "tag", "service", "asset_id", "location", "sensor_equipment_id", "sensor_technology", "input_mode"},
-                        {"sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "range_min", "range_max", "sensor_terminals", "receiver_terminals", "sensor_input_mappings", "receiver_input_id"}, "TemperatureInstrument")
+                        {"sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "range_min", "range_max", "sensor_terminals", "receiver_terminals", "sensor_input_mappings", "receiver_input_id", "thermocouple_type"}, "TemperatureInstrument")
             instruments.append(TemperatureInstrument(
                 id=x["id"], tag=x["tag"], service=TemperatureService(x["service"]), asset_id=x["asset_id"],
                 location=x["location"], sensor_equipment_id=x["sensor_equipment_id"],
@@ -121,7 +121,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                     interface_terminal=_terminal_from_dict(m["interface_terminal"]),
                     polarity=m.get("polarity"),
                 ) for m in x.get("sensor_input_mappings", [])),
-                receiver_input_id=x.get("receiver_input_id"),
+                receiver_input_id=x.get("receiver_input_id"), thermocouple_type=x.get("thermocouple_type"),
             ))
         interfaces = []
         for x in data["interfaces"]:
