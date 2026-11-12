@@ -2942,3 +2942,118 @@ def solve_linear_synchronous_transient_cpu(motor_id: str, parameters: LinearSync
 
 __all__ += ["LinearInductionParameters","LinearSynchronousParameters","LinearMotorSimulationResult",
             "solve_linear_induction_transient_cpu","solve_linear_synchronous_transient_cpu"]
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceCoilParameters:
+    coil_resistance_ohm: float
+    coil_inductance_h: float
+    force_constant_n_per_a: float
+    back_emf_constant_v_s_per_m: float
+    moving_mass_kg: float
+    suspension_stiffness_n_per_m: float
+    viscous_damping_n_s_per_m: float
+    maximum_stroke_m: float
+    end_stop_stiffness_n_per_m: float = 0.0
+    thermal_capacity_j_k: float = 250.0
+    thermal_conductance_w_k: float = 2.0
+    ambient_temperature_c: float = 25.0
+
+    def __post_init__(self) -> None:
+        positive=("coil_resistance_ohm","coil_inductance_h","force_constant_n_per_a",
+                  "back_emf_constant_v_s_per_m","moving_mass_kg","maximum_stroke_m","thermal_capacity_j_k")
+        nonnegative=("suspension_stiffness_n_per_m","viscous_damping_n_s_per_m",
+                     "end_stop_stiffness_n_per_m","thermal_conductance_w_k")
+        for name in positive:
+            value=getattr(self,name)
+            if not _is_numeric_scalar(value) or not isfinite(float(value)) or float(value)<=0:
+                raise ValueError(f"{name} must be finite and positive")
+        for name in nonnegative:
+            value=getattr(self,name)
+            if not _is_numeric_scalar(value) or not isfinite(float(value)) or float(value)<0:
+                raise ValueError(f"{name} must be finite and non-negative")
+        if not _is_numeric_scalar(self.ambient_temperature_c) or not isfinite(float(self.ambient_temperature_c)):
+            raise ValueError("ambient_temperature_c must be finite")
+
+
+@dataclass(frozen=True)
+class VoiceCoilSimulationResult:
+    actuator_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    drive_voltage_v: np.ndarray
+    external_load_force_n: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.actuator_id,str) or not self.actuator_id.strip():
+            raise ValueError("actuator_id must be non-empty")
+        if not isinstance(self.diagnostics,Mapping):
+            raise TypeError("diagnostics must be a mapping")
+        count=int(np.asarray(self.time_s).size)
+        for name in ("time_s","state_data","drive_voltage_v","external_load_force_n"):
+            value=np.asarray(getattr(self,name),dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(value).all(): raise ValueError(f"{name} must be finite")
+            value.setflags(write=False); object.__setattr__(self,name,value)
+        if count<1 or self.state_data.size!=count*4 or self.drive_voltage_v.size!=count or self.external_load_force_n.size!=count:
+            raise ValueError("voice-coil result arrays must align to four states per sample")
+        object.__setattr__(self,"diagnostics",MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self) -> int: return int(self.time_s.size)
+
+    def channels(self, parameters: VoiceCoilParameters) -> dict[str,np.ndarray]:
+        if not isinstance(parameters,VoiceCoilParameters):
+            raise TypeError("parameters must be VoiceCoilParameters")
+        current,position,velocity,temperature=self.state_data.reshape(self.sample_count,4).T
+        p=parameters
+        back_emf=p.back_emf_constant_v_s_per_m*velocity
+        motor_force=p.force_constant_n_per_a*current
+        end_stop=np.maximum(0.0,np.abs(position)-p.maximum_stroke_m)*p.end_stop_stiffness_n_per_m*np.sign(position)
+        return {"coil_current_a":current,"translator_position_m":position,"translator_velocity_m_s":velocity,
+                "winding_temperature_c":temperature,"back_emf_v":back_emf,"motor_force_n":motor_force,
+                "end_stop_force_n":end_stop,"copper_loss_w":p.coil_resistance_ohm*current**2,
+                "stroke_utilization_pu":np.abs(position)/p.maximum_stroke_m,
+                "drive_voltage_v":self.drive_voltage_v,"external_load_force_n":self.external_load_force_n}
+
+
+def solve_voice_coil_transient_cpu(actuator_id: str, parameters: VoiceCoilParameters,
+    duration_s: float, step_s: float, *, drive_voltage_v: float|Sequence[float]|np.ndarray,
+    external_load_force_n: float|Sequence[float]|np.ndarray=0.0,
+    initial_position_m: float=0.0, initial_velocity_m_s: float=0.0,
+    initial_current_a: float=0.0, initial_temperature_c: float|None=None) -> VoiceCoilSimulationResult:
+    if not isinstance(actuator_id,str) or not actuator_id.strip(): raise ValueError("actuator_id must be non-empty")
+    if not isinstance(parameters,VoiceCoilParameters): raise TypeError("invalid voice-coil parameters")
+    for name,value in (("initial_position_m",initial_position_m),("initial_velocity_m_s",initial_velocity_m_s),("initial_current_a",initial_current_a)):
+        if not _is_numeric_scalar(value) or not isfinite(float(value)): raise ValueError(f"{name} must be finite")
+    temp=parameters.ambient_temperature_c if initial_temperature_c is None else initial_temperature_c
+    if not _is_numeric_scalar(temp) or not isfinite(float(temp)): raise ValueError("initial_temperature_c must be finite")
+    if abs(float(initial_position_m))>parameters.maximum_stroke_m:
+        raise ValueError("initial_position_m must be within the actuator stroke")
+    count,_=_validate_time(duration_s,step_s)
+    voltage=_voltage_profile(drive_voltage_v,count,"drive_voltage_v")
+    load=_voltage_profile(external_load_force_n,count,"external_load_force_n")
+    p=parameters
+    initial=np.asarray((float(initial_current_a),float(initial_position_m),float(initial_velocity_m_s),float(temp)))
+    def derivative(y:np.ndarray,u:tuple[float,float])->np.ndarray:
+        current,position,velocity,temperature=y; terminal,external=u
+        back_emf=p.back_emf_constant_v_s_per_m*velocity
+        motor_force=p.force_constant_n_per_a*current
+        end_stop=max(0.0,abs(position)-p.maximum_stroke_m)*p.end_stop_stiffness_n_per_m*np.sign(position)
+        di=(terminal-p.coil_resistance_ohm*current-back_emf)/p.coil_inductance_h
+        acceleration=(motor_force-external-p.suspension_stiffness_n_per_m*position-
+            p.viscous_damping_n_s_per_m*velocity-end_stop)/p.moving_mass_kg
+        copper=p.coil_resistance_ohm*current*current
+        dt=(copper-p.thermal_conductance_w_k*(temperature-p.ambient_temperature_c))/p.thermal_capacity_j_k
+        return np.asarray((di,velocity,acceleration,dt),dtype=np.float64)
+    problem=NumericalProblem(problem_id=actuator_id.strip(),workload="voice_coil_actuator_single",
+        derivative=derivative,initial_state=initial,duration_s=duration_s,maximum_step_s=step_s,
+        input_at=lambda i,_t:(float(voltage[i]),float(load[i])),precision="float64")
+    solution=solve_numerical_problem(problem)
+    return VoiceCoilSimulationResult(actuator_id.strip(),solution.time_s,solution.state_data,voltage,load,
+        solution.sample_period_s,"cpu-rk4",{"integrator":solution.integrator,
+        "model_fidelity":"experimental lumped electromechanical actuator; no magnetic saturation, eddy-current, flexure or detailed thermal network"})
+
+__all__ += ["VoiceCoilParameters","VoiceCoilSimulationResult","solve_voice_coil_transient_cpu"]
