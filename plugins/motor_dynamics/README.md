@@ -371,3 +371,10 @@ Both are experimental CPU reference solvers using the shared Core numerical RK4 
 Sample-aligned armature voltage, field voltage and load-torque profiles produce armature/field/series current, flux, back-EMF, torque, speed, position, copper losses, electrical/mechanical power and winding temperatures. CPU/RK4 uses the shared Core numerical engine.
 
 The reduced-order model omits commutator segmentation, brush contact drop/arcing, interpoles, compensating windings, armature reaction, magnetic hysteresis, detailed converter switching and spatial thermal networks. Validate parameter identification and operating envelopes before engineering use. No GPU/NPU capability is declared.
+
+
+## Wound-rotor induction motor extension
+
+The shared induction dq model accepts a non-negative fixed `external_rotor_resistance_ohm` in addition to rotor winding resistance. This enables comparative starting/torque-speed studies for a selected external resistance setting and publishes rotor current magnitude, total rotor-circuit resistance and rotor copper loss. The wound-rotor family is mapped to the existing induction dq solver.
+
+This is not a slip-ring starter sequence or resistor-bank thermal model: resistance is fixed for each run; brush/slip-ring contact, per-phase resistor switching, separate rotor/stator thermal nodes and unbalanced rotor circuits remain outside the current fidelity boundary.

@@ -81,6 +81,11 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("electrical.frequency", "Supply frequency", F, N, "Hz", ("control","protection","scada"), True),
                 _p("electrical.phase_sequence", "Phase sequence", D, N, "state", ("protection","commissioning"))]
 
+    if family == MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION:
+        pts += [_p("rotor.external_resistance", "External rotor resistance", X, N, "ohm", ("control","commissioning","analysis")),
+                _p("rotor.rotor_current", "Rotor current magnitude", C, N, "A", ("monitoring","protection")),
+                _p("rotor.rotor_copper_loss", "Rotor circuit copper loss", P, N, "W", ("monitoring","analysis"))]
+
     pts += [
         _p("machine.speed", "Rotor / translator speed", X, N, "rpm_or_m_s", ("control","protection","monitoring"), True),
         _p("machine.shaft_torque", "Shaft torque", X, N, "N.m", ("monitoring","analysis")),

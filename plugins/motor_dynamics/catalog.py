@@ -77,7 +77,7 @@ def _profile(family: MotorFamily, supply: str, phases: int, principle: str,
 
 MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyType({
     MotorFamily.THREE_PHASE_SQUIRREL_CAGE_INDUCTION: _profile(MotorFamily.THREE_PHASE_SQUIRREL_CAGE_INDUCTION, "AC", 3, "asynchronous squirrel-cage induction", "DOL / soft starter / VFD", dynamic_model="induction_dq", regenerative=True, notes="Existing dq solver is experimental; saturation and unbalance are not covered."),
-    MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION: _profile(MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION, "AC", 3, "asynchronous wound-rotor induction", "rotor-resistance starter / VFD", regenerative=True, notes="External rotor resistance and slip-ring thermal dynamics remain unmodeled."),
+    MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION: _profile(MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION, "AC", 3, "asynchronous wound-rotor induction", "rotor-resistance starter / VFD", dynamic_model="induction_dq", regenerative=True, notes="Experimental CPU dq model supports a fixed external rotor resistance; slip-ring contact and separate resistor thermal dynamics remain unmodeled."),
     MotorFamily.SINGLE_PHASE_SPLIT_PHASE: _profile(MotorFamily.SINGLE_PHASE_SPLIT_PHASE, "AC", 1, "single-phase split-phase induction", "line / starter"),
     MotorFamily.SINGLE_PHASE_CAPACITOR_START: _profile(MotorFamily.SINGLE_PHASE_CAPACITOR_START, "AC", 1, "capacitor-start induction", "line / starter"),
     MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR: _profile(MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR, "AC", 1, "permanent-split-capacitor induction", "line / VFD"),

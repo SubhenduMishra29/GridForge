@@ -383,3 +383,22 @@ def test_dc_instrumentation_exposes_field_and_thermal_points():
     assert {"terminal.armature_voltage","terminal.armature_current","excitation.field_voltage","excitation.field_current",
         "excitation.series_field_current","machine.air_gap_flux","machine.back_emf","machine.armature_temperature",
         "machine.field_copper_loss"}.issubset(points)
+
+
+def test_wound_rotor_family_uses_induction_dq_with_external_resistance():
+    p = MotorParameters(stator_resistance_ohm=.45, rotor_resistance_ohm=.3,
+        external_rotor_resistance_ohm=.8, stator_leakage_inductance_h=.012,
+        rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18,
+        pole_pairs=2, inertia_kg_m2=.02)
+    assert motor_family_profile(MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION).dynamic_model == "induction_dq"
+    r = solve_transient_cpu("wound-rotor", p, .01, .0001,
+        stator_voltage_d_v=120., stator_voltage_q_v=0., electrical_frequency_hz=50., load_torque_nm=.01)
+    ch = r.channels(p, 2 * np.pi * 50., .01)
+    assert r.diagnostics["rotor_circuit"] == "wound_rotor_with_external_resistance"
+    assert ch["external_rotor_resistance_ohm"][0] == pytest.approx(.8)
+    assert ch["rotor_copper_loss_w"][-1] >= 0.
+    with pytest.raises(ValueError, match="external_rotor_resistance_ohm"):
+        MotorParameters(stator_resistance_ohm=.45, rotor_resistance_ohm=.3,
+            external_rotor_resistance_ohm=-.1, stator_leakage_inductance_h=.012,
+            rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18,
+            pole_pairs=2, inertia_kg_m2=.02)

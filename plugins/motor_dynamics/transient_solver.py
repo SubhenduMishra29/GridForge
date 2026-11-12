@@ -43,6 +43,7 @@ class MotorParameters:
 
     stator_resistance_ohm: float
     rotor_resistance_ohm: float
+    external_rotor_resistance_ohm: float = 0.0
     stator_leakage_inductance_h: float
     rotor_leakage_inductance_h: float
     magnetizing_inductance_h: float
@@ -69,6 +70,8 @@ class MotorParameters:
                 raise TypeError(f"{name} must be numeric")
             if not isfinite(float(value)) or float(value) <= 0.0:
                 raise ValueError(f"{name} must be finite and positive")
+        if not _is_numeric_scalar(self.external_rotor_resistance_ohm) or not isfinite(float(self.external_rotor_resistance_ohm)) or self.external_rotor_resistance_ohm < 0.0:
+            raise ValueError("external_rotor_resistance_ohm must be finite and non-negative")
         for name in (
             "friction_n_m_s", "thermal_conductance_w_k",
             "resistance_temp_coefficient_per_k", "ambient_temperature_c",
@@ -190,6 +193,9 @@ class MotorSimulationResult:
             "stator_current_q_a": iqs,
             "rotor_current_d_a": idr,
             "rotor_current_q_a": iqr,
+            "rotor_current_rms_a": np.hypot(idr, iqr),
+            "external_rotor_resistance_ohm": np.full(self.sample_count, parameters.external_rotor_resistance_ohm),
+            "rotor_copper_loss_w": 1.5 * (parameters.rotor_resistance_ohm + parameters.external_rotor_resistance_ohm) * (idr * idr + iqr * iqr),
             "electromagnetic_torque_nm": torque,
             "rotor_speed_rad_s": speed,
             "rotor_speed_rpm": speed * 60.0 / (2.0 * np.pi),
@@ -240,7 +246,7 @@ def _derivative(state: np.ndarray, p: MotorParameters, vds: float, vqs: float,
     idr, iqr = (ls * pr - lm * ps) / det, (ls * qr - lm * qs) / det
     temp_delta = temp - p.ambient_temperature_c
     rs = p.stator_resistance_ohm * max(0.05, 1.0 + p.resistance_temp_coefficient_per_k * temp_delta)
-    rr = p.rotor_resistance_ohm * max(0.05, 1.0 + p.resistance_temp_coefficient_per_k * temp_delta)
+    rr = (p.rotor_resistance_ohm + p.external_rotor_resistance_ohm) * max(0.05, 1.0 + p.resistance_temp_coefficient_per_k * temp_delta)
     omega_slip = omega_e - p.pole_pairs * omega_m
     torque = 1.5 * p.pole_pairs * (ps * iqs - qs * ids)
     copper_loss = 1.5 * (rs * (ids * ids + iqs * iqs) + rr * (idr * idr + iqr * iqr))
@@ -314,6 +320,8 @@ def solve_transient_cpu(
             "state_layout": "flat_motor_major_step_major_state_minor",
             "state_count": _STATE_COUNT,
             "model": "induction_motor_dq_electromechanical_lumped_thermal",
+            "rotor_circuit": "wound_rotor_with_external_resistance" if parameters.external_rotor_resistance_ohm > 0 else "squirrel_cage_equivalent",
+            "external_rotor_resistance_ohm": parameters.external_rotor_resistance_ohm,
             "electrical_frequency_hz": float(electrical_frequency_hz),
             "load_torque_nm": float(load_torque_nm),
             "voltage_profile": "zero_order_hold",
