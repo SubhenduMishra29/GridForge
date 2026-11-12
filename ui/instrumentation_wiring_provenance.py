@@ -21,7 +21,7 @@ class SignalProvenancePresentation:
     status: str
     diagnostics: tuple[str, ...] = ()
     direction: str = "SOURCE_TO_SINK"
-    physical_sink_terminal: tuple[str, str, str] | None = None
+    physical_sink_terminal: tuple[str, ...] | None = None
 
     @property
     def short_label(self) -> str:
@@ -107,7 +107,11 @@ def project_signal_provenance(
                 (
                     str(resolution.physical_sink_terminal["equipment_id"]),
                     str(resolution.physical_sink_terminal["terminal_role"]),
-                    str(resolution.physical_sink_terminal["designation"]),
+                    *(
+                        str(resolution.physical_sink_terminal[key])
+                        for key in ("equipment_id", "terminal_role", "designation", "terminal_point_id")
+                        if resolution.physical_sink_terminal.get(key) is not None
+                    ),
                 )
                 if getattr(resolution, "physical_sink_terminal", None) is not None
                 else None
