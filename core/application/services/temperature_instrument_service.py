@@ -223,18 +223,19 @@ class TemperatureInstrumentService:
                 unverified.append(instrument.id)
                 continue
             if instrument.input_mode.value == "DIRECT_SENSOR":
-                stages = ((instrument.sensor_terminals, instrument.receiver_terminals, "sensor-to-receiver"),)
-            elif interface is None:
+                if not cls._has_physical_route(
+                    wiring_inventory, tuple(instrument.sensor_terminals), tuple(instrument.receiver_terminals)
+                ):
+                    raise ValueError(
+                        f"Temperature instrument '{instrument.id}' has no continuous canonical cable-core/"
+                        "panel-wire route for sensor-to-receiver."
+                    )
+                continue
+            if interface is None:
                 raise ValueError(
                     f"Temperature instrument '{instrument.id}' has no declared interface for its physical route."
                 )
-            else:
-                stages = (
-                    (instrument.sensor_terminals, interface.input_terminals, "sensor-to-interface-input"),
-                    (interface.output_terminals, instrument.receiver_terminals, "interface-output-to-receiver"),
-                )
             if (instrument.sensor_technology.value == "THERMOCOUPLE"
-                    and instrument.input_mode.value != "DIRECT_SENSOR"
                     and instrument.sensor_input_mappings):
                 if not instrument.thermocouple_type:
                     raise ValueError(
@@ -250,7 +251,7 @@ class TemperatureInstrumentService:
                             f"Temperature instrument '{instrument.id}' thermocouple {mapping.polarity.lower()} "
                             "conductor path lacks matching type, polarity, conductor material, or declared cable construction."
                         )
-            elif instrument.sensor_input_mappings and interface is not None:
+            elif instrument.sensor_input_mappings:
                 for mapping in instrument.sensor_input_mappings:
                     if not cls._has_physical_route(
                         wiring_inventory, (mapping.sensor_terminal,), (mapping.interface_terminal,)
@@ -259,21 +260,20 @@ class TemperatureInstrumentService:
                             f"Temperature instrument '{instrument.id}' has no continuous canonical "
                             "per-lead sensor-to-interface terminal path."
                         )
-            if interface is not None and instrument.input_mode.value != "DIRECT_SENSOR":
-                if not cls._has_physical_route(
-                    wiring_inventory, tuple(interface.output_terminals), tuple(instrument.receiver_terminals)
-                ):
-                    raise ValueError(
-                        f"Temperature instrument '{instrument.id}' has no continuous canonical "
-                        "interface-output-to-receiver terminal path."
-                    )
-            else:
-                for starts, ends, stage in stages:
-                    if not cls._has_physical_route(wiring_inventory, tuple(starts), tuple(ends)):
-                        raise ValueError(
-                            f"Temperature instrument '{instrument.id}' has no continuous canonical cable-core/"
-                            f"panel-wire route for {stage}."
-                        )
+            elif not cls._has_physical_route(
+                wiring_inventory, tuple(instrument.sensor_terminals), tuple(interface.input_terminals)
+            ):
+                raise ValueError(
+                    f"Temperature instrument '{instrument.id}' has no continuous canonical "
+                    "sensor-to-interface-input terminal path."
+                )
+            if not cls._has_physical_route(
+                wiring_inventory, tuple(interface.output_terminals), tuple(instrument.receiver_terminals)
+            ):
+                raise ValueError(
+                    f"Temperature instrument '{instrument.id}' has no continuous canonical "
+                    "interface-output-to-receiver terminal path."
+                )
         return tuple(unverified)
 
     def validate_wiring_inventory(self, wiring_inventory: Any) -> tuple[str, ...]:
