@@ -265,7 +265,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 {"id", "ct_id", "phase", "s1_terminal", "s2_terminal",
                  "s1_carrier_ids", "s2_carrier_ids", "shorting_accessory_id",
                  "shorting_s1_terminal_point_id", "shorting_s2_terminal_point_id"},
-                {"secondary_state", "test_disconnect_accessory_id"},
+                {"secondary_state"},
+                {"test_disconnect_accessory_id"},
                 "CT secondary circuit",
             ),)
             for item in data["ct_secondary_circuits"]:
@@ -372,7 +373,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 shorting_accessory_id=item["shorting_accessory_id"],
                 shorting_s1_terminal_point_id=item["shorting_s1_terminal_point_id"],
                 shorting_s2_terminal_point_id=item["shorting_s2_terminal_point_id"],
-                secondary_state=CTSecondaryCircuitState(item.get("secondary_state", "CLOSED")),
+                secondary_state=CTSecondaryCircuitState(item["secondary_state"]),
                 test_disconnect_accessory_id=item.get("test_disconnect_accessory_id"),
             )
             for item in data.get("ct_secondary_circuits", ())
