@@ -167,6 +167,12 @@ class InstrumentationWiringService:
                     raise ValueError(
                         f"In-service CT '{circuit.ct_id}' normal CLOSED secondary service requires the shorting link to be explicitly OPEN; CLOSED, REMOVED or UNKNOWN is not accepted."
                     )
+                if circuit.test_disconnect_accessory_id is not None:
+                    test_disconnect = accessories[circuit.test_disconnect_accessory_id]
+                    if test_disconnect.state is not TerminalAccessoryState.CLOSED:
+                        raise ValueError(
+                            f"In-service CT '{circuit.ct_id}' cannot have a CLOSED secondary while its test-disconnect accessory is not explicitly CLOSED."
+                        )
 
     @staticmethod
     def _validate_pt_secondary_circuits(network: Any, inventory: InstrumentationWiringInventory) -> None:
