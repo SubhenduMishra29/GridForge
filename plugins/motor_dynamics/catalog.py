@@ -93,7 +93,7 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.DC_COMPOUND: _profile(MotorFamily.DC_COMPOUND, "DC", 2, "compound-wound brushed DC", "DC drive", dynamic_model="dc_excitation"),
     MotorFamily.DC_SEPARATELY_EXCITED: _profile(MotorFamily.DC_SEPARATELY_EXCITED, "DC", 2, "separately excited brushed DC", "four-quadrant DC drive", dynamic_model="dc_excitation", regenerative=True),
     MotorFamily.DC_PERMANENT_MAGNET: _profile(MotorFamily.DC_PERMANENT_MAGNET, "DC", 2, "permanent-magnet brushed DC", "PWM DC drive", dynamic_model="dc_excitation", regenerative=True),
-    MotorFamily.UNIVERSAL: _profile(MotorFamily.UNIVERSAL, "AC/DC", 1, "series-wound commutator", "line / phase-angle / DC drive"),
+    MotorFamily.UNIVERSAL: _profile(MotorFamily.UNIVERSAL, "AC/DC", 1, "series-wound commutator", "line / phase-angle / DC drive", dynamic_model="universal_series_commutator", notes="Experimental CPU averaged AC/DC series-field envelope; commutation ripple, brush contact and cycle-resolved AC are omitted."),
     MotorFamily.STEPPER_VARIABLE_RELUCTANCE: _profile(MotorFamily.STEPPER_VARIABLE_RELUCTANCE, "DC link", 2, "variable-reluctance stepper", "stepper current driver"),
     MotorFamily.STEPPER_PERMANENT_MAGNET: _profile(MotorFamily.STEPPER_PERMANENT_MAGNET, "DC link", 2, "permanent-magnet stepper", "stepper current driver"),
     MotorFamily.STEPPER_HYBRID: _profile(MotorFamily.STEPPER_HYBRID, "DC link", 2, "hybrid stepper", "microstepping current driver"),
