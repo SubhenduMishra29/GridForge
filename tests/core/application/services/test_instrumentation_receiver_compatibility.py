@@ -91,3 +91,71 @@ def test_control_receiver_with_incomplete_capability_contract_fails_closed():
     assert any("no declared accepted signal types" in item for item in result.diagnostics)
     assert any("no declared accepted phases" in item for item in result.diagnostics)
     assert any("no declared accepted engineering units" in item for item in result.diagnostics)
+
+
+
+def test_control_binding_requires_persisted_mapping_to_reference_signal_identity():
+    from core.application.control_signal_mapping import (
+        ControlSignalBinding,
+        ControlSignalMapping,
+        ControlSignalSource,
+    )
+    from core.application.services.instrumentation_receiver_compatibility import (
+        validate_control_mapping_binding,
+    )
+
+    signal = _signal()
+    destination = ControlSignalDestination(
+        control_id="CTRL-1",
+        component_id="PID-1",
+        input_name="PV",
+        expected_signal_types=("CURRENT",),
+        expected_phases=("A",),
+        accepted_units=("A",),
+    )
+    matching = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="instrumentation",
+                element_type="signal",
+                object_id=signal.id,
+                signal="value",
+            ),
+            destination=destination,
+        ),
+    ))
+    assert validate_control_mapping_binding(signal, matching, destination).compatible
+
+    wrong_source = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="instrumentation",
+                element_type="signal",
+                object_id="another-signal",
+                signal="value",
+            ),
+            destination=destination,
+        ),
+    ))
+    result = validate_control_mapping_binding(signal, wrong_source, destination)
+    assert not result.compatible
+    assert any("does not identify instrumentation signal" in item for item in result.diagnostics)
+
+
+def test_control_binding_without_persisted_mapping_fails_closed():
+    from core.application.control_signal_mapping import ControlSignalMapping
+    from core.application.services.instrumentation_receiver_compatibility import (
+        validate_control_mapping_binding,
+    )
+
+    destination = ControlSignalDestination(
+        control_id="CTRL-1",
+        component_id="PID-1",
+        input_name="PV",
+        expected_signal_types=("CURRENT",),
+        expected_phases=("A",),
+        accepted_units=("A",),
+    )
+    result = validate_control_mapping_binding(_signal(), ControlSignalMapping(), destination)
+    assert not result.compatible
+    assert any("exactly one persisted canonical mapping" in item for item in result.diagnostics)
