@@ -10,6 +10,7 @@ Initial engineering foundation for GridForge V2's universal generator plugin.
 - Immutable nameplate and model parameter contracts.
 - Synchronous-machine d/q transient and subtransient parameter validation.
 - AVR/exciter, governor/actuator and prime-mover parameter contracts.
+- Executable generic first-order AVR, TGOV1-style governor/turbine lag, and washout/lead-lag PSS models implementing the existing DynamicPlugin equation contract.
 - Technology-specific instrumentation point templates.
 - Explicit physical instrument/secondary-terminal mapping through Core's
   MeasurementProvisioning and canonical MeasurementChannel.
@@ -40,6 +41,24 @@ converter DC-link points.
   protection/trip decision is performed by this package.
 - Existing shared numerical policy remains authoritative for compatibility,
   precision, fallback and diagnostics.
+
+## Dynamic controller model boundary
+
+The first controller set is explicitly identified as generic first-order AVR,
+TGOV1-style governor/turbine lag and washout/lead-lag PSS. They expose local
+initial-state, derivative and output equations through the existing
+DynamicPlugin contract. They do not own integration or simulation time.
+
+These controller equations are not yet wired into the transient DAE. The
+current DAESolver state layout is machine-only; the transient network solver
+also consumes that exact machine-state vector, while the classical machine
+uses constant Efd and the DAE accepts a fixed mechanical-power map. A correct
+integration requires a single augmented global state layout, time-stage
+controller evaluation, governor-to-mechanical-power coupling, AVR-to-internal
+emf/network-source coupling, and a consistent algebraic solution strategy for
+terminal-voltage feedback. Merely calling controller derivatives beside the
+existing solver would create unsynchronized state and is intentionally not
+implemented.
 
 ## Integration boundary
 
