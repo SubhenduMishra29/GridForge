@@ -145,6 +145,7 @@ class CableCore:
     conductor_material: Optional[str] = None
     thermocouple_type: Optional[str] = None
     thermocouple_polarity: Optional[str] = None
+    revision: int = 1
 
     def __post_init__(self) -> None:
         for field in ("id", "cable_id"):
@@ -173,6 +174,7 @@ class CableCore:
             raise ValueError("thermocouple_type and thermocouple_polarity must be declared together.")
         if self.thermocouple_type is not None and self.conductor_material is None:
             raise ValueError("conductor_material is required for a declared thermocouple conductor.")
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,6 +191,7 @@ class PanelWire:
     thermocouple_type: Optional[str] = None
     thermocouple_polarity: Optional[str] = None
     thermocouple_cable_designation: Optional[str] = None
+    revision: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required_text(self.id, "id"))
@@ -221,6 +224,7 @@ class PanelWire:
             raise ValueError("thermocouple_type and thermocouple_polarity must be declared together.")
         if self.thermocouple_type is not None and self.conductor_material is None:
             raise ValueError("conductor_material is required for a declared thermocouple conductor.")
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,13 +237,14 @@ class SignalDefinition:
     kind: SignalKind
     unit: Optional[str] = None
     phase: Optional[str] = None
+    measurement_channel_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "tag", "description"):
             object.__setattr__(self, field, _required_text(getattr(self, field), field))
         if not isinstance(self.kind, SignalKind):
             raise TypeError("kind must be a SignalKind.")
-        for field in ("unit", "phase"):
+        for field in ("unit", "phase", "measurement_channel_id"):
             object.__setattr__(self, field, _optional_text(getattr(self, field), field))
 
 
@@ -262,6 +267,48 @@ class SignalCarrierBinding:
         if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
             raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
         object.__setattr__(self, "direction", direction)
+
+
+
+@dataclass(frozen=True, slots=True)
+class PhysicalConnectionHop:
+    """Stable Core identity for one physical terminal-to-terminal connection.
+
+    Hop IDs survive schedule ordering and canvas layout changes. A changed
+    route retires/replaces affected hops; tuple indices are never identities.
+    """
+
+    id: str
+    from_terminal: WiringTerminalReference
+    to_terminal: WiringTerminalReference
+    carrier_kind: CarrierKind
+    carrier_id: str
+    revision: int = 1
+    lifecycle_status: str = "PLANNED"
+    supersedes_hop_id: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _required_text(self.id, "id"))
+        if not isinstance(self.from_terminal, WiringTerminalReference):
+            raise TypeError("from_terminal must be a WiringTerminalReference.")
+        if not isinstance(self.to_terminal, WiringTerminalReference):
+            raise TypeError("to_terminal must be a WiringTerminalReference.")
+        if self.from_terminal.identity == self.to_terminal.identity:
+            raise ValueError("A physical connection hop requires two distinct terminals.")
+        if not isinstance(self.carrier_kind, CarrierKind):
+            raise TypeError("carrier_kind must be a CarrierKind.")
+        if self.carrier_kind not in {CarrierKind.CABLE_CORE, CarrierKind.PANEL_WIRE}:
+            raise ValueError("Physical connection hops require a cable-core or panel-wire carrier.")
+        object.__setattr__(self, "carrier_id", _required_text(self.carrier_id, "carrier_id"))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
+        status = _required_text(self.lifecycle_status, "lifecycle_status").upper()
+        if status not in {"PLANNED", "INSTALLED", "RETIRED", "REPLACED"}:
+            raise ValueError("lifecycle_status must be PLANNED, INSTALLED, RETIRED or REPLACED.")
+        object.__setattr__(self, "lifecycle_status", status)
+        object.__setattr__(self, "supersedes_hop_id", _optional_text(self.supersedes_hop_id, "supersedes_hop_id"))
+        if self.supersedes_hop_id == self.id:
+            raise ValueError("A physical connection hop cannot supersede itself.")
+
 
 
 
@@ -318,11 +365,11 @@ class WiringTagPolicy:
         used_values = tuple(used_tags)
         if any(not isinstance(item, str) for item in used_values):
             raise TypeError("used_tags must contain strings.")
-        used = set(used_values)
+        used = {item.strip().casefold() for item in used_values}
         current = matches[0]
         number = current.next_number
         tag = current.format(number)
-        while tag in used:
+        while tag.casefold() in used:
             number += 1
             tag = current.format(number)
         advanced = WiringTagSeries(
@@ -349,6 +396,7 @@ class InstrumentationWiringInventory:
     panel_wires: tuple[PanelWire, ...] = ()
     signals: tuple[SignalDefinition, ...] = ()
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
+    connection_hops: tuple[PhysicalConnectionHop, ...] = ()
     tag_policy: WiringTagPolicy = WiringTagPolicy()
 
     def __post_init__(self) -> None:
@@ -360,6 +408,7 @@ class InstrumentationWiringInventory:
             ("panel_wires", self.panel_wires, PanelWire),
             ("signals", self.signals, SignalDefinition),
             ("signal_bindings", self.signal_bindings, SignalCarrierBinding),
+            ("connection_hops", self.connection_hops, PhysicalConnectionHop),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -378,12 +427,29 @@ class InstrumentationWiringInventory:
         if len(all_ids) != len(set(all_ids)):
             raise ValueError("Instrumentation wiring records must have globally unique stable IDs.")
 
-        self._validate_unique_tags(self.cables, "cable")
-        self._validate_unique_tags(self.panel_wires, "panel wire")
-        self._validate_unique_tags(self.signals, "signal")
-        core_tags = [item.core_tag for item in self.cores if item.core_tag is not None]
-        if len(core_tags) != len(set(core_tags)):
-            raise ValueError("Cable cores contain duplicate core tags.")
+        tagged_records = (
+            *((item.tag, "cable") for item in self.cables),
+            *((item.core_tag, "cable core") for item in self.cores if item.core_tag is not None),
+            *((item.tag, "panel wire") for item in self.panel_wires),
+            *((item.tag, "signal") for item in self.signals),
+        )
+        seen_tags: dict[str, tuple[str, str]] = {}
+        for tag, label in tagged_records:
+            normalized = tag.strip().casefold()
+            if normalized in seen_tags:
+                previous_tag, previous_label = seen_tags[normalized]
+                raise ValueError(
+                    f"Duplicate project wiring tag {tag!r} ({label}); "
+                    f"already assigned to {previous_tag!r} ({previous_label})."
+                )
+            seen_tags[normalized] = (tag, label)
+
+        channel_ids = [
+            item.measurement_channel_id for item in self.signals
+            if item.measurement_channel_id is not None
+        ]
+        if len(channel_ids) != len(set(channel_ids)):
+            raise ValueError("A MeasurementChannel may be associated with only one instrumentation signal.")
 
         cable_by_id = {item.id: item for item in self.cables}
         core_numbers: set[tuple[str, int]] = set()
@@ -397,6 +463,33 @@ class InstrumentationWiringInventory:
             if key in core_numbers:
                 raise ValueError(f"Cable '{core.cable_id}' has duplicate core number {core.core_number}.")
             core_numbers.add(key)
+
+        core_by_id = {item.id: item for item in self.cores}
+        wire_by_id = {item.id: item for item in self.panel_wires}
+        hop_by_id = {item.id: item for item in self.connection_hops}
+        for hop in self.connection_hops:
+            carrier = core_by_id.get(hop.carrier_id) if hop.carrier_kind is CarrierKind.CABLE_CORE else wire_by_id.get(hop.carrier_id)
+            if carrier is None:
+                raise ValueError(
+                    f"Physical connection hop '{hop.id}' references missing "
+                    f"{hop.carrier_kind.value.lower()} '{hop.carrier_id}'."
+                )
+            path = carrier.terminal_path
+            pair = (hop.from_terminal.identity, hop.to_terminal.identity)
+            adjacent_pairs = {
+                (path[index].identity, path[index + 1].identity)
+                for index in range(len(path) - 1)
+            }
+            if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in adjacent_pairs and pair[::-1] not in adjacent_pairs:
+                raise ValueError(
+                    f"Active physical connection hop '{hop.id}' endpoints are not an adjacent "
+                    "segment of its carrier terminal path."
+                )
+            if hop.supersedes_hop_id is not None and hop.supersedes_hop_id not in hop_by_id:
+                raise ValueError(
+                    f"Physical connection hop '{hop.id}' supersedes missing hop "
+                    f"'{hop.supersedes_hop_id}'."
+                )
 
         signal_ids = {item.id for item in self.signals}
         carrier_ids = (
@@ -433,6 +526,7 @@ __all__ = [
     "PanelWire",
     "SignalDefinition",
     "SignalCarrierBinding",
+    "PhysicalConnectionHop",
     "WiringTagSeries",
     "WiringTagPolicy",
     "InstrumentationWiringInventory",

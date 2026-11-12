@@ -351,6 +351,56 @@ class _ProjectSchema7To8(ProjectMigration):
         return result
 
 
+class _ProjectSchema8To9(ProjectMigration):
+    source_schema = 8
+    target_schema = 9
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 8-to-9 received a non-schema-8 payload.")
+        wiring = result.get("instrumentation_wiring")
+        if wiring is None:
+            wiring_copy = {
+                "schema": 4,
+                "cables": [],
+                "cores": [],
+                "panel_wires": [],
+                "signals": [],
+                "signal_bindings": [],
+                "tag_policy": [],
+                "connection_hops": [],
+            }
+        else:
+            if not isinstance(wiring, Mapping) or wiring.get("schema") not in {2, 3}:
+                raise ProjectMigrationError(
+                    "Project schema 8 requires instrumentation_wiring schema 2 or 3 for migration."
+                )
+            wiring_copy = deepcopy(dict(wiring))
+            signals = wiring_copy.get("signals")
+            if not isinstance(signals, list):
+                raise ProjectMigrationError("Instrumentation wiring signals must be an array.")
+            migrated_signals = []
+            for index, raw_signal in enumerate(signals):
+                if not isinstance(raw_signal, Mapping):
+                    raise ProjectMigrationError(
+                        f"Instrumentation wiring signal at index {index} is not an object."
+                    )
+                signal = deepcopy(dict(raw_signal))
+                if "measurement_channel_id" in signal:
+                    raise ProjectMigrationError(
+                        "Legacy instrumentation signal cannot already contain measurement_channel_id."
+                    )
+                # Historical projects have no authoritative signal/channel FK.
+                signal["measurement_channel_id"] = None
+                migrated_signals.append(signal)
+            wiring_copy["signals"] = migrated_signals
+            wiring_copy["connection_hops"] = []
+            wiring_copy["schema"] = 4
+        result["instrumentation_wiring"] = wiring_copy
+        result["schema"] = self.target_schema
+        return result
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -777,6 +827,7 @@ class ProjectPersistenceMigration:
         5: _ProjectSchema5To6(),
         6: _ProjectSchema6To7(),
         7: _ProjectSchema7To8(),
+        8: _ProjectSchema8To9(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3(), 3: _SLDSchema3To4()}
 

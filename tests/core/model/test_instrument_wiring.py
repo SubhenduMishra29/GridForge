@@ -13,6 +13,7 @@ from core.model import (
     SignalDefinition,
     SignalKind,
     WiringTerminalReference,
+    PhysicalConnectionHop,
 )
 
 
@@ -128,3 +129,103 @@ def test_inventory_rejects_duplicate_tags_and_dangling_signal_bindings():
     )
     with pytest.raises(ValueError, match="missing cable core"):
         InstrumentationWiringInventory(signals=(signal,), signal_bindings=(dangling,))
+
+
+def test_inventory_enforces_one_case_insensitive_tag_namespace_across_record_kinds():
+    cable = CableAssembly(id="cable-1", tag="CAB-001", service="instrument", core_count=1)
+    core = CableCore(
+        id="core-1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL, core_tag="CORE-001",
+    )
+    wire = PanelWire(
+        id="wire-1", tag="wire-001", role=WiringConductorRole.SIGNAL,
+        terminal_path=(terminal("TB-1", "1", "1"), terminal("TB-2", "1", "1")),
+    )
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-001", description="Pressure",
+        kind=SignalKind.ANALOG,
+    )
+    valid = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core,), panel_wires=(wire,), signals=(signal,),
+    )
+    assert valid.signals == (signal,)
+
+    duplicate_signal = SignalDefinition(
+        id="signal-2", tag="cab-001", description="Conflicting tag",
+        kind=SignalKind.ANALOG,
+    )
+    with pytest.raises(ValueError, match="Duplicate project wiring tag"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core,), panel_wires=(wire,),
+            signals=(signal, duplicate_signal),
+        )
+
+    duplicate_core = CableCore(
+        id="core-2", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.RETURN, core_tag="SIG-001",
+    )
+    with pytest.raises(ValueError, match="Duplicate project wiring tag"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core, duplicate_core), signals=(signal,),
+        )
+
+
+def test_physical_connection_hops_have_stable_ids_and_validate_carrier_segments():
+    a = terminal("CT-101", "s1", "S1")
+    b = terminal("TB-101", "1", "1")
+    c_terminal = terminal("RELAY-101", "ia", "IA+")
+    cable = CableAssembly(id="cable-hop", tag="C-HOP", service="CT secondary", core_count=1)
+    core = CableCore(
+        id="core-hop", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL, terminal_path=(a, b, c_terminal),
+    )
+    first = PhysicalConnectionHop(
+        id="hop-stable-001", from_terminal=a, to_terminal=b,
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+    )
+    second = PhysicalConnectionHop(
+        id="hop-stable-002", from_terminal=b, to_terminal=c_terminal,
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+        revision=2, lifecycle_status="REPLACED", supersedes_hop_id=first.id,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core,), connection_hops=(first, second),
+    )
+    assert tuple(hop.id for hop in inventory.connection_hops) == (
+        "hop-stable-001", "hop-stable-002",
+    )
+    assert second.supersedes_hop_id == first.id
+
+    non_adjacent = PhysicalConnectionHop(
+        id="hop-invalid", from_terminal=a, to_terminal=c_terminal,
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+    )
+    with pytest.raises(ValueError, match="not an adjacent segment"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core,), connection_hops=(non_adjacent,),
+        )
+
+
+def test_physical_connection_hop_rejects_missing_carrier_and_predecessor():
+    a = terminal("TB-1", "1", "1")
+    b = terminal("TB-2", "1", "1")
+    missing_carrier = PhysicalConnectionHop(
+        id="hop-1", from_terminal=a, to_terminal=b,
+        carrier_kind=CarrierKind.PANEL_WIRE, carrier_id="absent-wire",
+    )
+    with pytest.raises(ValueError, match="references missing panel_wire"):
+        InstrumentationWiringInventory(connection_hops=(missing_carrier,))
+
+    wire = PanelWire(
+        id="wire-hop", tag="W-HOP", role=WiringConductorRole.SIGNAL,
+        terminal_path=(a, b),
+    )
+    missing_predecessor = PhysicalConnectionHop(
+        id="hop-2", from_terminal=a, to_terminal=b,
+        carrier_kind=CarrierKind.PANEL_WIRE, carrier_id=wire.id,
+        supersedes_hop_id="absent-hop",
+    )
+    with pytest.raises(ValueError, match="supersedes missing hop"):
+        InstrumentationWiringInventory(
+            panel_wires=(wire,), connection_hops=(missing_predecessor,),
+        )
