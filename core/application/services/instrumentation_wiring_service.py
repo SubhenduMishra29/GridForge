@@ -139,6 +139,7 @@ class InstrumentationWiringService:
             signals=tuple(self._read_value(item) for item in inventory.signals),
             signal_bindings=tuple(self._read_value(item) for item in inventory.signal_bindings),
             tag_policy=tuple(self._read_value(item) for item in inventory.tag_policy.series),
+            endpoint_bindings=tuple(self._read_value(item) for item in inventory.endpoint_bindings),
         )
 
     def allocate_tag(
@@ -172,6 +173,7 @@ class InstrumentationWiringService:
             PanelWire: "panel_wires",
             SignalDefinition: "signals",
             SignalCarrierBinding: "signal_bindings",
+            SignalEndpointBinding: "endpoint_bindings",
         }
         try:
             return collections[record_type]
@@ -183,7 +185,7 @@ class InstrumentationWiringService:
             return self._inventory
         if not isinstance(candidate, InstrumentationWiringInventory):
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
-        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings"):
+        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "endpoint_bindings"):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
         return candidate
