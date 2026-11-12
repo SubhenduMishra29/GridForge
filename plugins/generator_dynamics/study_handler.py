@@ -137,11 +137,23 @@ class GeneratorAugmentedTransientStudyHandler:
             raise TypeError(
                 "augmented transient solver must return GeneratorAugmentedStudyEvidence"
             )
-        if evidence.provenance.get("execution_status") not in {
-            "completed", "cancelled", "failed"
-        }:
+        execution_status = evidence.provenance.get("execution_status")
+        if execution_status not in {"completed", "cancelled", "failed"}:
             raise ValueError("augmented study evidence has invalid execution status")
-        if cancellation.cancelled and evidence.provenance.get("execution_status") != "cancelled":
+        if execution_status == "failed":
+            failure = RuntimeError("augmented generator transient execution failed")
+            failure.partial_result = evidence
+            termination = evidence.provenance.get("termination", {})
+            if isinstance(termination, Mapping):
+                failure.diagnostic_message = str(
+                    termination.get("diagnostic_message", str(failure))
+                )
+                failure.failing_time = termination.get("failing_time")
+                failure.termination_reason = str(
+                    termination.get("reason", "augmented_solver_failure")
+                )
+            raise failure
+        if cancellation.cancelled and execution_status != "cancelled":
             raise RuntimeError(
                 "augmented solver returned without recording the requested cancellation"
             )
