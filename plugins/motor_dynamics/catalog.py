@@ -37,6 +37,7 @@ class MotorFamily(str, Enum):
     DC_SERVO = "dc_servo"
     LINEAR_INDUCTION = "linear_induction"
     LINEAR_SYNCHRONOUS = "linear_synchronous"
+    VOICE_COIL = "voice_coil"
     TRACTION_INDUCTION = "traction_induction"
     TRACTION_PERMANENT_MAGNET = "traction_permanent_magnet"
     HYSTERESIS = "hysteresis"
@@ -71,7 +72,7 @@ class MotorFamilyProfile:
 def _profile(family: MotorFamily, supply: str, phases: int, principle: str,
              drive: str, *, dynamic_model: str | None = None,
              regenerative: bool = False, notes: str = "") -> MotorFamilyProfile:
-    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal", "synrm_dq": "experimental_synrm_dq", "srm_phase_inductance": "experimental_srm_phase_inductance", "dc_excitation": "experimental_dc_excitation", "single_phase_rms_envelope": "experimental_single_phase_rms_envelope", "pmsm_servo_cascade": "experimental_pmsm_servo_cascade", "induction_servo_foc": "experimental_induction_servo_foc", "dc_servo_cascade": "experimental_dc_servo_cascade", "stepper_two_phase_current_control": "experimental_stepper_two_phase_current_control", "linear_induction_dq": "experimental_linear_induction_dq", "linear_synchronous_dq": "experimental_linear_synchronous_dq"}.get(dynamic_model, "catalogued_model_required")
+    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal", "synrm_dq": "experimental_synrm_dq", "srm_phase_inductance": "experimental_srm_phase_inductance", "dc_excitation": "experimental_dc_excitation", "single_phase_rms_envelope": "experimental_single_phase_rms_envelope", "pmsm_servo_cascade": "experimental_pmsm_servo_cascade", "induction_servo_foc": "experimental_induction_servo_foc", "dc_servo_cascade": "experimental_dc_servo_cascade", "stepper_two_phase_current_control": "experimental_stepper_two_phase_current_control", "linear_induction_dq": "experimental_linear_induction_dq", "linear_synchronous_dq": "experimental_linear_synchronous_dq", "voice_coil_actuator": "experimental_voice_coil_actuator"}.get(dynamic_model, "catalogued_model_required")
     return MotorFamilyProfile(family, supply, phases, principle, drive, dynamic_model, status, regenerative, notes)
 
 
@@ -101,6 +102,7 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.DC_SERVO: _profile(MotorFamily.DC_SERVO, "DC", 2, "brushed DC servo", "four-quadrant servo drive", dynamic_model="dc_servo_cascade", regenerative=True, notes="Experimental CPU position/speed/current cascade for explicitly configured brushed-DC excitation machines; averaged drive and commutation approximation."),
     MotorFamily.LINEAR_INDUCTION: _profile(MotorFamily.LINEAR_INDUCTION, "AC", 3, "linear induction travelling field", "linear VFD", dynamic_model="linear_induction_dq", regenerative=True, notes="Experimental travelling-field dq model; end effects and nonlinear secondary flux are not resolved."),
     MotorFamily.LINEAR_SYNCHRONOUS: _profile(MotorFamily.LINEAR_SYNCHRONOUS, "AC / DC link", 3, "linear permanent-magnet synchronous", "linear servo inverter", dynamic_model="linear_synchronous_dq", regenerative=True, notes="Experimental PM d/q thrust model; segmented magnet and end-effect fields are not resolved."),
+    MotorFamily.VOICE_COIL: _profile(MotorFamily.VOICE_COIL, "DC / current drive", 1, "moving-coil Lorentz-force linear actuator", "current-regulated linear amplifier", dynamic_model="voice_coil_actuator", regenerative=True, notes="Experimental lumped R-L/back-EMF actuator model with suspension, stroke and thermal dynamics."),
     MotorFamily.TRACTION_INDUCTION: _profile(MotorFamily.TRACTION_INDUCTION, "AC / DC link", 3, "traction induction", "traction inverter / FOC", regenerative=True),
     MotorFamily.TRACTION_PERMANENT_MAGNET: _profile(MotorFamily.TRACTION_PERMANENT_MAGNET, "AC / DC link", 3, "traction PMSM / IPM", "traction inverter / FOC", dynamic_model="pmsm_dq", regenerative=True, notes="Uses the experimental sinusoidal PMSM dq model; traction thermal, field-weakening and inverter limits remain unmodeled."),
     MotorFamily.HYSTERESIS: _profile(MotorFamily.HYSTERESIS, "AC", 1, "hysteresis synchronous", "AC supply / inverter", dynamic_model="hysteresis_torque_angle", regenerative=True, notes="Experimental CPU averaged torque-angle model; not a material hysteresis, asynchronous pull-in or validated synchronisation model."),
