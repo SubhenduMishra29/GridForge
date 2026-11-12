@@ -244,13 +244,13 @@ def test_receiver_input_capability_is_explicit_and_round_trips():
         supported_sensor_configurations=("Pt100 2-wire",),
         input_terminals=(tx_in_a, tx_in_b), output_terminals=tx_out,
         output_signal_kind="4-20mA", output_unit="degC",
-        output_range_min=4.0, output_range_max=20.0,
+        output_range_min=4.0, output_range_max=20.0, output_range_unit="mA",
     )
     receiver = TemperatureReceiverInput(
         id="plc-ai-1-ch1", module_equipment_id="plc-ai-1", channel_designation="AI-01",
         input_kind=TemperatureReceiverInputKind.ANALOG_CURRENT,
         terminals=receiver_terminals, engineering_unit="degC",
-        range_min=4.0, range_max=20.0,
+        range_min=4.0, range_max=20.0, range_unit="mA",
     )
     instrument = TemperatureInstrument(
         id="temp-receiver-1", tag="OTD-RECV-1", service=TemperatureService.OTD,
@@ -278,7 +278,7 @@ def test_receiver_input_rejects_interface_signal_kind_mismatch():
         id="plc-ai-2-ch1", module_equipment_id="plc-ai-2", channel_designation="AI-01",
         input_kind=TemperatureReceiverInputKind.ANALOG_VOLTAGE,
         terminals=(terminal("plc-ai-2", "CH1+"), terminal("plc-ai-2", "CH1-")),
-        engineering_unit="degC", range_min=4.0, range_max=20.0,
+        engineering_unit="degC", range_min=4.0, range_max=20.0, range_unit="mA",
     )
     instrument = TemperatureInstrument(
         id="temp-receiver-2", tag="OTD-RECV-2", service=TemperatureService.OTD,
@@ -305,3 +305,13 @@ def test_receiver_input_requires_declared_physical_terminals_and_range_pair():
             terminals=(terminal("plc-ai-range", "CH1+"),), engineering_unit="degC",
             range_min=4.0,
         )
+
+def test_receiver_terminal_declaration_without_capability_record_fails_closed():
+    with pytest.raises(ValueError, match="without a receiver input capability"):
+        TemperatureInstrumentInventory(instruments=(TemperatureInstrument(
+            id="temp-unbound-receiver", tag="BTD-UNBOUND", service=TemperatureService.BTD,
+            asset_id="motor-1", location="DE bearing", sensor_equipment_id="rtd-unbound",
+            sensor_technology=TemperatureSensorTechnology.RTD,
+            input_mode=TemperatureInputMode.DIRECT_SENSOR,
+            receiver_terminals=(terminal("plc-unconfigured", "AI1"),),
+        ),))
