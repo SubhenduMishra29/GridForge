@@ -51,7 +51,7 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
             "sensor_technology": x.sensor_technology.value, "input_mode": x.input_mode.value,
             "sensor_configuration": x.sensor_configuration, "interface_equipment_id": x.interface_equipment_id,
             "measurement_channel_id": x.measurement_channel_id, "unit": x.unit,
-            "range_min": x.range_min, "range_max": x.range_max,
+            "range_min": x.range_min, "range_max": x.range_max, "range_unit": x.range_unit,
             "sensor_terminals": [_terminal_to_dict(t) for t in x.sensor_terminals],
             "receiver_terminals": [_terminal_to_dict(t) for t in x.receiver_terminals],
             "sensor_input_mappings": [{
@@ -69,7 +69,7 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
             "output_terminals": [_terminal_to_dict(t) for t in x.output_terminals],
             "output_signal_kind": x.output_signal_kind, "output_unit": x.output_unit,
             "output_range_min": x.output_range_min, "output_range_max": x.output_range_max,
-            "measurement_channel_id": x.measurement_channel_id,
+            "output_range_unit": x.output_range_unit, "measurement_channel_id": x.measurement_channel_id,
         } for x in inventory.interfaces],
         "receiver_inputs": [{
             "id": x.id, "module_equipment_id": x.module_equipment_id,
@@ -126,7 +126,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
         interfaces = []
         for x in data["interfaces"]:
             x = _record(x, {"id", "tag", "equipment_kind", "supported_sensor_technologies", "supported_sensor_configurations", "input_terminals", "output_terminals", "output_signal_kind", "output_unit"},
-                        {"output_range_min", "output_range_max", "measurement_channel_id"}, "TemperatureInterfaceDevice")
+                        {"output_range_min", "output_range_max", "output_range_unit", "measurement_channel_id"}, "TemperatureInterfaceDevice")
             interfaces.append(TemperatureInterfaceDevice(
                 id=x["id"], tag=x["tag"], equipment_kind=TemperatureInputMode(x["equipment_kind"]),
                 supported_sensor_technologies=tuple(TemperatureSensorTechnology(v) for v in x["supported_sensor_technologies"]),
@@ -135,19 +135,19 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 output_terminals=tuple(_terminal_from_dict(t) for t in x["output_terminals"]),
                 output_signal_kind=x["output_signal_kind"], output_unit=x["output_unit"],
                 output_range_min=x.get("output_range_min"), output_range_max=x.get("output_range_max"),
-                measurement_channel_id=x.get("measurement_channel_id"),
+                output_range_unit=x.get("output_range_unit"), measurement_channel_id=x.get("measurement_channel_id"),
             ))
         receiver_inputs = []
         for x in data.get("receiver_inputs", []):
             x = _record(x, {"id", "module_equipment_id", "channel_designation", "input_kind", "terminals", "engineering_unit"},
-                        {"supported_sensor_technologies", "supported_sensor_configurations", "range_min", "range_max"}, "TemperatureReceiverInput")
+                        {"supported_sensor_technologies", "supported_sensor_configurations", "range_min", "range_max", "range_unit"}, "TemperatureReceiverInput")
             receiver_inputs.append(TemperatureReceiverInput(
                 id=x["id"], module_equipment_id=x["module_equipment_id"],
                 channel_designation=x["channel_designation"], input_kind=TemperatureReceiverInputKind(x["input_kind"]),
                 terminals=tuple(_terminal_from_dict(t) for t in x["terminals"]), engineering_unit=x["engineering_unit"],
                 supported_sensor_technologies=tuple(TemperatureSensorTechnology(v) for v in x.get("supported_sensor_technologies", [])),
                 supported_sensor_configurations=tuple(x.get("supported_sensor_configurations", [])),
-                range_min=x.get("range_min"), range_max=x.get("range_max"),
+                range_min=x.get("range_min"), range_max=x.get("range_max"), range_unit=x.get("range_unit"),
             ))
         bindings = []
         for x in data["alarm_trip_bindings"]:
