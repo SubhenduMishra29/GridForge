@@ -727,6 +727,8 @@ class InstrumentationWiringInventory:
                 ("S2", circuit.s2_carrier_ids, circuit.s2_terminal),
             ):
                 route = [carrier_by_id[item] for item in carrier_ids]
+                if any(len(carrier.terminal_path) < 2 for carrier in route):
+                    raise ValueError(f"CT secondary {route_name} route '{circuit.id}' contains a carrier without a complete terminal path.")
                 first_path = route[0].terminal_path
                 if not first_path or source_terminal.identity not in {
                     first_path[0].identity, first_path[-1].identity
