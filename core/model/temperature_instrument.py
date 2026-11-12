@@ -155,7 +155,7 @@ class TemperatureInstrument:
         if self.input_mode is TemperatureInputMode.THERMAL_IMAGE and self.service is not TemperatureService.WTD:
             raise ValueError("THERMAL_IMAGE input mode is reserved for an explicitly declared WTD.")
         if self.sensor_technology is TemperatureSensorTechnology.RTD and self.sensor_configuration:
-            match = re.search(r"\\b([234])\\s*[- ]?wire\\b", self.sensor_configuration, re.IGNORECASE)
+            match = re.search(r"\b([234])\s*[- ]?wire\b", self.sensor_configuration, re.IGNORECASE)
             if match and sensor_terms and len(sensor_terms) != int(match.group(1)):
                 raise ValueError(
                     f"RTD {match.group(1)}-wire configuration requires exactly {match.group(1)} declared sensor terminals."
