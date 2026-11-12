@@ -345,3 +345,17 @@ def test_direct_rtd_receiver_requires_exact_technology_and_sensor_configuration(
     )
     with pytest.raises(ValueError, match="does not explicitly support"):
         TemperatureInstrumentInventory((invalid,), receiver_inputs=(receiver,))
+
+def test_receiver_module_channel_designation_must_be_unique():
+    first = TemperatureReceiverInput(
+        id="plc-duplicate-a", module_equipment_id="plc-duplicate", channel_designation="AI-01",
+        input_kind=TemperatureReceiverInputKind.ANALOG_CURRENT,
+        terminals=(terminal("plc-duplicate", "AI1+"),), engineering_unit="degC",
+    )
+    second = TemperatureReceiverInput(
+        id="plc-duplicate-b", module_equipment_id="plc-duplicate", channel_designation="AI-01",
+        input_kind=TemperatureReceiverInputKind.ANALOG_CURRENT,
+        terminals=(terminal("plc-duplicate", "AI1-"),), engineering_unit="degC",
+    )
+    with pytest.raises(ValueError, match="must be unique within each module"):
+        TemperatureInstrumentInventory(receiver_inputs=(first, second))
