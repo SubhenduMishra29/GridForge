@@ -386,6 +386,8 @@ def test_dc_instrumentation_exposes_field_and_thermal_points():
 
 
 def test_wound_rotor_family_uses_induction_dq_with_external_resistance():
+    import numpy as np
+    from plugins.motor_dynamics.transient_solver import MotorParameters, solve_transient_cpu
     p = MotorParameters(stator_resistance_ohm=.45, rotor_resistance_ohm=.3,
         external_rotor_resistance_ohm=.8, stator_leakage_inductance_h=.012,
         rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18,
