@@ -114,7 +114,7 @@ class SLDInstrumentationWiringAdapter:
                 terminal_path=core["terminal_path"],
                 nodes_by_equipment=nodes_by_equipment,
                 signal_tags=tuple(sorted(signal_tags.get(("CABLE_CORE", str(core["id"])), ()))),
-                signal_ids=tuple(sorted(signal_ids.get(("CABLE_CORE", str(core["id"])), ()))) ,
+                signal_ids=tuple(sorted(signal_ids.get(("CABLE_CORE", str(core["id"])), ()))),
                 cable_id=str(cable["id"]),
                 cable_tag=str(cable["tag"]),
                 core_id=str(core["id"]),
@@ -131,7 +131,7 @@ class SLDInstrumentationWiringAdapter:
                 terminal_path=wire["terminal_path"],
                 nodes_by_equipment=nodes_by_equipment,
                 signal_tags=tuple(sorted(signal_tags.get(("PANEL_WIRE", str(wire["id"])), ()))),
-                signal_ids=tuple(sorted(signal_ids.get(("PANEL_WIRE", str(wire["id"])), ()))) ,
+                signal_ids=tuple(sorted(signal_ids.get(("PANEL_WIRE", str(wire["id"])), ()))),
                 route_overrides=route_overrides,
             ))
 
