@@ -336,7 +336,23 @@ def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints
     for binding in payload["signal_bindings"]:
         binding.pop("source_channel_id")
     restored = deserialize_instrumentation_wiring(payload)
-    assert restored == sample_inventory()
+    inventory = sample_inventory()
+    expected = InstrumentationWiringInventory(
+        cables=inventory.cables,
+        cores=inventory.cores,
+        signals=inventory.signals,
+        signal_bindings=tuple(
+            SignalCarrierBinding(
+                id=item.id,
+                signal_id=item.signal_id,
+                carrier_kind=item.carrier_kind,
+                carrier_id=item.carrier_id,
+                direction=item.direction,
+            )
+            for item in inventory.signal_bindings
+        ),
+    )
+    assert restored == expected
     assert restored.endpoint_bindings == ()
 
 
