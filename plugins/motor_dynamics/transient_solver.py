@@ -2298,3 +2298,6 @@ def solve_pmsm_servo_transient_cpu(motor_id: str, parameters: PMSMServoParameter
     r=solve_numerical_problem(problem)
     if r.sample_count!=count: raise RuntimeError("shared ODE engine returned unexpected servo sample count")
     return PMSMServoSimulationResult(motor_id.strip(),r.time_s,r.state_data,posref,load,r.sample_period_s,"cpu-rk4",{"integrator":r.integrator,"precision":"float64","workload":"pmsm_servo_cascade_single","model":"pmsm_position_speed_current_cascade_with_encoder_quantisation","model_fidelity":"averaged dq PI loops; no PWM or safety-rated drive model","control_loops":["position P","speed PI","d/q current PI"],"encoder_counts_per_revolution":p.encoder_counts_per_revolution,"voltage_limit_v":p.maximum_voltage_v,"current_limit_a":p.maximum_current_a,"integration_engine":"core.numerics.ode.solve_rk4"})
+
+
+__all__ += ["PMSMServoParameters", "PMSMServoSimulationResult", "solve_pmsm_servo_transient_cpu"]
