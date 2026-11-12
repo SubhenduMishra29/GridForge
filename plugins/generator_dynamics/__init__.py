@@ -31,6 +31,9 @@ from .ggov1_execution import (
     GGOV1SampleEvaluation, GGOV1SampledExecutionAdapter,
 )
 from .ggov1_state_layout import GGOV1StateSlice, GGOV1DynamicStateLayout
+from .ggov1_component_contract import (
+    GGOV1BindingError, GGOV1GeneratorBinding, GGOV1MechanicalPowerHandoff,
+)
 from .ggov1_step_transaction import (
     GGOV1AcceptedStepCheckpoint, GGOV1StepAttempt, begin_ggov1_step_attempt,
 )
@@ -56,4 +59,5 @@ __all__ = [
     "GeneratorTransientStudyHandler", "GENERATOR_TRANSIENT_STUDY_TYPE",
     "GGOV1AcceptedStepCheckpoint", "GGOV1StepAttempt", "begin_ggov1_step_attempt",
     "GGOV1StateSlice", "GGOV1DynamicStateLayout",
+    "GGOV1BindingError", "GGOV1GeneratorBinding", "GGOV1MechanicalPowerHandoff",
 ]
