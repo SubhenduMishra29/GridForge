@@ -233,6 +233,46 @@ class SignalCarrierBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class PhysicalConnectionHop:
+    """Stable Core identity for one physical terminal-to-terminal connection.
+
+    Hop IDs survive schedule ordering and canvas layout changes. A changed
+    route retires/replaces affected hops; tuple indices are never identities.
+    """
+
+    id: str
+    from_terminal: WiringTerminalReference
+    to_terminal: WiringTerminalReference
+    carrier_kind: CarrierKind
+    carrier_id: str
+    revision: int = 1
+    lifecycle_status: str = "PLANNED"
+    supersedes_hop_id: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _required_text(self.id, "id"))
+        if not isinstance(self.from_terminal, WiringTerminalReference):
+            raise TypeError("from_terminal must be a WiringTerminalReference.")
+        if not isinstance(self.to_terminal, WiringTerminalReference):
+            raise TypeError("to_terminal must be a WiringTerminalReference.")
+        if self.from_terminal.identity == self.to_terminal.identity:
+            raise ValueError("A physical connection hop requires two distinct terminals.")
+        if not isinstance(self.carrier_kind, CarrierKind):
+            raise TypeError("carrier_kind must be a CarrierKind.")
+        if self.carrier_kind not in {CarrierKind.CABLE_CORE, CarrierKind.PANEL_WIRE}:
+            raise ValueError("Physical connection hops require a cable-core or panel-wire carrier.")
+        object.__setattr__(self, "carrier_id", _required_text(self.carrier_id, "carrier_id"))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
+        status = _required_text(self.lifecycle_status, "lifecycle_status").upper()
+        if status not in {"PLANNED", "INSTALLED", "RETIRED", "REPLACED"}:
+            raise ValueError("lifecycle_status must be PLANNED, INSTALLED, RETIRED or REPLACED.")
+        object.__setattr__(self, "lifecycle_status", status)
+        object.__setattr__(self, "supersedes_hop_id", _optional_text(self.supersedes_hop_id, "supersedes_hop_id"))
+        if self.supersedes_hop_id == self.id:
+            raise ValueError("A physical connection hop cannot supersede itself.")
+
+
+@dataclass(frozen=True, slots=True)
 class WiringTagSeries:
     """Explicit project-defined sequential tag series for one record category."""
 
@@ -316,6 +356,7 @@ class InstrumentationWiringInventory:
     panel_wires: tuple[PanelWire, ...] = ()
     signals: tuple[SignalDefinition, ...] = ()
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
+    connection_hops: tuple[PhysicalConnectionHop, ...] = ()
     tag_policy: WiringTagPolicy = WiringTagPolicy()
 
     def __post_init__(self) -> None:
@@ -327,6 +368,7 @@ class InstrumentationWiringInventory:
             ("panel_wires", self.panel_wires, PanelWire),
             ("signals", self.signals, SignalDefinition),
             ("signal_bindings", self.signal_bindings, SignalCarrierBinding),
+            ("connection_hops", self.connection_hops, PhysicalConnectionHop),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -379,6 +421,34 @@ class InstrumentationWiringInventory:
                 raise ValueError(f"Cable '{core.cable_id}' has duplicate core number {core.core_number}.")
             core_numbers.add(key)
 
+
+        core_by_id = {item.id: item for item in self.cores}
+        wire_by_id = {item.id: item for item in self.panel_wires}
+        hop_by_id = {item.id: item for item in self.connection_hops}
+        for hop in self.connection_hops:
+            carrier = core_by_id.get(hop.carrier_id) if hop.carrier_kind is CarrierKind.CABLE_CORE else wire_by_id.get(hop.carrier_id)
+            if carrier is None:
+                raise ValueError(
+                    f"Physical connection hop '{hop.id}' references missing "
+                    f"{hop.carrier_kind.value.lower()} '{hop.carrier_id}'."
+                )
+            path = carrier.terminal_path
+            pair = (hop.from_terminal.identity, hop.to_terminal.identity)
+            adjacent_pairs = {
+                (path[index].identity, path[index + 1].identity)
+                for index in range(len(path) - 1)
+            }
+            if pair not in adjacent_pairs and pair[::-1] not in adjacent_pairs:
+                raise ValueError(
+                    f"Physical connection hop '{hop.id}' endpoints are not an adjacent "
+                    "segment of its carrier terminal path."
+                )
+            if hop.supersedes_hop_id is not None and hop.supersedes_hop_id not in hop_by_id:
+                raise ValueError(
+                    f"Physical connection hop '{hop.id}' supersedes missing hop "
+                    f"'{hop.supersedes_hop_id}'."
+                )
+
         signal_ids = {item.id for item in self.signals}
         carrier_ids = (
             {item.id for item in self.cores}
@@ -414,6 +484,7 @@ __all__ = [
     "PanelWire",
     "SignalDefinition",
     "SignalCarrierBinding",
+    "PhysicalConnectionHop",
     "WiringTagSeries",
     "WiringTagPolicy",
     "InstrumentationWiringInventory",
