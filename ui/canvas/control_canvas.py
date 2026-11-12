@@ -227,28 +227,30 @@ class ControlCanvas(GridScene):
             peer_targets = {str(candidate.owner_id) for candidate in peers if candidate.owner_id}
             peer = peers[0] if len(peer_targets) == 1 else None
             detail = item.detail_text
+            sld_target = item.status == "RESOLVED"
             if peer is not None:
-                detail += "\nDouble-click to locate the matching Protection input."
+                detail += "\\nDouble-click to locate the matching Protection input; right-click for the SLD route."
+            elif sld_target:
+                detail += "\\nDouble-click to highlight the complete physical SLD route."
             label = SignalProvenanceItem(
                 item.short_label, detail,
-                target_editor="protection" if peer is not None else None,
-                target_object_id=str(peer.owner_id) if peer is not None else None,
+                target_editor=(
+                    "protection" if peer is not None
+                    else "sld" if sld_target else None
+                ),
+                target_object_id=(
+                    str(peer.owner_id) if peer is not None
+                    else item.signal_id if sld_target else None
+                ),
                 navigate=self._provenance_navigation_callback,
+                alternate_targets=(
+                    (("Open SLD physical route", "sld", item.signal_id),)
+                    if peer is not None and sld_target else ()
+                ),
             )
             label.setPos(float(position[0]) + 7.0, float(position[1]) - 13.0)
             label.setZValue(20.0)
             self.addItem(label)
-            if item.status == "RESOLVED":
-                sld_label = SignalProvenanceItem(
-                    f"{item.signal_tag} | SLD route",
-                    detail + "\\nDouble-click to highlight the complete physical SLD route.",
-                    target_editor="sld",
-                    target_object_id=item.signal_id,
-                    navigate=self._provenance_navigation_callback,
-                )
-                sld_label.setPos(float(position[0]) + 7.0, float(position[1]) + 2.0)
-                sld_label.setZValue(21.0)
-                self.addItem(sld_label)
 
     def component_at(self, x: float, y: float) -> ControlLogicItem | None:
         point = QPointF(float(x), float(y))
