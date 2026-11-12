@@ -45,6 +45,13 @@ from .excitation_handoff import (
     GeneratorExcitationSnapshot,
     build_generator_excitation_snapshot,
 )
+from .network_stage import (
+    GeneratorNetworkStageError,
+    GeneratorNetworkStageRequest,
+    GeneratorNetworkStageSolution,
+    GeneratorNetworkSolver,
+    solve_generator_network_stage,
+)
 
 __all__ = [
     "GeneratorFamily", "GeneratorNameplate", "GeneratorOperatingMode",
@@ -69,4 +76,7 @@ __all__ = [
     "GGOV1BindingError", "GGOV1GeneratorBinding", "GGOV1MechanicalPowerHandoff",
     "ExcitationHandoffError", "AVRGeneratorBinding",
     "GeneratorExcitationSnapshot", "build_generator_excitation_snapshot",
+    "GeneratorNetworkStageError", "GeneratorNetworkStageRequest",
+    "GeneratorNetworkStageSolution", "GeneratorNetworkSolver",
+    "solve_generator_network_stage",
 ]
