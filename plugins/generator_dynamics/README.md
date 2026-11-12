@@ -969,6 +969,26 @@ the host must persist and restore that solver-owned state separately or use a
 solver-supported restart mechanism. Fixed-step continuation from the accepted
 augmented state is the only behavior this adapter itself establishes.
 
+## Restoring full archived evidence for continuation
+
+After the Application archive has decoded a persisted StudyResult value into
+ordinary mappings and tuples, call
+`GeneratorAugmentedStudyEvidence.from_archive_payload(payload,
+expected_identity=...)`. This validates the resumable envelope through the
+same strict checkpoint boundary, then rehydrates an immutable evidence
+Mapping with its full accepted-step payload, time sequence, checkpoint
+identity and provenance. The restored evidence can be passed directly to
+`resume_from_checkpoint(...)`; the previous accepted-step payload is retained
+without pretending that plugin-specific stage dataclasses were reconstructed.
+Newly accepted typed steps are appended to the archived primitive records.
+
+When no replacement solver restart metadata is supplied, continuation carries
+forward the previous metadata. When updated metadata is supplied, the new
+metadata becomes current and the previous metadata is retained in nested resume
+provenance. Event schedules and termination history continue to be preserved.
+The archive remains Application-owned; this method only validates and wraps
+the already-decoded value.
+
 ## Archive checkpoint reconstruction
 
 `GeneratorAugmentedArchivedCheckpoint.from_archive_payload(...)` is the
