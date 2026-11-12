@@ -547,8 +547,12 @@ class PTSecondaryCircuit:
     secondary_state: PTSecondaryCircuitState = PTSecondaryCircuitState.UNKNOWN
 
     def __post_init__(self) -> None:
-        for name in ("id", "instrument_id", "phase"):
+        for name in ("id", "instrument_id"):
             object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        phase = _required_text(self.phase, "phase").upper()
+        if phase not in {"A", "B", "C", "N"}:
+            raise ValueError("PT/CVT secondary circuit phase must be A, B, C or N.")
+        object.__setattr__(self, "phase", phase)
         kind = _required_text(self.instrument_kind, "instrument_kind").upper()
         if kind not in {"PT", "CVT"}:
             raise ValueError("instrument_kind must be PT or CVT.")
@@ -611,9 +615,13 @@ class CTSecondaryCircuit:
     test_disconnect_accessory_id: Optional[str] = None
 
     def __post_init__(self) -> None:
-        for name in ("id", "ct_id", "phase", "shorting_accessory_id",
+        for name in ("id", "ct_id", "shorting_accessory_id",
                      "shorting_s1_terminal_point_id", "shorting_s2_terminal_point_id"):
             object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        phase = _required_text(self.phase, "phase").upper()
+        if phase not in {"A", "B", "C", "N"}:
+            raise ValueError("CT secondary circuit phase must be A, B, C or N.")
+        object.__setattr__(self, "phase", phase)
         if not isinstance(self.s1_terminal, WiringTerminalReference) or not isinstance(self.s2_terminal, WiringTerminalReference):
             raise TypeError("CT S1/S2 terminals must be WiringTerminalReference values.")
         if (self.s1_terminal.equipment_id, self.s1_terminal.terminal_role) != (self.ct_id, "S1"):
