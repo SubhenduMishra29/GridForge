@@ -1,8 +1,8 @@
-"""GGOV1 acceleration-control fuel-stroke sub-block.
+"""GGOV1 acceleration-control request sub-block.
 
-Implements the NERC/PSS/E block-diagram topology: a first-order filtered
-shaft-acceleration signal and an integral fuel-stroke request FSRA. The host
-owns the machine acceleration signal, integration time and state vector.
+The PSS/E/OpenIPSL topology differentiates SPEED through the Ta filter and
+adds Ka*DELT*(ASET - d(SPEED)/dt) to the already selected FSR command. The
+host owns the state and supplies the model's discrete sample interval.
 """
 from __future__ import annotations
 
@@ -14,78 +14,71 @@ from .controllers import GGOV1Parameters, _number
 
 
 class GGOV1AccelerationLimiter(DynamicPlugin):
-    """Two-state acceleration controller: filtered acceleration and FSRA.
+    """One-state filtered speed derivative and algebraic FSRA request.
 
-    The reference form is d(FSRA)/dt = Ka * (Aset - filtered_acceleration).
-    The selected-command tracking input is optional and explicit so the
-    composition root can track the integrator while another limiter wins.
+    The FSR input is the currently selected/limited fuel-stroke command. This
+    feedback is the reference model's tracking path; no second FSRA integrator
+    or private sample clock is introduced.
     """
 
     model_type = "PSS_E_GGOV1_ACCELERATION_LIMITER"
-    state_names: ClassVar[tuple[str, ...]] = (
-        "filtered_acceleration_pu_per_s",
-        "acceleration_fuel_request_pu",
-    )
+    state_names: ClassVar[tuple[str, ...]] = ("filtered_speed_deviation_pu",)
 
     def __init__(self, parameters: GGOV1Parameters) -> None:
         if not isinstance(parameters, GGOV1Parameters):
             raise TypeError("parameters must be GGOV1Parameters")
+        if parameters.acceleration_filter_time_constant_s <= 0.0:
+            raise ValueError("GGOV1 Ta must be greater than zero")
         self.parameters = parameters
 
     def initial_state(
         self,
         *,
-        initial_acceleration_pu_per_s: float = 0.0,
-        initial_fuel_request_pu: float = 0.0,
+        initial_speed_deviation_pu: float = 0.0,
         **_: Any,
     ) -> tuple[float, ...]:
-        return (
-            _number(initial_acceleration_pu_per_s, "initial_acceleration_pu_per_s"),
-            _number(initial_fuel_request_pu, "initial_fuel_request_pu"),
-        )
+        speed = _number(initial_speed_deviation_pu, "initial_speed_deviation_pu")
+        return (speed,)
 
     def derivatives(
         self,
         state: tuple[float, ...] | list[float],
         *,
-        shaft_acceleration_pu_per_s: float,
-        selected_fuel_command_pu: float | None = None,
-        tracking_time_constant_s: float | None = None,
+        speed_deviation_pu: float,
         **_: Any,
     ) -> tuple[float, ...]:
         self.validate_state(state)
-        p = self.parameters
-        measured = _number(shaft_acceleration_pu_per_s, "shaft_acceleration_pu_per_s")
-        filtered = _number(state[0], "filtered_acceleration_pu_per_s")
-        fsra = _number(state[1], "acceleration_fuel_request_pu")
-        d_filtered = (
-            0.0 if p.acceleration_filter_time_constant_s == 0.0
-            else (measured - filtered) / p.acceleration_filter_time_constant_s
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        filtered = _number(state[0], "filtered_speed_deviation_pu")
+        return (
+            (speed - filtered) / self.parameters.acceleration_filter_time_constant_s,
         )
-        d_fsra = p.acceleration_limiter_gain * (
-            p.acceleration_limit_pu_per_s - (
-                measured if p.acceleration_filter_time_constant_s == 0.0 else filtered
-            )
-        )
-        if (selected_fuel_command_pu is None) != (tracking_time_constant_s is None):
-            raise ValueError(
-                "selected_fuel_command_pu and tracking_time_constant_s must be supplied together"
-            )
-        if selected_fuel_command_pu is not None:
-            tracking_time = _number(tracking_time_constant_s, "tracking_time_constant_s")
-            if tracking_time <= 0.0:
-                raise ValueError("tracking_time_constant_s must be greater than zero")
-            selected = _number(selected_fuel_command_pu, "selected_fuel_command_pu")
-            d_fsra += (selected - fsra) / tracking_time
-        return (d_filtered, d_fsra)
 
     def output(
         self,
         state: tuple[float, ...] | list[float],
+        *,
+        speed_deviation_pu: float,
+        selected_fuel_command_pu: float,
+        sample_interval_s: float,
         **_: Any,
     ) -> float:
         self.validate_state(state)
-        return _number(state[1], "acceleration_fuel_request_pu")
+        p = self.parameters
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        filtered = _number(state[0], "filtered_speed_deviation_pu")
+        selected = _number(selected_fuel_command_pu, "selected_fuel_command_pu")
+        sample_interval = _number(sample_interval_s, "sample_interval_s")
+        if sample_interval <= 0.0:
+            raise ValueError("sample_interval_s must be greater than zero")
+        speed_derivative = (
+            speed - filtered
+        ) / p.acceleration_filter_time_constant_s
+        return selected + (
+            p.acceleration_limiter_gain
+            * sample_interval
+            * (p.acceleration_limit_pu_per_s - speed_derivative)
+        )
 
     def summary(self) -> dict[str, Any]:
         p = self.parameters
@@ -93,8 +86,17 @@ class GGOV1AccelerationLimiter(DynamicPlugin):
             "model_type": self.model_type,
             "state_names": self.state_names,
             "parameters": p,
-            "equation": "d(FSRA)/dt = Ka * (Aset - filtered_shaft_acceleration)",
-            "scope": "PSS/E-derived acceleration-control sub-block; plant validation required",
+            "equations": {
+                "filtered_speed_derivative": (
+                    "d(x_speed)/dt = (SPEED - x_speed) / Ta"
+                ),
+                "speed_acceleration": "(SPEED - x_speed) / Ta",
+                "FSRA": "FSR + Ka * DELT * (ASET - speed_acceleration)",
+            },
+            "scope": (
+                "PSS/E/OpenIPSL acceleration limiter sub-block; caller supplies "
+                "the selected FSR command and discrete sample interval"
+            ),
         }
 
 
