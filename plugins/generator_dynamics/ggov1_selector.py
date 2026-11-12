@@ -141,6 +141,7 @@ class GGOV1OperatingPoint:
     initial_power_reference_pu: float
     initial_governor_output_pu: float
     load_integral_target_pu: float
+    load_limiter_enabled: bool
     load_limiter_request_pu: float
     integral_alignment_error_pu: float
     load_limiter_balance_error_pu: float
@@ -150,12 +151,12 @@ class GGOV1OperatingPoint:
         tolerance = _number(tolerance_pu, "tolerance_pu")
         if tolerance <= 0.0:
             raise ValueError("tolerance_pu must be greater than zero")
-        if abs(self.integral_alignment_error_pu) > tolerance:
+        if self.load_limiter_enabled and abs(self.integral_alignment_error_pu) > tolerance:
             raise ValueError(
                 "PID and load-limiter integral targets disagree: "
                 f"{self.integral_alignment_error_pu} pu"
             )
-        if abs(self.load_limiter_balance_error_pu) > tolerance:
+        if self.load_limiter_enabled and abs(self.load_limiter_balance_error_pu) > tolerance:
             raise ValueError(
                 "temperature/load limiter is not balanced at the initial FSR: "
                 f"{self.load_limiter_balance_error_pu} pu"
@@ -169,11 +170,14 @@ def calculate_ggov1_operating_point(
     mechanical_power_pu: float | None = None,
     speed_deviation_pu: float = 0.0,
     initial_governor_output_pu: float = 0.0,
+    load_limiter_enabled: bool = True,
 ) -> GGOV1OperatingPoint:
     """Calculate common initial targets without owning or mutating block state."""
     if not isinstance(parameters, GGOV1Parameters):
         raise TypeError("parameters must be GGOV1Parameters")
     p = parameters
+    if not isinstance(load_limiter_enabled, bool):
+        raise TypeError("load_limiter_enabled must be bool")
     pelec = _number(electrical_power_pu, "electrical_power_pu")
     pm = pelec if mechanical_power_pu is None else _number(
         mechanical_power_pu, "mechanical_power_pu"
@@ -194,9 +198,9 @@ def calculate_ggov1_operating_point(
             "calculated initial FSR is outside common valve limits; "
             "reconcile the operating point before initializing"
         )
-    if fsr > 1.0:
+    if load_limiter_enabled and fsr > 1.0:
         raise ValueError(
-            "calculated initial FSR exceeds the load limiter's 1.0 pu upper bound"
+            "calculated initial FSR exceeds the active load limiter's 1.0 pu upper bound"
         )
 
     fuel_multiplier = shaft_speed if p.flag == 1 else 1.0
@@ -230,6 +234,7 @@ def calculate_ggov1_operating_point(
         initial_power_reference_pu=initial_power_reference,
         initial_governor_output_pu=governor_output,
         load_integral_target_pu=load_integral,
+        load_limiter_enabled=load_limiter_enabled,
         load_limiter_request_pu=load_request,
         integral_alignment_error_pu=load_integral - pid_integral,
         load_limiter_balance_error_pu=load_request - fsr,
