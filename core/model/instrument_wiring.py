@@ -504,6 +504,81 @@ class WiringTagPolicy:
         return tag, WiringTagPolicy(updated)
 
 
+class PTSecondaryCircuitState(str, Enum):
+    CLOSED = "CLOSED"
+    ISOLATED = "ISOLATED"
+    UNKNOWN = "UNKNOWN"
+
+
+class PTSecondaryPolarity(str, Enum):
+    NORMAL = "NORMAL"
+    REVERSED = "REVERSED"
+    UNKNOWN = "UNKNOWN"
+
+
+class PTSecondaryGrounding(str, Enum):
+    GROUNDED = "GROUNDED"
+    UNGROUNDED_BY_DESIGN = "UNGROUNDED_BY_DESIGN"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class PTSecondaryCircuit:
+    """Explicit PT/CVT secondary pair and protection/grounding arrangement.
+
+    Nameplate ratios and burden remain on the owning Core PT/CVT model.
+    Manufacturer terminal designations are retained verbatim.
+    """
+
+    id: str
+    instrument_id: str
+    instrument_kind: str
+    phase: str
+    output_terminal: WiringTerminalReference
+    return_terminal: WiringTerminalReference
+    output_carrier_ids: tuple[str, ...]
+    return_carrier_ids: tuple[str, ...]
+    fuse_accessory_ids: tuple[str, ...]
+    isolation_accessory_ids: tuple[str, ...] = ()
+    grounding: PTSecondaryGrounding = PTSecondaryGrounding.UNKNOWN
+    grounding_accessory_id: Optional[str] = None
+    grounding_terminal_point_id: Optional[str] = None
+    polarity: PTSecondaryPolarity = PTSecondaryPolarity.UNKNOWN
+    secondary_state: PTSecondaryCircuitState = PTSecondaryCircuitState.UNKNOWN
+
+    def __post_init__(self) -> None:
+        for name in ("id", "instrument_id", "phase"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        kind = _required_text(self.instrument_kind, "instrument_kind").upper()
+        if kind not in {"PT", "CVT"}:
+            raise ValueError("instrument_kind must be PT or CVT.")
+        object.__setattr__(self, "instrument_kind", kind)
+        if not isinstance(self.output_terminal, WiringTerminalReference) or not isinstance(self.return_terminal, WiringTerminalReference):
+            raise TypeError("PT/CVT secondary terminals must be WiringTerminalReference values.")
+        if self.output_terminal.equipment_id != self.instrument_id or self.return_terminal.equipment_id != self.instrument_id:
+            raise ValueError("PT/CVT secondary terminals must belong to the declared instrument.")
+        if self.output_terminal.identity == self.return_terminal.identity:
+            raise ValueError("PT/CVT output and return terminals must be distinct.")
+        for name in ("output_carrier_ids", "return_carrier_ids", "fuse_accessory_ids", "isolation_accessory_ids"):
+            values = tuple(_required_text(value, name) for value in getattr(self, name))
+            if name in {"output_carrier_ids", "return_carrier_ids", "fuse_accessory_ids"} and not values:
+                raise ValueError(f"{name} must explicitly identify at least one physical record.")
+            if len(values) != len(set(values)):
+                raise ValueError(f"{name} must contain unique stable IDs.")
+            object.__setattr__(self, name, values)
+        if set(self.output_carrier_ids) & set(self.return_carrier_ids):
+            raise ValueError("PT/CVT output and return routes must not reuse a physical carrier.")
+        for name, enum_type in (("grounding", PTSecondaryGrounding), ("polarity", PTSecondaryPolarity), ("secondary_state", PTSecondaryCircuitState)):
+            if not isinstance(getattr(self, name), enum_type):
+                raise TypeError(f"{name} must be a {enum_type.__name__}.")
+        object.__setattr__(self, "grounding_accessory_id", _optional_text(self.grounding_accessory_id, "grounding_accessory_id"))
+        object.__setattr__(self, "grounding_terminal_point_id", _optional_text(self.grounding_terminal_point_id, "grounding_terminal_point_id"))
+        if self.grounding is PTSecondaryGrounding.GROUNDED and (self.grounding_accessory_id is None or self.grounding_terminal_point_id is None):
+            raise ValueError("GROUNDED PT/CVT secondary requires an explicit earth-link accessory and terminal point.")
+        if self.grounding is not PTSecondaryGrounding.GROUNDED and (self.grounding_accessory_id is not None or self.grounding_terminal_point_id is not None):
+            raise ValueError("PT/CVT grounding accessory references are only valid when grounding is GROUNDED.")
+
+
 class CTSecondaryCircuitState(str, Enum):
     """Declared physical state of an instrument CT secondary circuit."""
 
@@ -579,6 +654,7 @@ class InstrumentationWiringInventory:
     terminal_points: tuple[TerminalPoint, ...] = ()
     terminal_accessories: tuple[TerminalAccessory, ...] = ()
     ct_secondary_circuits: tuple[CTSecondaryCircuit, ...] = ()
+    pt_secondary_circuits: tuple[PTSecondaryCircuit, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
@@ -594,6 +670,7 @@ class InstrumentationWiringInventory:
             ("terminal_points", self.terminal_points, TerminalPoint),
             ("terminal_accessories", self.terminal_accessories, TerminalAccessory),
             ("ct_secondary_circuits", self.ct_secondary_circuits, CTSecondaryCircuit),
+            ("pt_secondary_circuits", self.pt_secondary_circuits, PTSecondaryCircuit),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -678,6 +755,7 @@ class InstrumentationWiringInventory:
             + [ref for wire in self.panel_wires for ref in wire.terminal_path]
             + [binding.endpoint.physical_terminal for binding in self.endpoint_bindings if binding.endpoint.physical_terminal is not None]
             + [terminal for circuit in self.ct_secondary_circuits for terminal in (circuit.s1_terminal, circuit.s2_terminal)]
+            + [terminal for circuit in self.pt_secondary_circuits for terminal in (circuit.output_terminal, circuit.return_terminal)]
         ):
             if reference.terminal_point_id is None:
                 if reference.equipment_id in terminal_blocks_by_id:
@@ -756,6 +834,39 @@ class InstrumentationWiringInventory:
                 if test_accessory is None or test_accessory.kind is not TerminalAccessoryKind.TEST_DISCONNECT:
                     raise ValueError(f"CT secondary circuit '{circuit.id}' references an invalid test-disconnect accessory.")
 
+        pt_phases: set[tuple[str, str, str]] = set()
+        for circuit in self.pt_secondary_circuits:
+            phase_key = (circuit.instrument_id, circuit.instrument_kind, circuit.phase)
+            if phase_key in pt_phases:
+                raise ValueError(f"{circuit.instrument_kind} '{circuit.instrument_id}' has duplicate secondary circuit phase '{circuit.phase}'.")
+            pt_phases.add(phase_key)
+            for carrier_id in circuit.output_carrier_ids + circuit.return_carrier_ids:
+                if carrier_id not in carrier_by_id:
+                    raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' references missing carrier '{carrier_id}'.")
+            for route_name, carrier_ids, source_terminal in (("output", circuit.output_carrier_ids, circuit.output_terminal), ("return", circuit.return_carrier_ids, circuit.return_terminal)):
+                route = [carrier_by_id[item] for item in carrier_ids]
+                if any(len(carrier.terminal_path) < 2 for carrier in route):
+                    raise ValueError(f"PT/CVT {route_name} route '{circuit.id}' contains a carrier without a complete terminal path.")
+                first = route[0].terminal_path
+                if source_terminal.identity not in {first[0].identity, first[-1].identity}:
+                    raise ValueError(f"PT/CVT {route_name} route '{circuit.id}' must start at an endpoint of its exact instrument terminal.")
+                for left, right in zip(route, route[1:]):
+                    if not {left.terminal_path[0].identity, left.terminal_path[-1].identity}.intersection({right.terminal_path[0].identity, right.terminal_path[-1].identity}):
+                        raise ValueError(f"PT/CVT {route_name} carrier chain '{circuit.id}' is discontinuous.")
+            for accessory_id in circuit.fuse_accessory_ids:
+                accessory = accessory_by_id.get(accessory_id)
+                if accessory is None or accessory.kind is not TerminalAccessoryKind.FUSE_LINK:
+                    raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' requires declared FUSE_LINK accessories.")
+            for accessory_id in circuit.isolation_accessory_ids:
+                accessory = accessory_by_id.get(accessory_id)
+                if accessory is None or accessory.kind is not TerminalAccessoryKind.ISOLATING_LINK:
+                    raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' references an invalid ISOLATING_LINK accessory.")
+            if circuit.grounding is PTSecondaryGrounding.GROUNDED:
+                earth = accessory_by_id.get(circuit.grounding_accessory_id)
+                if earth is None or earth.kind is not TerminalAccessoryKind.EARTH_LINK:
+                    raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' requires an explicit EARTH_LINK accessory.")
+                if circuit.grounding_terminal_point_id not in point_by_id or circuit.grounding_terminal_point_id not in earth.terminal_point_ids:
+                    raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' grounding terminal must be a point on its declared earth link.")
         endpoint_signals: dict[tuple[str, ...], str] = {}
         for binding in self.endpoint_bindings:
             if binding.signal_id not in signal_ids:
@@ -800,5 +911,6 @@ __all__ = [
     "WiringTagPolicy",
     "CTSecondaryCircuitState",
     "CTSecondaryCircuit",
+    "PTSecondaryCircuitState", "PTSecondaryPolarity", "PTSecondaryGrounding", "PTSecondaryCircuit",
     "InstrumentationWiringInventory",
 ]
