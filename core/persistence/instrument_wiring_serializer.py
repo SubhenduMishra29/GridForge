@@ -11,7 +11,7 @@ from core.model.instrument_wiring import (
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 2
+WIRING_SCHEMA_VERSION = 3
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -73,6 +73,9 @@ def serialize_instrumentation_wiring(
                 "core_number": item.core_number, "role": item.role.value,
                 "terminal_path": [_terminal_to_dict(ref) for ref in item.terminal_path],
                 "colour": item.colour, "pair_id": item.pair_id, "core_tag": item.core_tag,
+                "conductor_material": item.conductor_material,
+                "thermocouple_type": item.thermocouple_type,
+                "thermocouple_polarity": item.thermocouple_polarity,
             }
             for item in inventory.cores
         ],
@@ -81,6 +84,9 @@ def serialize_instrumentation_wiring(
                 "id": item.id, "tag": item.tag, "role": item.role.value,
                 "terminal_path": [_terminal_to_dict(ref) for ref in item.terminal_path],
                 "cross_section_mm2": item.cross_section_mm2, "colour": item.colour,
+                "conductor_material": item.conductor_material,
+                "thermocouple_type": item.thermocouple_type,
+                "thermocouple_polarity": item.thermocouple_polarity,
             }
             for item in inventory.panel_wires
         ],
@@ -122,7 +128,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             "Instrumentation wiring payload fields are not canonical: "
             + ", ".join(sorted(str(key) for key in set(data) ^ expected))
         )
-    if isinstance(data.get("schema"), bool) or data.get("schema") != WIRING_SCHEMA_VERSION:
+    if isinstance(data.get("schema"), bool) or data.get("schema") not in {2, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {data.get('schema')!r}."
         )
@@ -133,8 +139,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     try:
         _field_contracts = (
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
-            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag"}, "Cable core"),
-            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour"}, "Panel wire"),
+            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity"}, "Cable core"),
+            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "conductor_material", "thermocouple_type", "thermocouple_polarity"}, "Panel wire"),
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
@@ -149,6 +155,9 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 role=WiringConductorRole(item["role"]),
                 terminal_path=tuple(_terminal_from_dict(ref) for ref in item.get("terminal_path", ())),
                 colour=item.get("colour"), pair_id=item.get("pair_id"), core_tag=item.get("core_tag"),
+                conductor_material=item.get("conductor_material"),
+                thermocouple_type=item.get("thermocouple_type"),
+                thermocouple_polarity=item.get("thermocouple_polarity"),
             )
             for item in data["cores"]
         )
@@ -157,6 +166,9 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 id=item["id"], tag=item["tag"], role=WiringConductorRole(item["role"]),
                 terminal_path=tuple(_terminal_from_dict(ref) for ref in item["terminal_path"]),
                 cross_section_mm2=item.get("cross_section_mm2"), colour=item.get("colour"),
+                conductor_material=item.get("conductor_material"),
+                thermocouple_type=item.get("thermocouple_type"),
+                thermocouple_polarity=item.get("thermocouple_polarity"),
             )
             for item in data["panel_wires"]
         )
