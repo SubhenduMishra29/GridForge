@@ -97,7 +97,7 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.STEPPER_VARIABLE_RELUCTANCE: _profile(MotorFamily.STEPPER_VARIABLE_RELUCTANCE, "DC link", 2, "variable-reluctance stepper", "stepper current driver"),
     MotorFamily.STEPPER_PERMANENT_MAGNET: _profile(MotorFamily.STEPPER_PERMANENT_MAGNET, "DC link", 2, "permanent-magnet stepper", "stepper current driver"),
     MotorFamily.STEPPER_HYBRID: _profile(MotorFamily.STEPPER_HYBRID, "DC link", 2, "hybrid stepper", "microstepping current driver"),
-    MotorFamily.AC_SERVO: _profile(MotorFamily.AC_SERVO, "AC / DC link", 3, "synchronous or induction servo", "servo inverter / FOC", regenerative=True),
+    MotorFamily.AC_SERVO: _profile(MotorFamily.AC_SERVO, "AC / DC link", 3, "synchronous PM or induction servo", "servo inverter / FOC with encoder/resolver feedback", regenerative=True, notes="Family catalogue and feedback instrumentation are defined; synchronous-PM and induction servo transient models remain separate pending implementations and must not be inferred from the PMSM or induction general-purpose models."),
     MotorFamily.DC_SERVO: _profile(MotorFamily.DC_SERVO, "DC", 2, "brushed DC servo", "four-quadrant servo drive", regenerative=True),
     MotorFamily.LINEAR_INDUCTION: _profile(MotorFamily.LINEAR_INDUCTION, "AC", 3, "linear induction", "linear VFD", regenerative=True),
     MotorFamily.LINEAR_SYNCHRONOUS: _profile(MotorFamily.LINEAR_SYNCHRONOUS, "AC / DC link", 3, "linear synchronous / PM", "linear servo inverter", regenerative=True),

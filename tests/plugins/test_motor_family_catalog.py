@@ -518,3 +518,23 @@ def test_hysteresis_motor_rejects_invalid_pullout_torque():
     with pytest.raises(ValueError,match="pullout_torque_nm"):
         HysteresisMotorParameters(pole_pairs=2,rated_voltage_rms_v=400.,frequency_hz=50.,
             pullout_torque_nm=0.,inertia_kg_m2=.2)
+
+
+
+def test_ac_servo_catalogue_distinguishes_machine_technologies_and_drive_feedback():
+    profile = motor_family_profile(MotorFamily.AC_SERVO)
+    assert "synchronous PM or induction" in profile.principle
+    assert profile.dynamic_model is None
+    points = {p.point_id: p for p in motor_measurement_points(MotorFamily.AC_SERVO)}
+    assert {
+        "drive.dc_link_voltage", "drive.dc_link_current",
+        "drive.d_axis_current_reference", "drive.q_axis_current_reference",
+        "drive.d_axis_current_feedback", "drive.q_axis_current_feedback",
+        "feedback.encoder_position", "feedback.encoder_speed",
+        "feedback.position_command", "feedback.position_error",
+        "feedback.speed_command", "feedback.torque_command",
+        "drive.inverter_temperature", "drive.brake_state",
+        "drive.ready_state", "drive.fault_state",
+    }.issubset(points)
+    assert points["feedback.position_error"].unit == "rad"
+    assert points["drive.brake_state"].signal_type.value == "digital"

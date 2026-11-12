@@ -406,3 +406,10 @@ This is an experimental averaged model, not a validated pull-in, synchronising, 
 A dedicated CPU torque-angle envelope model is available for the hysteresis motor family. It exposes rated RMS voltage, frequency, pole pairs, pull-out torque, inertia, friction and a rotor-loss fraction; outputs include rotor speed/angle, load angle, torque, synchronous-speed error, pull-out torque margin and rotor thermal estimate.
 
 This is not a material hysteresis model: it does not resolve rotor ring magnetisation, hysteresis-loop energy, asynchronous starting/pull-in, detailed air-gap fields, voltage/frequency transients or validated synchronising dynamics. The pull-out margin is a static voltage-scaled torque-capacity estimate, not a dynamic stability certificate. CPU/RK4 only.
+
+
+## AC servo family: instrumentation and model boundary
+
+The AC-servo catalogue now distinguishes synchronous permanent-magnet and induction servo technology in its engineering description and defines drive-side feedback points separately from motor-terminal metering. Optional points cover DC-link measurements, d/q current references and feedback, encoder position/speed, position following error, speed/torque commands, inverter temperature, holding-brake state, drive-ready state, and drive-fault state. The host must bind each configured point to a real source and canonical Core terminal; no encoder, drive, brake, or instrument is fabricated by the plugin.
+
+**Dynamic model status:** this work does not claim an AC-servo transient solver. A synchronous PM servo requires a servo-specific control/feedback model around its machine equations; an induction servo requires its own rotor-flux and vector-control model. The existing general PMSM and induction solvers are not silently substituted. Resolver/encoder quantisation, current/speed/position loops, PWM/dead-time, brake sequencing, drive protection and validated servo tuning remain outside the implemented model.
