@@ -128,12 +128,36 @@ class GeneratorAugmentedTransientStudyHandler:
             raise TypeError(
                 "augmented adapter factory must return GeneratorAugmentedDAEAdapter"
             )
-        evidence = self._solver.solve_generator_augmented_transient(
-            request=request,
-            execution_context=execution_context,
-            cancellation=cancellation,
-            augmented_adapter=adapter,
-        )
+        try:
+            evidence = self._solver.solve_generator_augmented_transient(
+                request=request,
+                execution_context=execution_context,
+                cancellation=cancellation,
+                augmented_adapter=adapter,
+            )
+        except Exception as solver_error:
+            # A checkpoint observer can fail after the integrator has already
+            # accepted a step. Promote that attached accepted state into the
+            # canonical partial-result contract before StudyService handles
+            # the exception; never reinterpret an ordinary rejected step.
+            if getattr(solver_error, "partial_result", None) is None and getattr(
+                solver_error, "accepted_step_result", None
+            ) is not None:
+                prior_steps = getattr(solver_error, "accepted_steps", ())
+                termination = getattr(solver_error, "termination", None)
+                partial = GeneratorAugmentedStudyEvidence.from_checkpoint_publication_failure(
+                    prior_steps,
+                    solver_error,
+                    termination=termination if isinstance(termination, Mapping) else None,
+                )
+                solver_error.partial_result = partial
+                solver_error.failing_time = partial.time[-1]
+                solver_error.termination_reason = "checkpoint_publication_failed"
+                solver_error.cause_type = str(
+                    getattr(solver_error, "cause_type", type(solver_error).__name__)
+                )
+                solver_error.diagnostic_message = str(solver_error)
+            raise
         if not isinstance(evidence, GeneratorAugmentedStudyEvidence):
             raise TypeError(
                 "augmented transient solver must return GeneratorAugmentedStudyEvidence"
