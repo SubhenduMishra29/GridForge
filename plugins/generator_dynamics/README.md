@@ -265,25 +265,43 @@ acceleration, load, or exhaust-temperature controller dynamics, nor do they
 make the complete GGOV1 plant model executable.
 
 
-### GGOV1 reduced acceleration limiter
 
-`GGOV1AccelerationLimiter` contributes a one-state, filtered acceleration
-signal and a proportional reduction of the governor fuel request above
-`Aset`. It accepts shaft acceleration in pu/s from the host machine model,
-filters it with `Ta`, applies `Ka * max(0, acceleration - Aset)`, and returns
-a competing fuel-stroke candidate for `GGOV1LowValueSelector`. A zero `Ka`
-disables the reduction; a zero `Ta` bypasses the filter state. The output is
-bounded below by the configured valve minimum, while the canonical actuator
-continues to own actual valve-position/rate constraints.
 
-This is a deliberately reduced proportional realization, not a claim of
-bit-for-bit PSS/E or OEM GGOV1 acceleration-controller equivalence. OpenIPSL
-documents the block's `SPEED`, `ASET`, `FSRA`, `Ka` and `Ta` interface, but
-the public component description does not establish all internal realization
-details. The host must supply a physically consistent shaft-acceleration
-signal at each integration stage; this block does not finite-difference speed
-or own a simulation clock. It has no integral state, so it has no local
-integrator wind-up to track. The governor PID's selected-command tracking
-hook remains available for the active low-value selection. Full acceleration
-controller validation against the vendor/PSS/E implementation and plant data
-is still required.
+### GGOV1 acceleration, load and temperature paths
+
+The acceleration-control block is implemented with the PSS/E/NERC integral
+structure, not a static proportional clamp. Its two solver-owned states are
+filtered shaft acceleration and the fuel-stroke request FSRA:
+
+- `d(a_f)/dt = (shaft_acceleration - a_f) / Ta`
+- `d(FSRA)/dt = Ka * (Aset - a_f)`
+
+When `Ta=0`, the measured acceleration is used algebraically. An optional
+selected-command tracking correction is supplied with an explicit positive
+tracking time constant. The host supplies acceleration in pu/s and owns all
+integration history.
+
+`GGOV1LoadLimiter` implements the separately documented fuel-flow PI form:
+`error = Ldref - filtered_fuel_flow` and
+`FSRT = Kpload * error + integral`, with the integral driven by
+`Kiload * error`. It includes the `Tfload` measurement lag and an optional
+selected-command tracking input. This is an explicit fuel-flow PI sub-block;
+it is not by itself a claim of exact PSS/E OEM temperature-controller
+equivalence. The controller output is bounded by the configured FSR valve
+limits before it is offered to the low-value selector.
+
+`GGOV1TemperatureMeasurement` implements the proper first-order lead/lag
+measurement conditioner `(1+s*Tsa)/(1+s*Tsb)` for the exhaust-temperature
+signal. It deliberately does not invent an exhaust-temperature reference,
+ambient correction, OEM firing-temperature map or limiter threshold. Its
+conditioned measurement must be combined with plant-specific control logic
+before a final temperature-limiter fuel request can be advertised as the
+combined `load_temperature` selector candidate.
+
+The NERC GGOV1 block diagram identifies separate speed, acceleration, load
+and temperature control paths feeding a low-value selector. It also notes
+that the proportional/integral controllers include tracking for smooth
+transfer, and warns that software implementations may differ. Consequently,
+these blocks remain local sub-components, not a complete integrated GGOV1
+model. Plant/OEM parameter provenance and disturbance-based validation are
+required before engineering study use.
