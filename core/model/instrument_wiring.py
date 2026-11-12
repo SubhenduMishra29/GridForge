@@ -378,12 +378,25 @@ class InstrumentationWiringInventory:
         if len(all_ids) != len(set(all_ids)):
             raise ValueError("Instrumentation wiring records must have globally unique stable IDs.")
 
-        self._validate_unique_tags(self.cables, "cable")
-        self._validate_unique_tags(self.panel_wires, "panel wire")
-        self._validate_unique_tags(self.signals, "signal")
-        core_tags = [item.core_tag for item in self.cores if item.core_tag is not None]
-        if len(core_tags) != len(set(core_tags)):
-            raise ValueError("Cable cores contain duplicate core tags.")
+        # Visible engineering tags share one project-wide, case-insensitive
+        # namespace across SLD, Control, Protection and schedule projections.
+        # Stable record IDs remain the canonical foreign-key identity.
+        tagged_records = (
+            *((item.tag, "cable") for item in self.cables),
+            *((item.core_tag, "cable core") for item in self.cores if item.core_tag is not None),
+            *((item.tag, "panel wire") for item in self.panel_wires),
+            *((item.tag, "signal") for item in self.signals),
+        )
+        seen_tags: dict[str, tuple[str, str]] = {}
+        for tag, label in tagged_records:
+            normalized = tag.strip().casefold()
+            if normalized in seen_tags:
+                previous_tag, previous_label = seen_tags[normalized]
+                raise ValueError(
+                    f"Duplicate project wiring tag {tag!r} ({label}); "
+                    f"already assigned to {previous_tag!r} ({previous_label})."
+                )
+            seen_tags[normalized] = (tag, label)
 
         cable_by_id = {item.id: item for item in self.cables}
         core_numbers: set[tuple[str, int]] = set()
