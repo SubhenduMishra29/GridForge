@@ -4017,3 +4017,52 @@ Verification:
   were inspected. No pytest, import, application startup, save/reopen or
   GUI interaction was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Focus-scoped SLD keyboard shortcut dispatch
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: fix/sld-keyboard-shortcut-integration
+
+Finding:
+- SLD tool shortcuts were represented in canonical ToolDefinition/ActionDefinition
+  metadata, but the active GraphicsView did not install those definitions as
+  editor-owned QAction shortcuts. Menu actions alone did not provide a reliable
+  focused-canvas dispatch path.
+- SLD menu shortcuts could compete at the MainWindow scope with the active
+  editor's own keyboard handling.
+- Q/E rotation was dispatched both by GraphicsView QAction shortcuts and by
+  GraphicsView.keyPressEvent(), creating two competing implementations.
+
+Correction:
+- Added GraphicsView.bind_action_router(), which installs shortcut actions
+  only for SLD-scoped canonical tool definitions and routes each activation
+  through UIActionRouter.dispatch() after rechecking router.is_enabled().
+- Installed these actions with WidgetWithChildrenShortcut so they are active
+  only while the SLD canvas or one of its children owns keyboard focus.
+- Bound the action router after the complete canonical action catalogue and
+  enabled-state provider have been composed in main.py.
+- SLD menu actions retain their displayed shortcut metadata but use
+  WidgetShortcut context, preventing them from intercepting keystrokes while
+  another editor or property field owns focus.
+- Removed the duplicate Q/E keyPressEvent path; the existing canvas-owned
+  Q/E QAction route is now the sole single-symbol shortcut path.
+- Existing R/Shift+R handling remains owned by SelectTool through
+  ToolManager's keyboard event forwarding and continues to use the existing
+  group-transform command path.
+
+Scope and safeguards:
+- No Core, Application, electrical topology, equipment identity, terminal,
+  connection, or persistence behavior was changed.
+- No second action registry was introduced; UIActionRouter and the canonical
+  action definitions remain authoritative.
+- SLD tool availability continues to be checked by the existing enabled-state
+  provider, including project and discipline ownership.
+
+Verification:
+- Updated files were fetched back from the implementation branch.
+- Source-level checks of dispatch ownership, focus scope, and router guards
+  remain to be completed.
+- No Python syntax/import execution, Qt GUI interaction, runtime shortcut
+  acceptance, undo/redo runtime, or save/reopen acceptance was performed.
