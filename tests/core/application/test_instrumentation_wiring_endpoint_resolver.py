@@ -10,12 +10,18 @@ from core.application.instrumentation_wiring_endpoint_resolver import (
     resolve_signal_endpoint_bindings,
 )
 from core.model.instrument_wiring import (
+    CableAssembly,
+    CableCore,
+    CarrierKind,
     InstrumentationWiringInventory,
+    SignalCarrierBinding,
     SignalDefinition,
     SignalEndpointBinding,
     SignalEndpointKind,
     SignalEndpointReference,
     SignalKind,
+    WiringConductorRole,
+    WiringTerminalReference,
 )
 
 
@@ -24,8 +30,37 @@ def _signal_inventory(*bindings):
         id="signal-1", tag="SIG-1", description="Phase A current",
         kind=SignalKind.CURRENT, unit="A", phase="A",
     )
+    cable = CableAssembly(
+        id="cable-1", tag="C-1", service="instrument signal", core_count=1,
+    )
+    core = CableCore(
+        id="core-1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("CT-101", "S1", "S1"),
+            WiringTerminalReference("TB-101", "1", "1"),
+        ),
+    )
+    carrier = SignalCarrierBinding(
+        id="carrier-1", signal_id=signal.id,
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+    )
     return InstrumentationWiringInventory(
-        signals=(signal,), endpoint_bindings=tuple(bindings),
+        cables=(cable,), cores=(core,), signals=(signal,),
+        signal_bindings=(carrier,), endpoint_bindings=tuple(bindings),
+    )
+
+
+def _channel(channel_id="channel-1"):
+    return SimpleNamespace(
+        channel_id=channel_id,
+        signal_type="CURRENT",
+        source_id="CT-101",
+        source_terminal={
+            "kind": "TERMINAL",
+            "equipment_id": "CT-101",
+            "terminal_role": "S1",
+        },
     )
 
 
@@ -45,7 +80,7 @@ def test_measurement_channel_endpoint_resolves_only_by_stable_channel_id():
     )
     result = resolve_signal_endpoint_bindings(
         _signal_inventory(binding),
-        measurement_channels=(SimpleNamespace(channel_id="channel-1"),),
+        measurement_channels=(_channel(),),
         control_signal_mapping=None,
         protection_configuration=None,
     )
@@ -88,7 +123,7 @@ def test_control_input_requires_exact_active_control_mapping_and_channel_provena
     ))
     result = resolve_signal_endpoint_bindings(
         _signal_inventory(channel_ref, control_ref),
-        measurement_channels=(SimpleNamespace(channel_id="channel-1"),),
+        measurement_channels=(_channel(),),
         control_signal_mapping=mapping,
         protection_configuration=None,
     )
