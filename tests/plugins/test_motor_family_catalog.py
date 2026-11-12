@@ -432,3 +432,39 @@ def test_single_phase_capacitor_families_require_capacitance():
     with pytest.raises(ValueError,match="require auxiliary_capacitance_f"):
         SinglePhaseMotorParameters(family="capacitor_start",main_resistance_ohm=8.,main_inductance_h=.04,
             auxiliary_resistance_ohm=12.,auxiliary_inductance_h=.025,inertia_kg_m2=.02,torque_constant_nm_per_a2=.5)
+
+
+def test_universal_motor_ac_and_dc_series_field_response():
+    import numpy as np
+    from plugins.motor_dynamics.transient_solver import UniversalMotorParameters, solve_universal_motor_transient_cpu
+    for mode in ("ac", "dc"):
+        parameters = UniversalMotorParameters(
+            armature_resistance_ohm=1.2, field_resistance_ohm=0.8,
+            armature_inductance_h=0.015, field_inductance_h=0.025,
+            inertia_kg_m2=0.03, torque_constant_nm_per_a_wb=12.0,
+            back_emf_constant_v_s_per_rad_wb=12.0,
+            field_flux_per_ampere_wb_a=0.04, saturation_current_a=10.0,
+            supply_mode=mode,
+        )
+        result = solve_universal_motor_transient_cpu(
+            "universal", parameters, 0.02, 0.0001,
+            supply_voltage_v=120.0, load_torque_nm=0.1,
+        )
+        channels = result.channels(parameters)
+        assert result.backend == "cpu-rk4"
+        assert np.isfinite(result.state_data).all()
+        assert np.allclose(channels["armature_current_a"], channels["series_field_current_a"])
+        assert np.isfinite(channels["electromagnetic_torque_nm"]).all()
+
+
+def test_universal_motor_rejects_invalid_supply_mode():
+    import pytest
+    from plugins.motor_dynamics.transient_solver import UniversalMotorParameters
+    with pytest.raises(ValueError, match="supply_mode"):
+        UniversalMotorParameters(
+            armature_resistance_ohm=1.0, field_resistance_ohm=1.0,
+            armature_inductance_h=0.01, field_inductance_h=0.01,
+            inertia_kg_m2=0.02, torque_constant_nm_per_a_wb=1.0,
+            back_emf_constant_v_s_per_rad_wb=1.0,
+            field_flux_per_ampere_wb_a=0.1, supply_mode="three_phase",
+        )
