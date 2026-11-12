@@ -238,3 +238,28 @@ host solver. The block does not implement the outer low-value selector,
 limiter tracking, exhaust-temperature/acceleration/load limiting, or DAE
 coupling. It is a GGOV1 turbine/fuel response sub-block, not a complete
 GGOV1 model.
+
+
+### GGOV1 low-value selector and governor tracking
+
+`GGOV1LowValueSelector` selects the smallest active fuel request from the
+speed governor, acceleration limiter and combined load/temperature limiter.
+Disabled limiter inputs are omitted; the governor request is mandatory.
+Equal values use a stable source priority so the selected-source identity is
+repeatable. The immutable result includes each active controller's
+selected-minus-requested tracking error.
+
+The selector does not fabricate acceleration or load/temperature controller
+outputs. Those controllers must calculate their own requests on the same
+fuel-command base before selection. The combined load/temperature candidate
+must itself already reflect the applicable plant-specific limiter logic.
+
+`GGOV1PIDGovernor.derivatives()` accepts the selected fuel command and an
+explicit positive tracking time constant together. It adds
+(selected command - raw governor PID output) / tracking time to the governor
+integral derivative. If either input is omitted, the existing standalone PID
+integrator equation is retained. This makes limiter tracking an explicit
+solver/composition input rather than embedding an undocumented universal
+constant. The selector and tracking hook do not implement the missing
+acceleration, load, or exhaust-temperature controller dynamics, nor do they
+make the complete GGOV1 plant model executable.
