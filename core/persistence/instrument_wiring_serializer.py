@@ -89,6 +89,7 @@ def serialize_instrumentation_wiring(
                 "conductor_material": item.conductor_material,
                 "thermocouple_type": item.thermocouple_type,
                 "thermocouple_polarity": item.thermocouple_polarity,
+                "thermocouple_cable_designation": item.thermocouple_cable_designation,
             }
             for item in inventory.panel_wires
         ],
@@ -172,6 +173,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 conductor_material=item.get("conductor_material"),
                 thermocouple_type=item.get("thermocouple_type"),
                 thermocouple_polarity=item.get("thermocouple_polarity"),
+                thermocouple_cable_designation=item.get("thermocouple_cable_designation"),
             )
             for item in data["panel_wires"]
         )
