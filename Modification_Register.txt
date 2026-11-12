@@ -4400,3 +4400,29 @@ Correction:
 Verification:
 - Updated persistence serializer, project schema declaration, migration pipeline, persistence test source, and this register were committed on the feature branch.
 - No Python syntax/import execution, tests, package save/reopen, GUI, or cross-canvas schedule checks were run.
+
+======================================================================
+GridForge V2 — Canonical instrumentation wiring schedules
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Stable connection-hop identity was persisted, but there was no deterministic Application projection exposing those identities in cable-core, panel-wire, and signal-loop schedules. The wiring read model also omitted connection_hops.
+- Legacy terminal paths migrated without hop IDs must remain visible in schedules without generating artificial identities.
+
+Correction:
+- Added read-only Application schedule projections for cable-core segments, panel-wire segments, and signal loops.
+- Physical schedule rows expose carrier identity/revision, hop identity/revision, lifecycle status, and exact terminal references.
+- Signal-loop rows join canonical SignalDefinition, SignalCarrierBinding, carrier identity, and known hop IDs.
+- Legacy paths with no canonical hop records are shown as UNMAPPED_LEGACY rows with null hop IDs. Logical/fibre bindings are explicitly distinguished from physical cable routes.
+- Exposed connection_hops through InstrumentationWiringReadModel and exported schedule APIs from the Application services package.
+- Added source regression coverage for stable IDs, signal joins, and legacy routes without fabricated IDs.
+
+Limitations:
+- These are Application read-side schedule projections; no SLD/Control/Protection canvas UI, PDF/XLS export, endpoint compatibility validation, or schedule persistence was added.
+- InstrumentationWiringReadModel now includes connection_hops as an optional trailing field to preserve existing construction compatibility.
+
+Verification:
+- Source files and test source were committed and fetched back from the feature branch.
+- No tests, Python imports, GUI interactions, schedule exports, or project save/reopen checks were executed.
