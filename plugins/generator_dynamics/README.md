@@ -892,3 +892,30 @@ existing sampled GGOV1 handler. The Application composition root must choose
 one handler for the `generator_transient` study type and supply the matching
 host solver/factory. Until that explicit composition is installed, the
 production transient-study path remains the existing sampled path.
+
+## Augmented-study checkpoint identity and resume
+
+`GeneratorStudyCheckpointIdentity` binds a resumable trajectory to the
+canonical `StudyRequest` and `StudyExecutionContext`: study and project
+identity, activation generation, model/topology revisions, instrumentation
+revision, protection-equipment/configuration revisions, plus host-supplied
+study-configuration, state-layout and solver fingerprints. Presentation and
+persistence counters are intentionally excluded because they do not identify
+the numerical study input state.
+
+The host must create the identity with `from_execution(...)` using stable,
+versioned fingerprints derived from its canonical configuration and augmented
+state layout. The plugin does not invent hashes for arbitrary project objects
+or claim a source-code revision it cannot establish. The identity is stored in
+the archive-safe evidence payload and must match exactly when calling
+`resume_from_checkpoint(...)`. Checkpoint-publication recovery can retain
+the identity when the host attaches it to the publication exception as
+`checkpoint_identity`.
+
+This is an identity contract, not an archive loader. The canonical
+Application archive remains responsible for loading persisted result payloads;
+a host must validate and reconstruct typed accepted-step/checkpoint objects
+from that payload before offering a resume. Evidence without an identity
+remains readable for backward compatibility but is not suitable for
+identity-verified restart.
+
