@@ -560,6 +560,20 @@ def test_application_service_adds_and_reads_terminal_block_points_and_accessorie
     )
     _apply_wiring_command(service, network, service.create_add_record_command(point_a))
     _apply_wiring_command(service, network, service.create_add_record_command(point_b))
+    cable = CableAssembly(
+        id="C-TB-101-ID", tag="C-TB-101", service="terminal test circuit",
+        core_count=1,
+    )
+    _apply_wiring_command(service, network, service.create_add_record_command(cable))
+    core = CableCore(
+        id="C-TB-101-CORE-1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference(block.id, "1", "1A", point_a.id),
+            WiringTerminalReference(block.id, "2", "2A", point_b.id),
+        ),
+    )
+    _apply_wiring_command(service, network, service.create_add_record_command(core))
     accessory = TerminalAccessory(
         id="TB-101-L1", tag="TB-101-L1", terminal_block_id=block.id,
         kind=TerminalAccessoryKind.TEST_DISCONNECT,
