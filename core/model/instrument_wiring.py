@@ -853,14 +853,30 @@ class InstrumentationWiringInventory:
                 for left, right in zip(route, route[1:]):
                     if not {left.terminal_path[0].identity, left.terminal_path[-1].identity}.intersection({right.terminal_path[0].identity, right.terminal_path[-1].identity}):
                         raise ValueError(f"PT/CVT {route_name} carrier chain '{circuit.id}' is discontinuous.")
+            output_route_points = {
+                reference.terminal_point_id
+                for carrier_id in circuit.output_carrier_ids
+                for reference in carrier_by_id[carrier_id].terminal_path
+                if reference.terminal_point_id is not None
+            }
+            return_route_points = {
+                reference.terminal_point_id
+                for carrier_id in circuit.return_carrier_ids
+                for reference in carrier_by_id[carrier_id].terminal_path
+                if reference.terminal_point_id is not None
+            }
             for accessory_id in circuit.fuse_accessory_ids:
                 accessory = accessory_by_id.get(accessory_id)
                 if accessory is None or accessory.kind is not TerminalAccessoryKind.FUSE_LINK:
                     raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' requires declared FUSE_LINK accessories.")
+                if not set(accessory.terminal_point_ids).issubset(output_route_points):
+                    raise ValueError(f"PT/CVT fuse accessory '{accessory.id}' is not physically located on the declared output carrier route.")
             for accessory_id in circuit.isolation_accessory_ids:
                 accessory = accessory_by_id.get(accessory_id)
                 if accessory is None or accessory.kind is not TerminalAccessoryKind.ISOLATING_LINK:
                     raise ValueError(f"PT/CVT secondary circuit '{circuit.id}' references an invalid ISOLATING_LINK accessory.")
+                if not set(accessory.terminal_point_ids).issubset(output_route_points | return_route_points):
+                    raise ValueError(f"PT/CVT isolation accessory '{accessory.id}' is not physically located on the declared secondary routes.")
             if circuit.grounding is PTSecondaryGrounding.GROUNDED:
                 earth = accessory_by_id.get(circuit.grounding_accessory_id)
                 if earth is None or earth.kind is not TerminalAccessoryKind.EARTH_LINK:
