@@ -168,7 +168,7 @@ def validate_control_mapping_binding(
     mapping: Any,
     destination: Any,
 ) -> ReceiverCompatibility:
-    """Require an existing persisted Control mapping to reference this signal ID."""
+    """Require Control to consume this signal through its persisted MeasurementChannel ID."""
     from core.application.control_signal_mapping import (
         ControlSignalBinding,
         ControlSignalDestination,
