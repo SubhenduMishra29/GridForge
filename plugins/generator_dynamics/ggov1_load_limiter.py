@@ -103,7 +103,7 @@ class GGOV1LoadLimiter(DynamicPlugin):
         p = self.parameters
         error = self._error(state, fuel_flow_pu=fuel_flow_pu)
         integral = _number(state[1], "load_limiter_integral_output_pu")
-        return p.load_proportional_gain * error + integral
+        from .controllers import _clip\n        return _clip(\n            p.load_proportional_gain * error + integral,\n            p.valve_min_pu,\n            p.valve_max_pu,\n        )
 
     def summary(self) -> dict[str, Any]:
         p = self.parameters
