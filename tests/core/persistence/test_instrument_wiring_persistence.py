@@ -523,3 +523,39 @@ def test_inventory_rejects_terminal_block_reference_without_stable_point_identit
                 ),
             ),),
         )
+
+
+def test_application_service_adds_and_reads_terminal_block_points_and_accessories():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    service.activate(context, InstrumentationWiringInventory(), network=network, generation=1)
+
+    block = TerminalBlock(
+        id="TB-101", tag="TB-101", panel_id="PANEL-1",
+        location="Marshalling cabinet", terminal_count=2,
+    )
+    _apply_wiring_command(service, network, service.create_add_record_command(block))
+    point_a = TerminalPoint(
+        id="TB-101-1", terminal_block_id=block.id,
+        terminal_number="1", designation="1A",
+    )
+    point_b = TerminalPoint(
+        id="TB-101-2", terminal_block_id=block.id,
+        terminal_number="2", designation="2A",
+    )
+    _apply_wiring_command(service, network, service.create_add_record_command(point_a))
+    _apply_wiring_command(service, network, service.create_add_record_command(point_b))
+    accessory = TerminalAccessory(
+        id="TB-101-L1", tag="TB-101-L1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_a.id, point_b.id),
+        conductive_pairs=((point_a.id, point_b.id),),
+    )
+    _apply_wiring_command(service, network, service.create_add_record_command(accessory))
+
+    read_model = service.read_model()
+    assert read_model.terminal_blocks[0]["tag"] == "TB-101"
+    assert {item["id"] for item in read_model.terminal_points} == {"TB-101-1", "TB-101-2"}
+    assert read_model.terminal_accessories[0]["state"] == "CLOSED"
