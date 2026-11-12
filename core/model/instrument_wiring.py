@@ -255,6 +255,7 @@ class SignalEndpointReference:
     endpoint_id: str
     owner_id: Optional[str] = None
     port: Optional[str] = None
+    physical_terminal: Optional[WiringTerminalReference] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, SignalEndpointKind):
@@ -262,8 +263,10 @@ class SignalEndpointReference:
         object.__setattr__(self, "endpoint_id", _required_text(self.endpoint_id, "endpoint_id"))
         object.__setattr__(self, "owner_id", _optional_text(self.owner_id, "owner_id"))
         object.__setattr__(self, "port", _optional_text(self.port, "port"))
+        if self.physical_terminal is not None and not isinstance(self.physical_terminal, WiringTerminalReference):
+            raise TypeError("physical_terminal must be a WiringTerminalReference or None.")
         if self.kind is SignalEndpointKind.MEASUREMENT_CHANNEL:
-            if self.owner_id is not None or self.port is not None:
+            if self.owner_id is not None or self.port is not None or self.physical_terminal is not None:
                 raise ValueError("MeasurementChannel endpoint references use endpoint_id only.")
         elif self.kind is SignalEndpointKind.CONTROL_INPUT:
             if self.owner_id is None or self.port is None:
