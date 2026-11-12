@@ -168,6 +168,12 @@ class TemperatureInstrumentService:
                     )
         return tuple(unverified)
 
+    def validate_wiring_inventory(self, wiring_inventory: Any) -> tuple[str, ...]:
+        """Protect active declared temperature loops from physical wiring edits."""
+        if self._project_id is None:
+            return ()
+        return self._validate_physical_continuity(self._inventory, wiring_inventory)
+
     def create_replace_command(
         self, replacement: TemperatureInstrumentInventory
     ) -> SetTemperatureInstrumentInventoryCommand:
