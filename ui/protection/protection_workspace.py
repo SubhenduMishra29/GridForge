@@ -333,12 +333,19 @@ class ProtectionGraphicsSurface(QGraphicsView):
     def _on_scene_selection(self) -> None:
         selected = [item for item in self._scene.selectedItems() if isinstance(item, ProtectionGraphicsNode)]
         if selected and self._interaction.active_tool == "select":
-            self._selection_manager.select_single(selected[0].object_id)
+            node = selected[0]
+            self._selection_manager.select_single(
+                node.element_id if node.kind in {"relay_input", "function"} and node.element_id
+                else node.object_id
+            )
 
     def _on_canonical_selection(self, ids: object) -> None:
         selected = {str(value) for value in (ids or ())}
         for object_id, node in self._nodes.items():
-            node.setSelected(object_id in selected)
+            node.setSelected(
+                object_id in selected
+                or (node.element_id is not None and node.element_id in selected)
+            )
 
     def _draw_message(self, message: str) -> None:
         text = QGraphicsTextItem(message)
@@ -627,7 +634,15 @@ class ProtectionInspector(QGroupBox):
         except RuntimeError:
             self._label.setText("Protection read boundary unavailable.")
             return
-        relay_id = object_id.split(":", 1)[0]
+        selected_by_element = next(
+            (item for item in configurations if str(item.element_id) == object_id),
+            None,
+        )
+        relay_id = (
+            str(selected_by_element.relay_id)
+            if selected_by_element is not None
+            else object_id.split(":", 1)[0]
+        )
         relay = next((item for item in protection.relays if str(item.object_id) == relay_id), None)
         if relay is None:
             self._label.setText(f"Protection presentation object: {object_id}")
@@ -642,7 +657,8 @@ class ProtectionInspector(QGroupBox):
         selected_configuration = next(
             (
                 item for item in relay_configurations
-                if object_id.startswith(f"{relay_id}:element:{item.element_id}:")
+                if object_id == str(item.element_id)
+                or object_id.startswith(f"{relay_id}:element:{item.element_id}:")
             ),
             None,
         )
