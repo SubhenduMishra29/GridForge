@@ -146,3 +146,22 @@ def test_clicked_device_shape_takes_precedence_over_nearby_bus_anchor(monkeypatc
     assert result.snap_type is SnapType.OBJECT
     assert result.object_id == "CB-001"
     assert result.terminal_name == "line"
+
+
+def test_bus_attachment_midpoint_uses_stable_declared_order(monkeypatch):
+    scene = _Scene()
+    bus = _BusCandidate(
+        "BUS-001",
+        scene,
+        (
+            {"position": QPointF(0, 0), "object_id": "BUS-001", "bus_id": "BUS-001", "attachment_id": "attachment-0"},
+            {"position": QPointF(100, 0), "object_id": "BUS-001", "bus_id": "BUS-001", "attachment_id": "attachment-1"},
+        ),
+        (0, -5, 100, 5),
+    )
+    system = _system(monkeypatch, bus)
+
+    result = system.snap(QPointF(50, 0), allow_grid=False, allow_object=True, intent=SnapIntent.WIRE_START)
+
+    assert result.snap_type is SnapType.OBJECT
+    assert result.attachment_id == "attachment-0"
