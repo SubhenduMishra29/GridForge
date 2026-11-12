@@ -677,3 +677,50 @@ def test_schema_five_wiring_inventory_remains_readable_after_schema_six():
     payload["schema"] = 5
     payload.pop("ct_secondary_circuits")
     assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+
+def test_in_service_ct_open_secondary_requires_closed_explicit_shorting_link():
+    from types import SimpleNamespace
+
+    base = sample_inventory()
+    block = TerminalBlock(
+        id="ct-tb", tag="TB-CT-1", panel_id="PANEL-1",
+        location="Protection marshalling", terminal_count=2,
+    )
+    point_s1 = TerminalPoint(id="ct-point-s1", terminal_block_id=block.id, terminal_number="1", designation="S1")
+    point_s2 = TerminalPoint(id="ct-point-s2", terminal_block_id=block.id, terminal_number="2", designation="S2")
+    shorting = TerminalAccessory(
+        id="ct-short", tag="TB-CT-1-SHORT", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.SHORTING_LINK,
+        state=TerminalAccessoryState.OPEN,
+        terminal_point_ids=(point_s1.id, point_s2.id),
+        conductive_pairs=((point_s1.id, point_s2.id),),
+    )
+    s1 = WiringTerminalReference("CT-1", "S1", "S1")
+    s2 = WiringTerminalReference("CT-1", "S2", "S2")
+    cable = CableAssembly(id="ct-cable", tag="C-CT-1", service="CT secondary", core_count=2)
+    core_s1 = CableCore(id="ct-core-s1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL, terminal_path=(s1, WiringTerminalReference(block.id, "1", "S1", point_s1.id)))
+    core_s2 = CableCore(id="ct-core-s2", cable_id=cable.id, core_number=2,
+        role=WiringConductorRole.RETURN, terminal_path=(s2, WiringTerminalReference(block.id, "2", "S2", point_s2.id)))
+    circuit = CTSecondaryCircuit(
+        id="ct-circuit-a", ct_id="CT-1", phase="A",
+        s1_terminal=s1, s2_terminal=s2,
+        s1_carrier_ids=(core_s1.id,), s2_carrier_ids=(core_s2.id,),
+        shorting_accessory_id=shorting.id,
+        shorting_s1_terminal_point_id=point_s1.id,
+        shorting_s2_terminal_point_id=point_s2.id,
+        secondary_state=CTSecondaryCircuitState.OPEN,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables + (cable,), cores=base.cores + (core_s1, core_s2),
+        signals=base.signals, signal_bindings=base.signal_bindings,
+        terminal_blocks=(block,), terminal_points=(point_s1, point_s2),
+        terminal_accessories=(shorting,), ct_secondary_circuits=(circuit,),
+    )
+    network = SimpleNamespace(get_by_identity=lambda identity: SimpleNamespace(
+        id=identity, element_type="CT", in_service=True,
+    ))
+    with pytest.raises(ValueError, match="without a CLOSED"):
+        InstrumentationWiringService._validate_ct_secondary_circuits(network, inventory)
