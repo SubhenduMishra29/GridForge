@@ -14,6 +14,7 @@ from core.model.instrument_wiring import (
     CarrierKind,
     InstrumentationWiringInventory,
     SignalEndpointKind,
+    TerminalAccessoryState,
 )
 
 
@@ -78,7 +79,8 @@ def resolve_signal_endpoint_bindings(
         if sink_terminal is not None and not hasattr(sink_terminal, "identity"):
             return ("Endpoint physical sink terminal reference is malformed.",)
 
-        carriers: list[tuple[str, tuple[tuple[str, str], ...], str]] = []
+        TerminalIdentity = tuple[str, str, str | None]
+        carriers: list[tuple[str, tuple[TerminalIdentity, ...], str]] = []
         unsupported: list[str] = []
         unassigned_carriers: list[str] = []
         for carrier_binding in inventory.signal_bindings:
@@ -122,8 +124,8 @@ def resolve_signal_endpoint_bindings(
         if not carriers:
             return ("Signal has no explicitly bound physical cable-core or panel-wire carriers.",)
 
-        adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {}
-        directed_adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        adjacency: dict[TerminalIdentity, set[TerminalIdentity]] = {}
+        directed_adjacency: dict[TerminalIdentity, set[TerminalIdentity]] = {}
         for _carrier_id, path, carrier_direction in carriers:
             for first, second in zip(path, path[1:]):
                 adjacency.setdefault(first, set()).add(second)
@@ -133,7 +135,29 @@ def resolve_signal_endpoint_bindings(
                 if carrier_direction in {"SINK_TO_SOURCE", "BIDIRECTIONAL"}:
                     directed_adjacency.setdefault(second, set()).add(first)
 
-        source = (source_equipment_id, source_terminal_role)
+        terminal_points = {item.id: item for item in inventory.terminal_points}
+        for accessory in inventory.terminal_accessories:
+            if accessory.state is not TerminalAccessoryState.CLOSED:
+                continue
+            for first_id, second_id in accessory.conductive_pairs:
+                first_point = terminal_points[first_id]
+                second_point = terminal_points[second_id]
+                first = (
+                    first_point.terminal_block_id,
+                    first_point.terminal_number,
+                    first_point.id,
+                )
+                second = (
+                    second_point.terminal_block_id,
+                    second_point.terminal_number,
+                    second_point.id,
+                )
+                adjacency.setdefault(first, set()).add(second)
+                adjacency.setdefault(second, set()).add(first)
+                directed_adjacency.setdefault(first, set()).add(second)
+                directed_adjacency.setdefault(second, set()).add(first)
+
+        source: TerminalIdentity = (source_equipment_id, source_terminal_role, None)
         if source not in adjacency:
             return ("No physical carrier path begins at the MeasurementChannel source terminal.",)
 
@@ -165,7 +189,7 @@ def resolve_signal_endpoint_bindings(
             if sink not in reachable:
                 return ("Declared logical input sink terminal is physically disconnected from the MeasurementChannel source.",)
 
-            def directed_reachable(start: tuple[str, str], target: tuple[str, str]) -> bool:
+            def directed_reachable(start: TerminalIdentity, target: TerminalIdentity) -> bool:
                 visited = {start}
                 pending = [start]
                 while pending:
