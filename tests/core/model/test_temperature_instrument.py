@@ -162,3 +162,27 @@ def test_temperature_sensor_pin_mapping_must_be_bijective():
     )
     with pytest.raises(ValueError, match="cover every declared"):
         service.validate_measurement_channels({"temperature-channel": channel})
+
+def test_rtd_declared_wire_configuration_must_match_terminal_count():
+    with pytest.raises(ValueError, match="3-wire configuration"):
+        TemperatureInstrument(
+            id="temp-rtd-count", tag="BTD-003", service=TemperatureService.BTD,
+            asset_id="motor-1", location="NDE bearing", sensor_equipment_id="rtd-3",
+            sensor_technology=TemperatureSensorTechnology.RTD,
+            input_mode=TemperatureInputMode.DIRECT_SENSOR,
+            sensor_configuration="Pt100 3-wire",
+            sensor_terminals=(terminal("rtd-3", "A"), terminal("rtd-3", "B")),
+        )
+
+
+def test_thermocouple_measurement_pair_excludes_screen_terminal():
+    with pytest.raises(ValueError, match="exactly two measurement terminals"):
+        TemperatureInstrument(
+            id="temp-tc-pair", tag="BTD-004", service=TemperatureService.BTD,
+            asset_id="motor-1", location="winding", sensor_equipment_id="tc-1",
+            sensor_technology=TemperatureSensorTechnology.THERMOCOUPLE,
+            input_mode=TemperatureInputMode.DIRECT_SENSOR,
+            sensor_terminals=(
+                terminal("tc-1", "+"), terminal("tc-1", "-"), terminal("tc-1", "SCREEN"),
+            ),
+        )
