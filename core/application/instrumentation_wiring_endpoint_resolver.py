@@ -54,6 +54,7 @@ def resolve_signal_endpoint_bindings(
     panel_wires_by_id = {item.id: item for item in inventory.panel_wires}
 
     def physical_source_diagnostics(signal_id: str, channel_id: str) -> tuple[str, ...]:
+        """Validate source identity and continuity of every bound physical carrier."""
         channel = channels.get(channel_id)
         if channel is None:
             return (f"MeasurementChannel {channel_id!r} is not active.",)
@@ -63,11 +64,13 @@ def resolve_signal_endpoint_bindings(
             return ("MeasurementChannel has no explicit physical source identity.",)
         if not isinstance(source_terminal, Mapping) or source_terminal.get("kind") != "TERMINAL":
             return ("MeasurementChannel has no explicit physical source terminal reference.",)
-        equipment_id = source_terminal.get("equipment_id")
-        terminal_role = source_terminal.get("terminal_role")
-        if equipment_id != source_id:
-            return ("MeasurementChannel source equipment and source terminal owner identities disagree.",)
-        matching_carriers = []
+        source_equipment_id = source_terminal.get("equipment_id")
+        source_terminal_role = source_terminal.get("terminal_role")
+        if source_equipment_id != source_id or not isinstance(source_terminal_role, str) or not source_terminal_role:
+            return ("MeasurementChannel source equipment and source terminal owner identities disagree or are incomplete.",)
+
+        carriers: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+        unsupported: list[str] = []
         for carrier_binding in inventory.signal_bindings:
             if carrier_binding.signal_id != signal_id:
                 continue
@@ -76,16 +79,53 @@ def resolve_signal_endpoint_bindings(
             elif carrier_binding.carrier_kind is CarrierKind.PANEL_WIRE:
                 carrier = panel_wires_by_id.get(carrier_binding.carrier_id)
             else:
+                unsupported.append(
+                    f"{carrier_binding.carrier_kind.value} carrier {carrier_binding.carrier_id!r} has no typed terminal-path resolver."
+                )
                 continue
-            if carrier is not None and any(
-                terminal.equipment_id == equipment_id
-                and terminal.terminal_role == terminal_role
-                for terminal in carrier.terminal_path
-            ):
-                matching_carriers.append(carrier_binding.id)
-        if not matching_carriers:
+            if carrier is None:
+                return (f"Signal carrier {carrier_binding.carrier_id!r} cannot be resolved.",)
+            path = tuple(item.identity for item in carrier.terminal_path)
+            if len(path) < 2:
+                return (
+                    f"Signal carrier {carrier.id!r} has no complete terminal-to-terminal path.",
+                )
+            carriers.append((carrier.id, path))
+
+        if unsupported:
+            return tuple(unsupported)
+        if not carriers:
+            return ("Signal has no explicitly bound physical cable-core or panel-wire carriers.",)
+
+        adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        for _carrier_id, path in carriers:
+            for first, second in zip(path, path[1:]):
+                adjacency.setdefault(first, set()).add(second)
+                adjacency.setdefault(second, set()).add(first)
+
+        source = (source_equipment_id, source_terminal_role)
+        if source not in adjacency:
+            return ("No physical carrier path begins at the MeasurementChannel source terminal.",)
+
+        reachable = {source}
+        pending = [source]
+        while pending:
+            current = pending.pop()
+            for neighbour in adjacency.get(current, ()):
+                if neighbour not in reachable:
+                    reachable.add(neighbour)
+                    pending.append(neighbour)
+
+        disconnected = [
+            carrier_id
+            for carrier_id, path in carriers
+            if not any(terminal in reachable for terminal in path)
+            or any(terminal not in reachable for terminal in path)
+        ]
+        if disconnected:
             return (
-                "No physical cable-core or panel-wire path for this signal includes the MeasurementChannel source terminal.",
+                "Signal physical carrier chain is discontinuous; disconnected carrier(s): "
+                + ", ".join(sorted(disconnected)) + ".",
             )
         return ()
 
