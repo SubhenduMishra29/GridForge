@@ -4500,3 +4500,25 @@ Limitations:
 Verification:
 - Updated source, exports, tests and register fetched back from the feature branch.
 - No tests, Python imports, project activation, runtime evaluation, or GUI checks were executed.
+
+======================================================================
+GridForge V2 — Project-wide persisted receiver reconciliation API
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Correction:
+- Added validate_inventory_receiver_bindings() to reconcile the project's canonical InstrumentationWiringInventory against persisted ControlSignalMapping and ProtectionProjectConfiguration.
+- Control instrumentation sources are resolved by stable SignalDefinition.id and validated against the exact persisted destination.
+- Protection signal-to-channel association is accepted only through an explicit Application-supplied signal-ID -> MeasurementChannel-ID mapping; channel identity and the Protection element/input mapping are then checked before function-contract validation.
+- Unknown instrumentation source identities and ambiguous duplicate channel associations produce incompatible diagnostics.
+- Exported the project-level reconciliation API from core.application.services.
+
+Important boundary:
+- This is a reconciliation API, not yet an automatic project activation gate. The repository's current instrumentation inventory has carrier bindings, not a persisted signal-to-receiver relation; the explicit signal_channel_ids map must be supplied by the Application composition/persisted mapping authority.
+- It deliberately skips Protection channels not explicitly mapped to instrumentation signals; it does not guess association by tag or channel name.
+- ProjectLifecycleService and InstrumentationWiringService activation/mutation handlers have not yet been modified to invoke this API.
+
+Verification:
+- Updated module and package export fetched back from the feature branch.
+- No tests, imports, activation transaction, or GUI checks were executed.
