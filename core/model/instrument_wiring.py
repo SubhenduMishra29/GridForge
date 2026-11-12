@@ -219,10 +219,15 @@ class SignalCarrierBinding:
     carrier_kind: CarrierKind
     carrier_id: str
     direction: str = "BIDIRECTIONAL"
+    source_channel_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "signal_id", "carrier_id"):
             object.__setattr__(self, field, _required_text(getattr(self, field), field))
+        object.__setattr__(
+            self, "source_channel_id",
+            _optional_text(self.source_channel_id, "source_channel_id"),
+        )
         if not isinstance(self.carrier_kind, CarrierKind):
             raise TypeError("carrier_kind must be a CarrierKind.")
         direction = _required_text(self.direction, "direction").upper()
