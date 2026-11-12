@@ -142,6 +142,9 @@ def create_application(
     instrumentation_wiring_service.bind_inventory_validator(
         temperature_instrument_service.validate_wiring_inventory
     )
+    temperature_instrument_service.bind_measurement_channels_provider(
+        lambda: measurement_channel_service.channels
+    )
     application: Application | None = None
     synchronism_guard: Any = None
 
@@ -842,6 +845,7 @@ def create_application(
                 loaded.measurement_definitions if context is not None and loaded is not None else (),
                 generation=generation,
             )
+            temperature_instrument_service.validate_measurement_channels()
             if context is None:
                 application.set_draft_network_collection(None)
                 control_service.activate(ControlConfiguration.empty("closed-project"))
