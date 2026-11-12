@@ -350,14 +350,6 @@ class TemperatureInstrumentService:
                 self._validate_physical_continuity(
                     candidate, self._instrumentation_wiring_service.inventory
                 )
-            previous_inventory = self._inventory
-            self._inventory = candidate
-            try:
-                self.validate_measurement_channels()
-            except Exception:
-                self._inventory = previous_inventory
-                raise
-            self._inventory = previous_inventory
             next_project, next_generation, next_network = project_id.strip(), generation, network
         previous = self.snapshot_state()
         self._project_id, self._activation_generation = next_project, next_generation
