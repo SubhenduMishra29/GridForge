@@ -18,6 +18,7 @@ from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
     SignalCarrierBinding, SignalDefinition, SignalEndpointBinding,
     TerminalBlock, TerminalPoint, TerminalAccessory,
+    CTSecondaryCircuit, CTSecondaryCircuitState, TerminalAccessoryState,
 )
 
 
@@ -102,6 +103,8 @@ class InstrumentationWiringService:
         for binding in inventory.endpoint_bindings:
             if binding.endpoint.physical_terminal is not None:
                 references.append(binding.endpoint.physical_terminal)
+        for circuit in inventory.ct_secondary_circuits:
+            references.extend((circuit.s1_terminal, circuit.s2_terminal))
         terminal_points = {item.id: item for item in inventory.terminal_points}
         terminal_blocks = {item.id for item in inventory.terminal_blocks}
         seen: set[tuple[str, str, str | None]] = set()
@@ -130,6 +133,32 @@ class InstrumentationWiringService:
                     "must carry a stable terminal_point_id."
                 )
             cls._validate_terminal_reference(network, reference)
+
+    @staticmethod
+    def _validate_ct_secondary_circuits(network: Any, inventory: InstrumentationWiringInventory) -> None:
+        """Fail closed for unsafe in-service CT secondary editing states."""
+        accessories = {item.id: item for item in inventory.terminal_accessories}
+        for circuit in inventory.ct_secondary_circuits:
+            try:
+                ct = network.get_by_identity(circuit.ct_id)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"CT secondary circuit '{circuit.id}' references CT '{circuit.ct_id}' which is not registered."
+                ) from exc
+            if getattr(ct, "id", None) != circuit.ct_id or getattr(ct, "element_type", None) != "CT":
+                raise ValueError(f"CT secondary circuit '{circuit.id}' must reference the exact Core CurrentTransformer identity.")
+            if not bool(getattr(ct, "in_service", False)):
+                continue
+            if circuit.secondary_state is CTSecondaryCircuitState.UNKNOWN:
+                raise ValueError(f"In-service CT '{circuit.ct_id}' has UNKNOWN secondary state; resolve the physical circuit before activation.")
+            if circuit.secondary_state is CTSecondaryCircuitState.ISOLATED:
+                raise ValueError(f"In-service CT '{circuit.ct_id}' cannot have an ISOLATED secondary circuit.")
+            if circuit.secondary_state is CTSecondaryCircuitState.OPEN:
+                shorting = accessories[circuit.shorting_accessory_id]
+                if shorting.state is not TerminalAccessoryState.CLOSED:
+                    raise ValueError(
+                        f"In-service CT '{circuit.ct_id}' secondary is OPEN without a CLOSED, explicitly bridged shorting link."
+                    )
 
     @staticmethod
     def _read_value(value: Any) -> Any:
@@ -169,6 +198,7 @@ class InstrumentationWiringService:
             terminal_blocks=tuple(self._read_value(item) for item in inventory.terminal_blocks),
             terminal_points=tuple(self._read_value(item) for item in inventory.terminal_points),
             terminal_accessories=tuple(self._read_value(item) for item in inventory.terminal_accessories),
+            ct_secondary_circuits=tuple(self._read_value(item) for item in inventory.ct_secondary_circuits),
         )
 
     def allocate_tag(
@@ -208,6 +238,7 @@ class InstrumentationWiringService:
             TerminalBlock: "terminal_blocks",
             TerminalPoint: "terminal_points",
             TerminalAccessory: "terminal_accessories",
+            CTSecondaryCircuit: "ct_secondary_circuits",
         }
         try:
             return collections[record_type]
@@ -221,7 +252,7 @@ class InstrumentationWiringService:
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
         for field in (
             "cables", "cores", "panel_wires", "signals", "signal_bindings",
-            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories",
+            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories", "ct_secondary_circuits",
         ):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
@@ -352,6 +383,7 @@ class InstrumentationWiringService:
             if network is None or not callable(getattr(network, "get_by_identity", None)):
                 raise ValueError("An active project wiring inventory requires the canonical Core Network.")
             self._validate_inventory_terminals(network, candidate)
+            self._validate_ct_secondary_circuits(network, candidate)
             next_project_id = project_id.strip()
             next_generation = generation
             next_network = network
