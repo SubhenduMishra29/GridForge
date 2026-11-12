@@ -727,12 +727,14 @@ class InstrumentationWiringInventory:
             ):
                 route = [carrier_by_id[item] for item in carrier_ids]
                 first_path = route[0].terminal_path
-                if not first_path or source_terminal.identity not in {ref.identity for ref in first_path}:
-                    raise ValueError(f"CT secondary {route_name} route '{circuit.id}' does not begin at its exact CT terminal.")
+                if not first_path or source_terminal.identity not in {
+                    first_path[0].identity, first_path[-1].identity
+                }:
+                    raise ValueError(f"CT secondary {route_name} route '{circuit.id}' must start at an endpoint of its exact CT terminal.")
                 for left, right in zip(route, route[1:]):
-                    left_ids = {ref.identity for ref in left.terminal_path}
-                    right_ids = {ref.identity for ref in right.terminal_path}
-                    if not left_ids.intersection(right_ids):
+                    left_ends = {left.terminal_path[0].identity, left.terminal_path[-1].identity}
+                    right_ends = {right.terminal_path[0].identity, right.terminal_path[-1].identity}
+                    if not left_ends.intersection(right_ends):
                         raise ValueError(f"CT secondary {route_name} carrier chain '{circuit.id}' is discontinuous.")
             accessory = accessory_by_id.get(circuit.shorting_accessory_id)
             if accessory is None:
