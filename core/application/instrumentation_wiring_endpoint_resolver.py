@@ -348,6 +348,15 @@ def resolve_signal_endpoint_bindings(
             port=endpoint.port,
             status=status,
             diagnostics=tuple(diagnostics),
+            direction=binding.direction,
+            physical_sink_terminal=(
+                {
+                    "equipment_id": endpoint.physical_terminal.equipment_id,
+                    "terminal_role": endpoint.physical_terminal.terminal_role,
+                    "designation": endpoint.physical_terminal.designation,
+                }
+                if endpoint.physical_terminal is not None else None
+            ),
         ))
 
     return tuple(results)
