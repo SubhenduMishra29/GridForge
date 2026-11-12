@@ -148,7 +148,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 id=item["id"], cable_id=item["cable_id"], core_number=item["core_number"],
                 role=WiringConductorRole(item["role"]),
                 terminal_path=tuple(_terminal_from_dict(ref) for ref in item.get("terminal_path", ())),
-                colour=item.get("colour"), pair_id=item.get("pair_id"), core_tag=item.get("core_tag"),
+                colour=item.get("colour"), revision=item.get("revision", 1), pair_id=item.get("pair_id"), core_tag=item.get("core_tag"), revision=item.get("revision", 1),
             )
             for item in data["cores"]
         )
@@ -178,9 +178,10 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             )
             for item in data["signal_bindings"]
         )
+        hops = tuple(PhysicalConnectionHop(id=item["id"], from_terminal=_terminal_from_dict(item["from_terminal"]), to_terminal=_terminal_from_dict(item["to_terminal"]), carrier_kind=CarrierKind(item["carrier_kind"]), carrier_id=item["carrier_id"], revision=item.get("revision", 1), lifecycle_status=item.get("lifecycle_status", "PLANNED"), supersedes_hop_id=item.get("supersedes_hop_id")) for item in data["connection_hops"])
         return InstrumentationWiringInventory(
             cables=cables, cores=cores, panel_wires=panel_wires,
-            signals=signals, signal_bindings=bindings, tag_policy=tag_policy,
+            signals=signals, signal_bindings=bindings, connection_hops=hops, tag_policy=tag_policy,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(
