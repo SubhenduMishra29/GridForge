@@ -108,7 +108,7 @@ _TERMINAL_OWNER_CLASSES = tuple(
     for cls in (
         Battery, Breaker, Cable, Capacitor, CVT, CurrentTransformer,
         Disconnector, Fuse, Generator, Grid, Line, Load, Motor, PT,
-        Reactor, Relay, Shunt, Solar, Switch, SynchronousMachine, Transformer,
+        Reactor, Relay, Shunt, Solar, Switch, SynchronousMachine, Transformer, RTD, Thermocouple,
     )
     if cls not in (Bus, Branch, Injection)
 )
