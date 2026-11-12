@@ -1213,6 +1213,20 @@ def _build_application_impl(
         maximized = workspace_surface_host.editor_host.maximized_area_id == area_id
         workspace_surface_host.editor_host.set_area_maximized(area_id, not maximized)
 
+    def _rotate_sld_selection(rotation_degrees: float) -> bool:
+        """Rotate one symbol or the complete selected group through its owner."""
+        selected_nodes = tuple(_selected_sld_nodes())
+        if not selected_nodes:
+            return False
+        if len(selected_nodes) == 1:
+            operation = "rotate_cw" if rotation_degrees > 0 else "rotate_ccw"
+            return bool(canvas_composition.view._apply_contextual_symbol_action(operation))
+        selection_tool = tool_manager.get_tool("select")
+        transform = getattr(selection_tool, "apply_group_transform", None)
+        if not callable(transform):
+            return False
+        return bool(transform(rotation_degrees=rotation_degrees))
+
     action_router.register_many({
         "project.new": _new_project,
         "project.open": _open_project,
@@ -1225,7 +1239,10 @@ def _build_application_impl(
         "edit.box_select": _activate_select_for_editing,
         "edit.move": _activate_select_for_editing,
         "edit.drag_move": _activate_select_for_editing,
-        "edit.rotate": lambda: canvas_composition.view._apply_contextual_symbol_action("rotate_cw"),
+        "edit.rotate": lambda: _rotate_sld_selection(90.0),
+        "edit.rotate_ccw": lambda: _rotate_sld_selection(-90.0),
+        "sld.rotate_symbol_cw": lambda: canvas_composition.view._apply_contextual_symbol_action("rotate_cw"),
+        "sld.rotate_symbol_ccw": lambda: canvas_composition.view._apply_contextual_symbol_action("rotate_ccw"),
         "edit.mirror_horizontal": lambda: _transform_selected_symbols(mirror="horizontal"),
         "edit.mirror_vertical": lambda: _transform_selected_symbols(mirror="vertical"),
         "network.commit_draft": _commit_network,
@@ -1373,7 +1390,8 @@ def _build_application_impl(
             "select", "move", "pan", "zoom_in", "zoom_out", "fit_view",
             "copy", "paste", "delete", "sld_select", "sld_move", "sld_wire",
             "edit.select_all", "edit.cut", "edit.box_select", "edit.move",
-            "edit.drag_move", "edit.rotate", "edit.mirror_horizontal",
+            "edit.drag_move", "edit.rotate", "edit.rotate_ccw",
+            "sld.rotate_symbol_cw", "sld.rotate_symbol_ccw", "edit.mirror_horizontal",
             "edit.mirror_vertical",
         }
         if action_id in sld_only_actions and (not project_active or discipline != "sld"):
@@ -1442,7 +1460,7 @@ def _build_application_impl(
                 project_active and discipline == "sld" and selected
                 and _selection_supports("copy") and _selection_supports("delete")
             )
-        if action_id in {"edit.rotate", "edit.mirror_horizontal", "edit.mirror_vertical"}:
+        if action_id in {"edit.rotate", "edit.rotate_ccw", "sld.rotate_symbol_cw", "sld.rotate_symbol_ccw", "edit.mirror_horizontal", "edit.mirror_vertical"}:
             return project_active and discipline == "sld" and bool(_selected_sld_nodes())
         if action_id in {"paste", "edit.paste"}:
             return project_active and bool(sld_clipboard) and discipline == "sld"
