@@ -7,7 +7,8 @@ from core.model import (
     TemperatureAlarmTripBinding, TemperatureConsumerKind, TemperatureInputMode,
     TemperatureInstrument, TemperatureInstrumentInventory, TemperatureInterfaceDevice,
     TemperatureSensorTechnology, TemperatureService, TemperatureReceiverInput,
-    TemperatureReceiverInputKind, WiringTerminalReference,
+    TemperatureReceiverInputKind, TemperatureThermocoupleCableClass,
+    TemperatureThermocoupleCableSpec, WiringTerminalReference,
 )
 from core.persistence.temperature_instrument_serializer import (
     deserialize_temperature_instruments, serialize_temperature_instruments,
@@ -359,3 +360,30 @@ def test_receiver_module_channel_designation_must_be_unique():
     )
     with pytest.raises(ValueError, match="must be unique within each module"):
         TemperatureInstrumentInventory(receiver_inputs=(first, second))
+
+
+def test_project_thermocouple_cable_catalogue_round_trips_without_embedded_defaults():
+    spec = TemperatureThermocoupleCableSpec(
+        id="project-kx", thermocouple_type="k", cable_designation="kx",
+        cable_class=TemperatureThermocoupleCableClass.EXTENSION,
+        positive_conductor_material="Nickel Chromium",
+        negative_conductor_material="Nickel Aluminium",
+        standard_reference="IEC 60584-3:2021", tolerance_class="1",
+    )
+    inventory = TemperatureInstrumentInventory(thermocouple_cable_specs=(spec,))
+    restored = deserialize_temperature_instruments(serialize_temperature_instruments(inventory))
+    assert restored == inventory
+    assert restored.thermocouple_cable_specs[0].cable_designation == "KX"
+
+
+def test_project_thermocouple_catalogue_rejects_duplicate_type_designation():
+    first = TemperatureThermocoupleCableSpec(
+        "spec-a", "K", "KX", TemperatureThermocoupleCableClass.EXTENSION,
+        "NiCr", "NiAl", "IEC 60584-3:2021", "1",
+    )
+    second = TemperatureThermocoupleCableSpec(
+        "spec-b", "K", "KX", TemperatureThermocoupleCableClass.EXTENSION,
+        "NiCr-a", "NiAl-a", "IEC 60584-3:2021", "2",
+    )
+    with pytest.raises(ValueError, match="duplicate type/designation"):
+        TemperatureInstrumentInventory(thermocouple_cable_specs=(first, second))
