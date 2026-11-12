@@ -587,3 +587,26 @@ def test_application_service_adds_and_reads_terminal_block_points_and_accessorie
     assert read_model.terminal_blocks[0]["tag"] == "TB-101"
     assert {item["id"] for item in read_model.terminal_points} == {"TB-101-1", "TB-101-2"}
     assert read_model.terminal_accessories[0]["state"] == "CLOSED"
+
+
+def test_schema_four_endpoint_sink_reference_remains_readable_without_point_id():
+    base = sample_inventory()
+    endpoint = SignalEndpointBinding(
+        id="endpoint-binding-id", signal_id="signal-id",
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-id", owner_id="control-id", port="PV",
+            physical_terminal=WiringTerminalReference("PLC-101", "AI-01+", "AI-01+"),
+        ),
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores, signals=base.signals,
+        signal_bindings=base.signal_bindings, endpoint_bindings=(endpoint,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    payload["schema"] = 4
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
+    payload["endpoint_bindings"][0]["endpoint"]["physical_terminal"].pop("terminal_point_id")
+    assert deserialize_instrumentation_wiring(payload) == inventory
