@@ -354,6 +354,55 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         self.checkpoint_identity = checkpoint_identity
 
     @classmethod
+    def _from_frozen_payload(
+        cls,
+        payload: Mapping[str, object],
+        *,
+        checkpoint_identity: GeneratorStudyCheckpointIdentity,
+    ) -> "GeneratorAugmentedStudyEvidence":
+        """Rehydrate immutable evidence after its archive envelope is validated."""
+        provenance = payload.get("provenance")
+        accepted_steps = payload.get("accepted_steps")
+        if not isinstance(provenance, Mapping) or not isinstance(accepted_steps, tuple):
+            raise ValueError("rehydrated evidence payload is incomplete")
+        times: list[float] = []
+        for index, step in enumerate(accepted_steps):
+            if not isinstance(step, Mapping):
+                raise ValueError(f"rehydrated accepted step {index} is malformed")
+            value = step.get("simulation_time_s")
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+                raise ValueError(f"rehydrated accepted step {index} has an invalid time")
+            times.append(float(value))
+        if not times or any(right <= left for left, right in zip(times, times[1:])):
+            raise ValueError("rehydrated accepted-step times must be non-empty and strictly increasing")
+        instance = cls.__new__(cls)
+        instance._payload = payload
+        instance._accepted_steps = ()
+        instance.provenance = provenance
+        instance.time = tuple(times)
+        instance.checkpoint_identity = checkpoint_identity
+        return instance
+
+    @classmethod
+    def from_archive_payload(
+        cls,
+        payload: Mapping[str, object],
+        *,
+        expected_identity: GeneratorStudyCheckpointIdentity,
+    ) -> "GeneratorAugmentedStudyEvidence":
+        """Restore the full immutable evidence envelope for post-restart continuation."""
+        checkpoint = GeneratorAugmentedArchivedCheckpoint.from_archive_payload(
+            payload,
+            expected_identity=expected_identity,
+        )
+        frozen = _freeze_archive_value(payload, path="archive")
+        if not isinstance(frozen, Mapping):
+            raise TypeError("archive payload must be a mapping")
+        return cls._from_frozen_payload(
+            frozen,
+            checkpoint_identity=checkpoint.identity,
+        )
+    @classmethod
     def resume_from_checkpoint(
         cls,
         previous: "GeneratorAugmentedStudyEvidence",
@@ -425,8 +474,8 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         prior_resume = previous.provenance.get("resume", {})
         if not isinstance(prior_resume, Mapping):
             raise ValueError("previous resume provenance is malformed")
-        return cls(
-            (*previous._accepted_steps, *continuation),
+        continued = cls(
+            continuation,
             execution_status=execution_status,
             trajectory_status=trajectory_status,
             termination=termination,
@@ -442,6 +491,19 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
                 "resumed_step_count": len(continuation),
                 "previous_resume": dict(prior_resume),
             },
+        )
+        combined_payload = _freeze_archive_value({
+            "schema": "gridforge.generator_augmented_study",
+            "schema_version": 1,
+            "provenance": dict(continued.provenance),
+            "checkpoint_identity": checkpoint_identity.to_archive_payload(),
+            "accepted_steps": (*prior_steps, *(step.to_archive_payload() for step in continuation)),
+        }, path="continued_study_evidence")
+        if not isinstance(combined_payload, Mapping):
+            raise TypeError("continued study evidence payload must be a mapping")
+        return cls._from_frozen_payload(
+            combined_payload,
+            checkpoint_identity=checkpoint_identity,
         )
 
     @classmethod
