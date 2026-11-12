@@ -2567,3 +2567,216 @@ def solve_dc_servo_transient_cpu(motor_id,parameters,duration_s,step_s,*,positio
     return DCServoSimulationResult(motor_id.strip(),sol.time_s,sol.state_data,pos,load,sol.sample_period_s,"cpu-rk4",{"integrator":sol.integrator,"precision":"float64","workload":"dc_servo_position_speed_current_single","model":"brushed_dc_position_speed_current_cascade","control_loops":["position P","speed PI","armature current PI"],"excitation":m.excitation,"current_limit_a":p.maximum_current_a,"armature_voltage_limit_v":p.maximum_armature_voltage_v,"model_fidelity":"experimental averaged DC drive; no PWM, brush commutation or safety-rated servo model","integration_engine":"core.numerics.ode.solve_rk4"})
 
 __all__ += ["DCServoParameters","DCServoSimulationResult","solve_dc_servo_transient_cpu"]
+
+
+# ---------------------------------------------------------------------------
+# Two-phase stepper family model
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class StepperParameters:
+    """Averaged two-phase stepper parameters in SI units."""
+    phase_resistance_ohm: float
+    phase_inductance_h: float
+    inertia_kg_m2: float
+    rotor_teeth: int
+    family: str = "hybrid"
+    torque_constant_nm_a: float = 0.12
+    inductance_gradient_h_per_rad: float = 0.001
+    phase_current_limit_a: float = 3.0
+    phase_voltage_limit_v: float = 48.0
+    current_controller_gain_v_per_a: float = 12.0
+    detent_torque_nm: float = 0.0
+    viscous_friction_n_m_s: float = 0.0
+    thermal_capacity_j_k: float = 250.0
+    thermal_conductance_w_k: float = 2.0
+    ambient_temperature_c: float = 25.0
+    initial_temperature_c: float = 25.0
+    initial_position_rad: float = 0.0
+    initial_speed_rad_s: float = 0.0
+
+    def __post_init__(self) -> None:
+        positive = ("phase_resistance_ohm", "phase_inductance_h", "inertia_kg_m2",
+                    "phase_current_limit_a", "phase_voltage_limit_v",
+                    "current_controller_gain_v_per_a", "thermal_capacity_j_k")
+        for name in positive:
+            value = getattr(self, name)
+            if not _is_numeric_scalar(value) or not isfinite(float(value)) or float(value) <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        for name in ("torque_constant_nm_a", "inductance_gradient_h_per_rad",
+                     "detent_torque_nm", "viscous_friction_n_m_s",
+                     "thermal_conductance_w_k", "ambient_temperature_c",
+                     "initial_temperature_c", "initial_position_rad", "initial_speed_rad_s"):
+            value = getattr(self, name)
+            if not _is_numeric_scalar(value) or not isfinite(float(value)):
+                raise ValueError(f"{name} must be finite")
+            if name in {"torque_constant_nm_a", "inductance_gradient_h_per_rad",
+                        "detent_torque_nm", "viscous_friction_n_m_s", "thermal_conductance_w_k"} and float(value) < 0:
+                raise ValueError(f"{name} must be non-negative")
+        if isinstance(self.rotor_teeth, bool) or not isinstance(self.rotor_teeth, int) or self.rotor_teeth < 1:
+            raise ValueError("rotor_teeth must be a positive integer")
+        if self.family not in {"variable_reluctance", "permanent_magnet", "hybrid"}:
+            raise ValueError("family must be variable_reluctance, permanent_magnet or hybrid")
+        if self.family == "variable_reluctance" and self.inductance_gradient_h_per_rad <= 0:
+            raise ValueError("variable-reluctance stepper requires positive inductance_gradient_h_per_rad")
+        if self.family != "variable_reluctance" and self.torque_constant_nm_a <= 0:
+            raise ValueError("PM and hybrid steppers require positive torque_constant_nm_a")
+
+
+@dataclass(frozen=True)
+class StepperSimulationResult:
+    """Immutable stepper trajectory and aligned drive/load histories."""
+    motor_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    position_command_rad: np.ndarray
+    load_torque_nm: np.ndarray
+    phase_a_voltage_v: np.ndarray
+    phase_b_voltage_v: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.diagnostics, Mapping):
+            raise TypeError("diagnostics must be a mapping")
+        if not isinstance(self.motor_id, str) or not self.motor_id.strip():
+            raise ValueError("motor_id must be a non-empty string")
+        count = int(np.asarray(self.time_s).size)
+        for name in ("time_s", "state_data", "position_command_rad", "load_torque_nm",
+                     "phase_a_voltage_v", "phase_b_voltage_v"):
+            value = np.asarray(getattr(self, name), dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(value).all():
+                raise ValueError(f"{name} must contain only finite values")
+            value.setflags(write=False)
+            object.__setattr__(self, name, value)
+        if self.state_data.size != count * 5 or any(
+            getattr(self, name).size != count for name in
+            ("position_command_rad", "load_torque_nm", "phase_a_voltage_v", "phase_b_voltage_v")
+        ):
+            raise ValueError("stepper result arrays must align with the time grid")
+        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self) -> int:
+        return int(self.time_s.size)
+
+    @property
+    def state_names(self) -> tuple[str, ...]:
+        return ("phase_a_current_a", "phase_b_current_a", "rotor_speed_rad_s",
+                "rotor_position_rad", "winding_temperature_c")
+
+    def channels(self, parameters: StepperParameters) -> dict[str, np.ndarray]:
+        if not isinstance(parameters, StepperParameters):
+            raise TypeError("parameters must be StepperParameters")
+        ia, ib, speed, angle, temperature = self.state_data.reshape(self.sample_count, 5).T
+        p = parameters
+        electrical_angle = p.rotor_teeth * angle
+        if p.family == "variable_reluctance":
+            torque = 0.5 * p.inductance_gradient_h_per_rad * p.rotor_teeth * (
+                ia * ia - ib * ib
+            ) * np.sin(2.0 * electrical_angle)
+        else:
+            torque = p.torque_constant_nm_a * (
+                ib * np.cos(electrical_angle) - ia * np.sin(electrical_angle)
+            )
+        detent = -p.detent_torque_nm * np.sin(2.0 * electrical_angle)
+        copper = p.phase_resistance_ohm * (ia * ia + ib * ib)
+        values = {
+            "phase_a_current_a": ia, "phase_b_current_a": ib,
+            "phase_a_voltage_v": self.phase_a_voltage_v, "phase_b_voltage_v": self.phase_b_voltage_v,
+            "phase_a_current_reference_a": p.phase_current_limit_a * np.cos(p.rotor_teeth * self.position_command_rad),
+            "phase_b_current_reference_a": p.phase_current_limit_a * np.sin(p.rotor_teeth * self.position_command_rad),
+            "rotor_speed_rad_s": speed, "rotor_position_rad": angle,
+            "position_command_rad": self.position_command_rad,
+            "position_following_error_rad": self.position_command_rad - angle,
+            "electromagnetic_torque_nm": torque, "detent_torque_nm": detent,
+            "load_torque_nm": self.load_torque_nm,
+            "mechanical_output_power_w": (torque + detent) * speed,
+            "phase_copper_loss_w": copper, "winding_temperature_c": temperature,
+        }
+        for value in values.values():
+            value.setflags(write=False)
+        return values
+
+
+def solve_stepper_transient_cpu(
+    motor_id: str, parameters: StepperParameters, duration_s: float, step_s: float, *,
+    position_command_rad: float | Sequence[float] | np.ndarray,
+    load_torque_nm: float | Sequence[float] | np.ndarray = 0.0,
+) -> StepperSimulationResult:
+    """Integrate averaged two-phase current control, stepper torque and mechanics."""
+    if not isinstance(motor_id, str) or not motor_id.strip():
+        raise ValueError("motor_id must be a non-empty string")
+    if not isinstance(parameters, StepperParameters):
+        raise TypeError("parameters must be StepperParameters")
+    count, _times = _validate_time(duration_s, step_s)
+    command = _voltage_profile(position_command_rad, count, "position_command_rad")
+    load = _voltage_profile(load_torque_nm, count, "load_torque_nm")
+    p = parameters
+    initial = np.asarray((0.0, 0.0, p.initial_speed_rad_s,
+                          p.initial_position_rad, p.initial_temperature_c), dtype=np.float64)
+
+    def derivative(state: np.ndarray, inputs: tuple[float, float]) -> np.ndarray:
+        ia, ib, speed, angle, temperature = state
+        commanded_position, load_torque = inputs
+        target_angle = p.rotor_teeth * commanded_position
+        ref_a = float(np.clip(p.phase_current_limit_a * np.cos(target_angle),
+                              -p.phase_current_limit_a, p.phase_current_limit_a))
+        ref_b = float(np.clip(p.phase_current_limit_a * np.sin(target_angle),
+                              -p.phase_current_limit_a, p.phase_current_limit_a))
+        voltage_a = float(np.clip(p.current_controller_gain_v_per_a * (ref_a - ia),
+                                  -p.phase_voltage_limit_v, p.phase_voltage_limit_v))
+        voltage_b = float(np.clip(p.current_controller_gain_v_per_a * (ref_b - ib),
+                                  -p.phase_voltage_limit_v, p.phase_voltage_limit_v))
+        dia = (voltage_a - p.phase_resistance_ohm * ia) / p.phase_inductance_h
+        dib = (voltage_b - p.phase_resistance_ohm * ib) / p.phase_inductance_h
+        electrical_angle = p.rotor_teeth * angle
+        if p.family == "variable_reluctance":
+            torque = 0.5 * p.inductance_gradient_h_per_rad * p.rotor_teeth * (
+                ia * ia - ib * ib
+            ) * np.sin(2.0 * electrical_angle)
+        else:
+            torque = p.torque_constant_nm_a * (
+                ib * np.cos(electrical_angle) - ia * np.sin(electrical_angle)
+            )
+        torque -= p.detent_torque_nm * np.sin(2.0 * electrical_angle)
+        copper_loss = p.phase_resistance_ohm * (ia * ia + ib * ib)
+        temperature_rate = (
+            copper_loss - p.thermal_conductance_w_k * (temperature - p.ambient_temperature_c)
+        ) / p.thermal_capacity_j_k
+        acceleration = (
+            torque - load_torque - p.viscous_friction_n_m_s * speed
+        ) / p.inertia_kg_m2
+        return np.asarray((dia, dib, acceleration, speed, temperature_rate), dtype=np.float64)
+
+    problem = NumericalProblem(
+        problem_id=motor_id.strip(), workload="stepper_two_phase_current_control_single",
+        derivative=derivative, initial_state=initial, duration_s=duration_s,
+        maximum_step_s=step_s,
+        input_at=lambda index, _time: (float(command[index]), float(load[index])),
+        precision="float64",
+    )
+    solution = solve_numerical_problem(problem)
+    if solution.sample_count != count:
+        raise RuntimeError("shared ODE engine returned an unexpected stepper sample count")
+    state = solution.state_data.reshape(count, 5)
+    ref_a = p.phase_current_limit_a * np.cos(p.rotor_teeth * command)
+    ref_b = p.phase_current_limit_a * np.sin(p.rotor_teeth * command)
+    voltage_a = np.clip(p.current_controller_gain_v_per_a * (ref_a - state[:, 0]),
+                        -p.phase_voltage_limit_v, p.phase_voltage_limit_v)
+    voltage_b = np.clip(p.current_controller_gain_v_per_a * (ref_b - state[:, 1]),
+                        -p.phase_voltage_limit_v, p.phase_voltage_limit_v)
+    return StepperSimulationResult(
+        motor_id.strip(), solution.time_s, solution.state_data, command, load,
+        voltage_a, voltage_b, solution.sample_period_s, "cpu-rk4",
+        {"integrator": solution.integrator, "precision": "float64",
+         "workload": "stepper_two_phase_current_control_single",
+         "model": "averaged_two_phase_stepper", "family": p.family,
+         "commutation": "sinusoidal_microstep_envelope",
+         "model_fidelity": "experimental reduced-order; no PWM, nonlinear tooth flux maps, resonance or certified missed-step prediction",
+         "integration_engine": "core.numerics.ode.solve_rk4"},
+    )
+
+
+__all__ += ["StepperParameters", "StepperSimulationResult", "solve_stepper_transient_cpu"]

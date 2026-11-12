@@ -432,3 +432,10 @@ The model is an experimental averaged-control approximation. It does not resolve
 ## Brushed-DC servo cascade (experimental)
 
 DCServoParameters and solve_dc_servo_transient_cpu provide an averaged position-P / speed-PI / armature-current-PI cascade around the existing DC excitation model. Explicit machine excitation configuration remains required. Outputs include position/speed, current and voltage commands, torque, power and winding thermal channels. CPU/RK4 only; PWM/chopper switching, brush commutation, armature reaction, field weakening, discrete timing, brake sequencing and safety-rated commissioning are not modelled. Not validated for drive commissioning; no GPU/NPU capability is claimed.
+
+
+## Stepper transient model (experimental)
+
+StepperParameters and solve_stepper_transient_cpu provide a two-phase averaged current-regulated model for variable-reluctance, permanent-magnet and hybrid stepper families. The solver integrates phase currents, rotor speed/position and lumped winding temperature; channel projections include phase current/voltage and references, following error, electromagnetic/detent torque, copper loss and mechanical output power. It uses the shared Core ODE engine and CPU/RK4 only.
+
+The model uses sinusoidal microstep current references and a reduced-order reluctance/PM torque approximation. It does not resolve PWM/chopper switching, measured nonlinear phase flux-linkage maps, detailed tooth geometry, magnetic saturation, microstep nonlinearity, resonance/pull-out curves, acceleration-profile generation, encoder dynamics, automatic missed-step detection or safety-rated drive behaviour. No GPU/NPU capability is claimed for this solver.

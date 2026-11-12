@@ -201,6 +201,15 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("feedback.position_command", "DC servo position command", X, N, "rad", ("control","commissioning")),
                 _p("feedback.position_error", "DC servo position following error", X, N, "rad", ("control","alarm")),
                 _p("feedback.speed_reference", "DC servo speed reference", X, N, "rad/s", ("control","diagnostics"))]
+    if family in {MotorFamily.STEPPER_VARIABLE_RELUCTANCE, MotorFamily.STEPPER_PERMANENT_MAGNET, MotorFamily.STEPPER_HYBRID}:
+        pts += [_p("drive.phase_a_current_reference", "Stepper phase-A current reference", C, A, "A", ("control","diagnostics")),
+                _p("drive.phase_b_current_reference", "Stepper phase-B current reference", C, B, "A", ("control","diagnostics")),
+                _p("drive.phase_a_voltage_command", "Stepper phase-A voltage command", V, A, "V", ("control","diagnostics")),
+                _p("drive.phase_b_voltage_command", "Stepper phase-B voltage command", V, B, "V", ("control","diagnostics")),
+                _p("feedback.position_command", "Stepper commanded position", X, N, "rad", ("control","motion_control"), True),
+                _p("feedback.position_error", "Stepper position following error", X, N, "rad", ("control","alarm","motion_control")),
+                _p("machine.electromagnetic_torque", "Stepper electromagnetic torque", X, N, "N.m", ("control","analysis")),
+                _p("machine.winding_temperature", "Stepper winding temperature", X, N, "degC", ("monitoring","alarm","maintenance"))]
     if family == MotorFamily.SYNCHRONOUS_RELUCTANCE:
         pts += [
             _p("drive.d_axis_current_reference", "d-axis current reference", C, N, "A", ("control","diagnostics")),

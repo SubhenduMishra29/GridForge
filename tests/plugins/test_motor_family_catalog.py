@@ -594,3 +594,34 @@ def test_dc_servo_cascade_position_and_limits():
     r=solve_dc_servo_transient_cpu('dc-servo',p,.02,.0001,position_command_rad=.03,load_torque_nm=.02); ch=r.channels(p)
     assert r.backend=='cpu-rk4' and np.isfinite(r.state_data).all() and abs(ch['mechanical_position_rad'][-1])>0.
     assert np.max(np.abs(ch['armature_voltage_command_v']))<=p.maximum_armature_voltage_v
+
+
+def test_stepper_solver_family_mapping_and_channel_contract():
+    import numpy as np
+    from plugins.motor_dynamics import StepperParameters, solve_stepper_transient_cpu
+    for family in (MotorFamily.STEPPER_VARIABLE_RELUCTANCE, MotorFamily.STEPPER_PERMANENT_MAGNET, MotorFamily.STEPPER_HYBRID):
+        profile = motor_family_profile(family)
+        assert profile.dynamic_model == "stepper_two_phase_current_control"
+        ids = {point.point_id for point in motor_measurement_points(family)}
+        assert {"terminal.phase_a_current", "terminal.phase_b_current",
+                "drive.phase_a_current_reference", "feedback.position_command"} <= ids
+    params = StepperParameters(phase_resistance_ohm=1.2, phase_inductance_h=.004,
+        inertia_kg_m2=.0008, rotor_teeth=50, family="hybrid", torque_constant_nm_a=.12,
+        phase_current_limit_a=1.5, phase_voltage_limit_v=24.,
+        current_controller_gain_v_per_a=8., detent_torque_nm=.01)
+    result = solve_stepper_transient_cpu("stepper-test", params, .01, .00005,
+        position_command_rad=.02, load_torque_nm=.005)
+    channels = result.channels(params)
+    assert result.backend == "cpu-rk4"
+    assert np.isfinite(result.state_data).all()
+    assert np.max(np.abs(channels["phase_a_voltage_v"])) <= params.phase_voltage_limit_v
+    assert np.max(np.abs(channels["phase_b_voltage_v"])) <= params.phase_voltage_limit_v
+    assert np.isfinite(channels["position_following_error_rad"]).all()
+
+
+def test_variable_reluctance_stepper_requires_inductance_gradient():
+    from plugins.motor_dynamics import StepperParameters
+    with pytest.raises(ValueError, match="inductance_gradient_h_per_rad"):
+        StepperParameters(phase_resistance_ohm=1., phase_inductance_h=.01,
+            inertia_kg_m2=.001, rotor_teeth=40, family="variable_reluctance",
+            inductance_gradient_h_per_rad=0.)
