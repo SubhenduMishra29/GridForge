@@ -755,3 +755,16 @@ is not silently substituted into that sampled contract. Production use
 requires a host composition/solver implementation that explicitly accepts
 the augmented-state derivative/step contract and returns the usual
 provenance-bound study result.
+
+
+### Algebraic network convergence evidence
+
+The stage network callback may return either the legacy bus-voltage mapping
+or `GeneratorNetworkSolveResult`. The structured result carries
+`GeneratorNetworkConvergenceEvidence`: solver identity, iteration count,
+residual norm, declared tolerance and explicit convergence status. The stage
+solution retains this evidence, and the accepted augmented step exposes it
+through `final_stage.network.convergence`. An explicit non-converged result
+fails the stage closed. A legacy mapping remains accepted for compatibility,
+but its convergence evidence is `None`; the adapter does not fabricate a
+residual or claim convergence when the host solver has not supplied evidence.
