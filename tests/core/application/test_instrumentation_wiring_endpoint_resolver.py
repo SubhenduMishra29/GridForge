@@ -258,3 +258,70 @@ def test_measurement_channel_source_terminal_must_be_present_on_a_signal_carrier
     )
     assert result[0].status == "UNRESOLVED"
     assert "does not include the MeasurementChannel source terminal" in result[0].diagnostics[0]
+
+
+
+def test_multi_carrier_signal_path_resolves_when_terminal_hops_are_contiguous():
+    endpoint = _endpoint_binding(
+        "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+    )
+    base = _signal_inventory(endpoint)
+    panel_wire = __import__(
+        "core.model.instrument_wiring", fromlist=["PanelWire"]
+    ).PanelWire(
+        id="jumper-1", tag="W-101", role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("TB-101", "1", "1"),
+            WiringTerminalReference("PLC-101", "AI1", "AI1"),
+        ),
+    )
+    jumper_binding = SignalCarrierBinding(
+        id="carrier-jumper", signal_id="signal-1",
+        carrier_kind=CarrierKind.PANEL_WIRE, carrier_id=panel_wire.id,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores,
+        panel_wires=(panel_wire,), signals=base.signals,
+        signal_bindings=base.signal_bindings + (jumper_binding,),
+        endpoint_bindings=base.endpoint_bindings,
+    )
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(_channel(),),
+        control_signal_mapping=None,
+        protection_configuration=None,
+    )
+    assert result[0].status == "RESOLVED"
+
+
+def test_multi_carrier_signal_path_reports_disconnected_jumper():
+    endpoint = _endpoint_binding(
+        "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+    )
+    base = _signal_inventory(endpoint)
+    from core.model.instrument_wiring import PanelWire
+    panel_wire = PanelWire(
+        id="jumper-2", tag="W-102", role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("TB-202", "2", "2"),
+            WiringTerminalReference("PLC-101", "AI1", "AI1"),
+        ),
+    )
+    jumper_binding = SignalCarrierBinding(
+        id="carrier-jumper-2", signal_id="signal-1",
+        carrier_kind=CarrierKind.PANEL_WIRE, carrier_id=panel_wire.id,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores,
+        panel_wires=(panel_wire,), signals=base.signals,
+        signal_bindings=base.signal_bindings + (jumper_binding,),
+        endpoint_bindings=base.endpoint_bindings,
+    )
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(_channel(),),
+        control_signal_mapping=None,
+        protection_configuration=None,
+    )
+    assert result[0].status == "UNRESOLVED"
+    assert "discontinuous" in result[0].diagnostics[0]
