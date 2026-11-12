@@ -150,3 +150,96 @@ def test_pmsm_rejects_misaligned_input_profiles() -> None:
             stator_voltage_d_v=[0.0] * 10,
             stator_voltage_q_v=8.0,
         )
+
+
+
+from plugins.motor_dynamics.transient_solver import (
+    BLDCParameters,
+    solve_bldc_transient_cpu,
+)
+
+
+def _bldc_parameters(**overrides):
+    values = dict(
+        phase_resistance_ohm=0.35,
+        phase_inductance_h=0.0012,
+        back_emf_constant_v_s_per_rad=0.045,
+        torque_constant_nm_per_a=0.045,
+        pole_pairs=4,
+        inertia_kg_m2=0.008,
+        thermal_capacity_j_k=3000.0,
+        thermal_conductance_w_k=18.0,
+    )
+    values.update(overrides)
+    return BLDCParameters(**values)
+
+
+def test_bldc_family_advertises_its_own_phase_domain_solver() -> None:
+    profile = motor_family_profile(MotorFamily.BRUSHLESS_DC)
+    assert profile.dynamic_model == "bldc_trapezoidal"
+    assert profile.model_status == "experimental_bldc_trapezoidal"
+
+
+def test_bldc_solver_preserves_floating_neutral_and_returns_channels() -> None:
+    import numpy as np
+    parameters = _bldc_parameters()
+    result = solve_bldc_transient_cpu(
+        "bldc-01", parameters, 0.02, 0.00002,
+        dc_bus_voltage_v=48.0, duty_a=0.8, duty_b=-0.4, duty_c=-0.4,
+        load_torque_nm=0.01,
+    )
+    channels = result.channels(parameters)
+    assert result.backend == "cpu-rk4"
+    assert result.sample_count == 1001
+    assert np.allclose(
+        channels["phase_a_current_a"] + channels["phase_b_current_a"] + channels["phase_c_current_a"],
+        0.0, atol=1e-12,
+    )
+    assert all(np.isfinite(values).all() for values in channels.values())
+    assert set(np.unique(channels["hall_sector"])).issubset({1.0, 2.0, 3.0, 4.0, 5.0, 6.0})
+    assert not result.state_data.flags.writeable
+    assert not channels["phase_c_current_a"].flags.writeable
+
+
+def test_bldc_zero_voltage_and_zero_speed_remains_at_rest() -> None:
+    result = solve_bldc_transient_cpu(
+        "bldc-rest", _bldc_parameters(), 0.01, 0.001,
+        dc_bus_voltage_v=48.0, duty_a=0.0, duty_b=0.0, duty_c=0.0,
+    )
+    assert result.state("rotor_speed_rad_s")[-1] == pytest.approx(0.0)
+    assert result.state("phase_a_current_a")[-1] == pytest.approx(0.0)
+    assert result.state("phase_b_current_a")[-1] == pytest.approx(0.0)
+
+
+def test_bldc_accepts_sample_aligned_commutation_duty_and_load_profiles() -> None:
+    import numpy as np
+    count = 101
+    duty_a = np.zeros(count); duty_b = np.zeros(count); duty_c = np.zeros(count)
+    duty_a[:34] = 0.8; duty_b[34:68] = 0.8; duty_c[68:] = 0.8
+    load = np.zeros(count); load[50:] = 0.05
+    result = solve_bldc_transient_cpu(
+        "bldc-profile", _bldc_parameters(), 0.01, 0.0001,
+        dc_bus_voltage_v=np.full(count, 48.0),
+        duty_a=duty_a, duty_b=duty_b, duty_c=duty_c, load_torque_nm=load,
+    )
+    assert result.duty_a[0] == 0.8
+    assert result.duty_b[50] == 0.8
+    assert result.diagnostics["commutation"] == "six_step_120_degree_trapezoidal"
+
+
+@pytest.mark.parametrize("kwargs, message", [
+    ({"phase_resistance_ohm": 0.0}, "phase_resistance_ohm must be finite and positive"),
+    ({"phase_inductance_h": -0.1}, "phase_inductance_h must be finite and positive"),
+    ({"pole_pairs": 0}, "pole_pairs must be a positive integer"),
+])
+def test_bldc_parameter_validation(kwargs, message) -> None:
+    with pytest.raises((TypeError, ValueError), match=message):
+        _bldc_parameters(**kwargs)
+
+
+def test_bldc_rejects_duty_outside_normalized_inverter_range() -> None:
+    with pytest.raises(ValueError, match="duty_a values must be within"):
+        solve_bldc_transient_cpu(
+            "bldc-invalid-duty", _bldc_parameters(), 0.01, 0.001,
+            dc_bus_voltage_v=48.0, duty_a=1.1, duty_b=-0.5, duty_c=-0.5,
+        )

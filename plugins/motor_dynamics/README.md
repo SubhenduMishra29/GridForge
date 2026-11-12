@@ -339,3 +339,12 @@ The solver returns immutable state/input arrays and derives stator current, dq c
 The model is experimental and is not a switching inverter or protection model. It omits PWM, current-loop control, magnetic saturation, iron and magnet losses, demagnetisation, field weakening, voltage/current limits and multi-node thermal networks. Validate parameter identification, numerical step selection and reference cases before engineering use. The traction-PM profile references this same simplified PMSM dq model only; traction-specific thermal, inverter and field-weakening physics remain unimplemented.
 
 BLDC is deliberately not marked as solved by this PMSM model. Six-step trapezoidal back-EMF and commutation timing require a distinct phase-domain model.
+
+
+## BLDC phase-domain transient model (experimental)
+
+`solve_bldc_transient_cpu(...)` adds a separate three-phase brushless-DC model. It integrates two independent phase currents and derives the third from the floating-neutral constraint ia + ib + ic = 0. Rotor position drives three 120-degree-shifted trapezoidal phase back-EMF waveforms. The model includes phase resistance/inductance, electromagnetic torque, rotor acceleration, temperature-adjusted copper loss and one lumped winding thermal node.
+
+The averaged inverter interface accepts a DC bus voltage and three signed normalized phase pole-voltage duty commands in [-1, 1]. Inputs may be scalar or sample-aligned profiles and use zero-order hold. Result channels include phase currents/back-EMFs, current RMS proxy, electromagnetic torque, rotor speed, electrical position/frequency, Hall-sector estimate, DC bus voltage/current, copper loss and mechanical output power. The Hall sector is derived from rotor electrical angle; it is not a simulated Hall sensor circuit.
+
+This is an experimental CPU/RK4 reference model. It does not simulate PWM carrier switching, dead time, semiconductor drops, commutation controller state, current-loop dynamics, field weakening, magnetic saturation, demagnetisation, iron loss or multi-node thermal behaviour. The six-step waveform is an averaged phase-domain approximation; controller-generated duty profiles must supply the intended commutation sequence. The BLDC profile is not represented as a PMSM dq model. No BLDC GPU/NPU physics capability is declared.

@@ -989,3 +989,307 @@ def solve_pmsm_transient_cpu(
             "integration_engine": "core.numerics.ode.solve_rk4",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Brushless DC motor (BLDC) three-phase trapezoidal phase-domain model
+# ---------------------------------------------------------------------------
+
+_BLDC_STATE_COUNT = 5
+_BLDC_IA, _BLDC_IB, _BLDC_OMEGA_M, _BLDC_THETA_M, _BLDC_TEMP_C = range(_BLDC_STATE_COUNT)
+_BLDC_STATE_NAMES = (
+    "phase_a_current_a", "phase_b_current_a", "rotor_speed_rad_s",
+    "mechanical_position_rad", "winding_temperature_c",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class BLDCParameters:
+    """Balanced three-phase BLDC parameters in SI units.
+
+    The phase back-EMF is a normalized 120-degree-flat trapezoid with
+    60-degree transitions. Torque and back-EMF constants are phase/peak
+    quantities and must use a consistent identification convention.
+    """
+
+    phase_resistance_ohm: float
+    phase_inductance_h: float
+    back_emf_constant_v_s_per_rad: float
+    torque_constant_nm_per_a: float
+    pole_pairs: int
+    inertia_kg_m2: float
+    friction_n_m_s: float = 0.0
+    thermal_capacity_j_k: float = 12000.0
+    thermal_conductance_w_k: float = 35.0
+    ambient_temperature_c: float = 25.0
+    resistance_temp_coefficient_per_k: float = 0.00393
+    initial_speed_rad_s: float = 0.0
+    initial_mechanical_position_rad: float = 0.0
+    initial_temperature_c: float = 25.0
+
+    def __post_init__(self) -> None:
+        positive = (
+            "phase_resistance_ohm", "phase_inductance_h",
+            "back_emf_constant_v_s_per_rad", "torque_constant_nm_per_a",
+            "inertia_kg_m2", "thermal_capacity_j_k",
+        )
+        for name in positive:
+            value = getattr(self, name)
+            if not _is_numeric_scalar(value):
+                raise TypeError(f"{name} must be numeric")
+            if not isfinite(float(value)) or float(value) <= 0.0:
+                raise ValueError(f"{name} must be finite and positive")
+        for name in (
+            "friction_n_m_s", "thermal_conductance_w_k",
+            "resistance_temp_coefficient_per_k", "ambient_temperature_c",
+            "initial_speed_rad_s", "initial_mechanical_position_rad",
+            "initial_temperature_c",
+        ):
+            value = getattr(self, name)
+            if not _is_numeric_scalar(value):
+                raise TypeError(f"{name} must be numeric")
+            if not isfinite(float(value)):
+                raise ValueError(f"{name} must be finite")
+            if name in ("friction_n_m_s", "thermal_conductance_w_k") and value < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if (
+            isinstance(self.pole_pairs, (bool, np.bool_))
+            or not isinstance(self.pole_pairs, (int, np.integer))
+            or self.pole_pairs < 1
+        ):
+            raise ValueError("pole_pairs must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
+class BLDCSimulationResult:
+    """Immutable BLDC trajectory and aligned averaged-inverter inputs."""
+
+    motor_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    duty_a: np.ndarray
+    duty_b: np.ndarray
+    duty_c: np.ndarray
+    dc_bus_voltage_v: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.motor_id, str) or not self.motor_id.strip():
+            raise ValueError("motor_id must be a non-empty string")
+        if not isinstance(self.diagnostics, Mapping):
+            raise TypeError("diagnostics must be a mapping")
+        for name in ("time_s", "state_data", "duty_a", "duty_b", "duty_c", "dc_bus_voltage_v"):
+            value = np.asarray(getattr(self, name), dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(value).all():
+                raise ValueError(f"{name} must contain only finite values")
+            value.setflags(write=False)
+            object.__setattr__(self, name, value)
+        count = self.time_s.size
+        if self.state_data.size != count * _BLDC_STATE_COUNT:
+            raise ValueError("BLDC state buffer does not match the time grid")
+        if any(getattr(self, name).size != count for name in ("duty_a", "duty_b", "duty_c", "dc_bus_voltage_v")):
+            raise ValueError("BLDC inverter profiles must align with the time grid")
+        if any(np.any(np.abs(getattr(self, name)) > 1.0) for name in ("duty_a", "duty_b", "duty_c")):
+            raise ValueError("BLDC phase duties must be within [-1, 1]")
+        if np.any(self.dc_bus_voltage_v <= 0.0):
+            raise ValueError("dc_bus_voltage_v must be positive")
+        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self) -> int:
+        return int(self.time_s.size)
+
+    @property
+    def state_names(self) -> tuple[str, ...]:
+        return _BLDC_STATE_NAMES
+
+    def state(self, name: str) -> np.ndarray:
+        try:
+            index = _BLDC_STATE_NAMES.index(name)
+        except ValueError as exc:
+            raise KeyError(name) from exc
+        view = self.state_data.reshape(self.sample_count, _BLDC_STATE_COUNT)[:, index].view()
+        view.setflags(write=False)
+        return view
+
+    def channels(self, parameters: BLDCParameters) -> dict[str, np.ndarray]:
+        if not isinstance(parameters, BLDCParameters):
+            raise TypeError("parameters must be BLDCParameters")
+        matrix = self.state_data.reshape(self.sample_count, _BLDC_STATE_COUNT)
+        ia, ib, speed, theta_m, temp = (matrix[:, i] for i in range(_BLDC_STATE_COUNT))
+        ic = -ia - ib
+        theta_e = np.mod(parameters.pole_pairs * theta_m, 2.0 * np.pi)
+        fa = _bldc_trapezoid(theta_e)
+        fb = _bldc_trapezoid(theta_e - 2.0 * np.pi / 3.0)
+        fc = _bldc_trapezoid(theta_e + 2.0 * np.pi / 3.0)
+        torque = parameters.torque_constant_nm_per_a * (fa * ia + fb * ib + fc * ic)
+        resistance = parameters.phase_resistance_ohm * np.maximum(
+            0.05, 1.0 + parameters.resistance_temp_coefficient_per_k
+            * (temp - parameters.ambient_temperature_c)
+        )
+        ea = parameters.back_emf_constant_v_s_per_rad * speed * fa
+        eb = parameters.back_emf_constant_v_s_per_rad * speed * fb
+        ec = parameters.back_emf_constant_v_s_per_rad * speed * fc
+        values = {
+            "phase_a_current_a": ia, "phase_b_current_a": ib, "phase_c_current_a": ic,
+            "phase_current_rms_proxy_a": np.sqrt((ia * ia + ib * ib + ic * ic) / 3.0),
+            "phase_a_back_emf_v": ea, "phase_b_back_emf_v": eb, "phase_c_back_emf_v": ec,
+            "electromagnetic_torque_nm": torque,
+            "rotor_speed_rad_s": speed, "rotor_speed_rpm": speed * 60.0 / (2.0 * np.pi),
+            "mechanical_position_rad": theta_m,
+            "electrical_position_rad": parameters.pole_pairs * theta_m,
+            "electrical_frequency_hz": parameters.pole_pairs * speed / (2.0 * np.pi),
+            "hall_sector": np.floor(theta_e / (np.pi / 3.0)) + 1.0,
+            "winding_temperature_c": temp, "dc_bus_voltage_v": self.dc_bus_voltage_v,
+            "dc_bus_current_a": 0.5 * (self.duty_a * ia + self.duty_b * ib + self.duty_c * ic),
+            "stator_copper_loss_w": resistance * (ia * ia + ib * ib + ic * ic),
+            "mechanical_output_power_w": torque * speed,
+        }
+        for value in values.values():
+            value.setflags(write=False)
+        return values
+
+    def publish_to(
+        self, read_model_store: Any, parameters: BLDCParameters, *,
+        study_id: str | None = None, study_order: int | None = None,
+    ) -> bool:
+        publish = getattr(read_model_store, "publish", None)
+        if not callable(publish):
+            raise TypeError("read_model_store must expose publish(...)")
+        return publish(
+            self.motor_id, self.channels(parameters), self.sample_period_s,
+            status="completed", study_id=study_id, study_order=study_order,
+            diagnostics=self.diagnostics,
+        )
+
+
+def _bldc_trapezoid(angle_rad: float | np.ndarray) -> float | np.ndarray:
+    """Normalized trapezoidal BLDC phase back-EMF in [-1, 1]."""
+    angle = np.mod(np.asarray(angle_rad, dtype=np.float64), 2.0 * np.pi)
+    degrees = angle * (180.0 / np.pi)
+    result = np.empty_like(degrees)
+    rising = degrees < 60.0
+    positive = (degrees >= 60.0) & (degrees < 180.0)
+    falling = (degrees >= 180.0) & (degrees < 240.0)
+    negative = degrees >= 240.0
+    result[rising] = -1.0 + 2.0 * degrees[rising] / 60.0
+    result[positive] = 1.0
+    result[falling] = 1.0 - 2.0 * (degrees[falling] - 180.0) / 60.0
+    result[negative] = -1.0
+    if np.ndim(angle_rad) == 0:
+        return float(result)
+    return result
+
+
+def _bldc_profile(value: float | Sequence[float] | np.ndarray, count: int, name: str) -> np.ndarray:
+    return _voltage_profile(value, count, name)
+
+
+def _bldc_derivative(
+    state: np.ndarray, parameters: BLDCParameters,
+    duties: tuple[float, float, float], bus_v: float, load_torque_nm: float,
+) -> np.ndarray:
+    ia, ib, omega_m, theta_m, temperature = state
+    ic = -ia - ib
+    theta_e = parameters.pole_pairs * theta_m
+    fa = _bldc_trapezoid(theta_e)
+    fb = _bldc_trapezoid(theta_e - 2.0 * np.pi / 3.0)
+    fc = _bldc_trapezoid(theta_e + 2.0 * np.pi / 3.0)
+    ea = parameters.back_emf_constant_v_s_per_rad * omega_m * fa
+    eb = parameters.back_emf_constant_v_s_per_rad * omega_m * fb
+    ec = parameters.back_emf_constant_v_s_per_rad * omega_m * fc
+    resistance = parameters.phase_resistance_ohm * max(
+        0.05, 1.0 + parameters.resistance_temp_coefficient_per_k
+        * (temperature - parameters.ambient_temperature_c)
+    )
+    va, vb, vc = (duty * bus_v * 0.5 for duty in duties)
+    neutral = (
+        va - ea - resistance * ia
+        + vb - eb - resistance * ib
+        + vc - ec - resistance * ic
+    ) / 3.0
+    dia = (va - ea - resistance * ia - neutral) / parameters.phase_inductance_h
+    dib = (vb - eb - resistance * ib - neutral) / parameters.phase_inductance_h
+    torque = parameters.torque_constant_nm_per_a * (fa * ia + fb * ib + fc * ic)
+    copper_loss = resistance * (ia * ia + ib * ib + ic * ic)
+    return np.asarray((
+        dia, dib,
+        (torque - load_torque_nm - parameters.friction_n_m_s * omega_m) / parameters.inertia_kg_m2,
+        omega_m,
+        (copper_loss - parameters.thermal_conductance_w_k
+         * (temperature - parameters.ambient_temperature_c)) / parameters.thermal_capacity_j_k,
+    ), dtype=np.float64)
+
+
+def solve_bldc_transient_cpu(
+    motor_id: str, parameters: BLDCParameters, duration_s: float, step_s: float, *,
+    dc_bus_voltage_v: float | Sequence[float] | np.ndarray,
+    duty_a: float | Sequence[float] | np.ndarray,
+    duty_b: float | Sequence[float] | np.ndarray,
+    duty_c: float | Sequence[float] | np.ndarray,
+    load_torque_nm: float | Sequence[float] | np.ndarray = 0.0,
+) -> BLDCSimulationResult:
+    """Integrate BLDC trapezoidal phase dynamics using averaged six-step PWM duties.
+
+    Duty inputs are signed normalized phase pole-voltage commands in [-1, 1].
+    Scalar or sample-aligned zero-order-held profiles are accepted. PWM carrier
+    switching, dead time, device drops and closed-loop current control are not
+    modeled; caller supplies the commutation duty sequence.
+    """
+    if not isinstance(motor_id, str) or not motor_id.strip():
+        raise ValueError("motor_id must be a non-empty string")
+    if not isinstance(parameters, BLDCParameters):
+        raise TypeError("parameters must be BLDCParameters")
+    count, _times = _validate_time(duration_s, step_s)
+    bus = _bldc_profile(dc_bus_voltage_v, count, "dc_bus_voltage_v")
+    if np.any(bus <= 0.0):
+        raise ValueError("dc_bus_voltage_v must be positive")
+    duties = []
+    for name, value in (("duty_a", duty_a), ("duty_b", duty_b), ("duty_c", duty_c)):
+        profile = _bldc_profile(value, count, name)
+        if np.any(profile < -1.0) or np.any(profile > 1.0):
+            raise ValueError(f"{name} values must be within [-1, 1]")
+        duties.append(profile)
+    load = _bldc_profile(load_torque_nm, count, "load_torque_nm")
+    initial = np.asarray((
+        0.0, 0.0, parameters.initial_speed_rad_s,
+        parameters.initial_mechanical_position_rad, parameters.initial_temperature_c,
+    ), dtype=np.float64)
+    problem = NumericalProblem(
+        problem_id=motor_id.strip(),
+        workload="bldc_trapezoidal_transient_single",
+        derivative=lambda state, inputs: _bldc_derivative(
+            state, parameters, (inputs[0], inputs[1], inputs[2]), inputs[3], inputs[4]
+        ),
+        initial_state=initial, duration_s=duration_s, maximum_step_s=step_s,
+        input_at=lambda index, _time: (
+            float(duties[0][index]), float(duties[1][index]),
+            float(duties[2][index]), float(bus[index]), float(load[index]),
+        ),
+        precision="float64",
+    )
+    solution = solve_numerical_problem(problem)
+    if solution.sample_count != count:
+        raise RuntimeError("shared ODE engine returned an unexpected BLDC sample count")
+    return BLDCSimulationResult(
+        motor_id=motor_id.strip(), time_s=solution.time_s, state_data=solution.state_data,
+        duty_a=duties[0], duty_b=duties[1], duty_c=duties[2],
+        dc_bus_voltage_v=bus, sample_period_s=solution.sample_period_s,
+        backend="cpu-rk4",
+        diagnostics={
+            "integrator": solution.integrator, "precision": "float64",
+            "workload": "bldc_trapezoidal_transient_single",
+            "state_layout": "step_major_state_minor", "state_count": _BLDC_STATE_COUNT,
+            "model": "bldc_three_phase_trapezoidal_back_emf_floating_neutral",
+            "commutation": "six_step_120_degree_trapezoidal",
+            "inverter": "averaged_signed_pole_voltage_duty",
+            "phase_current_constraint": "ia_plus_ib_plus_ic_equals_zero",
+            "input_profile": "zero_order_hold",
+            "model_fidelity": "linear_phase_rl_no_pwm_switching_or_saturation",
+            "requested_max_step_s": float(step_s),
+            "effective_step_s": solution.sample_period_s,
+            "integration_engine": "core.numerics.ode.solve_rk4",
+        },
+    )

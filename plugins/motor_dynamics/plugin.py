@@ -48,6 +48,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "family_specific_instrumentation",
         "canonical_measurement_channel_provisioning",
         "pmsm_dq_cpu_transient",
+        "bldc_trapezoidal_cpu_transient",
     }),
 )
 

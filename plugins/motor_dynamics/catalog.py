@@ -71,7 +71,7 @@ class MotorFamilyProfile:
 def _profile(family: MotorFamily, supply: str, phases: int, principle: str,
              drive: str, *, dynamic_model: str | None = None,
              regenerative: bool = False, notes: str = "") -> MotorFamilyProfile:
-    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq"}.get(dynamic_model, "catalogued_model_required")
+    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal"}.get(dynamic_model, "catalogued_model_required")
     return MotorFamilyProfile(family, supply, phases, principle, drive, dynamic_model, status, regenerative, notes)
 
 
@@ -85,7 +85,7 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.SINGLE_PHASE_SHADED_POLE: _profile(MotorFamily.SINGLE_PHASE_SHADED_POLE, "AC", 1, "shaded-pole induction", "line"),
     MotorFamily.WOUND_FIELD_SYNCHRONOUS: _profile(MotorFamily.WOUND_FIELD_SYNCHRONOUS, "AC", 3, "DC-excited synchronous", "VFD / damper-start / exciter", regenerative=True),
     MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS: _profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS, "AC", 3, "surface/interior PM synchronous", "FOC / inverter", dynamic_model="pmsm_dq", regenerative=True, notes="Experimental CPU dq transient model; linear magnetic parameters and no PWM switching."),
-    MotorFamily.BRUSHLESS_DC: _profile(MotorFamily.BRUSHLESS_DC, "DC link", 3, "electronically commutated PM", "six-step / FOC", regenerative=True),
+    MotorFamily.BRUSHLESS_DC: _profile(MotorFamily.BRUSHLESS_DC, "DC link", 3, "electronically commutated PM", "six-step / FOC", dynamic_model="bldc_trapezoidal", regenerative=True, notes="Experimental CPU phase-domain model with trapezoidal back-EMF and averaged six-step inverter commands; PWM switching and closed-loop commutation are not modeled."),
     MotorFamily.SYNCHRONOUS_RELUCTANCE: _profile(MotorFamily.SYNCHRONOUS_RELUCTANCE, "AC", 3, "synchronous reluctance", "VFD / vector control", regenerative=True),
     MotorFamily.SWITCHED_RELUCTANCE: _profile(MotorFamily.SWITCHED_RELUCTANCE, "DC link", 3, "switched reluctance", "asymmetric bridge converter", regenerative=True),
     MotorFamily.DC_SHUNT: _profile(MotorFamily.DC_SHUNT, "DC", 2, "shunt-wound brushed DC", "DC drive"),
