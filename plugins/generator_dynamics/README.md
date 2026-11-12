@@ -303,9 +303,10 @@ inputs. The decision exposes final-command-minus-request tracking errors for
 each active candidate. The coordinator owns no dynamic state or solver clock.
  
  `calculate_ggov1_operating_point()` provides a pure shared initialization
- calculation from initial electrical/mechanical power and shaft speed. It
+ calculation from initial electrical/mechanical power at nominal shaft speed. It
  derives the common initial FSR, actual valve target, Flag-dependent fuel
- flow, and modeled temperature-proxy input. It also reports the PID/load-PI
+ flow, modeled temperature-proxy input, and Rselect-consistent PID power
+ reference for zero initial governor error. It also reports the PID/load-PI
  integral alignment residual and the load-limiter output residual. Call
  `require_balanced()` when the load/temperature limiter is active and the
  study requires all initialized controller paths to agree. The helper rejects
