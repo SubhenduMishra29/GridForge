@@ -139,6 +139,7 @@ class GGOV1OperatingPoint:
     initial_temperature_proxy_input_pu: float
     pid_integral_target_pu: float
     initial_power_reference_pu: float
+    initial_governor_output_pu: float
     load_integral_target_pu: float
     load_limiter_request_pu: float
     integral_alignment_error_pu: float
@@ -227,6 +228,7 @@ def calculate_ggov1_operating_point(
         initial_temperature_proxy_input_pu=temperature_proxy,
         pid_integral_target_pu=pid_integral,
         initial_power_reference_pu=initial_power_reference,
+        initial_governor_output_pu=governor_output,
         load_integral_target_pu=load_integral,
         load_limiter_request_pu=load_request,
         integral_alignment_error_pu=load_integral - pid_integral,
