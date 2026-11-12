@@ -150,10 +150,10 @@ class GeneratorAugmentedArchivedCheckpoint:
             raise TypeError("identity must be GeneratorStudyCheckpointIdentity")
         if self.study_schema_version != 1:
             raise ValueError("unsupported generator study schema version")
-        if self.execution_status not in {"cancelled", "failed"}:
-            raise ValueError("only interrupted or failed studies can be restored for resume")
-        if self.trajectory_status not in {"interrupted", "incomplete"}:
-            raise ValueError("archived trajectory is not resumable")
+        if (self.execution_status, self.trajectory_status) not in {
+            ("cancelled", "interrupted"), ("failed", "incomplete")
+        }:
+            raise ValueError("archived execution/trajectory status pair is not resumable")
         state = tuple(self.accepted_state)
         if not state or any(
             isinstance(value, bool) or not isinstance(value, (int, float))
@@ -211,7 +211,7 @@ class GeneratorAugmentedArchivedCheckpoint:
         for index, step in enumerate(steps):
             if not isinstance(step, Mapping):
                 raise ValueError(f"accepted step {index} is malformed")
-            if step.get("schema") != "gridforge.generator_augmented_step" or step.get("schema_version") != 1:
+            if step.get("schema") != "gridforge.generator_augmented_step" or type(step.get("schema_version")) is not int or step.get("schema_version") != 1:
                 raise ValueError(f"accepted step {index} has an unsupported schema")
             step_time = step.get("simulation_time_s")
             state = step.get("accepted_state")
@@ -231,7 +231,7 @@ class GeneratorAugmentedArchivedCheckpoint:
             previous_time = float(step_time)
             last_time = previous_time
             last_state = tuple(float(value) for value in state)
-        if execution_status not in {"cancelled", "failed"} or trajectory_status not in {"interrupted", "incomplete"}:
+        if (execution_status, trajectory_status) not in {("cancelled", "interrupted"), ("failed", "incomplete")}:
             raise ValueError("archive status is not eligible for restart")
         return cls(
             simulation_time_s=last_time,
