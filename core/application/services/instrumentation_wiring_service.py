@@ -206,6 +206,60 @@ class InstrumentationWiringService:
                     raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' is declared GROUNDED but its earth link is not explicitly CLOSED.")
 
     @staticmethod
+    @staticmethod
+    def _validate_temperature_sensor_circuits(network: Any, inventory: InstrumentationWiringInventory) -> None:
+        """Resolve exact RTD/TC identities and require an explicit active channel binding."""
+        from core.model.instrument_wiring import TemperatureSensorKind
+        from core.model.temperature_sensor import RTD, Thermocouple
+
+        endpoint_channels = {
+            (binding.signal_id, binding.endpoint.endpoint_id)
+            for binding in inventory.endpoint_bindings
+            if binding.endpoint.kind.value == "MEASUREMENT_CHANNEL"
+        }
+        carrier_channel_bindings = {
+            (binding.signal_id, binding.source_channel_id)
+            for binding in inventory.signal_bindings
+            if binding.source_channel_id is not None
+        }
+        for circuit in inventory.temperature_sensor_circuits:
+            try:
+                sensor = network.get_by_identity(circuit.sensor_id)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Temperature sensor circuit '{circuit.id}' references unregistered sensor '{circuit.sensor_id}'."
+                ) from exc
+            expected_class = RTD if circuit.sensor_kind is TemperatureSensorKind.RTD else Thermocouple
+            expected_type = "RTD" if circuit.sensor_kind is TemperatureSensorKind.RTD else "THERMOCOUPLE"
+            if not isinstance(sensor, expected_class) or getattr(sensor, "id", None) != circuit.sensor_id or getattr(sensor, "element_type", None) != expected_type:
+                raise ValueError(
+                    f"Temperature sensor circuit '{circuit.id}' must resolve to the exact Core {expected_type} identity."
+                )
+            actual_roles = {terminal.role for terminal in sensor.terminals}
+            declared_roles = {lead.terminal.terminal_role for lead in circuit.leads}
+            if actual_roles != declared_roles:
+                raise ValueError(
+                    f"Temperature sensor circuit '{circuit.id}' lead roles do not exactly match the actual Core sensor terminals."
+                )
+            if circuit.sensor_kind is TemperatureSensorKind.RTD:
+                if sensor.wiring_configuration.value != circuit.rtd_wiring_configuration:
+                    raise ValueError(f"RTD circuit '{circuit.id}' wiring configuration does not match its Core RTD.")
+            elif sensor.thermocouple_type.value != circuit.thermocouple_type:
+                raise ValueError(f"Thermocouple circuit '{circuit.id}' type does not match its Core thermocouple.")
+            matching_signals = {
+                signal_id for signal_id, channel_id in endpoint_channels
+                if channel_id == circuit.measurement_channel_id
+            }
+            if not matching_signals or not any(
+                (signal_id, circuit.measurement_channel_id) in carrier_channel_bindings
+                for signal_id in matching_signals
+            ):
+                raise ValueError(
+                    f"Temperature sensor circuit '{circuit.id}' requires an explicit signal-to-MeasurementChannel endpoint and carrier binding."
+                )
+            if not bool(getattr(sensor, "in_service", False)):
+                continue
+
     def _read_value(value: Any) -> Any:
         if isinstance(value, Enum):
             return value.value
@@ -432,6 +486,7 @@ class InstrumentationWiringService:
             self._validate_inventory_terminals(network, candidate)
             self._validate_ct_secondary_circuits(network, candidate)
             self._validate_pt_secondary_circuits(network, candidate)
+            self._validate_temperature_sensor_circuits(network, candidate)
             next_project_id = project_id.strip()
             next_generation = generation
             next_network = network
