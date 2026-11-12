@@ -15,7 +15,8 @@ from .transient_solver import (
     HysteresisMotorParameters, HysteresisMotorSimulationResult, solve_hysteresis_motor_transient_cpu,
     PMSMServoParameters, PMSMServoSimulationResult, solve_pmsm_servo_transient_cpu,
     InductionServoParameters, InductionServoSimulationResult, solve_induction_servo_transient_cpu,
-    DCServoParameters, DCServoSimulationResult, solve_dc_servo_transient_cpu,\n    StepperParameters, StepperSimulationResult, solve_stepper_transient_cpu,
+    DCServoParameters, DCServoSimulationResult, solve_dc_servo_transient_cpu,
+    StepperParameters, StepperSimulationResult, solve_stepper_transient_cpu,
 )
 __all__ = [
     "MotorDynamicsPlugin", "MotorFamily", "MotorFamilyProfile", "MotorNameplate", "MotorOperatingMode",
