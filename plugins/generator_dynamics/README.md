@@ -495,3 +495,25 @@ derivative assembly, validated machine/component identity binding, and
 accepted-step commit/reject participants together. It must also solve the
 electrical feedback coupling (AVR terminal-voltage/internal-emf interaction)
 before claiming a full generator transient model.
+
+### Core composed dynamic-state layout (contract milestone)
+
+Core now exports `DynamicSystemStateLayout` and
+`DynamicStateBlockSlice`. The layout composes the existing ordered
+`MultiMachineSystem.state_layout` as the unchanged leading machine segment,
+then appends validated `DynamicStateComponent` state blocks in explicit
+registration order. Stable identities, positive component dimensions,
+contiguous offsets, exact component-state keys, and finite vector dimensions
+are checked before packing. Unpacking returns detached read-only state
+snapshots, and derivative assembly uses the same frozen offsets.
+
+This is a compatibility-oriented composition value, not a solver registration
+or execution path. `MultiMachineSystem` still validates and evaluates its
+machine-only vector; `DAESolver` still delegates state validation, algebraic
+network solving and machine derivatives to that class. Passing the composed
+vector directly to the current DAE solver is therefore unsupported. The new
+layout does not change solver APIs, add component callbacks to RK4/Newton
+stages, couple AVR output into the network source, or commit GGOV1 sampled
+feedback. A future integration must make the network solver, machine
+derivatives, component derivatives, event boundaries and accepted/rejected
+step participants consume one common augmented-state protocol atomically.
