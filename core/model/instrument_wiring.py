@@ -645,8 +645,8 @@ class InstrumentationWiringInventory:
                 raise ValueError(f"Terminal accessory '{accessory.id}' references a missing terminal point.")
             if any(terminal_points_by_id[point_id].terminal_block_id != accessory.terminal_block_id for point_id in accessory.terminal_point_ids):
                 raise ValueError(f"Terminal accessory '{accessory.id}' references a terminal point from another block.")
-            if accessory.state is TerminalAccessoryState.CLOSED and accessory.kind is not TerminalAccessoryKind.OTHER and not accessory.conductive_pairs:
-                raise ValueError(f"Closed terminal accessory '{accessory.id}' requires explicit conductive_pairs.")
+            if accessory.kind is not TerminalAccessoryKind.OTHER and not accessory.conductive_pairs:
+                raise ValueError(f"Terminal accessory '{accessory.id}' requires explicit conductive_pairs.")
 
         endpoint_signals: dict[tuple[str, ...], str] = {}
         for binding in self.endpoint_bindings:
