@@ -760,6 +760,53 @@ class ProtectionReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class MeasurementChannelConfigurationReadModel:
+    """Detached project configuration, separate from live channel telemetry."""
+
+    channel_id: str
+    name: str
+    source_id: str
+    source_equipment_type: str
+    source_terminal_reference: Mapping[str, Any]
+    signal_type: str
+    phase: str
+    unit: str
+    nominal_value: float
+    scale: float
+    polarity: float
+    timestamp_domain: str | None
+    stale_after: float | None
+    producer_id: str | None
+
+    def __post_init__(self) -> None:
+        for field_name in ("channel_id", "source_id", "source_equipment_type", "signal_type", "phase", "unit"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty.")
+            object.__setattr__(self, field_name, value.strip())
+        if not isinstance(self.name, str):
+            raise TypeError("MeasurementChannelConfigurationReadModel.name must be a string.")
+        if not isinstance(self.source_terminal_reference, Mapping):
+            raise TypeError("source_terminal_reference must be a mapping.")
+        object.__setattr__(self, "source_terminal_reference", _freeze(self.source_terminal_reference))
+        for field_name in ("nominal_value", "scale", "polarity"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be finite.")
+        if self.stale_after is not None and (
+            isinstance(self.stale_after, bool)
+            or not isinstance(self.stale_after, (int, float))
+            or not math.isfinite(self.stale_after)
+            or self.stale_after < 0
+        ):
+            raise ValueError("MeasurementChannelConfigurationReadModel.stale_after must be finite and non-negative.")
+        for field_name in ("timestamp_domain", "producer_id"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty or None.")
+
+
+@dataclass(frozen=True, slots=True)
 class MeasurementChannelReadModel:
     """Detached Application snapshot of one live MeasurementChannel sample."""
 
@@ -776,12 +823,6 @@ class MeasurementChannelReadModel:
     stale_after: float | None
     producer_id: str | None
     validity: str
-    source_id: str | None = None
-    source_terminal_role: str | None = None
-    name: str = ""
-    nominal_value: float | None = None
-    scale: float | None = None
-    polarity: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.channel_id, str) or not self.channel_id.strip():
@@ -809,22 +850,6 @@ class MeasurementChannelReadModel:
             raise ValueError("MeasurementChannelReadModel.stale_after must be finite and non-negative.")
         object.__setattr__(self, "channel_id", self.channel_id.strip())
         object.__setattr__(self, "value", _freeze(self.value))
-        for field_name in ("source_id", "source_terminal_role"):
-            field_value = getattr(self, field_name)
-            if field_value is not None and (
-                not isinstance(field_value, str) or not field_value.strip()
-            ):
-                raise ValueError(f"MeasurementChannelReadModel.{field_name} must be non-empty or None.")
-        if not isinstance(self.name, str):
-            raise TypeError("MeasurementChannelReadModel.name must be a string.")
-        for field_name in ("nominal_value", "scale", "polarity"):
-            field_value = getattr(self, field_name)
-            if field_value is not None and (
-                isinstance(field_value, bool)
-                or not isinstance(field_value, (int, float))
-                or not math.isfinite(field_value)
-            ):
-                raise ValueError(f"MeasurementChannelReadModel.{field_name} must be finite or None.")
 
 
 __all__ = [
@@ -835,6 +860,7 @@ __all__ = [
     "InstrumentationWiringReadModel",
     "ProtectionReadModel",
     "MeasurementChannelReadModel",
+    "MeasurementChannelConfigurationReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "PhysicalRelayConfigurationReadModel",
