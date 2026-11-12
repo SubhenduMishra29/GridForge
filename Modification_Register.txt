@@ -4849,3 +4849,13 @@ Verification:
 - Regression-test source was added but not executed. No import/startup,
   GUI, schedule export, save/reopen or runtime electrical test was performed.
 ======================================================================
+
+
+2026-11-12 | Issue #1203 / PR #1207 | Canonical RTD and thermocouple Core equipment identity foundation
+- Added headless Core RTD and Thermocouple equipment identities with immutable sensor type/configuration declarations and authoritative owned Terminal objects.
+- RTD exposes configuration-specific 2-wire (A/B), 3-wire (A/B1/B2), and 4-wire (A1/A2/B1/B2) terminal roles; endpoint roles outside the declared configuration are rejected.
+- Thermocouple exposes explicit POSITIVE/NEGATIVE terminals and a constrained type enum (J, K, T, E, N, R, S, B).
+- Registered temperature sensor families in the Core terminal-role contract and EquipmentType endpoint identity registry.
+- Kept calibration, CJC, lead compensation, transmitter configuration, channel scaling, MeasurementChannel acquisition and UI projection outside Core.
+- Added regression-test source for terminal ownership, configuration-specific roles, type validation and endpoint identity. Tests were not executed.
+- Remaining in #1203: schema-8 RTD/thermocouple wiring profiles and carrier-chain compatibility validation; physical extension/compensating lead material and polarity; measurement input compatibility; shields/drains/armour/earth; communication media; schedule/report export and save/reopen evidence. PR #1207 remains draft/unmerged pending reconciliation and full acceptance.
