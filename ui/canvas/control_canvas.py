@@ -229,9 +229,9 @@ class ControlCanvas(GridScene):
             detail = item.detail_text
             sld_target = item.status == "RESOLVED"
             if peer is not None:
-                detail += "\\nDouble-click to locate the matching Protection input; right-click for the SLD route."
+                detail += "\nDouble-click to locate the matching Protection input; right-click for the SLD route."
             elif sld_target:
-                detail += "\\nDouble-click to highlight the complete physical SLD route."
+                detail += "\nDouble-click to highlight the complete physical SLD route."
             label = SignalProvenanceItem(
                 item.short_label, detail,
                 target_editor=(
