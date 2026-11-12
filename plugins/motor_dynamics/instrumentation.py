@@ -195,6 +195,12 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("feedback.encoder_speed", "Encoder speed feedback", X, N, "rpm", ("control","commissioning")),
                 _p("feedback.resolver_position", "Resolver position feedback", X, N, "deg", ("control","commissioning")),
                 _p("feedback.hall_state", "Hall sensor commutation state", D, N, "state", ("control","diagnostics"))]
+    if family == MotorFamily.DC_SERVO:
+        pts += [_p("drive.armature_current_reference", "DC servo armature current reference", C, N, "A", ("control","diagnostics")),
+                _p("drive.armature_voltage_command", "DC servo armature voltage command", V, N, "V", ("control","diagnostics")),
+                _p("feedback.position_command", "DC servo position command", X, N, "rad", ("control","commissioning")),
+                _p("feedback.position_error", "DC servo position following error", X, N, "rad", ("control","alarm")),
+                _p("feedback.speed_reference", "DC servo speed reference", X, N, "rad/s", ("control","diagnostics"))]
     if family == MotorFamily.SYNCHRONOUS_RELUCTANCE:
         pts += [
             _p("drive.d_axis_current_reference", "d-axis current reference", C, N, "A", ("control","diagnostics")),
