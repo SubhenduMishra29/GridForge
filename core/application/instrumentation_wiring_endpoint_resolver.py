@@ -80,18 +80,29 @@ def resolve_signal_endpoint_bindings(
 
         carriers: list[tuple[str, tuple[tuple[str, str], ...], str]] = []
         unsupported: list[str] = []
+        unassigned_carriers: list[str] = []
         for carrier_binding in inventory.signal_bindings:
             if carrier_binding.signal_id != signal_id:
                 continue
-            if carrier_binding.carrier_kind is CarrierKind.CABLE_CORE:
-                carrier = cores_by_id.get(carrier_binding.carrier_id)
-            elif carrier_binding.carrier_kind is CarrierKind.PANEL_WIRE:
-                carrier = panel_wires_by_id.get(carrier_binding.carrier_id)
-            else:
+            if carrier_binding.carrier_kind not in {CarrierKind.CABLE_CORE, CarrierKind.PANEL_WIRE}:
                 unsupported.append(
                     f"{carrier_binding.carrier_kind.value} carrier {carrier_binding.carrier_id!r} has no typed terminal-path resolver."
                 )
                 continue
+            if carrier_binding.source_channel_id is None:
+                unassigned_carriers.append(carrier_binding.carrier_id)
+                continue
+            if carrier_binding.source_channel_id not in channel_refs_by_signal.get(signal_id, set()):
+                return (
+                    f"Signal carrier {carrier_binding.carrier_id!r} references unbound MeasurementChannel "
+                    f"{carrier_binding.source_channel_id!r}.",
+                )
+            if carrier_binding.source_channel_id != channel_id:
+                continue
+            if carrier_binding.carrier_kind is CarrierKind.CABLE_CORE:
+                carrier = cores_by_id.get(carrier_binding.carrier_id)
+            else:
+                carrier = panel_wires_by_id.get(carrier_binding.carrier_id)
             if carrier is None:
                 return (f"Signal carrier {carrier_binding.carrier_id!r} cannot be resolved.",)
             path = tuple(item.identity for item in carrier.terminal_path)
@@ -100,6 +111,11 @@ def resolve_signal_endpoint_bindings(
                     f"Signal carrier {carrier.id!r} has no complete terminal-to-terminal path.",
                 )
             carriers.append((carrier.id, path, carrier_binding.direction))
+        if unassigned_carriers:
+            return (
+                "Signal contains carrier(s) without explicit MeasurementChannel ownership: "
+                + ", ".join(sorted(unassigned_carriers)) + ".",
+            )
 
         if unsupported:
             return tuple(unsupported)
