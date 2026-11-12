@@ -771,3 +771,22 @@ residual or claim convergence when the host solver has not supplied evidence.
 
 
 The augmented adapter accepts `require_network_convergence_evidence=True`. In strict mode, a legacy voltage-only mapping is rejected because it cannot substantiate algebraic convergence. The default remains `False` for compatibility with existing host callbacks; production transient-study composition should enable strict mode once its network solver reports structured evidence.
+
+### Per-step derivative-stage evidence
+
+Each successful `GeneratorAugmentedDAEAdapter.step()` now returns the immutable
+`derivative_stages` tuple on `GeneratorAugmentedStepResult`. It retains the
+network/excitation/component/derivative evidence for every derivative callback
+actually requested by Core's Integrator during that step, including RK4 trial
+stages and trapezoidal Newton/finite-difference evaluations. The separate
+`final_stage` is evaluated at the accepted state and end time.
+
+The derivative-stage tuple is diagnostic solver-evaluation evidence, not a
+trajectory of accepted states and not a checkpoint stream. It is collected in
+a step-local buffer, so the adapter has no shared mutable trace and concurrent
+step calls do not overwrite one another. Only the returned accepted state and
+its final algebraic stage are eligible for a host's accepted-step checkpoint;
+Application StudyService remains the owner of cancellation, terminal result
+persistence and lifecycle events. The current archive allowlist does not
+reconstruct plugin-specific stage-result dataclasses, so hosts must not assume
+this diagnostic tuple is durably archived by the generic StudyResult archive.
