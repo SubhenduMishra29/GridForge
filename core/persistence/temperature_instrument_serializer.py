@@ -9,6 +9,7 @@ from core.model.temperature_instrument import (
     TemperatureAlarmTripBinding, TemperatureConsumerKind, TemperatureInputMode,
     TemperatureInstrument, TemperatureInstrumentInventory, TemperatureInterfaceDevice,
     TemperatureSensorTechnology, TemperatureService, TemperatureTerminalMapping,
+    TemperatureReceiverInput, TemperatureReceiverInputKind,
 )
 
 TEMPERATURE_INSTRUMENT_SCHEMA_VERSION = 1
@@ -58,6 +59,7 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
                 "interface_terminal": _terminal_to_dict(m.interface_terminal),
                 "polarity": m.polarity,
             } for m in x.sensor_input_mappings],
+            "receiver_input_id": x.receiver_input_id,
         } for x in inventory.instruments],
         "interfaces": [{
             "id": x.id, "tag": x.tag, "equipment_kind": x.equipment_kind.value,
@@ -69,6 +71,15 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
             "output_range_min": x.output_range_min, "output_range_max": x.output_range_max,
             "measurement_channel_id": x.measurement_channel_id,
         } for x in inventory.interfaces],
+        "receiver_inputs": [{
+            "id": x.id, "module_equipment_id": x.module_equipment_id,
+            "channel_designation": x.channel_designation, "input_kind": x.input_kind.value,
+            "terminals": [_terminal_to_dict(t) for t in x.terminals],
+            "engineering_unit": x.engineering_unit,
+            "supported_sensor_technologies": [v.value for v in x.supported_sensor_technologies],
+            "supported_sensor_configurations": list(x.supported_sensor_configurations),
+            "range_min": x.range_min, "range_max": x.range_max,
+        } for x in inventory.receiver_inputs],
         "alarm_trip_bindings": [{
             "id": x.id, "instrument_id": x.instrument_id, "signal_id": x.signal_id,
             "consumer_kind": x.consumer_kind.value, "consumer_id": x.consumer_id,
@@ -81,19 +92,19 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
 def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> TemperatureInstrumentInventory:
     if data is None:
         return TemperatureInstrumentInventory()
-    expected = {"schema", "instruments", "interfaces", "alarm_trip_bindings"}
+    expected = {"schema", "instruments", "interfaces", "receiver_inputs", "alarm_trip_bindings"}
     if not isinstance(data, Mapping) or set(data) != expected:
         raise TemperatureInstrumentSerializationError("Temperature instrument payload has non-canonical top-level fields.")
     if isinstance(data.get("schema"), bool) or data.get("schema") != TEMPERATURE_INSTRUMENT_SCHEMA_VERSION:
         raise TemperatureInstrumentSerializationError(f"Unsupported temperature instrument schema {data.get('schema')!r}.")
-    for key in ("instruments", "interfaces", "alarm_trip_bindings"):
+    for key in ("instruments", "interfaces", "receiver_inputs", "alarm_trip_bindings"):
         if not isinstance(data[key], list):
             raise TemperatureInstrumentSerializationError(f"{key} must be an array.")
     try:
         instruments = []
         for raw in data["instruments"]:
             x = _record(raw, {"id", "tag", "service", "asset_id", "location", "sensor_equipment_id", "sensor_technology", "input_mode"},
-                        {"sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "range_min", "range_max", "sensor_terminals", "receiver_terminals", "sensor_input_mappings"}, "TemperatureInstrument")
+                        {"sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "range_min", "range_max", "sensor_terminals", "receiver_terminals", "sensor_input_mappings", "receiver_input_id"}, "TemperatureInstrument")
             instruments.append(TemperatureInstrument(
                 id=x["id"], tag=x["tag"], service=TemperatureService(x["service"]), asset_id=x["asset_id"],
                 location=x["location"], sensor_equipment_id=x["sensor_equipment_id"],
@@ -107,6 +118,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                     interface_terminal=_terminal_from_dict(m["interface_terminal"]),
                     polarity=m.get("polarity"),
                 ) for m in x.get("sensor_input_mappings", [])),
+                receiver_input_id=x.get("receiver_input_id"),
             ))
         interfaces = []
         for x in data["interfaces"]:
@@ -122,6 +134,18 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 output_range_min=x.get("output_range_min"), output_range_max=x.get("output_range_max"),
                 measurement_channel_id=x.get("measurement_channel_id"),
             ))
+        receiver_inputs = []
+        for x in data["receiver_inputs"]:
+            x = _record(x, {"id", "module_equipment_id", "channel_designation", "input_kind", "terminals", "engineering_unit"},
+                        {"supported_sensor_technologies", "supported_sensor_configurations", "range_min", "range_max"}, "TemperatureReceiverInput")
+            receiver_inputs.append(TemperatureReceiverInput(
+                id=x["id"], module_equipment_id=x["module_equipment_id"],
+                channel_designation=x["channel_designation"], input_kind=TemperatureReceiverInputKind(x["input_kind"]),
+                terminals=tuple(_terminal_from_dict(t) for t in x["terminals"]), engineering_unit=x["engineering_unit"],
+                supported_sensor_technologies=tuple(TemperatureSensorTechnology(v) for v in x.get("supported_sensor_technologies", [])),
+                supported_sensor_configurations=tuple(x.get("supported_sensor_configurations", [])),
+                range_min=x.get("range_min"), range_max=x.get("range_max"),
+            ))
         bindings = []
         for x in data["alarm_trip_bindings"]:
             x = _record(x, {"id", "instrument_id", "signal_id", "consumer_kind", "consumer_id", "function_id", "stage"},
@@ -132,7 +156,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 function_id=x["function_id"], stage=x["stage"], threshold=x.get("threshold"),
                 unit=x.get("unit"), latching=x.get("latching"), reset_policy=x.get("reset_policy"),
             ))
-        return TemperatureInstrumentInventory(tuple(instruments), tuple(interfaces), tuple(bindings))
+        return TemperatureInstrumentInventory(tuple(instruments), tuple(interfaces), tuple(receiver_inputs), tuple(bindings))
     except (KeyError, TypeError, ValueError) as exc:
         raise TemperatureInstrumentSerializationError(f"Invalid temperature instrument inventory: {exc}") from exc
 
