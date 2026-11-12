@@ -117,6 +117,10 @@ def serialize_instrumentation_wiring(
                     "endpoint_id": item.endpoint.endpoint_id,
                     "owner_id": item.endpoint.owner_id,
                     "port": item.endpoint.port,
+                    "physical_terminal": (
+                        _terminal_to_dict(item.endpoint.physical_terminal)
+                        if item.endpoint.physical_terminal is not None else None
+                    ),
                 },
                 "direction": item.direction,
             }
@@ -178,7 +182,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 _check_record_fields(
                     endpoint,
                     required={"kind", "endpoint_id"},
-                    optional={"owner_id", "port"},
+                    optional={"owner_id", "port", "physical_terminal"},
                     label="Signal endpoint reference",
                 )
         cables = tuple(CableAssembly(**dict(item)) for item in data["cables"])
@@ -226,6 +230,10 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                     endpoint_id=item["endpoint"]["endpoint_id"],
                     owner_id=item["endpoint"].get("owner_id"),
                     port=item["endpoint"].get("port"),
+                    physical_terminal=(
+                        _terminal_from_dict(item["endpoint"]["physical_terminal"])
+                        if item["endpoint"].get("physical_terminal") is not None else None
+                    ),
                 ),
                 direction=item.get("direction", "SOURCE_TO_SINK"),
             )
