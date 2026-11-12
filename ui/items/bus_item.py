@@ -29,6 +29,7 @@ outside the graphics item.
 from __future__ import annotations
 
 from typing import Any, Optional
+from math import hypot, isfinite
 
 from ui.core.qt import (
     QBrush,
@@ -180,6 +181,46 @@ class BusItem(BaseItem):
                 "bus_id": str(self.object_id),
             })
         return tuple(candidates)
+
+    def snap_candidate_at(self, scene_position: QPointF, tolerance: float) -> dict[str, Any] | None:
+        """Resolve a pointer near the visible Bus bar to its nearest stable attachment.
+
+        Hit distance is measured against the continuous rendered bar, not the
+        spacing between discrete attachment slots. The returned endpoint is
+        still one of the Bus' canonical attachment IDs.
+        """
+        self._validate_point(scene_position, "scene_position")
+        if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
+            raise TypeError("tolerance must be numeric.")
+        tolerance = float(tolerance)
+        if not isfinite(tolerance) or tolerance < 0.0:
+            raise ValueError("tolerance must be finite and non-negative.")
+
+        start = self.mapToScene(self._start)
+        end = self.mapToScene(self._end)
+        dx = float(end.x()) - float(start.x())
+        dy = float(end.y()) - float(start.y())
+        length_squared = dx * dx + dy * dy
+        if length_squared <= 0.0:
+            return None
+        px = float(scene_position.x()) - float(start.x())
+        py = float(scene_position.y()) - float(start.y())
+        fraction = max(0.0, min(1.0, (px * dx + py * dy) / length_squared))
+        nearest_x = float(start.x()) + fraction * dx
+        nearest_y = float(start.y()) + fraction * dy
+        distance = hypot(float(scene_position.x()) - nearest_x, float(scene_position.y()) - nearest_y)
+        if distance > tolerance:
+            return None
+
+        slot = min(self._attachment_count - 1, max(0, int(fraction * (self._attachment_count - 1) + 0.5)))
+        attachment_id = f"attachment-{slot}"
+        return {
+            "position": self.attachment_position(attachment_id),
+            "object_id": self.object_id,
+            "attachment_id": attachment_id,
+            "bus_id": str(self.object_id),
+            "_snap_distance": distance,
+        }
 
     def boundingRect(self) -> QRectF:
         """Return the local Bus-bar bounds including the configured span."""
