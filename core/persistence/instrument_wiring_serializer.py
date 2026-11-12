@@ -177,15 +177,15 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     expected_v3 = expected_v2 | {"endpoint_bindings"}
     expected_v5 = expected_v3 | {"terminal_blocks", "terminal_points", "terminal_accessories"}
     schema = data.get("schema")
+    if isinstance(schema, bool) or schema not in {2, 3, 4, WIRING_SCHEMA_VERSION}:
+        raise InstrumentationWiringSerializationError(
+            f"Unsupported instrumentation wiring schema {schema!r}."
+        )
     expected = expected_v2 if schema == 2 else expected_v5 if schema == 5 else expected_v3
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
             + ", ".join(sorted(str(key) for key in set(data) ^ expected))
-        )
-    if isinstance(schema, bool) or schema not in {2, 3, 4, WIRING_SCHEMA_VERSION}:
-        raise InstrumentationWiringSerializationError(
-            f"Unsupported instrumentation wiring schema {schema!r}."
         )
     base_collections = ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy")
     for key in base_collections:
