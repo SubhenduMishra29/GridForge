@@ -327,3 +327,35 @@ These are reference-derived sub-blocks, not a complete integrated GGOV1
 plant model. Vendor-specific thermal maps, ambient compensation, transport
 delay execution, complete tracking composition, DAE integration and
 disturbance-based validation remain open.
+
+
+### GGOV1 sampled execution adapter
+
+`GGOV1SampledExecutionAdapter` composes the existing PID, acceleration,
+temperature, load-limiter, low-value selector, common FSR bounds, valve
+actuator and turbine/fuel blocks for one explicitly requested host sample.
+The immutable `GGOV1SampleStates` is a snapshot of solver-owned local state
+vectors; `GGOV1SampleInputs` carries external measurements, the host sample
+interval, previous-sample selected FSR feedback, and the explicit
+`Rselect=-2` governor-output feedback input. The returned
+`GGOV1SampleEvaluation` contains algebraic requests, the common command,
+local derivative vectors, TEXM proxy and mechanical-power output.
+
+The sample order is fixed: read actual valve position from the actuator state;
+derive the pre-filter temperature proxy and TEXM; calculate governor and
+load/temperature requests; calculate acceleration request using the previous
+sample's selected FSR and host DELT; perform three-way selection and common
+valve bounds; then calculate PID/load tracking, actuator and other continuous
+state derivatives using the current final command. The actuator derivative
+does not change the state snapshot during this call. The host applies all
+returned derivatives through its own integration scheme and supplies the
+updated state and next DELT/previous FSR on the next call.
+
+This is a block-composition adapter, not an Application scheduler or a
+transient DAE integration. It does not own state, clock, event loop, command
+manager, transport-delay history, persistence, or service registry. For
+`Teng > 0`, the host must supply delayed fuel flow from its own delay
+facility. The governor-output feedback input is deliberately explicit rather
+than hiding a circular or algebraic feedback dependency. All blocks must use
+the same GGOV1 parameter contract and explicit positive tracking constants.
+The adapter does not certify OEM equivalence or plant-level model validity.
