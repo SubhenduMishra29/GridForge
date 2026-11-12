@@ -1,3 +1,31 @@
+GridForge V2 — BTD/OTD/WTD project persistence integration
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Additional correction:
+- Advanced canonical project schema from 7 to 8.
+- Added deterministic schema 7-to-8 migration. Historical projects receive an
+  explicit empty temperature_instruments schema-1 inventory; generic RTD and
+  thermocouple records are never reclassified or guessed as BTD/OTD/WTD.
+- Added temperature_instruments to LoadedProject and ProjectPersistenceService
+  save/load, using the strict temperature instrument codec.
+- Canonical schema validation now requires the temperature_instruments object.
+- Declared instrument/interface MeasurementChannel IDs are checked against the
+  active project's persisted measurement channel IDs at load.
+- Added save/load-boundary validation test source and schema migration tests.
+
+Remaining:
+- Application CRUD and project activation/close integration.
+- Resolve declared terminal references against actual Core equipment and enforce
+  complete physical sensor/interface/receiver cable and panel-wire paths.
+- Validate receiver input capability, MeasurementChannel type/unit/scaling and
+  Control/Protection function registry bindings.
+- Cross-canvas provenance, authoring and dedicated temperature schedules.
+- Tests/imports/save-reopen/GUI execution not performed.
+
+======================================================================
+
 GridForge V2 — BTD/OTD/WTD temperature service contracts (implementation foundation)
 Date: 2026-11-12
 Repository: SubhenduMishra29/GridForge
