@@ -56,14 +56,14 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ProtectionChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged, MeasurementChannelChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
     SimpleWireConnectionCreated, SimpleWireConnectionRemoved, JunctionCreated, JunctionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -3892,6 +3892,9 @@ class Application:
             "protection.create_differential_scheme",
             "protection.update_differential_scheme",
             "protection.delete_differential_scheme",
+            "measurement.create_channel",
+            "measurement.update_channel",
+            "measurement.delete_channel",
             "model.create_current_transformer",
             "model.delete_current_transformer",
             "model.create_capacitive_voltage_transformer",
@@ -4931,6 +4934,9 @@ class Application:
             "protection.create_differential_scheme",
             "protection.update_differential_scheme",
             "protection.delete_differential_scheme",
+            "measurement.create_channel",
+            "measurement.update_channel",
+            "measurement.delete_channel",
             "model.create_current_transformer",
             "model.delete_current_transformer",
             "model.create_capacitive_voltage_transformer",
@@ -5079,6 +5085,22 @@ class Application:
         if service is None:
             raise RuntimeError("Application instrumentation wiring service is not configured.")
         return service.read_model()
+
+    def read_measurement_channel_configurations(self) -> tuple[MeasurementChannelConfigurationReadModel, ...]:
+        """Return detached project configuration, separate from live telemetry."""
+        lifecycle = self.project_lifecycle
+        if not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("MeasurementChannel configuration reads require an active project.")
+        service = self._measurement_channel_read_service
+        if service is None:
+            raise RuntimeError("Application MeasurementChannel read service is not configured.")
+        return service.configurations()
+
+    @property
+    def measurement_clock_domain(self) -> str | None:
+        """Expose only the configured trusted clock-domain identity."""
+        service = self._measurement_channel_service
+        return service.clock_domain if service is not None else None
 
     def read_measurement_channels(self) -> tuple[MeasurementChannelReadModel, ...]:
         """Return immutable snapshots of the active project's MeasurementChannels."""
@@ -5325,6 +5347,36 @@ class Application:
 
     def _publish_semantic_events(self, command: Command, result: ApplicationResult, *, operation: str) -> None:
         metadata = {**dict(result.metadata), "command_id": str(command.command_id), "message": result.message, "operation": operation, **self._project_scope_metadata()}
+        if command.command_type in {
+            "measurement.create_channel",
+            "measurement.update_channel",
+            "measurement.delete_channel",
+        }:
+            definition = command.payload.get("definition", {})
+            channel_id = str(
+                result.metadata.get("channel_id")
+                or command.payload.get("channel_id")
+                or (definition.get("channel_id") if isinstance(definition, Mapping) else "")
+            ).strip()
+            source_id = result.metadata.get("source_id")
+            terminal_role = result.metadata.get("terminal_role")
+            if isinstance(definition, Mapping):
+                source_id = source_id or definition.get("source") or definition.get("source_id")
+                terminal = definition.get("source_terminal", {})
+                if isinstance(terminal, Mapping):
+                    terminal_role = terminal_role or terminal.get("terminal_role")
+            if not channel_id:
+                raise RuntimeError("Measurement channel semantic event lacks a stable channel identity.")
+            self._event_bus.publish(MeasurementChannelChanged(
+                operation=operation,
+                channel_id=channel_id,
+                source_id=str(source_id) if source_id is not None else None,
+                terminal_role=str(terminal_role) if terminal_role is not None else None,
+                correlation_id=command.correlation_id,
+                causation_id=command.causation_id,
+                metadata=metadata,
+            ))
+            return
         if command.command_type in {
             "protection.create_configuration",
             "protection.update_configuration",

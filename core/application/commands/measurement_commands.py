@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, Mapping
 from uuid import UUID, uuid4
 
 from ..command import Command
@@ -83,6 +84,69 @@ class TakeCapacitiveVoltageTransformerOutOfServiceCommand(Command):
         super().__init__(command_type=TAKE_CAPACITIVE_VOLTAGE_TRANSFORMER_OUT_OF_SERVICE, payload={"transformer_id": transformer_id}, command_id=command_id or uuid4(), correlation_id=correlation_id, causation_id=causation_id)
 
 
+CREATE_MEASUREMENT_CHANNEL = "measurement.create_channel"
+UPDATE_MEASUREMENT_CHANNEL = "measurement.update_channel"
+DELETE_MEASUREMENT_CHANNEL = "measurement.delete_channel"
+
+class CreateMeasurementChannelCommand(Command):
+    """Create a CT secondary MeasurementChannel from an explicit definition."""
+
+    def __init__(
+        self, *, definition: Mapping[str, Any],
+        command_id: UUID | None = None, correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ):
+        if not isinstance(definition, Mapping) or not definition:
+            raise ValueError("definition must be a non-empty mapping.")
+        super().__init__(
+            command_type=CREATE_MEASUREMENT_CHANNEL,
+            payload={"definition": dict(definition)},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class UpdateMeasurementChannelCommand(Command):
+    """Replace an unbound CT secondary channel definition without changing identity."""
+
+    def __init__(
+        self, *, channel_id: str, definition: Mapping[str, Any],
+        command_id: UUID | None = None, correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ):
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            raise ValueError("channel_id must be a non-empty string.")
+        if not isinstance(definition, Mapping) or not definition:
+            raise ValueError("definition must be a non-empty mapping.")
+        super().__init__(
+            command_type=UPDATE_MEASUREMENT_CHANNEL,
+            payload={"channel_id": channel_id.strip(), "definition": dict(definition)},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
+class DeleteMeasurementChannelCommand(Command):
+    """Delete an unbound CT secondary channel."""
+
+    def __init__(
+        self, *, channel_id: str,
+        command_id: UUID | None = None, correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ):
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            raise ValueError("channel_id must be a non-empty string.")
+        super().__init__(
+            command_type=DELETE_MEASUREMENT_CHANNEL,
+            payload={"channel_id": channel_id.strip()},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 __all__ = [
     "CREATE_CURRENT_TRANSFORMER", "UPDATE_CURRENT_TRANSFORMER", "DELETE_CURRENT_TRANSFORMER",
     "PUT_CURRENT_TRANSFORMER_IN_SERVICE", "TAKE_CURRENT_TRANSFORMER_OUT_OF_SERVICE",
@@ -94,4 +158,6 @@ __all__ = [
     "CreateCapacitiveVoltageTransformerCommand", "UpdateCapacitiveVoltageTransformerCommand",
     "DeleteCapacitiveVoltageTransformerCommand", "PutCapacitiveVoltageTransformerInServiceCommand",
     "TakeCapacitiveVoltageTransformerOutOfServiceCommand",
+    "CREATE_MEASUREMENT_CHANNEL", "UPDATE_MEASUREMENT_CHANNEL", "DELETE_MEASUREMENT_CHANNEL",
+    "CreateMeasurementChannelCommand", "UpdateMeasurementChannelCommand", "DeleteMeasurementChannelCommand",
 ]

@@ -13,6 +13,7 @@ from .panel_registry import PanelRegistry
 from .panel_state import PanelState
 from .panel_presentation_bridge import PanelPresentationBridge, PanelPresentationState
 from .transient_result_view import TransientResultViewWidget
+from .ct_secondary_channel_editor import CTSecondaryChannelEditor
 
 __all__ = [
     "PanelBase",
@@ -25,4 +26,5 @@ __all__ = [
     "PanelPresentationBridge",
     "PanelPresentationState",
     "TransientResultViewWidget",
+    "CTSecondaryChannelEditor",
 ]

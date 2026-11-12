@@ -50,6 +50,7 @@ from .project_presentation import ProjectPresentationCollection
 from .read_models import (
     ElementReadModel,
     MeasurementChannelReadModel,
+    MeasurementChannelConfigurationReadModel,
     NetworkReadModel,
     ProtectionReadModel,
     RelayInputBindingReadModel,
@@ -127,6 +128,7 @@ __all__ = [
     "ProjectTransitionRequired",
     "ProjectPresentationCollection",
     "MeasurementChannelReadModel",
+    "MeasurementChannelConfigurationReadModel",
     "ElementReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",

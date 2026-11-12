@@ -17,7 +17,7 @@ from ui.creation.creation_context import CreationContext, CreationDraft
 
 from ui.core.qt import (
     QCheckBox, QComboBox, QDoubleSpinBox, QDoubleValidator, QIntValidator, QFormLayout, QLabel, QLineEdit, Signal,
-    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QSize, Qt, QDrag, QMimeData,
+    QListWidget, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QHBoxLayout, QScrollArea, QWidget, QSize, Qt, QDrag, QMimeData,
     QTableWidget, QTableWidgetItem,
 )
 from ui.plugins.panels_plugin import PanelSpec
@@ -31,6 +31,7 @@ from .messages_panel import MessagesPanelWidget
 from .properties_panel import PropertiesPanel
 from .engineering_parameter_editor import EngineeringParameterEditor
 from .transformer_configuration_editor import TransformerConfigurationEditor
+from .ct_secondary_channel_editor import CTSecondaryChannelEditor
 from .study_cases_panel import StudyCasesPanelWidget
 
 
@@ -355,6 +356,7 @@ class PropertiesPanelWidget(QWidget):
         self.logical_panel.on_create()
         self._engineering_editor: EngineeringParameterEditor | None = None
         self._transformer_configuration_editor = TransformerConfigurationEditor(self)
+        self._ct_secondary_channel_editor = CTSecondaryChannelEditor(self)
         self._application: Any | None = None
         self._parameter_controls: dict[str, QWidget] = {}
         self._parameter_states: dict[str, EngineeringParameterState] = {}
@@ -378,12 +380,25 @@ class PropertiesPanelWidget(QWidget):
 
     def _build_controls(self) -> None:
         root = QVBoxLayout(self)
-        self._single_target_container = QWidget(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(6)
+        self._scroll_area = QScrollArea(self)
+        self._scroll_area.setObjectName("PropertiesInspectorScrollArea")
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._scroll_area.setFocusPolicy(Qt.NoFocus)
+        self._single_target_container = QWidget()
+        self._single_target_container.setObjectName("PropertiesInspectorScrollContent")
         single_layout = QVBoxLayout(self._single_target_container)
-        root.addWidget(self._single_target_container)
+        single_layout.setContentsMargins(6, 6, 6, 6)
+        single_layout.setSpacing(8)
+        self._scroll_area.setWidget(self._single_target_container)
+        root.addWidget(self._scroll_area, 1)
         self._form_layout = QFormLayout()
         single_layout.addLayout(self._form_layout)
         single_layout.addWidget(self._transformer_configuration_editor)
+        single_layout.addWidget(self._ct_secondary_channel_editor)
         self._annotation_layout = QFormLayout()
         single_layout.addWidget(QLabel("SLD Data Annotations", self))
         single_layout.addLayout(self._annotation_layout)
@@ -399,20 +414,33 @@ class PropertiesPanelWidget(QWidget):
         self._sld_selection_manager: Any | None = None
         self._sld_selection_ids: tuple[str, ...] = ()
         self._sld_annotations_cleared = False
-        self._validation_label = QLabel("Select an element to inspect.", self)
+        footer = QWidget(self)
+        footer.setObjectName("PropertiesInspectorActionFooter")
+        footer_layout = QVBoxLayout(footer)
+        footer_layout.setContentsMargins(6, 4, 6, 6)
+        footer_layout.setSpacing(4)
+        self._validation_label = QLabel("Select an element to inspect.", footer)
+        self._validation_label.setObjectName("PropertiesInspectorStatus")
         self._validation_label.setProperty("role", "validationInfo")
         self._validation_label.setWordWrap(True)
-        single_layout.addWidget(self._validation_label)
-        self._apply_button = QPushButton("Apply / Commit", self)
+        footer_layout.addWidget(self._validation_label)
+        action_row = QHBoxLayout()
+        self._apply_button = QPushButton("Apply / Commit", footer)
+        self._apply_button.setObjectName("PropertiesInspectorApplyCommit")
         self._apply_button.setProperty("role", "primaryAction")
         self._apply_button.setEnabled(False)
         self._apply_button.clicked.connect(self._apply_changes)
-        single_layout.addWidget(self._apply_button)
-        self._commit_network_button = QPushButton("Commit Network", self)
+        action_row.addWidget(self._apply_button, 1)
+        self._commit_network_button = QPushButton("Commit Network", footer)
+        self._commit_network_button.setObjectName("PropertiesInspectorCommitNetwork")
         self._commit_network_button.setProperty("role", "commitNetworkAction")
         self._commit_network_button.setEnabled(False)
         self._commit_network_button.clicked.connect(self._commit_network)
-        single_layout.addWidget(self._commit_network_button)
+        action_row.addWidget(self._commit_network_button, 1)
+        footer_layout.addLayout(action_row)
+        self._action_footer = footer
+        root.addWidget(footer, 0)
+        self._refresh_inspector_tab_order()
         self._batch_status_label = QLabel("Select compatible equipment to edit parameters in a table.", self)
         self._batch_status_label.setWordWrap(True)
         self._batch_status_label.setProperty("role", "validationInfo")
@@ -429,10 +457,39 @@ class PropertiesPanelWidget(QWidget):
         self._batch_table.hide()
         self._batch_apply_button.hide()
 
+    def _refresh_inspector_tab_order(self) -> None:
+        """Keep focus traversal aligned with scroll content and persistent footer."""
+        ordered: list[QWidget] = []
+
+        def collect(layout: Any) -> None:
+            if layout is None:
+                return
+            for index in range(layout.count()):
+                item = layout.itemAt(index)
+                nested = item.layout()
+                if nested is not None:
+                    collect(nested)
+                    continue
+                widget = item.widget()
+                if widget is None:
+                    continue
+                child_layout = widget.layout()
+                if child_layout is not None:
+                    collect(child_layout)
+                elif widget.focusPolicy() != Qt.NoFocus:
+                    ordered.append(widget)
+
+        collect(self._single_target_container.layout())
+        collect(self._action_footer.layout())
+        for previous, current in zip(ordered, ordered[1:]):
+            QWidget.setTabOrder(previous, current)
+
     def bind_configuration_runtime(self, application: Any, creation_context: CreationContext | None = None, controller: Any | None = None) -> None:
         self._application = application
         self._engineering_editor = EngineeringParameterEditor(application)
         self._transformer_configuration_editor.bind_application(application)
+        self._ct_secondary_channel_editor.bind_application(application)
+        self._ct_secondary_channel_editor.set_target(self.logical_panel.target)
         self._creation_context = creation_context
         self._creation_controller = controller
         if controller is not None:
@@ -498,9 +555,11 @@ class PropertiesPanelWidget(QWidget):
         node = self._selected_sld_node()
         if document is None or node is None:
             layout.addRow(QLabel("Select one SLD equipment node to review its symbol family.", self))
+            self._refresh_inspector_tab_order()
             return
         if self._symbol_registry is None or self._symbol_equipment_registry is None:
             layout.addRow(QLabel("Symbol catalogue review runtime is not bound.", self))
+            self._refresh_inspector_tab_order()
             return
 
         element_type = (
@@ -521,6 +580,7 @@ class PropertiesPanelWidget(QWidget):
             }
         except (KeyError, TypeError, ValueError) as exc:
             layout.addRow(QLabel(f"Symbol review unavailable: {exc}", self))
+            self._refresh_inspector_tab_order()
             return
 
         current_symbol_id = (
@@ -623,6 +683,7 @@ class PropertiesPanelWidget(QWidget):
             ))
         self._symbol_variant_combo = combo
         self._symbol_variant_detail = detail
+        self._refresh_inspector_tab_order()
 
     def _apply_selected_symbol_variant(self) -> None:
         """Apply an approved variant through SLDController's presentation command."""
@@ -730,6 +791,7 @@ class PropertiesPanelWidget(QWidget):
             if widget is not None:
                 widget.deleteLater()
         layout.addRow(QLabel("No active SLD document.", self))
+        self._refresh_inspector_tab_order()
 
     def _refresh_sld_annotation_controls(self) -> None:
         self._refresh_symbol_variant_review_controls()
@@ -746,6 +808,7 @@ class PropertiesPanelWidget(QWidget):
         node = self._selected_sld_node()
         if document is None or node is None:
             layout.addRow(QLabel("Select one SLD node to configure its data annotation.", self))
+            self._refresh_inspector_tab_order()
             return
 
         blocks = [block.to_dict() for block in document.annotation_blocks if block.node_id == node.node_id]
@@ -783,6 +846,7 @@ class PropertiesPanelWidget(QWidget):
         add_button = QPushButton("Add Data Annotation Block", self)
         add_button.clicked.connect(lambda _checked=False, nid=node.node_id: self._add_sld_annotation(nid))
         layout.addRow(add_button)
+        self._refresh_inspector_tab_order()
 
     def _save_sld_annotation(
         self, block_id: str, fields_text: str, visible: bool, offset_x: float, offset_y: float
@@ -868,8 +932,8 @@ class PropertiesPanelWidget(QWidget):
             self._batch_status_label.hide()
         if self._batch_apply_button is not None:
             self._batch_apply_button.hide()
-        if self._single_target_container is not None:
-            self._single_target_container.show()
+        self._scroll_area.show()
+        self._action_footer.show()
         self.logical_panel.set_target(target)
         self._render_projection(target)
 
@@ -885,8 +949,8 @@ class PropertiesPanelWidget(QWidget):
         self._batch_targets = values
         self._batch_parameters = self._common_batch_parameters(values)
         self.logical_panel.clear_target()
-        if self._single_target_container is not None:
-            self._single_target_container.hide()
+        self._scroll_area.hide()
+        self._action_footer.hide()
         if self._batch_status_label is not None:
             mixed = []
             for parameter in self._batch_parameters:
@@ -1046,8 +1110,8 @@ class PropertiesPanelWidget(QWidget):
             self._batch_table.hide()
         if self._batch_status_label is not None:
             self._batch_status_label.hide()
-        if self._single_target_container is not None:
-            self._single_target_container.show()
+        self._scroll_area.show()
+        self._action_footer.show()
         self.logical_panel.clear_target()
         if self._creation_context is not None and self._creation_context.draft is not None:
             self._creation_mode = True
@@ -1059,6 +1123,7 @@ class PropertiesPanelWidget(QWidget):
 
     def _render_projection(self, target: ProjectionState | None) -> None:
         self._transformer_configuration_editor.set_target(target)
+        self._ct_secondary_channel_editor.set_target(target)
         self._clear_parameter_controls()
         if target is None:
             if self._validation_label is not None:
@@ -1076,6 +1141,7 @@ class PropertiesPanelWidget(QWidget):
                 self._apply_button.setText("Apply / Commit")
                 self._apply_button.setProperty("role", "primaryAction")
                 self._apply_button.setEnabled(False)
+            self._refresh_inspector_tab_order()
             return
         self._parameter_states = {item.parameter_id: item for item in target.engineering_parameters}
         assert self._form_layout is not None
@@ -1128,6 +1194,7 @@ class PropertiesPanelWidget(QWidget):
             self._apply_button.setEnabled(
                 any(item.editable and not item.derived for item in target.engineering_parameters)
             )
+        self._refresh_inspector_tab_order()
 
     @staticmethod
     def _draft_required_connection_errors(draft: Any) -> tuple[str, ...]:
@@ -1282,6 +1349,7 @@ class PropertiesPanelWidget(QWidget):
 
     def _render_creation_draft(self, draft: CreationDraft) -> None:
         self._transformer_configuration_editor.set_target(None)
+        self._ct_secondary_channel_editor.set_target(None)
         self._clear_parameter_controls()
         assert self._form_layout is not None
         for definition in draft.parameter_schema:
@@ -1325,6 +1393,7 @@ class PropertiesPanelWidget(QWidget):
             if not self._place_draft_connected:
                 self._apply_button.clicked.connect(self._place_draft)
                 self._place_draft_connected = True
+        self._refresh_inspector_tab_order()
 
     def _place_draft(self) -> None:
         if not self._creation_mode or self._creation_context is None:
@@ -1662,6 +1731,7 @@ __all__ = [
     "EquipmentPanelWidget",
     "PropertiesPanelWidget",
     "TransformerConfigurationEditor",
+    "CTSecondaryChannelEditor",
     "ElementListPanelWidget",
     "MessagesPanelWidget",
     "StudyCasesPanelWidget",

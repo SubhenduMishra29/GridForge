@@ -760,6 +760,58 @@ class ProtectionReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class MeasurementChannelConfigurationReadModel:
+    """Detached project configuration, separate from live channel telemetry."""
+
+    channel_id: str
+    name: str
+    source_id: str | None
+    source_equipment_type: str | None
+    source_terminal_reference: Mapping[str, Any] | None
+    signal_type: str
+    phase: str
+    unit: str
+    nominal_value: float
+    scale: float
+    polarity: float
+    timestamp_domain: str | None
+    stale_after: float | None
+    producer_id: str | None
+
+    def __post_init__(self) -> None:
+        for field_name in ("channel_id", "signal_type", "phase", "unit"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty.")
+            object.__setattr__(self, field_name, value.strip())
+        if not isinstance(self.name, str):
+            raise TypeError("MeasurementChannelConfigurationReadModel.name must be a string.")
+        for field_name in ("source_id", "source_equipment_type"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty or None.")
+        if self.source_terminal_reference is not None:
+            if not isinstance(self.source_terminal_reference, Mapping):
+                raise TypeError("source_terminal_reference must be a mapping or None.")
+            object.__setattr__(self, "source_terminal_reference", _freeze(self.source_terminal_reference))
+        for field_name in ("nominal_value", "scale", "polarity"):
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be finite.")
+        if self.stale_after is not None and (
+            isinstance(self.stale_after, bool)
+            or not isinstance(self.stale_after, (int, float))
+            or not math.isfinite(self.stale_after)
+            or self.stale_after < 0
+        ):
+            raise ValueError("MeasurementChannelConfigurationReadModel.stale_after must be finite and non-negative.")
+        for field_name in ("timestamp_domain", "producer_id"):
+            value = getattr(self, field_name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"MeasurementChannelConfigurationReadModel.{field_name} must be non-empty or None.")
+
+
+@dataclass(frozen=True, slots=True)
 class MeasurementChannelReadModel:
     """Detached Application snapshot of one live MeasurementChannel sample."""
 
@@ -813,6 +865,7 @@ __all__ = [
     "InstrumentationWiringReadModel",
     "ProtectionReadModel",
     "MeasurementChannelReadModel",
+    "MeasurementChannelConfigurationReadModel",
     "RelayInputBindingReadModel",
     "RelayReadModel",
     "PhysicalRelayConfigurationReadModel",

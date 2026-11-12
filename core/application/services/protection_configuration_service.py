@@ -49,6 +49,32 @@ class ProtectionConfigurationService:
     def activate(self, configuration: ProtectionProjectConfiguration) -> None:
         if not isinstance(configuration, ProtectionProjectConfiguration): raise TypeError("configuration must be ProtectionProjectConfiguration.")
         self._configuration = configuration
+    def references_measurement_channel(self, channel_id: str) -> bool:
+        """Return whether Protection input or ANSI 25 policy still consumes a channel."""
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            raise ValueError("channel_id must be a non-empty string.")
+        active = self._configuration
+        if active is None:
+            return False
+        target = channel_id.strip()
+        for element in active.elements:
+            configured = getattr(element, "input_channel_ids", {})
+            if target in configured.values():
+                return True
+        synchronism = getattr(active, "synchronism_check_configuration", None)
+        if isinstance(synchronism, Mapping):
+            breakers = synchronism.get("breakers", {})
+        else:
+            breakers = getattr(synchronism, "breakers", {}) if synchronism is not None else {}
+        for policy in getattr(breakers, "values", lambda: ())():
+            if isinstance(policy, Mapping):
+                channel_ids = policy.get("measurement_channel_ids", {})
+            else:
+                channel_ids = getattr(policy, "measurement_channel_ids", {})
+            if target in getattr(channel_ids, "values", lambda: ())():
+                return True
+        return False
+
     def deactivate(self) -> None: self._configuration = None
     def _require_configuration(self) -> ProtectionProjectConfiguration:
         if self._configuration is None: raise RuntimeError("No active project protection configuration.")

@@ -62,7 +62,7 @@ from .results import ApplicationResult
 from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
-from .protection_configuration_handlers import ProtectionConfigurationHandlers
+from .protection_configuration_handlers import ProtectionConfigurationHandlers, MeasurementChannelCommandHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
@@ -221,6 +221,11 @@ def create_application(
             handlers,
             ProtectionConfigurationHandlers(protection_configuration_service).handlers(),
             "protection configuration",
+        )
+        register_handlers(
+            handlers,
+            MeasurementChannelCommandHandlers(measurement_channel_service).handlers(),
+            "measurement channel",
         )
         # Control editing commands are composed into the same authoritative
         # Application command registry as model and protection commands.
@@ -645,6 +650,30 @@ def create_application(
         instrumentation_wiring_service=instrumentation_wiring_service,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
+
+    def measurement_channel_is_referenced(channel_id: str) -> bool:
+        if protection_configuration_service.references_measurement_channel(channel_id):
+            return True
+        active_context = application.project_lifecycle.context
+        mappings = [application.control_signal_mapping]
+        if (
+            active_context is not None
+            and application._dynamic_control_signal_mapping_project_id == active_context.project_id
+        ):
+            mappings.append(application._dynamic_control_signal_mapping)
+        return any(
+            mapping is not None
+            and any(
+                binding.source.domain == "measurement"
+                and binding.source.object_id == channel_id
+                for binding in mapping.bindings
+            )
+            for mapping in mappings
+        )
+
+    measurement_channel_service.bind_channel_usage_validator(
+        measurement_channel_is_referenced
+    )
     # Study outputs are durable execution artifacts, stored outside the
     # canonical project package so ordinary project saves cannot discard them.
     study_result_archive = StudyResultArchive(Path.home() / ".gridforge" / "study-results")
