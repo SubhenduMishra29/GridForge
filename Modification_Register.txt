@@ -4642,3 +4642,8 @@ Verification:
 - Static source reconciliation only. No tests, imports, startup, GUI or
   save/reopen runtime was executed.
 ======================================================================
+
+
+Additional source coverage:
+- Added an event-contract regression test for instrumentation wiring change
+  operation, project activation scope and correlation/causation identity.
