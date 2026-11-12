@@ -62,7 +62,7 @@ from .results import ApplicationResult
 from .context import ApplicationContext
 from .project import ProjectContext
 from .project_lifecycle import ProjectLifecycleService
-from .protection_configuration_handlers import ProtectionConfigurationHandlers
+from .protection_configuration_handlers import ProtectionConfigurationHandlers, MeasurementChannelCommandHandlers
 from .read_service import NetworkReadService, ProtectionReadService
 from .relay_command_handlers import RelayCommandHandlers
 from .services.control_service import ControlApplicationService
