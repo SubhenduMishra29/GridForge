@@ -816,9 +816,13 @@ checkpoint publication failure from solver rejection and reconcile the
 accepted state explicitly. `GeneratorAugmentedStudyEvidence.from_checkpoint_publication_failure(...)`
 combines the previously accepted trajectory with that attached accepted step
 and produces failed/incomplete evidence with the failure time and cause. A host
-can attach that evidence as `partial_result` to the exception passed through
-StudyService, allowing the normal failure path to archive the accepted state
-even though checkpoint publication failed. The adapter does not write files,
+The augmented StudyService handler also performs this conversion automatically
+when the host solver lets an observer-publication exception carrying
+`accepted_step_result` escape. If the host attaches prior accepted steps as
+`accepted_steps`, they are included in order; otherwise the recovered evidence
+contains the accepted step carried by the exception. An existing host-supplied
+`partial_result` is preserved. The resulting evidence is attached to the
+exception for StudyService's normal failure persistence path. The adapter does not write files,
 persist results, advance a study clock, or own cancellation; `StudyService`
 remains the sole owner of study lifecycle and durable terminal-result archival.
 
