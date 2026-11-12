@@ -192,6 +192,38 @@ class SignalEndpointResolutionReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class InstrumentationWiringSchedulesReadModel:
+    """Immutable, derived engineering schedules for one active project revision."""
+
+    project_id: str
+    activation_generation: int
+    cable_schedule: tuple[Mapping[str, Any], ...] = ()
+    core_schedule: tuple[Mapping[str, Any], ...] = ()
+    terminal_plan: tuple[Mapping[str, Any], ...] = ()
+    instrument_loop_schedule: tuple[Mapping[str, Any], ...] = ()
+    interconnection_list: tuple[Mapping[str, Any], ...] = ()
+    point_to_point_list: tuple[Mapping[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("InstrumentationWiringSchedulesReadModel.project_id must be non-empty.")
+        if (
+            isinstance(self.activation_generation, bool)
+            or not isinstance(self.activation_generation, int)
+            or self.activation_generation < 1
+        ):
+            raise ValueError("InstrumentationWiringSchedulesReadModel.activation_generation must be positive.")
+        for name in (
+            "cable_schedule", "core_schedule", "terminal_plan",
+            "instrument_loop_schedule", "interconnection_list", "point_to_point_list",
+        ):
+            values = tuple(getattr(self, name))
+            if any(not isinstance(item, Mapping) for item in values):
+                raise TypeError(f"InstrumentationWiringSchedulesReadModel.{name} must contain mappings.")
+            object.__setattr__(self, name, tuple(_freeze(item) for item in values))
+
+
+@dataclass(frozen=True, slots=True)
 class SimpleWireReadModel:
     """Immutable Application snapshot of one authoritative Simple Wire relationship."""
 
@@ -865,6 +897,7 @@ __all__ = [
     "NetworkReadModel",
     "SimpleWireReadModel",
     "InstrumentationWiringReadModel",
+    "InstrumentationWiringSchedulesReadModel",
     "SignalEndpointResolutionReadModel",
     "ProtectionReadModel",
     "MeasurementChannelReadModel",
