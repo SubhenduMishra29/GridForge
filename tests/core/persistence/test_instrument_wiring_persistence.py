@@ -1,3 +1,4 @@
+from dataclasses import replace
 """Canonical instrumentation wiring persistence and lifecycle contracts."""
 
 import pytest
@@ -822,3 +823,10 @@ def test_in_service_pt_rejects_open_secondary_fuse_and_unknown_grounding():
     unknown_inventory = replace(inventory, terminal_accessories=(fuse_closed,), pt_secondary_circuits=(circuit_unknown_ground,))
     with pytest.raises(ValueError, match="requires an explicit grounded or ungrounded-by-design"):
         InstrumentationWiringService._validate_pt_secondary_circuits(network, unknown_inventory)
+
+
+def test_schema_six_wiring_inventory_remains_readable_after_schema_seven():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["schema"] = 6
+    payload.pop("pt_secondary_circuits")
+    assert deserialize_instrumentation_wiring(payload) == sample_inventory()
