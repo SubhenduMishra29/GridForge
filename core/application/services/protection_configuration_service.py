@@ -62,9 +62,16 @@ class ProtectionConfigurationService:
             if target in configured.values():
                 return True
         synchronism = getattr(active, "synchronism_check_configuration", None)
-        breakers = getattr(synchronism, "breakers", {}) if synchronism is not None else {}
+        if isinstance(synchronism, Mapping):
+            breakers = synchronism.get("breakers", {})
+        else:
+            breakers = getattr(synchronism, "breakers", {}) if synchronism is not None else {}
         for policy in getattr(breakers, "values", lambda: ())():
-            if target in getattr(policy, "measurement_channel_ids", {}).values():
+            if isinstance(policy, Mapping):
+                channel_ids = policy.get("measurement_channel_ids", {})
+            else:
+                channel_ids = getattr(policy, "measurement_channel_ids", {})
+            if target in getattr(channel_ids, "values", lambda: ())():
                 return True
         return False
 
