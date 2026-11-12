@@ -355,8 +355,17 @@ class MeasurementChannelService:
             supplied_id = definition.get("channel_id", definition.get("id", normalized_id))
             if supplied_id is not None and self._normalize_id(supplied_id) != normalized_id:
                 raise ValueError("Updating a measurement channel cannot change its identity.")
+            supplied_producer = self._normalize_optional_id(
+                definition.get("producer_id", previous_channel.producer_id)
+            )
+            if supplied_producer != previous_channel.producer_id:
+                raise ValueError(
+                    "Measurement producer identity is immutable after channel activation; "
+                    "create a new channel through an explicit producer rebind workflow."
+                )
             candidate_data = self._serialize_channel(previous_channel)
             candidate_data.update(dict(definition))
+            candidate_data["producer_id"] = previous_channel.producer_id
             candidate_data["channel_id"] = normalized_id
             channel = self._build_ct_channel(candidate_data)
             previous = self._channels
