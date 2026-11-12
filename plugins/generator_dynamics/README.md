@@ -733,3 +733,25 @@ or commit discrete events/controller feedback. A production study host must
 explicitly select this augmented adapter and provide the authoritative
 terminal projection and network callback; this is not automatic transient
 runner wiring.
+
+
+### Augmented initial-state construction from the study operating point
+
+`GeneratorAugmentedDAEAdapter.initialize_state(machine_state,
+operating_point_inputs)` packs the canonical machine state with each
+registered component's own `initial_state(inputs)` result. The host must
+supply a solved and validated initial operating point: terminal voltages keyed
+by Core terminal IDs, electrical active powers keyed by canonical machine
+IDs, and the exact configured mechanical-power inputs on the study base.
+The adapter checks complete machine-power coverage and exact component/layout
+identity before packing. It does not invent controller states or solve an
+initial power flow.
+
+This is intentionally separate from the existing
+`GeneratorTransientStudyHandler`: that StudyService handler currently
+requires the host's `GGOV1SampledExecutionAdapter` and delegates to the
+host-owned `solve_generator_transient` capability. The augmented DAE adapter
+is not silently substituted into that sampled contract. Production use
+requires a host composition/solver implementation that explicitly accepts
+the augmented-state derivative/step contract and returns the usual
+provenance-bound study result.
