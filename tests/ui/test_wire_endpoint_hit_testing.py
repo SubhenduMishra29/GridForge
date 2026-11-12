@@ -119,3 +119,30 @@ def test_non_wire_snap_keeps_endpoint_tolerance_contract(monkeypatch):
     result = system.snap(QPointF(8, 8), allow_grid=False, allow_object=True, intent=SnapIntent.PLACE)
 
     assert result.snap_type is SnapType.NONE
+
+
+def test_clicked_device_shape_takes_precedence_over_nearby_bus_anchor(monkeypatch):
+    scene = _Scene()
+    bus = _BusCandidate(
+        "BUS-001",
+        scene,
+        ({"position": QPointF(45, 0), "object_id": "BUS-001", "bus_id": "BUS-001", "attachment_id": "attachment-0"},),
+        (0, -5, 40, 5),
+    )
+    equipment = _EquipmentCandidate(
+        "CB-001",
+        scene,
+        ({"position": QPointF(100, 0), "object_id": "CB-001", "terminal_id": "CB-001:line", "terminal_name": "line"},),
+        (50, -20, 110, 20),
+    )
+    monkeypatch.setattr(snap_module, "BusItem", _BusCandidate)
+    monkeypatch.setattr(snap_module, "EquipmentItem", _EquipmentCandidate)
+    system = SnapSystem(scene=scene, tolerance=10.0)
+    system.register_item(bus)
+    system.register_item(equipment)
+
+    result = system.snap(QPointF(55, 2), allow_grid=False, allow_object=True, intent=SnapIntent.WIRE_TARGET)
+
+    assert result.snap_type is SnapType.OBJECT
+    assert result.object_id == "CB-001"
+    assert result.terminal_name == "line"
