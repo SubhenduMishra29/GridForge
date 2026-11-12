@@ -306,12 +306,12 @@ each active candidate. The coordinator owns no dynamic state or solver clock.
  calculation from initial electrical/mechanical power at nominal shaft speed. It
  derives the common initial FSR, actual valve target, Flag-dependent fuel
  flow, modeled temperature-proxy input, and Rselect-consistent PID power
- reference for zero initial governor error. It also reports the PID/load-PI
- integral alignment residual and the load-limiter output residual. Call
- `require_balanced()` when the load/temperature limiter is active and the
- study requires all initialized controller paths to agree. The helper rejects
- an initial FSR outside common valve limits or above the load limiter's
- 1.0 pu ceiling. The host still calls each block's own `initial_state()`;
+ reference for zero initial governor error, and the initial governor-output
+ feedback value. It also reports the PID/load-PI
+ integral alignment residual and the load-limiter output residual. Set `load_limiter_enabled=False` when that path is disabled. Call
+`require_balanced()` when it is enabled and all initialized paths must agree.
+The helper rejects an initial FSR outside common valve limits, and above the
+1.0 pu ceiling when the load limiter is enabled. The host still calls each block's own `initial_state()`;
  the helper owns no solver state or lifecycle.
 
  The acceleration limiter is sampled: calculate FSRA using the previous
