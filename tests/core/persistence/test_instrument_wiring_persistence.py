@@ -43,6 +43,7 @@ def sample_inventory():
         id="binding-id", signal_id=signal.id,
         carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
         direction="SOURCE_TO_SINK",
+        source_channel_id="channel-1",
     )
     return InstrumentationWiringInventory(
         cables=(cable,), cores=(core,), signals=(signal,),
@@ -323,7 +324,7 @@ def test_signal_endpoint_bindings_round_trip_for_all_endpoint_kinds():
         endpoint_bindings=endpoints,
     )
     payload = serialize_instrumentation_wiring(expected)
-    assert payload["schema"] == 3
+    assert payload["schema"] == 4
     assert len(payload["endpoint_bindings"]) == 3
     assert deserialize_instrumentation_wiring(payload) == expected
 
@@ -332,9 +333,36 @@ def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints
     payload = serialize_instrumentation_wiring(sample_inventory())
     payload["schema"] = 2
     payload.pop("endpoint_bindings")
+    for binding in payload["signal_bindings"]:
+        binding.pop("source_channel_id")
     restored = deserialize_instrumentation_wiring(payload)
     assert restored == sample_inventory()
     assert restored.endpoint_bindings == ()
+
+
+def test_schema_three_wiring_inventory_remains_readable_without_channel_ownership():
+    inventory = sample_inventory()
+    payload = serialize_instrumentation_wiring(inventory)
+    payload["schema"] = 3
+    for binding in payload["signal_bindings"]:
+        binding.pop("source_channel_id")
+    restored = deserialize_instrumentation_wiring(payload)
+    assert restored == InstrumentationWiringInventory(
+        cables=inventory.cables,
+        cores=inventory.cores,
+        signals=inventory.signals,
+        signal_bindings=tuple(
+            SignalCarrierBinding(
+                id=item.id,
+                signal_id=item.signal_id,
+                carrier_kind=item.carrier_kind,
+                carrier_id=item.carrier_id,
+                direction=item.direction,
+                source_channel_id=None,
+            )
+            for item in inventory.signal_bindings
+        ),
+    )
 
 
 def test_wiring_service_adds_and_reads_signal_endpoint_binding():
