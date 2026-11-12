@@ -58,6 +58,8 @@ def test_physical_core_projects_each_terminal_hop_without_mutating_document():
     assert record.segments[1].source.equipment_id == "TB-1"
     assert record.segments[1].target.equipment_id == "RELAY-1"
     assert record.segments[1].signal_tags == ("IA_A",)
+    assert record.segments[0].signal_ids == ("signal-1",)
+    assert record.segments[1].signal_ids == ("signal-1",)
     assert (model.node_count, model.connection_count) == before
 
 
