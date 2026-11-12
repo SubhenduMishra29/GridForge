@@ -100,7 +100,10 @@ class GeneratorAugmentedTransientStudyHandler:
         cancellation: StudyCancellationToken,
     ) -> Any:
         from .integrator_adapter import GeneratorAugmentedDAEAdapter
-        from .study_evidence import (\n            GeneratorAugmentedStudyEvidence,\n            GeneratorStudyCheckpointIdentity,\n        )
+        from .study_evidence import (
+            GeneratorAugmentedStudyEvidence,
+            GeneratorStudyCheckpointIdentity,
+        )
 
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be StudyRequest")
