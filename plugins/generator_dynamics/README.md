@@ -868,9 +868,10 @@ canonical `GeneratorAugmentedDAEAdapter`; its runner must return
 The handler validates request/context provenance and the concrete adapter
 and evidence contracts, and passes through the canonical
 `StudyCancellationToken`. The host runner must check cancellation between
-accepted integrator steps, publish only accepted checkpoints, and return
-interrupted evidence when cancellation is observed. It must not convert
-intermediate RK/Newton evaluations into trajectory checkpoints.
+accepted integrator steps, publish only accepted checkpoints, and return interrupted evidence only when the canonical cancellation token is
+cancelled. Conversely, a cancellation request must not be reported as a
+completed trajectory. It must not convert intermediate RK/Newton evaluations
+into trajectory checkpoints.
 
 This handler is not registered automatically and does not replace the
 existing sampled GGOV1 handler. The Application composition root must choose
