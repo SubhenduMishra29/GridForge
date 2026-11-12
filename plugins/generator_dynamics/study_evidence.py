@@ -53,6 +53,9 @@ class GeneratorStudyCheckpointIdentity:
     study_type: str
     model_revision: int
     topology_revision: int
+    instrumentation_revision: int
+    protection_equipment_revision: int
+    protection_configuration_revision: int
     study_configuration_fingerprint: str
     state_layout_fingerprint: str
     solver_id: str
@@ -66,7 +69,7 @@ class GeneratorStudyCheckpointIdentity:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
             object.__setattr__(self, name, value.strip())
-        for name in ("activation_generation", "model_revision", "topology_revision"):
+        for name in (\n            "activation_generation", "model_revision", "topology_revision",\n            "instrumentation_revision", "protection_equipment_revision",\n            "protection_configuration_revision",\n        ):
             value = getattr(self, name)
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ValueError(f"{name} must be a non-negative integer")
@@ -100,6 +103,9 @@ class GeneratorStudyCheckpointIdentity:
             study_type=request.study_type,
             model_revision=request.source_revision.model_revision,
             topology_revision=request.source_revision.topology_revision,
+            instrumentation_revision=request.source_revision.instrumentation_revision,
+            protection_equipment_revision=request.source_revision.protection_equipment_revision,
+            protection_configuration_revision=request.source_revision.protection_configuration_revision,
             study_configuration_fingerprint=study_configuration_fingerprint,
             state_layout_fingerprint=state_layout_fingerprint,
             solver_id=solver_id,
@@ -113,6 +119,9 @@ class GeneratorStudyCheckpointIdentity:
             "study_type": self.study_type,
             "model_revision": self.model_revision,
             "topology_revision": self.topology_revision,
+            "instrumentation_revision": self.instrumentation_revision,
+            "protection_equipment_revision": self.protection_equipment_revision,
+            "protection_configuration_revision": self.protection_configuration_revision,
             "study_configuration_fingerprint": self.study_configuration_fingerprint,
             "state_layout_fingerprint": self.state_layout_fingerprint,
             "solver_id": self.solver_id,
