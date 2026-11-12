@@ -75,10 +75,6 @@ def _endpoint_binding(binding_id, kind, endpoint_id, owner_id=None, port=None, p
         endpoint=SignalEndpointReference(
             kind=kind, endpoint_id=endpoint_id, owner_id=owner_id, port=port,
             physical_terminal=physical_terminal,
-            physical_terminal=(
-                WiringTerminalReference("TB-101", "1", "1")
-                if kind is not SignalEndpointKind.MEASUREMENT_CHANNEL else None
-            ),
         ),
     )
 
@@ -187,6 +183,7 @@ def test_control_core_source_is_checked_through_application_read_service():
     control_ref = _endpoint_binding(
         "control-ref", SignalEndpointKind.CONTROL_INPUT,
         "component-1", "control-1", "PV",
+        WiringTerminalReference("PLC-101", "AI1", "AI1"),
     )
     mapping = ControlSignalMapping(bindings=(
         ControlSignalBinding(
@@ -213,13 +210,14 @@ def test_control_core_source_is_checked_through_application_read_service():
         read_service=ReadService(),
     )
     assert result[0].status == "UNRESOLVED"
-    assert "no explicit physical source-terminal contract" in result[0].diagnostics[0]
+    assert "no explicit physical sink terminal" in result[0].diagnostics[0]
 
 
 def test_control_core_source_missing_from_read_service_is_unresolved():
     control_ref = _endpoint_binding(
         "control-ref", SignalEndpointKind.CONTROL_INPUT,
         "component-1", "control-1", "PV",
+        WiringTerminalReference("PLC-101", "AI1", "AI1"),
     )
     mapping = ControlSignalMapping(bindings=(
         ControlSignalBinding(
@@ -269,7 +267,7 @@ def test_measurement_channel_source_terminal_must_be_present_on_a_signal_carrier
         protection_configuration=None,
     )
     assert result[0].status == "UNRESOLVED"
-    assert "does not include the MeasurementChannel source terminal" in result[0].diagnostics[0]
+    assert "No physical carrier path begins at the MeasurementChannel source terminal" in result[0].diagnostics[0]
 
 
 
@@ -302,8 +300,7 @@ def test_multi_carrier_signal_path_resolves_when_terminal_hops_are_contiguous():
         control_signal_mapping=None,
         protection_configuration=None,
     )
-    assert result[0].status == "UNRESOLVED"
-    assert "no explicit physical source-terminal contract" in result[0].diagnostics[0]
+    assert result[0].status == "RESOLVED"
 
 
 def test_multi_carrier_signal_path_reports_disconnected_jumper():
@@ -315,12 +312,13 @@ def test_multi_carrier_signal_path_reports_disconnected_jumper():
         id="jumper-2", tag="W-102", role=WiringConductorRole.SIGNAL,
         terminal_path=(
             WiringTerminalReference("TB-202", "2", "2"),
-            WiringTerminalReference("PLC-101", "AI1", "AI1"),
+            WiringTerminalReference("IED-101", "IB", "IB"),
         ),
     )
     jumper_binding = SignalCarrierBinding(
         id="carrier-jumper-2", signal_id="signal-1",
         carrier_kind=CarrierKind.PANEL_WIRE, carrier_id=panel_wire.id,
+        source_channel_id="channel-1",
     )
     inventory = InstrumentationWiringInventory(
         cables=base.cables, cores=base.cores,
@@ -346,6 +344,7 @@ def test_control_input_rejects_missing_physical_sink_terminal():
         endpoint=SignalEndpointReference(
             kind=SignalEndpointKind.CONTROL_INPUT,
             endpoint_id="component-1", owner_id="control-1", port="PV",
+            physical_terminal=WiringTerminalReference("PLC-999", "AI9", "AI9"),
         ),
     )
     mapping = ControlSignalMapping(bindings=(
@@ -411,6 +410,7 @@ def test_control_input_rejects_carrier_direction_opposed_to_binding_direction():
     endpoint = _endpoint_binding(
         "control-ref", SignalEndpointKind.CONTROL_INPUT,
         "component-1", "control-1", "PV",
+        WiringTerminalReference("PLC-101", "AI1", "AI1"),
     )
     base = _signal_inventory(
         _endpoint_binding("channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1"),
@@ -420,6 +420,7 @@ def test_control_input_rejects_carrier_direction_opposed_to_binding_direction():
         id="carrier-1", signal_id="signal-1",
         carrier_kind=CarrierKind.CABLE_CORE, carrier_id="core-1",
         direction="SINK_TO_SOURCE",
+        source_channel_id="channel-1",
     )
     inventory = InstrumentationWiringInventory(
         cables=base.cables, cores=base.cores, panel_wires=base.panel_wires,
