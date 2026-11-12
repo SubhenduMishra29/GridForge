@@ -36,6 +36,15 @@ def _normalized(value: Any) -> str:
 
 def _check_common(signal: SignalDefinition, accepted_types: tuple[str, ...], accepted_phases: tuple[str, ...], accepted_units: tuple[str, ...]) -> tuple[str, ...]:
     diagnostics: list[str] = []
+    # Empty receiver metadata is not an unrestricted contract. Legacy or
+    # partially configured destinations must remain unresolved until their
+    # engineering input capabilities are explicitly declared.
+    if not accepted_types:
+        diagnostics.append("Receiver has no declared accepted signal types; compatibility is unresolved.")
+    if not accepted_phases:
+        diagnostics.append("Receiver has no declared accepted phases; compatibility is unresolved.")
+    if not accepted_units:
+        diagnostics.append("Receiver has no declared accepted engineering units; compatibility is unresolved.")
     mapped = _SIGNAL_TYPE_MAP.get(signal.kind)
     if mapped is None:
         diagnostics.append(
