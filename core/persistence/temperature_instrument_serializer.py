@@ -10,6 +10,7 @@ from core.model.temperature_instrument import (
     TemperatureInstrument, TemperatureInstrumentInventory, TemperatureInterfaceDevice,
     TemperatureSensorTechnology, TemperatureService, TemperatureTerminalMapping,
     TemperatureReceiverInput, TemperatureReceiverInputKind,
+    TemperatureThermocoupleCableClass, TemperatureThermocoupleCableSpec,
 )
 
 TEMPERATURE_INSTRUMENT_SCHEMA_VERSION = 1
@@ -45,6 +46,13 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
         raise TypeError("inventory must be a TemperatureInstrumentInventory.")
     return {
         "schema": TEMPERATURE_INSTRUMENT_SCHEMA_VERSION,
+        "thermocouple_cable_specs": [{
+            "id": x.id, "thermocouple_type": x.thermocouple_type,
+            "cable_designation": x.cable_designation, "cable_class": x.cable_class.value,
+            "positive_conductor_material": x.positive_conductor_material,
+            "negative_conductor_material": x.negative_conductor_material,
+            "standard_reference": x.standard_reference, "tolerance_class": x.tolerance_class,
+        } for x in inventory.thermocouple_cable_specs],
         "instruments": [{
             "id": x.id, "tag": x.tag, "service": x.service.value, "asset_id": x.asset_id,
             "location": x.location, "sensor_equipment_id": x.sensor_equipment_id,
@@ -93,7 +101,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
     if data is None:
         return TemperatureInstrumentInventory()
     required = {"schema", "instruments", "interfaces", "alarm_trip_bindings"}
-    optional = {"receiver_inputs"}
+    optional = {"receiver_inputs", "thermocouple_cable_specs"}
     if not isinstance(data, Mapping) or not required.issubset(data) or set(data) - required - optional:
         raise TemperatureInstrumentSerializationError("Temperature instrument payload has non-canonical top-level fields.")
     if isinstance(data.get("schema"), bool) or data.get("schema") != TEMPERATURE_INSTRUMENT_SCHEMA_VERSION:
@@ -103,6 +111,8 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
             raise TemperatureInstrumentSerializationError(f"{key} must be an array.")
     if "receiver_inputs" in data and not isinstance(data["receiver_inputs"], list):
         raise TemperatureInstrumentSerializationError("receiver_inputs must be an array.")
+    if "thermocouple_cable_specs" in data and not isinstance(data["thermocouple_cable_specs"], list):
+        raise TemperatureInstrumentSerializationError("thermocouple_cable_specs must be an array.")
     try:
         instruments = []
         for raw in data["instruments"]:
@@ -149,6 +159,16 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 supported_sensor_configurations=tuple(x.get("supported_sensor_configurations", [])),
                 range_min=x.get("range_min"), range_max=x.get("range_max"), range_unit=x.get("range_unit"),
             ))
+        cable_specs = []
+        for x in data.get("thermocouple_cable_specs", []):
+            x = _record(x, {"id", "thermocouple_type", "cable_designation", "cable_class", "positive_conductor_material", "negative_conductor_material", "standard_reference", "tolerance_class"}, set(), "TemperatureThermocoupleCableSpec")
+            cable_specs.append(TemperatureThermocoupleCableSpec(
+                id=x["id"], thermocouple_type=x["thermocouple_type"],
+                cable_designation=x["cable_designation"], cable_class=TemperatureThermocoupleCableClass(x["cable_class"]),
+                positive_conductor_material=x["positive_conductor_material"],
+                negative_conductor_material=x["negative_conductor_material"],
+                standard_reference=x["standard_reference"], tolerance_class=x["tolerance_class"],
+            ))
         bindings = []
         for x in data["alarm_trip_bindings"]:
             x = _record(x, {"id", "instrument_id", "signal_id", "consumer_kind", "consumer_id", "function_id", "stage"},
@@ -159,7 +179,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 function_id=x["function_id"], stage=x["stage"], threshold=x.get("threshold"),
                 unit=x.get("unit"), latching=x.get("latching"), reset_policy=x.get("reset_policy"),
             ))
-        return TemperatureInstrumentInventory(tuple(instruments), tuple(interfaces), tuple(receiver_inputs), tuple(bindings))
+        return TemperatureInstrumentInventory(tuple(instruments), tuple(interfaces), tuple(receiver_inputs), tuple(bindings), tuple(cable_specs))
     except (KeyError, TypeError, ValueError) as exc:
         raise TemperatureInstrumentSerializationError(f"Invalid temperature instrument inventory: {exc}") from exc
 
