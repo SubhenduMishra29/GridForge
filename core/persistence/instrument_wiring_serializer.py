@@ -72,7 +72,7 @@ def serialize_instrumentation_wiring(
                 "id": item.id, "cable_id": item.cable_id,
                 "core_number": item.core_number, "role": item.role.value,
                 "terminal_path": [_terminal_to_dict(ref) for ref in item.terminal_path],
-                "colour": item.colour, "revision": item.revision, "pair_id": item.pair_id, "core_tag": item.core_tag, "revision": item.revision,
+                "colour": item.colour, "pair_id": item.pair_id, "core_tag": item.core_tag, "revision": item.revision,
             }
             for item in inventory.cores
         ],
@@ -80,7 +80,7 @@ def serialize_instrumentation_wiring(
             {
                 "id": item.id, "tag": item.tag, "role": item.role.value,
                 "terminal_path": [_terminal_to_dict(ref) for ref in item.terminal_path],
-                "cross_section_mm2": item.cross_section_mm2, "colour": item.colour,
+                "cross_section_mm2": item.cross_section_mm2, "colour": item.colour, "revision": item.revision,
             }
             for item in inventory.panel_wires
         ],
@@ -107,6 +107,7 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.signal_bindings
         ],
+        "connection_hops": [{"id": item.id, "from_terminal": _terminal_to_dict(item.from_terminal), "to_terminal": _terminal_to_dict(item.to_terminal), "carrier_kind": item.carrier_kind.value, "carrier_id": item.carrier_id, "revision": item.revision, "lifecycle_status": item.lifecycle_status, "supersedes_hop_id": item.supersedes_hop_id} for item in inventory.connection_hops],
     }
 
 
@@ -116,7 +117,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         return InstrumentationWiringInventory()
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
-    expected = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
+    expected = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy", "connection_hops"}
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
@@ -126,18 +127,19 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {data.get('schema')!r}."
         )
-    for key in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"):
+    for key in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy", "connection_hops"):
         if not isinstance(data.get(key), list) or any(not isinstance(item, Mapping) for item in data[key]):
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
 
     try:
         _field_contracts = (
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
-            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag"}, "Cable core"),
-            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour"}, "Panel wire"),
+            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "revision"}, "Cable core"),
+            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "revision"}, "Panel wire"),
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
+            ("connection_hops", {"id", "from_terminal", "to_terminal", "carrier_kind", "carrier_id"}, {"revision", "lifecycle_status", "supersedes_hop_id"}, "Physical connection hop"),
         )
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
@@ -148,7 +150,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 id=item["id"], cable_id=item["cable_id"], core_number=item["core_number"],
                 role=WiringConductorRole(item["role"]),
                 terminal_path=tuple(_terminal_from_dict(ref) for ref in item.get("terminal_path", ())),
-                colour=item.get("colour"), revision=item.get("revision", 1), pair_id=item.get("pair_id"), core_tag=item.get("core_tag"), revision=item.get("revision", 1),
+                colour=item.get("colour"), pair_id=item.get("pair_id"), core_tag=item.get("core_tag"), revision=item.get("revision", 1),
             )
             for item in data["cores"]
         )
@@ -156,7 +158,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             PanelWire(
                 id=item["id"], tag=item["tag"], role=WiringConductorRole(item["role"]),
                 terminal_path=tuple(_terminal_from_dict(ref) for ref in item["terminal_path"]),
-                cross_section_mm2=item.get("cross_section_mm2"), colour=item.get("colour"),
+                cross_section_mm2=item.get("cross_section_mm2"), colour=item.get("colour"), revision=item.get("revision", 1),
             )
             for item in data["panel_wires"]
         )
