@@ -8,7 +8,6 @@ it does not integrate, commit state, or replace DAESolver.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import Callable, Mapping, Sequence
 
 import numpy as np
@@ -109,11 +108,16 @@ def evaluate_generator_dynamic_stage(
     component_values = tuple(components)
     binding_values = tuple(component_bindings)
     avr_values = tuple(avr_components)
+    if not avr_values or any(not isinstance(component, FirstOrderAVRStateComponent) for component in avr_values):
+        raise TypeError("avr_components must contain at least one FirstOrderAVRStateComponent")
+    if any(not isinstance(binding, DynamicComponentBinding) for binding in binding_values):
+        raise TypeError("component_bindings must contain DynamicComponentBinding values")
     by_component = {component.component_id: component for component in avr_values}
-    if len(by_component) != len(avr_values) or not avr_values:
-        raise GeneratorDynamicStageError("at least one uniquely identified AVR component is required")
-    if any(not isinstance(component, FirstOrderAVRStateComponent) for component in avr_values):
-        raise TypeError("avr_components must contain FirstOrderAVRStateComponent values")
+    if len(by_component) != len(avr_values):
+        raise GeneratorDynamicStageError("AVR component identities must be unique")
+    registered_by_id = {getattr(component, "component_id", None): component for component in component_values}
+    if any(registered_by_id.get(key) is not value for key, value in by_component.items()):
+        raise GeneratorDynamicStageError("each AVR adapter must be the exact component registered for its state block")
     if set(by_component) - set(component_states):
         raise GeneratorDynamicStageError("every AVR component must have a state block in the global layout")
 
