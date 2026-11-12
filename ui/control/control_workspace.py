@@ -144,6 +144,20 @@ class ControlWorkspace(QWidget):
             raise KeyError(f"Unknown Control tool: {tool_id!r}")
         self._tool_selected(descriptor)
 
+    def set_editor_navigation_callback(self, callback: Any | None) -> None:
+        """Bind host-owned cross-editor navigation without owning editor state."""
+        self._canvas.set_provenance_navigation_callback(callback)
+
+    def select_canonical_object(self, object_id: str) -> None:
+        """Select and centre a canonical Control component requested by another canvas."""
+        normalized = str(object_id).strip()
+        if not normalized:
+            raise ValueError("object_id must be a non-empty string.")
+        self._selection_manager.select_single(normalized)
+        item = self._canvas.find_item_by_object_id(normalized)
+        if item is not None:
+            self._view.centerOn(item)
+
     def refresh(self) -> None:
         self._coordinator.refresh_current()
 

@@ -4007,13 +4007,454 @@ Reconciliation:
 - PR now targets latest main and GitHub reports mergeable=true, ahead-only.
 - Marked PR ready for review.
 
-Merge blocker:
-- GitHub rejected merge operation with HTTP 403 because the authenticated
-  account has no verified email address. PR remains open and unmerged.
-- Issue #1203 remains open pending successful PR merge.
+Disposition:
+- PR #1204 was subsequently merged into main.
+- Merge commit: 32e39c6842c8463fdffacf1f3c1fcd87b0973a23.
+- Issue #1203 remains open because its full cross-canvas and schedule
+  acceptance scope is not yet implemented.
 
 Verification:
-- Git history, merge parents, branch head, compare result and mergeability
-  were inspected. No pytest, import, application startup, save/reopen or
+- GitHub confirmed PR state closed and merged, with main advanced to the
+  merge commit. No pytest, import, application startup, save/reopen or
   GUI interaction was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical Signal Endpoint Binding Foundation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+
+Design and correction:
+- Added immutable Core SignalEndpointReference, SignalEndpointBinding and
+  SignalEndpointKind records, separate from physical cable/core carrier
+  bindings and from existing Control/Protection execution mappings.
+- Defined typed endpoint identity for MeasurementChannel, Control input
+  (Control ID + component ID + input port), and Protection input
+  (protection element ID + ProtectionMeasurementBinding ID + relay input).
+- Added endpoint binding identity/reference checks to the project wiring
+  aggregate; each logical endpoint can have only one canonical signal
+  designation and each binding must reference an existing SignalDefinition.
+- Extended the wiring codec to schema 3 while retaining strict schema 2
+  read compatibility; no legacy endpoint relationships are inferred.
+- Exposed endpoint bindings through the detached Application wiring read
+  model and typed Application inventory CRUD.
+- Exported the new Core records through core.model.
+- Added regression-test source for endpoint kinds, incomplete references,
+  duplicate/dangling signal relationships, codec round-trip, schema 2
+  compatibility, and Application read/CRUD.
+
+Boundary and remaining work:
+- These records establish stable logical endpoint identity only. They do
+  not yet prove that referenced MeasurementChannel, Control input or
+  Protection binding currently exists. Active-project endpoint resolution,
+  ownership validation, lifecycle reconciliation and unresolved diagnostics
+  remain required before canvas projection or execution can consume them.
+- Existing ControlSignalMapping and ProtectionMeasurementBinding remain
+  authoritative for their respective runtime semantics; this new inventory
+  binding is provenance/cross-reference metadata, not a replacement.
+- No SLD/Control/Protection canvas rendering or schedule generation is
+  included in this slice.
+
+Verification:
+- Source-level review of changed contracts and compatibility paths only.
+- No pytest, CI, import, startup, GUI or save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Active Signal Endpoint Resolution
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added a renderer-neutral Application resolver for explicit signal endpoint
+  references against the active MeasurementChannel read models,
+  ControlSignalMapping destinations and ProtectionProjectConfiguration.
+- MeasurementChannel references resolve only by stable channel ID.
+- Control references require an exact Control ID/component ID/input-name
+  destination match. Measurement-domain Control sources additionally require
+  the same signal designation to reference that exact active channel; Core
+  signal sources are resolved through the Application read service.
+- Protection references require the exact ProtectionMeasurementBinding ID,
+  matching protection element and relay input, configured channel agreement,
+  and a matching signal-to-MeasurementChannel endpoint reference.
+- MeasurementChannel read models expose detached source equipment and
+  terminal identities; the resolver requires the exact source terminal to
+  occur on a signal-bound cable core or panel wire.
+- Explicit residual-current bindings are checked against the configured
+  ANSI 50N/51N residual source membership; unsupported residual endpoint
+  use fails closed.
+- Missing providers, missing targets and inconsistent identities produce
+  detached RESOLVED/UNRESOLVED/AMBIGUOUS read-side diagnostics. No tag,
+  display-name or proximity inference is performed.
+- Exposed the resolver through Application.read_instrumentation_wiring_endpoint_resolution().
+- Added regression-test source for channel, Control and Protection endpoint
+  resolution, missing-target diagnostics and source-terminal mismatch.
+
+Boundary:
+- The resolver does not alter ControlSignalMapping, ProtectionMeasurementBinding,
+  MeasurementChannel runtime state or execution semantics.
+- Full multi-segment carrier continuity, terminal-block/jumper reconciliation,
+  canvas provenance projection, cross-canvas navigation and schedules remain
+  open #1203 work.
+
+Verification:
+- Source-level review only; no tests, CI, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Multi-Carrier Physical Signal Continuity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Replaced source-terminal membership-only validation with a terminal graph
+  assembled from every explicitly signal-bound cable core and panel wire.
+- Each bound physical carrier must have a complete ordered terminal path
+  containing at least two distinct terminal identities.
+- Consecutive terminal hops form the physical continuity graph. All terminal
+  nodes from every carrier bound to the signal must be reachable from the
+  MeasurementChannel's exact source equipment/terminal identity.
+- Multi-carrier routes may join at stable terminal identities (for example,
+  field cable core -> junction/terminal block -> panel jumper -> I/O terminal).
+  Disconnected carrier branches are reported as unresolved.
+- Fibre and logical carrier bindings remain unresolved until their typed
+  media/endpoint path registries exist; no fabricated terminal paths.
+- MeasurementChannel, Control measurement inputs and Protection inputs all
+  use the same physical continuity validation.
+- Added regression-test source for a continuous cable-core-to-panel-wire
+  chain and a disconnected jumper.
+
+Boundary:
+- This verifies continuity of the explicitly bound carrier graph from the
+  physical MeasurementChannel source terminal. It does not yet prove the
+  final physical sink terminal for a PLC/relay input, because those existing
+  logical endpoint records do not carry a canonical physical terminal reference.
+- Directional electrical signal-flow constraints, cable shield/earth and
+  communication pair/fibre media paths remain separate typed validation work.
+- Canvas projection, cross-canvas navigation and engineering schedules remain
+  open #1203 work.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Control and Protection Signal Provenance Projection
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added a renderer-neutral UI provenance adapter that joins canonical
+  SignalDefinition tags, physical cable-core/panel-wire carrier tags and
+  active endpoint-resolution diagnostics into detached presentation records.
+- ControlUpdateCoordinator refreshes the Control canvas provenance after
+  the authoritative Control read-model projection. Control input ports show
+  the signal tag and cable/core or panel-wire designations; hover detail
+  includes endpoint identity, carrier list, resolution state and diagnostics.
+- Protection input nodes show the same signal/cable provenance and expand
+  their presentation height only when provenance is present. Hover detail
+  includes the complete detached endpoint and resolution diagnostic data.
+- Protection canvas selection now publishes the canonical Protection element
+  identity for relay input/function nodes. The Protection inspector resolves
+  a selected element ID directly to its owning relay/function configuration.
+  Canonical element selection highlights matching Protection nodes.
+- Existing Application/Core records remain the only identity authority;
+  canvas labels are read-only projections and do not create duplicate cable,
+  core or signal records.
+- Added UI adapter regression-test source for cable/core and panel-wire tag
+  projection and unresolved diagnostics.
+
+Boundary:
+- This slice displays provenance on Control and Protection inputs and
+  synchronizes selection at Control component / Protection element level.
+- It does not yet implement an explicit cross-canvas navigation command
+  that changes the active editor and scrolls/centres the target, nor a
+  physical sink-terminal mapping for every PLC/relay input.
+- SLD remains the editable physical wiring authoring canvas; Control and
+  Protection only project canonical provenance.
+- Cable/core/terminal schedules and loop/interconnection/point-to-point
+  reports remain open #1203 acceptance work.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Explicit Cross-Canvas Signal Provenance Navigation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added one shared read-only SignalProvenanceItem for Control and Protection
+  canvas labels. Double-click navigation is available only when exactly one
+  peer endpoint exists for the same canonical signal designation.
+- Control input provenance labels can navigate to the matching Protection
+  function element. Protection input provenance labels can navigate to the
+  matching Control component.
+- ControlSurfaceHost binds the navigation callback to the canonical editor
+  host; it activates the target editor and asks the target workspace to select
+  and centre the canonical object.
+- Control and Protection workspaces expose narrow host callbacks and
+  select_canonical_object APIs; they do not own editor activation policy.
+- Protection selection uses the canonical protection element ID so the
+  Control/Protection selection projections and Protection Inspector can
+  resolve the same element identity.
+- Multiple peer endpoints do not silently choose an arbitrary destination;
+  the label remains inspectable but does not offer an ambiguous navigation
+  target.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI interaction
+  or save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Physical Signal Sink Identity and Directed Continuity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Extended typed Control/Protection SignalEndpointReference records with an
+  optional canonical WiringTerminalReference for the physical input sink.
+  MeasurementChannel endpoints remain source identities and reject sink
+  terminal metadata.
+- Persisted the sink terminal losslessly in the schema-4 instrumentation
+  wiring codec. The decoder continues to read legacy schema-3 payloads that
+  omit the optional sink field, as well as schema-2 payloads.
+- Application inventory activation/replacement now validates declared
+  endpoint sink terminals against the active Core Network terminal registry.
+- Endpoint resolution now fails closed for Control measurement inputs and
+  Protection relay inputs without an explicit physical sink terminal.
+- Directed carrier adjacency is derived from each SignalCarrierBinding's
+  SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL contract. Resolution checks
+  the endpoint binding's direction between the exact MeasurementChannel
+  source terminal and declared physical sink terminal.
+- Control and Protection provenance read models now expose the endpoint
+  direction and physical sink terminal; canvas hover detail presents both.
+- Added regression-test source for missing sink terminals, sinks absent from
+  the physical carrier graph, reversed carrier direction, persistence
+  round-trip and UI provenance display.
+
+Boundary:
+- Existing ControlSignalMapping and ProtectionMeasurementBinding remain the
+  authoritative logical/runtime mappings. Physical sink identity is an
+  additional cross-reference and does not replace either mapping.
+- Core-domain Control sources remain UNRESOLVED for physical wiring
+  provenance until an explicit source-terminal contract is available. Active
+  Core element/signal existence alone is not treated as proof of a physical
+  instrument signal route.
+- CT polarity, PT polarity, return/shorting arrangements, shield/earth paths,
+  RTD/thermocouple conductor arrangements and communication media remain
+  domain-specific follow-up validation. They must not be inferred from tags.
+- SLD-to-Control/Protection navigation and generated cable/core/terminal/
+  loop/interconnection/point-to-point schedules remain open #1203 scope.
+
+Verification:
+- Source-level inspection only. Regression-test source was added but tests,
+  imports, startup, GUI interaction and project save/reopen were not run.
+- No CI gate was requested or treated as acceptance evidence.
+======================================================================
+
+
+======================================================================
+GridForge V2 — SLD Physical Signal Provenance Navigation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Preserved stable SignalDefinition IDs alongside signal tags in each detached
+  SLD physical carrier segment projection. IDs are attached to the final
+  terminal hop of each carrier so a long cable does not repeat a navigation
+  label at every intermediate terminal.
+- SLDCanvasProjection carries those signal IDs as renderer-neutral connection
+  properties. No SLDConnection or Core topology record is created for the
+  projected instrumentation route.
+- SLDCanvasRenderSystem projects read-only SignalProvenanceItem labels onto
+  physical route graphics. Labels show the signal designation and the
+  matching Control input or Protection input target; hover detail retains
+  cable/core, terminal, direction and resolution diagnostics.
+- Double-click on an SLD route provenance label uses the canonical
+  ControlSurfaceHost navigation callback to activate the matching Control
+  component or Protection element and centre its canonical identity.
+- SLDCanvasSurface now binds the host navigation callback and its normal
+  active-document presentation path refreshes the complete committed +
+  DraftNetwork + instrumentation wiring projection before rendering.
+- Labels are transient graphics tracked with their owning route realization;
+  route deletion, document reconciliation and renderer disposal remove them.
+  They are not persisted as independent SLD records.
+
+Boundary:
+- SLD-to-Control and SLD-to-Protection navigation is implemented for explicit
+  signal endpoint bindings. Existing Control-to-Protection navigation remains
+  a separate peer-endpoint path.
+- Reverse navigation from Control/Protection to the corresponding SLD
+  physical carrier, plus cross-canvas selection of cable/core/terminal objects,
+  remains outstanding. Multiple physical carrier segments can represent one
+  signal; a future selection contract must highlight the complete carrier
+  route rather than invent a second physical connection.
+- Engineering cable/core/terminal schedules and loop/interconnection/
+  point-to-point reports remain open #1203 acceptance work.
+
+Verification:
+- Source-level inspection only. Adapter/canvas regression-test source was
+  extended; tests, imports, startup, GUI interaction and save/reopen were not
+  run. No CI gate was requested or treated as acceptance evidence.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Explicit MeasurementChannel Ownership of Signal Carriers
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added optional stable source_channel_id to SignalCarrierBinding. Physical
+  carrier segments are now assigned explicitly to the MeasurementChannel
+  whose physical source terminal they carry; no carrier/channel ownership is
+  inferred from a tag or from graph proximity.
+- Advanced the nested instrumentation wiring codec to schema 4. Schema 2
+  and schema 3 remain strictly readable; their carrier source_channel_id is
+  restored as None and therefore cannot be treated as resolved physical
+  provenance until explicitly assigned.
+- Resolver filters cable-core and panel-wire graph segments by exact
+  source_channel_id. Unassigned physical carriers and carrier references to
+  channels not declared for the signal fail closed.
+- Independent channel paths for one logical signal are resolved separately.
+  This supports multi-input protection arrangements such as residual-current
+  phase summation without incorrectly requiring CT-A, CT-B and CT-C cable
+  routes to be physically joined to one another.
+- Existing directed carrier-flow and explicit physical sink-terminal
+  validation remains in force for Control and Protection consumers.
+- Added regression-test source for schema 4, schema 2/3 compatibility and
+  independent three-phase residual paths.
+
+Boundary:
+- Core-domain Control signal sources remain unresolved for physical wiring
+  until a typed source-terminal contract exists for those Core attributes.
+- Physical source-to-sink validation is channel-specific. The UI currently
+  displays the complete set of carrier tags bound to the signal designation;
+  finer per-channel route highlighting remains follow-up work.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI interaction
+  or save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — SLD Route Navigation and Render Registry Isolation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- SLD physical carrier segments now carry canonical signal IDs as transient
+  projection metadata. The final segment of each ordered carrier path exposes
+  resolved Control and Protection endpoint targets as hoverable/clickable
+  provenance labels.
+- Double-clicking an unambiguous SLD route target navigates through the
+  canonical editor host to the corresponding Control component or Protection
+  element. Control and Protection labels provide reciprocal navigation when
+  exactly one peer target exists.
+- Corrected navigation dependency injection: ControlSurfaceHost receives
+  explicit workspace navigation owners separately from the QWidget surfaces
+  used by the editor host. The composition root supplies CanvasComposition,
+  ControlWorkspace and ProtectionWorkspace as the navigation targets.
+- Multi-binding Protection inputs are grouped by logical element/input for
+  navigation and tooltip display; residual phase members do not create
+  duplicate SLD navigation targets.
+- SLD provenance labels remain in a dedicated transient overlay registry.
+  They are not inserted into the authoritative render-item registry, do not
+  participate in snap/route-edit lifecycle, and are removed independently
+  when a carrier projection is refreshed or removed.
+- Added regression-test source to verify overlay creation/removal does not
+  mutate the renderer's authoritative item registry.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI interaction
+  or save/reopen runtime was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Bidirectional Signal Route Navigation and Highlighting
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- SLD physical route projections now retain signal IDs on every segment for
+  complete route selection, while a separate label_signal_ids property anchors
+  visible provenance labels only on each carrier's final terminal hop.
+- SLDCanvasRenderSystem.select_signal_routes() resolves one canonical signal
+  ID to every currently projected physical carrier segment, applies the
+  selected presentation state to the complete route and returns the combined
+  scene bounds. No new Core or persisted SLD connection is created.
+- SLDCanvasSurface exposes select_canonical_object(signal_id) and centres the
+  canonical GraphicsView on the combined physical route bounds.
+- Control and Protection provenance labels now support a secondary
+  context-menu action to open the corresponding SLD physical route. Where no
+  unambiguous peer endpoint exists, double-click uses the SLD route as the
+  primary destination; where a peer exists, double-click retains the existing
+  Control/Protection peer navigation and the context menu offers SLD.
+- SLD route labels continue to navigate to the exact Control component or
+  Protection element. The canonical ControlSurfaceHost remains the sole
+  editor-activation/navigation owner.
+- Provenance labels inherit route visibility and opacity. Label graphics are
+  transient and are removed with their route realization.
+- Added regression-test source for complete multi-hop route selection,
+  route-label navigation, visibility/opacity projection and final-hop label
+  anchoring.
+
+Boundary:
+- Cross-canvas navigation is now signal-level across SLD, Control and
+  Protection. It highlights all carrier segments bound to the signal; it does
+  not yet expose independent selection identities for individual cable,
+  core, terminal block and terminal objects.
+- CT/PT polarity and return/shorting arrangements, RTD/thermocouple conductor
+  constraints, shield/earth paths and communication pair/fibre media remain
+  domain-specific validation work.
+- Engineering cable/core/terminal schedules, instrument loop/wiring schedules,
+  interconnection lists and point-to-point reports remain open #1203 scope.
+
+Verification:
+- Source-level review only. Regression-test source was extended but tests,
+  imports, startup, GUI interaction and save/reopen were not run. No CI gate
+  was requested or treated as acceptance evidence.
 ======================================================================

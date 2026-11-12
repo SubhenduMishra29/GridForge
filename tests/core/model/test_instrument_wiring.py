@@ -12,7 +12,15 @@ from core.model import (
     SignalCarrierBinding,
     SignalDefinition,
     SignalKind,
+    SignalEndpointKind,
+    SignalEndpointReference,
+    SignalEndpointBinding,
     WiringTerminalReference,
+    TerminalBlock,
+    TerminalPoint,
+    TerminalAccessory,
+    TerminalAccessoryKind,
+    TerminalAccessoryState,
 )
 
 
@@ -128,3 +136,229 @@ def test_inventory_rejects_duplicate_tags_and_dangling_signal_bindings():
     )
     with pytest.raises(ValueError, match="missing cable core"):
         InstrumentationWiringInventory(signals=(signal,), signal_bindings=(dangling,))
+
+
+
+def test_signal_endpoint_binding_models_measurement_control_and_protection_targets():
+    signal = SignalDefinition(
+        id="signal-1", tag="PT-101-V", description="Bus voltage",
+        kind=SignalKind.VOLTAGE, unit="V", phase="A",
+    )
+    endpoints = (
+        SignalEndpointReference(
+            kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+            endpoint_id="channel-1",
+        ),
+        SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-1", owner_id="control-1", port="PV",
+        ),
+        SignalEndpointReference(
+            kind=SignalEndpointKind.PROTECTION_INPUT,
+            endpoint_id="protection-binding-1",
+            owner_id="protection-element-1", port="V_A",
+        ),
+    )
+    bindings = tuple(
+        SignalEndpointBinding(
+            id=f"endpoint-binding-{index}", signal_id=signal.id,
+            endpoint=endpoint,
+        )
+        for index, endpoint in enumerate(endpoints, start=1)
+    )
+    inventory = InstrumentationWiringInventory(
+        signals=(signal,), endpoint_bindings=bindings,
+    )
+    assert tuple(item.endpoint.kind for item in inventory.endpoint_bindings) == (
+        SignalEndpointKind.MEASUREMENT_CHANNEL,
+        SignalEndpointKind.CONTROL_INPUT,
+        SignalEndpointKind.PROTECTION_INPUT,
+    )
+
+
+def test_signal_endpoint_binding_rejects_incomplete_typed_endpoint():
+    with pytest.raises(ValueError, match="Control input references require"):
+        SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-1",
+        )
+    with pytest.raises(ValueError, match="MeasurementChannel endpoint references use"):
+        SignalEndpointReference(
+            kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+            endpoint_id="channel-1", owner_id="instrument-1",
+        )
+
+
+def test_inventory_rejects_dangling_and_duplicate_signal_endpoint_bindings():
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-1", description="Temperature",
+        kind=SignalKind.TEMPERATURE,
+    )
+    endpoint = SignalEndpointReference(
+        kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+        endpoint_id="channel-1",
+    )
+    dangling = SignalEndpointBinding(
+        id="endpoint-binding-1", signal_id="missing-signal", endpoint=endpoint,
+    )
+    with pytest.raises(ValueError, match="references missing signal"):
+        InstrumentationWiringInventory(endpoint_bindings=(dangling,))
+
+    first = SignalEndpointBinding(
+        id="endpoint-binding-1", signal_id=signal.id, endpoint=endpoint,
+    )
+    second = SignalEndpointBinding(
+        id="endpoint-binding-2", signal_id=signal.id, endpoint=endpoint,
+    )
+    with pytest.raises(ValueError, match="only one canonical signal"):
+        InstrumentationWiringInventory(
+            signals=(signal,), endpoint_bindings=(first, second),
+        )
+
+
+
+def test_residual_protection_input_can_have_multiple_binding_members_for_one_signal():
+    signal = SignalDefinition(
+        id="signal-1", tag="I0-101", description="Residual current",
+        kind=SignalKind.CURRENT, unit="A",
+    )
+    bindings = tuple(
+        SignalEndpointBinding(
+            id=f"endpoint-binding-{index}",
+            signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id=f"measurement-binding-{index}",
+                owner_id="protection-element-1",
+                port="residual_current",
+            ),
+        )
+        for index in (1, 2, 3)
+    )
+    inventory = InstrumentationWiringInventory(
+        signals=(signal,), endpoint_bindings=bindings,
+    )
+    assert len(inventory.endpoint_bindings) == 3
+
+
+def test_logical_protection_input_rejects_two_different_signal_designations():
+    first_signal = SignalDefinition(
+        id="signal-1", tag="IA-101", description="Phase A current",
+        kind=SignalKind.CURRENT, unit="A", phase="A",
+    )
+    second_signal = SignalDefinition(
+        id="signal-2", tag="IB-101", description="Phase B current",
+        kind=SignalKind.CURRENT, unit="A", phase="B",
+    )
+    endpoint = SignalEndpointReference(
+        kind=SignalEndpointKind.PROTECTION_INPUT,
+        endpoint_id="measurement-binding-1",
+        owner_id="protection-element-1",
+        port="IA",
+    )
+    other_binding = SignalEndpointBinding(
+        id="endpoint-binding-2",
+        signal_id=second_signal.id,
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.PROTECTION_INPUT,
+            endpoint_id="measurement-binding-2",
+            owner_id="protection-element-1",
+            port="IA",
+        ),
+    )
+    with pytest.raises(ValueError, match="only one canonical signal"):
+        InstrumentationWiringInventory(
+            signals=(first_signal, second_signal),
+            endpoint_bindings=(
+                SignalEndpointBinding(
+                    id="endpoint-binding-1",
+                    signal_id=first_signal.id,
+                    endpoint=endpoint,
+                ),
+                other_binding,
+            ),
+        )
+
+
+
+def test_terminal_block_points_have_stable_identity_independent_of_designation():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=4,
+    )
+    point = TerminalPoint(
+        id="terminal-point-id", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+        manufacturer_designation="1",
+    )
+    reference = WiringTerminalReference(
+        block.id, point.terminal_number, point.designation, point.id,
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(point,),
+    )
+    assert reference.identity == (block.id, "1", point.id)
+    assert inventory.terminal_points[0].id == point.id
+
+
+def test_terminal_block_rejects_duplicate_terminal_numbers_and_designations():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=4,
+    )
+    first = TerminalPoint(
+        id="point-1", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+    )
+    duplicate = TerminalPoint(
+        id="point-2", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:2",
+    )
+    with pytest.raises(ValueError, match="duplicate terminal number"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=(first, duplicate),
+        )
+
+
+def test_terminal_accessory_requires_explicit_terminal_membership_and_pairs():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=2,
+    )
+    points = (
+        TerminalPoint(id="point-1", terminal_block_id=block.id, terminal_number="1", designation="1"),
+        TerminalPoint(id="point-2", terminal_block_id=block.id, terminal_number="2", designation="2"),
+    )
+    link = TerminalAccessory(
+        id="link-id", tag="TB-101-L1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.SHORTING_LINK,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=("point-1", "point-2"),
+        conductive_pairs=(("point-1", "point-2"),),
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=points,
+        terminal_accessories=(link,),
+    )
+    assert inventory.terminal_accessories[0].conductive_pairs == (("point-1", "point-2"),)
+
+
+def test_closed_terminal_accessory_cannot_infer_conductive_pairing():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="panel-1",
+        location="Marshalling cabinet", terminal_count=2,
+    )
+    points = (
+        TerminalPoint(id="point-1", terminal_block_id=block.id, terminal_number="1", designation="1"),
+        TerminalPoint(id="point-2", terminal_block_id=block.id, terminal_number="2", designation="2"),
+    )
+    with pytest.raises(ValueError, match="requires explicit conductive_pairs"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=points,
+            terminal_accessories=(TerminalAccessory(
+                id="link-id", tag="TB-101-L1", terminal_block_id=block.id,
+                kind=TerminalAccessoryKind.TEST_DISCONNECT,
+                state=TerminalAccessoryState.CLOSED,
+                terminal_point_ids=("point-1", "point-2"),
+            ),),
+        )

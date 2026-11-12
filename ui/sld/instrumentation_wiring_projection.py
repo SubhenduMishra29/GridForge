@@ -30,6 +30,10 @@ class SLDPhysicalWiringSegment:
     core_id: str | None = None
     core_number: int | None = None
     signal_tags: tuple[str, ...] = ()
+    signal_ids: tuple[str, ...] = ()
+    label_signal_ids: tuple[str, ...] = ()
+    source_terminal_point_id: str | None = None
+    target_terminal_point_id: str | None = None
     route: SLDRoute = SLDRoute()
 
 
@@ -83,6 +87,7 @@ class SLDInstrumentationWiringAdapter:
 
         cables = {str(item["id"]): item for item in read_model.cables}
         signal_tags: dict[tuple[str, str], set[str]] = {}
+        signal_ids: dict[tuple[str, str], set[str]] = {}
         for binding in read_model.signal_bindings:
             signal = next(
                 (item for item in read_model.signals if item["id"] == binding["signal_id"]),
@@ -92,6 +97,7 @@ class SLDInstrumentationWiringAdapter:
                 continue
             key = (str(binding["carrier_kind"]), str(binding["carrier_id"]))
             signal_tags.setdefault(key, set()).add(str(signal["tag"]))
+            signal_ids.setdefault(key, set()).add(str(signal["id"]))
 
         records: list[SLDPhysicalWiringRecord] = []
         for core in read_model.cores:
@@ -111,6 +117,7 @@ class SLDInstrumentationWiringAdapter:
                 terminal_path=core["terminal_path"],
                 nodes_by_equipment=nodes_by_equipment,
                 signal_tags=tuple(sorted(signal_tags.get(("CABLE_CORE", str(core["id"])), ()))),
+                signal_ids=tuple(sorted(signal_ids.get(("CABLE_CORE", str(core["id"])), ()))),
                 cable_id=str(cable["id"]),
                 cable_tag=str(cable["tag"]),
                 core_id=str(core["id"]),
@@ -127,6 +134,7 @@ class SLDInstrumentationWiringAdapter:
                 terminal_path=wire["terminal_path"],
                 nodes_by_equipment=nodes_by_equipment,
                 signal_tags=tuple(sorted(signal_tags.get(("PANEL_WIRE", str(wire["id"])), ()))),
+                signal_ids=tuple(sorted(signal_ids.get(("PANEL_WIRE", str(wire["id"])), ()))),
                 route_overrides=route_overrides,
             ))
 
@@ -146,6 +154,7 @@ class SLDInstrumentationWiringAdapter:
         terminal_path: tuple[Mapping[str, Any], ...],
         nodes_by_equipment: Mapping[str, list[Any]],
         signal_tags: tuple[str, ...],
+        signal_ids: tuple[str, ...],
         cable_id: str | None = None,
         cable_tag: str | None = None,
         core_id: str | None = None,
@@ -204,6 +213,10 @@ class SLDInstrumentationWiringAdapter:
                 core_id=core_id,
                 core_number=core_number,
                 signal_tags=signal_tags,
+                signal_ids=signal_ids,
+                label_signal_ids=signal_ids if index == len(endpoints) - 2 else (),
+                source_terminal_point_id=endpoints[index].get("terminal_point_id"),
+                target_terminal_point_id=endpoints[index + 1].get("terminal_point_id"),
                 route=SLDRoute.from_dict(route_overrides[f"{carrier_kind}:{carrier_id}:{index + 1}"]) if f"{carrier_kind}:{carrier_id}:{index + 1}" in route_overrides else SLDRoute(),
             )
             for index in range(len(endpoints) - 1)

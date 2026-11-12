@@ -10,7 +10,9 @@ from core.application.services.instrumentation_wiring_service import Instrumenta
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
     SignalCarrierBinding, SignalDefinition, SignalKind, WiringConductorRole,
-    WiringTagSeries, WiringTagPolicy,
+    SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
+    WiringTagSeries, WiringTagPolicy, WiringTerminalReference,
+    TerminalBlock, TerminalPoint, TerminalAccessory, TerminalAccessoryKind, TerminalAccessoryState,
 )
 from core.persistence.instrument_wiring_serializer import (
     InstrumentationWiringSerializationError,
@@ -42,6 +44,7 @@ def sample_inventory():
         id="binding-id", signal_id=signal.id,
         carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
         direction="SOURCE_TO_SINK",
+        source_channel_id="channel-1",
     )
     return InstrumentationWiringInventory(
         cables=(cable,), cores=(core,), signals=(signal,),
@@ -287,3 +290,236 @@ def test_tag_counter_and_new_record_are_one_inventory_command():
     _apply_wiring_command(service, network, command)
     assert service.inventory.cables[0].tag == "CAB-001"
     assert service.inventory.tag_policy.series[0].next_number == 2
+
+
+
+def test_signal_endpoint_bindings_round_trip_for_all_endpoint_kinds():
+    inventory = sample_inventory()
+    endpoints = (
+        SignalEndpointBinding(
+            id="channel-binding", signal_id="signal-id",
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+                endpoint_id="channel-1",
+            ),
+        ),
+        SignalEndpointBinding(
+            id="control-binding", signal_id="signal-id",
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.CONTROL_INPUT,
+                endpoint_id="component-1", owner_id="control-1", port="PV",
+            ),
+        ),
+        SignalEndpointBinding(
+            id="protection-binding", signal_id="signal-id",
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id="protection-measurement-binding",
+                owner_id="protection-element-1", port="IA",
+            ),
+        ),
+    )
+    expected = InstrumentationWiringInventory(
+        cables=inventory.cables, cores=inventory.cores,
+        signals=inventory.signals, signal_bindings=inventory.signal_bindings,
+        endpoint_bindings=endpoints,
+    )
+    payload = serialize_instrumentation_wiring(expected)
+    assert payload["schema"] == 5
+    assert len(payload["endpoint_bindings"]) == 3
+    assert deserialize_instrumentation_wiring(payload) == expected
+
+
+def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["schema"] = 2
+    payload.pop("endpoint_bindings")
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
+    for binding in payload["signal_bindings"]:
+        binding.pop("source_channel_id")
+    restored = deserialize_instrumentation_wiring(payload)
+    inventory = sample_inventory()
+    expected = InstrumentationWiringInventory(
+        cables=inventory.cables,
+        cores=inventory.cores,
+        signals=inventory.signals,
+        signal_bindings=tuple(
+            SignalCarrierBinding(
+                id=item.id,
+                signal_id=item.signal_id,
+                carrier_kind=item.carrier_kind,
+                carrier_id=item.carrier_id,
+                direction=item.direction,
+            )
+            for item in inventory.signal_bindings
+        ),
+    )
+    assert restored == expected
+    assert restored.endpoint_bindings == ()
+
+
+def test_schema_three_wiring_inventory_remains_readable_without_channel_ownership():
+    inventory = sample_inventory()
+    payload = serialize_instrumentation_wiring(inventory)
+    payload["schema"] = 3
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
+    for binding in payload["signal_bindings"]:
+        binding.pop("source_channel_id")
+    restored = deserialize_instrumentation_wiring(payload)
+    assert restored == InstrumentationWiringInventory(
+        cables=inventory.cables,
+        cores=inventory.cores,
+        signals=inventory.signals,
+        signal_bindings=tuple(
+            SignalCarrierBinding(
+                id=item.id,
+                signal_id=item.signal_id,
+                carrier_kind=item.carrier_kind,
+                carrier_id=item.carrier_id,
+                direction=item.direction,
+                source_channel_id=None,
+            )
+            for item in inventory.signal_bindings
+        ),
+    )
+
+
+def test_wiring_service_adds_and_reads_signal_endpoint_binding():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-1", description="Pressure",
+        kind=SignalKind.ANALOG, unit="bar",
+    )
+    service.activate(
+        context,
+        InstrumentationWiringInventory(signals=(signal,)),
+        network=network,
+        generation=2,
+    )
+    binding = SignalEndpointBinding(
+        id="endpoint-binding-1", signal_id=signal.id,
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+            endpoint_id="channel-1",
+        ),
+    )
+    command = service.create_add_record_command(binding)
+    _apply_wiring_command(service, network, command)
+    read_model = service.read_model()
+    assert read_model.endpoint_bindings[0]["id"] == binding.id
+    assert read_model.endpoint_bindings[0]["endpoint"]["endpoint_id"] == "channel-1"
+
+
+
+def test_endpoint_sink_terminal_round_trips_without_losing_designation():
+    from core.model.instrument_wiring import WiringTerminalReference
+
+    base = sample_inventory()
+    endpoint = SignalEndpointBinding(
+        id="endpoint-binding-id",
+        signal_id="signal-id",
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-id",
+            owner_id="control-id",
+            port="PV",
+            physical_terminal=WiringTerminalReference(
+                "PLC-101", "AI-01+", "AI-01+",
+            ),
+        ),
+        direction="SOURCE_TO_SINK",
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables,
+        cores=base.cores,
+        signals=base.signals,
+        signal_bindings=base.signal_bindings,
+        endpoint_bindings=(endpoint,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["endpoint_bindings"][0]["endpoint"]["physical_terminal"] == {
+        "equipment_id": "PLC-101",
+        "terminal_role": "AI-01+",
+        "designation": "AI-01+",
+        "terminal_point_id": None,
+    }
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+
+def test_schema_four_wiring_inventory_remains_readable_without_terminal_records():
+    inventory = sample_inventory()
+    payload = serialize_instrumentation_wiring(inventory)
+    payload["schema"] = 4
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
+    restored = deserialize_instrumentation_wiring(payload)
+    assert restored == inventory
+
+
+def test_terminal_block_points_and_accessory_state_round_trip_in_schema_five():
+    base = sample_inventory()
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="PANEL-1",
+        location="MCC-1 / marshalling section", terminal_count=4,
+        terminal_type="feed-through", manufacturer="approved make",
+        part_number="TB-4MM",
+    )
+    point_a = TerminalPoint(
+        id="tb-point-a", terminal_block_id=block.id,
+        terminal_number="1", designation="1A",
+        manufacturer_designation="1A", function="FEED_THROUGH",
+    )
+    point_b = TerminalPoint(
+        id="tb-point-b", terminal_block_id=block.id,
+        terminal_number="2", designation="2A",
+        manufacturer_designation="2A", function="FEED_THROUGH",
+    )
+    accessory = TerminalAccessory(
+        id="tb-link-id", tag="TB-101-L1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_a.id, point_b.id),
+        conductive_pairs=((point_a.id, point_b.id),),
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores, signals=base.signals,
+        signal_bindings=base.signal_bindings,
+        terminal_blocks=(block,), terminal_points=(point_a, point_b),
+        terminal_accessories=(accessory,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 5
+    assert payload["terminal_accessories"][0]["conductive_pairs"] == [["tb-point-a", "tb-point-b"]]
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+def test_inventory_rejects_terminal_block_reference_without_stable_point_identity():
+    block = TerminalBlock(
+        id="TB-101", tag="TB-101", panel_id="PANEL-1",
+        location="Marshalling", terminal_count=2,
+    )
+    point = TerminalPoint(
+        id="tb-point-1", terminal_block_id=block.id,
+        terminal_number="1", designation="1",
+    )
+    cable = CableAssembly(id="cable", tag="C-1", service="instrument", core_count=1)
+    with pytest.raises(ValueError, match="must include terminal_point_id"):
+        InstrumentationWiringInventory(
+            cables=(cable,), terminal_blocks=(block,), terminal_points=(point,),
+            cores=(CableCore(
+                id="core", cable_id=cable.id, core_number=1,
+                role=WiringConductorRole.SIGNAL,
+                terminal_path=(
+                    WiringTerminalReference("TB-101", "1", "1"),
+                    WiringTerminalReference("PLC-101", "AI1", "AI1"),
+                ),
+            ),),
+        )

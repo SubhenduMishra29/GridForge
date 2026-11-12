@@ -23,6 +23,8 @@ from ui.core.qt import (
     QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox,
 )
 from ui.core.selection_manager import SelectionManager
+from ui.instrumentation_wiring_provenance import project_signal_provenance
+from ui.items.signal_provenance_item import SignalProvenanceItem
 from .protection_presentation import ProtectionPresentationDocument
 from .protection_tools import ProtectionInteractionController
 from .protection_engineering_panels import (
@@ -37,10 +39,10 @@ class ProtectionGraphicsNode(QGraphicsRectItem):
     """Selectable presentation node carrying canonical identity plus presentation role."""
 
     def __init__(self, object_id: str, title: str, x: float, y: float,
-                 width: float = 150.0, *, kind: str = "object",
+                 width: float = 150.0, *, height: float = 52.0, kind: str = "object",
                  relay_id: str | None = None, input_name: str | None = None,
                  channel_id: str | None = None, element_id: str | None = None) -> None:
-        super().__init__(0.0, 0.0, width, 52.0)
+        super().__init__(0.0, 0.0, width, height)
         self.setPos(float(x), float(y))
         self.object_id = str(object_id)
         self.title = str(title)
@@ -70,6 +72,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
         self._presentation = presentation
         self._nodes: dict[str, ProtectionGraphicsNode] = {}
         self._preview_line: QGraphicsLineItem | None = None
+        self._provenance_navigation_callback = None
         self._scene.selectionChanged.connect(self._on_scene_selection)
         selection_manager.selection_changed.connect(self._on_canonical_selection)
         self.setMinimumHeight(360)
@@ -77,6 +80,27 @@ class ProtectionGraphicsSurface(QGraphicsView):
     @property
     def presentation(self) -> ProtectionPresentationDocument:
         return self._presentation
+
+    def set_provenance_navigation_callback(self, callback: Any | None) -> None:
+        if callback is not None and not callable(callback):
+            raise TypeError("provenance navigation callback must be callable or None.")
+        self._provenance_navigation_callback = callback
+
+    def select_canonical_object(self, object_id: str) -> None:
+        """Select and centre a canonical Protection relay/function identity."""
+        normalized = str(object_id).strip()
+        if not normalized:
+            raise ValueError("object_id must be a non-empty string.")
+        self._selection_manager.select_single(normalized)
+        node = next(
+            (
+                candidate for candidate in self._nodes.values()
+                if candidate.object_id == normalized or candidate.element_id == normalized
+            ),
+            None,
+        )
+        if node is not None:
+            self.centerOn(node)
 
     def activate_tool_id(self, tool_id: str) -> None:
         """Activate a Protection tool through the discipline runtime."""
@@ -100,6 +124,21 @@ class ProtectionGraphicsSurface(QGraphicsView):
         except RuntimeError:
             self._draw_message("Protection read boundary unavailable.")
             return
+
+        try:
+            wiring = self._application.read_instrumentation_wiring()
+            resolutions = self._application.read_instrumentation_wiring_endpoint_resolution()
+            provenance = project_signal_provenance(wiring, resolutions)
+        except RuntimeError:
+            provenance = ()
+        protection_provenance: dict[tuple[str | None, str | None], list[Any]] = {}
+        for item in provenance:
+            if item.endpoint_kind == "PROTECTION_INPUT":
+                protection_provenance.setdefault((item.owner_id, item.port), []).append(item)
+        control_by_signal: dict[str, list[Any]] = {}
+        for item in provenance:
+            if item.endpoint_kind == "CONTROL_INPUT":
+                control_by_signal.setdefault(item.signal_id, []).append(item)
 
         configuration_by_relay: dict[str, list[Any]] = {}
         for configuration in configurations:
@@ -174,16 +213,50 @@ class ProtectionGraphicsSurface(QGraphicsView):
                 ):
                     input_y = row_y + 20.0 + input_index * 58.0
                     input_node_id = f"{relay_id}:element:{element_id}:input:{input_name}"
+                    input_provenances = tuple(protection_provenance.get((element_id, str(input_name)), ()))
+                    input_provenance = input_provenances[0] if input_provenances else None
                     input_node = self._add_node(
                         input_node_id,
                         f"RELAY INPUT\n{input_name}\n{channel_id}",
-                        285.0, input_y, 170.0,
+                        285.0, input_y, 220.0,
+                        height=70.0 if input_provenance is not None else 52.0,
                         kind="relay_input",
                         relay_id=relay_id,
                         element_id=element_id,
                         input_name=str(input_name),
                         channel_id=str(channel_id),
                     )
+                    if input_provenance is not None:
+                        peers = control_by_signal.get(input_provenance.signal_id, ())
+                        peer_targets = {str(candidate.endpoint_id) for candidate in peers}
+                        peer = peers[0] if len(peer_targets) == 1 else None
+                        detail = "\n\n".join(item.detail_text for item in input_provenances)
+                        sld_target = input_provenance.status == "RESOLVED"
+                        if peer is not None:
+                            detail += "\nDouble-click to locate the matching Control input; right-click for the SLD route."
+                        elif sld_target:
+                            detail += "\nDouble-click to highlight the complete physical SLD route."
+                        input_node.setToolTip(detail)
+                        provenance_label = SignalProvenanceItem(
+                            input_provenance.short_label,
+                            detail,
+                            target_editor=(
+                                "control" if peer is not None
+                                else "sld" if sld_target else None
+                            ),
+                            target_object_id=(
+                                str(peer.endpoint_id) if peer is not None
+                                else input_provenance.signal_id if sld_target else None
+                            ),
+                            navigate=self._provenance_navigation_callback,
+                            alternate_targets=(
+                                (("Open SLD physical route", "sld", input_provenance.signal_id),)
+                                if peer is not None and sld_target else ()
+                            ),
+                            parent=input_node,
+                        )
+                        provenance_label.setPos(8.0, 52.0)
+                        provenance_label.setScale(0.65)
                     source_node = self._nodes.get(str(channel_id))
                     if source_node is None:
                         source_node = self._add_node(
@@ -257,11 +330,11 @@ class ProtectionGraphicsSurface(QGraphicsView):
             self.fitInView(self._scene.itemsBoundingRect().adjusted(-30, -30, 30, 30))
 
     def _add_node(self, object_id: str, title: str, x: float, y: float, width: float = 150.0,
-                  **metadata: Any) -> ProtectionGraphicsNode:
+                  *, height: float = 52.0, **metadata: Any) -> ProtectionGraphicsNode:
         stored = self._presentation.node(object_id, default_x=x, default_y=y)
         node = ProtectionGraphicsNode(
             object_id, title.replace("\n", " | "),
-            float(stored.get("x", x)), float(stored.get("y", y)), width, **metadata,
+            float(stored.get("x", x)), float(stored.get("y", y)), width, height=height, **metadata,
         )
         self._scene.addItem(node)
         self._nodes[object_id] = node
@@ -313,12 +386,19 @@ class ProtectionGraphicsSurface(QGraphicsView):
     def _on_scene_selection(self) -> None:
         selected = [item for item in self._scene.selectedItems() if isinstance(item, ProtectionGraphicsNode)]
         if selected and self._interaction.active_tool == "select":
-            self._selection_manager.select_single(selected[0].object_id)
+            node = selected[0]
+            self._selection_manager.select_single(
+                node.element_id if node.kind in {"relay_input", "function"} and node.element_id
+                else node.object_id
+            )
 
     def _on_canonical_selection(self, ids: object) -> None:
         selected = {str(value) for value in (ids or ())}
         for object_id, node in self._nodes.items():
-            node.setSelected(object_id in selected)
+            node.setSelected(
+                object_id in selected
+                or (node.element_id is not None and node.element_id in selected)
+            )
 
     def _draw_message(self, message: str) -> None:
         text = QGraphicsTextItem(message)
@@ -607,7 +687,15 @@ class ProtectionInspector(QGroupBox):
         except RuntimeError:
             self._label.setText("Protection read boundary unavailable.")
             return
-        relay_id = object_id.split(":", 1)[0]
+        selected_by_element = next(
+            (item for item in configurations if str(item.element_id) == object_id),
+            None,
+        )
+        relay_id = (
+            str(selected_by_element.relay_id)
+            if selected_by_element is not None
+            else object_id.split(":", 1)[0]
+        )
         relay = next((item for item in protection.relays if str(item.object_id) == relay_id), None)
         if relay is None:
             self._label.setText(f"Protection presentation object: {object_id}")
@@ -622,7 +710,8 @@ class ProtectionInspector(QGroupBox):
         selected_configuration = next(
             (
                 item for item in relay_configurations
-                if object_id.startswith(f"{relay_id}:element:{item.element_id}:")
+                if object_id == str(item.element_id)
+                or object_id.startswith(f"{relay_id}:element:{item.element_id}:")
             ),
             None,
         )
@@ -898,6 +987,13 @@ class ProtectionWorkspace(QWidget):
     @property
     def presentation(self) -> ProtectionPresentationDocument:
         return self._presentation
+
+    def set_editor_navigation_callback(self, callback: Any | None) -> None:
+        """Bind host-owned cross-editor navigation without owning editor state."""
+        self._canvas.set_provenance_navigation_callback(callback)
+
+    def select_canonical_object(self, object_id: str) -> None:
+        self._canvas.select_canonical_object(object_id)
 
     def refresh(self) -> None:
         self._explorer.refresh()
