@@ -42,6 +42,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "ggov1_sampled_execution_adapter",
         "ggov1_study_service_registration",
         "ggov1_host_transient_solver_handoff",
+        "ggov1_accepted_step_transaction",
         "ggov1_pid_tracking_input",
         "ggov1_acceleration_limiter",
         "ggov1_exhaust_temperature_load_limiter",
