@@ -571,7 +571,7 @@ class GGOV1Parameters:
             raise ValueError("rselect must be 1 (electrical power), 0 (none), -1 (valve stroke), or -2 (governor output)")
         if isinstance(self.flag, bool) or not isinstance(self.flag, int) or self.flag not in (0, 1):
             raise ValueError("flag must be 0 or 1")
-        positive = ("turbine_rating_mw", "droop_pu", "turbine_gain", "actuator_time_constant_s")
+        positive = ("turbine_rating_mw", "turbine_gain", "actuator_time_constant_s")
         nonnegative = (
             "electrical_power_time_constant_s", "governor_proportional_gain",
             "governor_integral_gain_per_s", "governor_derivative_gain",
@@ -593,6 +593,10 @@ class GGOV1Parameters:
             if value < 0.0:
                 raise ValueError(f"{name} must be non-negative")
             object.__setattr__(self, name, value)
+        droop = _number(self.droop_pu, "droop_pu")
+        if droop < 0.0 or (self.rselect == 0 and droop != 0.0) or (self.rselect != 0 and droop <= 0.0):
+            raise ValueError("droop must be zero for isochronous Rselect=0 and positive for droop-feedback modes")
+        object.__setattr__(self, "droop_pu", droop)
         finite_names = (
             "governor_error_max_pu", "governor_error_min_pu", "valve_max_pu",
             "valve_min_pu", "valve_open_rate_pu_per_s", "valve_close_rate_pu_per_s",
@@ -619,6 +623,24 @@ class GGOV1Parameters:
             if setpoint < 0.0:
                 raise ValueError("power_controller_setpoint_mw must be non-negative")
             object.__setattr__(self, "power_controller_setpoint_mw", setpoint)
+
+    def droop_feedback_signal(
+        self, *, electrical_power_pu: float, valve_stroke_pu: float,
+        governor_output_pu: float,
+    ) -> float:
+        """Resolve the PSS/E/NERC Rselect feedback input without hidden coercion."""
+        if self.rselect == 1:
+            return _number(electrical_power_pu, "electrical_power_pu")
+        if self.rselect == -1:
+            return _number(valve_stroke_pu, "valve_stroke_pu")
+        if self.rselect == -2:
+            return _number(governor_output_pu, "governor_output_pu")
+        # Rselect=0 is isochronous: no droop feedback signal is selected.
+        return 0.0
+
+    def fuel_speed_multiplier(self, speed_pu: float) -> float:
+        """PSS/E Flag=1 uses shaft speed; Flag=0 uses unity."""
+        return _number(speed_pu, "speed_pu") if self.flag == 1 else 1.0
 
     def system_to_turbine_power_base_ratio(self, system_base_mva: float) -> float:
         """Return S_system / turbine_rating; caller owns MW/MVA convention."""
