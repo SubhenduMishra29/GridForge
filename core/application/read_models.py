@@ -162,6 +162,8 @@ class SignalEndpointResolutionReadModel:
     port: str | None
     status: str
     diagnostics: tuple[str, ...] = ()
+    direction: str = "SOURCE_TO_SINK"
+    physical_sink_terminal: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         for name in ("binding_id", "signal_id", "endpoint_kind", "endpoint_id", "status"):
@@ -175,6 +177,14 @@ class SignalEndpointResolutionReadModel:
                 raise ValueError(f"{name} must be a non-empty string or None.")
         if self.status not in {"RESOLVED", "UNRESOLVED", "AMBIGUOUS"}:
             raise ValueError("status must be RESOLVED, UNRESOLVED or AMBIGUOUS.")
+        direction = str(self.direction).strip().upper()
+        if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
+            raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
+        object.__setattr__(self, "direction", direction)
+        if self.physical_sink_terminal is not None:
+            if not isinstance(self.physical_sink_terminal, Mapping):
+                raise TypeError("physical_sink_terminal must be a mapping or None.")
+            object.__setattr__(self, "physical_sink_terminal", _freeze(self.physical_sink_terminal))
         object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
 
 
