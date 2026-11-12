@@ -4874,3 +4874,28 @@ Verification:
 - Tests were not executed. PR #1207 remains draft/open/unmerged and is
   divergent from main (220 commits ahead, 4 behind at this audit).
 
+2026-11-12 | Issue #1203 / PR #1207 | RTD/thermocouple physical lead-route foundation
+- Added immutable TemperatureSensorCircuit and TemperatureSensorLeadRoute
+  Core wiring records. Each RTD lead has its own exact sensor terminal and
+  ordered carrier chain; RTD lead sets must exactly match the declared
+  2-wire, 3-wire or 4-wire configuration. Thermocouple lead sets require
+  exact POSITIVE/NEGATIVE identity and an explicit supported type.
+- Aggregate validation rejects missing carriers, incomplete terminal paths,
+  discontinuous carrier chains, carrier reuse between leads, and carriers
+  with roles other than SIGNAL/RETURN. Sensor terminal references are
+  included in active-project terminal identity validation.
+- Application activation resolves the exact Core RTD/Thermocouple class and
+  equipment identity, checks actual terminal roles and declared wiring/type
+  against the Core sensor, and requires the circuit's exact MeasurementChannel
+  to have both a signal endpoint binding and a physical carrier/channel binding.
+- Extended nested instrumentation wiring persistence to schema 8. Schemas
+  2–7 remain accepted; schema 7 remains readable without inferring sensor
+  circuits. Added schema-8 round-trip and schema-7 compatibility test source.
+- Added model test source for a 3-wire RTD physical lead set, invalid RTD
+  configuration/lead mismatch and thermocouple polarity lead requirements.
+- Not yet implemented: receiver terminal-level input compatibility,
+  thermocouple extension/compensating conductor material compatibility,
+  RTD lead compensation topology, shields/drains/armour/earth, and BTD/OTD/WTD.
+- Regression-test source was added but not executed. No import/startup,
+  save/reopen, GUI or electrical runtime verification was performed.
+
