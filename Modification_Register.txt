@@ -4471,3 +4471,32 @@ Correction:
 Verification:
 - Updated implementation and regression source fetched back from the feature branch.
 - No tests, imports, runtime mapping resolution or GUI checks were executed.
+
+======================================================================
+GridForge V2 — Persisted Control/Protection receiver binding reconciliation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Signal compatibility by itself does not prove that the intended persisted receiver actually references the same canonical instrumentation signal.
+- Control owns a persisted ControlSignalMapping; Protection owns ProtectionFunctionConfiguration.input_channel_ids and the canonical MeasurementChannel registry. These are distinct authorities and must not be shadowed by a second receiver registry.
+
+Correction:
+- Added validate_control_mapping_binding(): requires exactly one persisted ControlSignalBinding for the requested destination, requires its source domain/type to be instrumentation/signal, and requires source.object_id to equal SignalDefinition.id before checking declared receiver capabilities.
+- Added validate_protection_configuration_binding(): resolves exactly one configured Protection element, verifies its named input points to the supplied canonical channel ID, resolves that MeasurementChannel, compares signal type/phase/unit against the instrumentation SignalDefinition, then validates the exact Protection function/input contract.
+- Exported both validators through the Application services package.
+- Added regression source coverage for matching, mismatched and missing persisted Control mapping identities.
+
+Architecture:
+- No duplicate SignalDefinition, MeasurementChannel, Control mapping or Protection configuration is created.
+- Existing ControlSignalMapping and ProtectionProjectConfiguration remain authoritative.
+- Validation remains in Application; Core remains independent of Control, Protection and UI types.
+
+Limitations:
+- These functions are explicit validation APIs, not yet wired into the command mutation handlers, project activation transaction, or canvas binding workflow.
+- Protection validation requires the caller to supply the active/candidate channel registry; no channel is inferred or fabricated.
+
+Verification:
+- Updated source, exports, tests and register fetched back from the feature branch.
+- No tests, Python imports, project activation, runtime evaluation, or GUI checks were executed.
