@@ -204,13 +204,14 @@ class SignalDefinition:
     kind: SignalKind
     unit: Optional[str] = None
     phase: Optional[str] = None
+    measurement_channel_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "tag", "description"):
             object.__setattr__(self, field, _required_text(getattr(self, field), field))
         if not isinstance(self.kind, SignalKind):
             raise TypeError("kind must be a SignalKind.")
-        for field in ("unit", "phase"):
+        for field in ("unit", "phase", "measurement_channel_id"):
             object.__setattr__(self, field, _optional_text(getattr(self, field), field))
 
 
@@ -411,6 +412,10 @@ class InstrumentationWiringInventory:
                     f"already assigned to {previous_tag!r} ({previous_label})."
                 )
             seen_tags[normalized] = (tag, label)
+
+        channel_ids = [item.measurement_channel_id for item in self.signals if item.measurement_channel_id is not None]
+        if len(channel_ids) != len(set(channel_ids)):
+            raise ValueError("A MeasurementChannel may be associated with only one instrumentation signal.")
 
         cable_by_id = {item.id: item for item in self.cables}
         core_numbers: set[tuple[str, int]] = set()
