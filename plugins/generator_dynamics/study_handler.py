@@ -155,9 +155,23 @@ class GeneratorAugmentedTransientStudyHandler:
                 )
             raise failure
         if cancellation.cancelled and execution_status != "cancelled":
-            raise RuntimeError(
+            failure = RuntimeError(
                 "augmented solver returned without recording the requested cancellation"
             )
+            failure.partial_result = evidence
+            failure.cause_type = "AugmentedCancellationEvidenceMismatch"
+            failure.termination_reason = "cancellation_evidence_missing"
+            failure.diagnostic_message = str(failure)
+            raise failure
+        if execution_status == "cancelled" and not cancellation.cancelled:
+            failure = RuntimeError(
+                "augmented solver reported cancellation without a StudyService cancellation request"
+            )
+            failure.partial_result = evidence
+            failure.cause_type = "UnexpectedAugmentedCancellation"
+            failure.termination_reason = "unsolicited_solver_cancellation"
+            failure.diagnostic_message = str(failure)
+            raise failure
         return evidence
 
 
