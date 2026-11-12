@@ -423,3 +423,21 @@ adaptive step size, event boundaries, and committing accepted state vectors.
 The current DAE/TransientStability solver has no generalized dynamic-state
 extension or accepted-step participant API, so this plugin contract is not
 yet wired into that solver and does not claim runnable generator DAE support.
+
+### Solver-owned GGOV1 state-vector layout
+
+`GGOV1DynamicStateLayout` provides a frozen contiguous mapping for the six
+continuous block-state groups: PID, acceleration filter, temperature
+conditioning, load limiter, actuator, and turbine. The host can construct it
+from initial block snapshots, pack them into its global vector, unpack
+intermediate vectors for derivative evaluation, and pack returned derivatives
+back into the same slice order. Every operation validates vector dimensions
+and finite values; it does not retain or mutate solver state.
+
+This is the plugin-side layout contract only. The existing `MultiMachineSystem`
+accepts classical synchronous machines and currently owns the entire DAE state
+vector; `DAESolver` delegates directly to that vector and the static mechanical-
+power map. A production extension still needs a Core-owned generalized dynamic
+state registry and machine/controller derivative composition, plus the
+accepted-step participant semantics described above. No generator states are
+currently appended to the production DAE vector by this change.
