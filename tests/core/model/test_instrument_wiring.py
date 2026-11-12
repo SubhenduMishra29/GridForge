@@ -362,3 +362,15 @@ def test_closed_terminal_accessory_cannot_infer_conductive_pairing():
                 terminal_point_ids=("point-1", "point-2"),
             ),),
         )
+
+
+def test_terminal_accessory_rejects_boolean_engineering_ratings():
+    with pytest.raises(ValueError, match="not boolean"):
+        TerminalAccessory(
+            id="link-id", tag="TB-101-L1", terminal_block_id="TB-101",
+            kind=TerminalAccessoryKind.FIXED_LINK,
+            state=TerminalAccessoryState.CLOSED,
+            terminal_point_ids=("point-1", "point-2"),
+            conductive_pairs=(("point-1", "point-2"),),
+            rated_current_a=True,
+        )
