@@ -169,6 +169,7 @@ class GraphicsView(QGraphicsView):
 
         # Keep rotation shortcuts active when focus moves to a canvas child.
         self._symbol_rotation_actions = []
+        self._routed_shortcut_actions = []
         for shortcut, operation, description in (
             ("E", "rotate_cw", "Rotate selected symbol 90 degrees clockwise"),
             ("Q", "rotate_ccw", "Rotate selected symbol 90 degrees counter-clockwise"),
@@ -188,6 +189,39 @@ class GraphicsView(QGraphicsView):
         self._scene.selectionChanged.connect(self._refresh_contextual_tool_strip)
         self.horizontalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
         self.verticalScrollBar().valueChanged.connect(self._refresh_contextual_tool_strip)
+
+    def bind_action_router(self, action_router: Any) -> None:
+        """Bind SLD-scoped shortcuts to the canonical UIActionRouter.
+
+        These actions belong to this editor and its child widgets only. They
+        cannot fire while focus belongs to Control, Protection, Study, or an
+        unrelated property editor. The router remains the sole dispatch path.
+        """
+        if action_router is None or not callable(getattr(action_router, "dispatch", None)):
+            raise TypeError("action_router must provide dispatch().")
+        for action in tuple(self._routed_shortcut_actions):
+            self.removeAction(action)
+            action.deleteLater()
+        self._routed_shortcut_actions.clear()
+
+        for definition in action_router.definitions.values():
+            action_id = str(getattr(definition, "action_id", ""))
+            shortcut = getattr(definition, "shortcut", None)
+            editor_type = getattr(definition, "metadata", {}).get("editor_type")
+            is_sld_tool = action_id.startswith("tool.sld.") and editor_type == "sld"
+            is_sld_action = getattr(definition, "scope", None) == "sld"
+            if not shortcut or not (is_sld_tool or is_sld_action):
+                continue
+            action = QAction(str(getattr(definition, "title", action_id)), self)
+            action.setObjectName(f"canvas.shortcut.{action_id}")
+            action.setShortcut(shortcut)
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            action.triggered.connect(
+                lambda _checked=False, key=action_id, router=action_router:
+                    router.dispatch(key) if router.is_enabled(key) else None
+            )
+            self.addAction(action)
+            self._routed_shortcut_actions.append(action)
 
     def bind_sld_controller(self, sld_controller: Any) -> None:
         """Bind the canonical SLD document/command capability for contextual edits."""
@@ -928,6 +962,10 @@ class GraphicsView(QGraphicsView):
         self._refresh_contextual_tool_strip()
 
     def dispose(self) -> None:
+        for action in tuple(self._routed_shortcut_actions):
+            self.removeAction(action)
+            action.deleteLater()
+        self._routed_shortcut_actions.clear()
         self.interaction_manager = None
         self.navigation_controller = None
         self._contextual_strip.hide()
