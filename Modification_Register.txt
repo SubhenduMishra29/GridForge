@@ -4007,13 +4007,58 @@ Reconciliation:
 - PR now targets latest main and GitHub reports mergeable=true, ahead-only.
 - Marked PR ready for review.
 
-Merge blocker:
-- GitHub rejected merge operation with HTTP 403 because the authenticated
-  account has no verified email address. PR remains open and unmerged.
-- Issue #1203 remains open pending successful PR merge.
+Disposition:
+- PR #1204 was subsequently merged into main.
+- Merge commit: 32e39c6842c8463fdffacf1f3c1fcd87b0973a23.
+- Issue #1203 remains open because its full cross-canvas and schedule
+  acceptance scope is not yet implemented.
 
 Verification:
-- Git history, merge parents, branch head, compare result and mergeability
-  were inspected. No pytest, import, application startup, save/reopen or
+- GitHub confirmed PR state closed and merged, with main advanced to the
+  merge commit. No pytest, import, application startup, save/reopen or
   GUI interaction was executed.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical Signal Endpoint Binding Foundation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+
+Design and correction:
+- Added immutable Core SignalEndpointReference, SignalEndpointBinding and
+  SignalEndpointKind records, separate from physical cable/core carrier
+  bindings and from existing Control/Protection execution mappings.
+- Defined typed endpoint identity for MeasurementChannel, Control input
+  (Control ID + component ID + input port), and Protection input
+  (protection element ID + ProtectionMeasurementBinding ID + relay input).
+- Added endpoint binding identity/reference checks to the project wiring
+  aggregate; each logical endpoint can have only one canonical signal
+  designation and each binding must reference an existing SignalDefinition.
+- Extended the wiring codec to schema 3 while retaining strict schema 2
+  read compatibility; no legacy endpoint relationships are inferred.
+- Exposed endpoint bindings through the detached Application wiring read
+  model and typed Application inventory CRUD.
+- Exported the new Core records through core.model.
+- Added regression-test source for endpoint kinds, incomplete references,
+  duplicate/dangling signal relationships, codec round-trip, schema 2
+  compatibility, and Application read/CRUD.
+
+Boundary and remaining work:
+- These records establish stable logical endpoint identity only. They do
+  not yet prove that referenced MeasurementChannel, Control input or
+  Protection binding currently exists. Active-project endpoint resolution,
+  ownership validation, lifecycle reconciliation and unresolved diagnostics
+  remain required before canvas projection or execution can consume them.
+- Existing ControlSignalMapping and ProtectionMeasurementBinding remain
+  authoritative for their respective runtime semantics; this new inventory
+  binding is provenance/cross-reference metadata, not a replacement.
+- No SLD/Control/Protection canvas rendering or schedule generation is
+  included in this slice.
+
+Verification:
+- Source-level review of changed contracts and compatibility paths only.
+- No pytest, CI, import, startup, GUI or save/reopen runtime was executed.
 ======================================================================
