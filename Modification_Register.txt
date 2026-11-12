@@ -4371,3 +4371,40 @@ Verification:
 - Source-level review only; no pytest, CI, imports, startup, GUI interaction
   or save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — SLD Route Navigation and Render Registry Isolation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- SLD physical carrier segments now carry canonical signal IDs as transient
+  projection metadata. The final segment of each ordered carrier path exposes
+  resolved Control and Protection endpoint targets as hoverable/clickable
+  provenance labels.
+- Double-clicking an unambiguous SLD route target navigates through the
+  canonical editor host to the corresponding Control component or Protection
+  element. Control and Protection labels provide reciprocal navigation when
+  exactly one peer target exists.
+- Corrected navigation dependency injection: ControlSurfaceHost receives
+  explicit workspace navigation owners separately from the QWidget surfaces
+  used by the editor host. The composition root supplies CanvasComposition,
+  ControlWorkspace and ProtectionWorkspace as the navigation targets.
+- Multi-binding Protection inputs are grouped by logical element/input for
+  navigation and tooltip display; residual phase members do not create
+  duplicate SLD navigation targets.
+- SLD provenance labels remain in a dedicated transient overlay registry.
+  They are not inserted into the authoritative render-item registry, do not
+  participate in snap/route-edit lifecycle, and are removed independently
+  when a carrier projection is refreshed or removed.
+- Added regression-test source to verify overlay creation/removal does not
+  mutate the renderer's authoritative item registry.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI interaction
+  or save/reopen runtime was executed.
+======================================================================
