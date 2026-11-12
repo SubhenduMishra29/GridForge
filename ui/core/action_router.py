@@ -9,6 +9,7 @@ from ui.core.action_definition import ActionDefinition
 
 ActionHandler = Callable[[], Any]
 ActionErrorHandler = Callable[[str, Exception], None]
+CheckedStateProvider = Callable[[str], bool]
 _LOG = logging.getLogger(__name__)
 
 
@@ -21,6 +22,8 @@ class UIActionRouter:
         self._aliases: dict[str, str] = {}
         self._disposed = False
         self._enabled_provider: Callable[[str], bool] | None = None
+        self._checked_provider: CheckedStateProvider | None = None
+        self._checked_provider_failures: dict[str, tuple[str, str]] = {}
         self._error_handler: ActionErrorHandler | None = None
         self._enabled_provider_failures: dict[str, tuple[str, str]] = {}
 
@@ -147,6 +150,40 @@ class UIActionRouter:
         self._enabled_provider_failures.pop(canonical, None)
         return enabled
 
+    def set_checked_provider(self, provider: CheckedStateProvider | None) -> None:
+        """Install a read-only projection of checkable action state."""
+        if provider is not None and not callable(provider):
+            raise TypeError("provider must be callable or None.")
+        self._checked_provider = provider
+        self._checked_provider_failures.clear()
+
+    def is_checked(self, action_id: str) -> bool:
+        """Read checkable presentation state from its owning UI authority."""
+        self._ensure_active()
+        canonical = self._canonical_id(action_id)
+        definition = self._definitions.get(canonical)
+        if definition is None or not definition.checkable:
+            return False
+        if self._checked_provider is None:
+            return definition.checked
+        try:
+            checked = bool(self._checked_provider(canonical))
+        except Exception as exc:
+            signature = (type(exc).__name__, str(exc))
+            if self._checked_provider_failures.get(canonical) != signature:
+                self._checked_provider_failures[canonical] = signature
+                diagnostic = RuntimeError(
+                    f"UI action checked-state evaluation failed for {canonical!r}: "
+                    f"{signature[0]}: {signature[1]}"
+                )
+                if self._error_handler is not None:
+                    self._error_handler(canonical, diagnostic)
+                else:
+                    _LOG.error("%s", diagnostic)
+            return False
+        self._checked_provider_failures.pop(canonical, None)
+        return checked
+
     def _report_enabled_provider_failure(self, action_id: str, error: Exception) -> None:
         """Report each unchanged enabled-provider failure once per action."""
         signature = (type(error).__name__, str(error))
@@ -186,6 +223,8 @@ class UIActionRouter:
         self._definitions.clear()
         self._aliases.clear()
         self._enabled_provider = None
+        self._checked_provider = None
+        self._checked_provider_failures.clear()
         self._error_handler = None
         self._enabled_provider_failures.clear()
         self._disposed = True
@@ -204,4 +243,4 @@ class UIActionRouter:
             raise ValueError("action_id must be a non-empty string.")
 
 
-__all__ = ["ActionErrorHandler", "ActionHandler", "UIActionRouter"]
+__all__ = ["ActionErrorHandler", "ActionHandler", "CheckedStateProvider", "UIActionRouter"]
