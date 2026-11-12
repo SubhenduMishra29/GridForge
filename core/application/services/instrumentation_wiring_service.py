@@ -16,7 +16,7 @@ from core.application.read_models import InstrumentationWiringReadModel
 from core.application.transaction import Transaction
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
-    SignalCarrierBinding, SignalDefinition,
+    SignalCarrierBinding, SignalDefinition, SignalEndpointBinding,
 )
 
 
