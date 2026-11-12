@@ -253,6 +253,8 @@ class SLDCanvasRenderSystem:
                         float(bounds.center().y()) - 12.0 + row * 15.0,
                     )
                     label.setScale(0.65)
+                    label.setOpacity(float(route_item.opacity()))
+                    label.setVisible(bool(route_item.isVisible()))
                     label.setZValue(self._layer_z(0, self.ANNOTATION_Z_VALUE + 5.0))
                     self._scene.addItem(label)
                     labels.append(label)
