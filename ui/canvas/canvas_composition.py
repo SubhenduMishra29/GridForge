@@ -34,6 +34,7 @@ from ui.sld.sld_controller import SLDController
 from ui.sld.sld_document import SLDDocument
 from ui.sld.sld_route_edit_controller import SLDRouteEditController
 from ui.workspace.viewport_state import ViewportState
+from ui.instrumentation_wiring_provenance import project_signal_provenance
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -532,11 +533,32 @@ class SLDCanvasSurface(QWidget):
         else:
             self.clear_document()
 
+    def set_editor_navigation_callback(self, callback: Any | None) -> None:
+        """Bind host-owned cross-editor navigation for physical signal routes."""
+        self._sld_canvas_render_system.set_provenance_navigation_callback(callback)
+
+    def select_canonical_object(self, signal_id: str) -> None:
+        """Select and centre every SLD physical carrier segment for one signal ID."""
+        bounds = self._sld_canvas_render_system.select_signal_routes(signal_id)
+        view = self._navigation_controller.get_view()
+        view.centerOn(bounds.center())
+
     def present_document(self, document: SLDDocument) -> SLDCanvasSnapshot:
-        """Present the Application-authoritative SLD document on this surface."""
+        """Present the Application-authoritative document and its canonical wiring projection."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
+        composition = self._composition
+        if (
+            composition is not None
+            and composition.draft_sld_projection is not None
+            and composition.sld_controller.active_document is document
+        ):
+            composite = composition.refresh_active_document()
+            if isinstance(composite, CompositeSLDCanvasSnapshot):
+                return composite.committed
+        snapshot = self._sld_canvas_projection.project(
+            document.model, document.annotation_blocks, document.layers
+        )
         self._sld_canvas_render_system.synchronize(snapshot)
         self._document_id = document.document_id
         self._sld_canvas_snapshot = snapshot
@@ -672,12 +694,65 @@ class CanvasComposition:
         if self.draft_sld_projection is None:
             raise RuntimeError("CanvasComposition requires DraftSLDProjection to refresh the active document.")
         draft_snapshot = self.draft_sld_projection.project()
-        wiring_projection = self.sld_controller.read_instrumentation_wiring_projection()
-        return self.surface.present_composite_document(
+        try:
+            wiring_projection = self.sld_controller.read_instrumentation_wiring_projection()
+        except RuntimeError:
+            wiring_projection = None
+        composite = self.surface.present_composite_document(
             document,
             draft_snapshot,
             instrumentation_wiring=wiring_projection,
         )
+        self._project_signal_provenance_targets()
+        return composite
+
+    def _project_signal_provenance_targets(self) -> None:
+        """Join active endpoint identities to SLD carrier routes without duplicate targets."""
+        targets: dict[str, dict[tuple[str, str, str], dict[str, Any]]] = {}
+        try:
+            wiring = self.application.read_instrumentation_wiring()
+            resolutions = self.application.read_instrumentation_wiring_endpoint_resolution()
+            provenance = project_signal_provenance(wiring, resolutions)
+        except RuntimeError:
+            provenance = ()
+
+        for item in provenance:
+            if item.endpoint_kind == "CONTROL_INPUT":
+                target_editor = "control"
+                target_object_id = item.endpoint_id
+                endpoint_label = f"CONTROL {item.port or item.endpoint_id}"
+            elif item.endpoint_kind == "PROTECTION_INPUT":
+                target_editor = "protection"
+                target_object_id = item.owner_id
+                endpoint_label = f"PROTECTION {item.port or item.endpoint_id}"
+            else:
+                continue
+            target_id = str(target_object_id) if target_object_id else ""
+            key = (target_editor, target_id, endpoint_label)
+            by_target = targets.setdefault(item.signal_id, {})
+            entry = by_target.get(key)
+            if entry is None:
+                entry = {
+                    "label": f"{item.signal_tag} | {endpoint_label}",
+                    "details": [],
+                    "target_editor": target_editor if item.status == "RESOLVED" and target_id else None,
+                    "target_object_id": target_id if item.status == "RESOLVED" and target_id else None,
+                }
+                by_target[key] = entry
+            entry["details"].append(item.detail_text)
+            if item.status != "RESOLVED":
+                entry["target_editor"] = None
+                entry["target_object_id"] = None
+
+        self.sld_canvas_render_system.set_signal_provenance_targets({
+            signal_id: tuple({
+                "label": entry["label"],
+                "detail": "\n\n".join(entry["details"]),
+                "target_editor": entry["target_editor"],
+                "target_object_id": entry["target_object_id"],
+            } for entry in by_target.values())
+            for signal_id, by_target in targets.items()
+        })
 
     @staticmethod
     def _run_cleanup(label: str, operation: Any, failures: list[tuple[str, BaseException]]) -> None:
