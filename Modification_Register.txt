@@ -4100,3 +4100,31 @@ Date: 2026-11-12
 - No Core/Application domain behavior or project persistence was changed.
 - Runtime Qt focus arbitration and clipboard/edit-history behavior remain
   pending local GUI verification.
+
+
+======================================================================
+GridForge V2 — Preflight Complete SLD Selection Before Rotation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: fix/sld-selection-rotation-preflight
+Issue: #1190
+
+Audit correction:
+- Added one GraphicsView.apply_selection_rotation() contract shared by Edit
+  actions, Q/E single-symbol actions and contextual rotation controls.
+- Validate that the active SLD document is the Application presentation and
+  that every selected NODE resolves through SelectTool's full transform
+  preflight. A partially resolvable selection is rejected; no subset rotates.
+- Keep Q/E single-symbol-only and disable them for group selections. R and
+  Shift+R accept exactly one symbol or a fully resolvable group.
+- Route group rotation through the existing SelectTool/Application command
+  path and single-symbol rotation through SLDController presentation commands.
+  No Core equipment identity, terminals, topology or electrical connectivity
+  is mutated.
+- Contextual rotation controls now use the same selection contract and return
+  the actual commit result. Symbol action handling rejects missing scene items.
+
+Verification:
+- Static source reconciliation only. No tests, imports, startup, Qt GUI,
+  keyboard, undo/redo or save/reopen runtime was executed.
+======================================================================
