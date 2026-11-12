@@ -26,6 +26,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "generator_catalogue",
         "synchronous_machine_dynamics",
         "prime_mover_models",
+        "reduced_hydro_governor_model",
         "excitation_and_governor_configuration",
         "instrumentation_templates",
         "measurement_channel_provisioning",
