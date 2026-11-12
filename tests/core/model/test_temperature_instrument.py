@@ -6,7 +6,8 @@ from core.application.services.temperature_instrument_service import Temperature
 from core.model import (
     TemperatureAlarmTripBinding, TemperatureConsumerKind, TemperatureInputMode,
     TemperatureInstrument, TemperatureInstrumentInventory, TemperatureInterfaceDevice,
-    TemperatureSensorTechnology, TemperatureService, WiringTerminalReference,
+    TemperatureSensorTechnology, TemperatureService, TemperatureReceiverInput,
+    TemperatureReceiverInputKind, WiringTerminalReference,
 )
 from core.persistence.temperature_instrument_serializer import (
     deserialize_temperature_instruments, serialize_temperature_instruments,
@@ -230,3 +231,77 @@ def test_thermocouple_mapping_requires_explicit_positive_and_negative_polarity()
     )
     with pytest.raises(ValueError, match="positive and negative"):
         TemperatureInstrumentInventory((invalid,), (interface,))
+
+def test_receiver_input_capability_is_explicit_and_round_trips():
+    sensor = terminal("rtd-receiver", "A")
+    sensor_b = terminal("rtd-receiver", "B")
+    tx_in_a, tx_in_b = terminal("tx-receiver", "IN_A"), terminal("tx-receiver", "IN_B")
+    tx_out = (terminal("tx-receiver", "OUT+"), terminal("tx-receiver", "OUT-"))
+    receiver_terminals = (terminal("plc-ai-1", "CH1+"), terminal("plc-ai-1", "CH1-"))
+    interface = TemperatureInterfaceDevice(
+        id="tx-receiver", tag="TT-RECV-1", equipment_kind=TemperatureInputMode.TRANSMITTER,
+        supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
+        supported_sensor_configurations=("Pt100 2-wire",),
+        input_terminals=(tx_in_a, tx_in_b), output_terminals=tx_out,
+        output_signal_kind="4-20mA", output_unit="degC",
+        output_range_min=4.0, output_range_max=20.0,
+    )
+    receiver = TemperatureReceiverInput(
+        id="plc-ai-1-ch1", module_equipment_id="plc-ai-1", channel_designation="AI-01",
+        input_kind=TemperatureReceiverInputKind.ANALOG_CURRENT,
+        terminals=receiver_terminals, engineering_unit="degC",
+        range_min=4.0, range_max=20.0,
+    )
+    instrument = TemperatureInstrument(
+        id="temp-receiver-1", tag="OTD-RECV-1", service=TemperatureService.OTD,
+        asset_id="transformer-1", location="main tank", sensor_equipment_id="rtd-receiver",
+        sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx-receiver",
+        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor, sensor_b),
+        receiver_terminals=receiver_terminals, receiver_input_id=receiver.id, unit="degC",
+    )
+    inventory = TemperatureInstrumentInventory((instrument,), (interface,), (receiver,))
+    restored = deserialize_temperature_instruments(serialize_temperature_instruments(inventory))
+    assert restored == inventory
+
+
+def test_receiver_input_rejects_interface_signal_kind_mismatch():
+    interface = TemperatureInterfaceDevice(
+        id="tx-receiver-2", tag="TT-RECV-2", equipment_kind=TemperatureInputMode.TRANSMITTER,
+        supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
+        supported_sensor_configurations=("Pt100 2-wire",),
+        input_terminals=(terminal("tx-receiver-2", "IN_A"), terminal("tx-receiver-2", "IN_B")),
+        output_terminals=(terminal("tx-receiver-2", "OUT+"), terminal("tx-receiver-2", "OUT-")),
+        output_signal_kind="4-20mA", output_unit="degC", output_range_min=4.0, output_range_max=20.0,
+    )
+    receiver = TemperatureReceiverInput(
+        id="plc-ai-2-ch1", module_equipment_id="plc-ai-2", channel_designation="AI-01",
+        input_kind=TemperatureReceiverInputKind.ANALOG_VOLTAGE,
+        terminals=(terminal("plc-ai-2", "CH1+"), terminal("plc-ai-2", "CH1-")),
+        engineering_unit="degC", range_min=4.0, range_max=20.0,
+    )
+    instrument = TemperatureInstrument(
+        id="temp-receiver-2", tag="OTD-RECV-2", service=TemperatureService.OTD,
+        asset_id="transformer-2", location="oil", sensor_equipment_id="rtd-2",
+        sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx-receiver-2",
+        receiver_terminals=receiver.terminals, receiver_input_id=receiver.id, unit="degC",
+    )
+    with pytest.raises(ValueError, match="capability does not match"):
+        TemperatureInstrumentInventory((instrument,), (interface,), (receiver,))
+
+
+def test_receiver_input_requires_declared_physical_terminals_and_range_pair():
+    with pytest.raises(ValueError, match="physical terminal references"):
+        TemperatureReceiverInput(
+            id="plc-ai-empty", module_equipment_id="plc-ai-empty", channel_designation="AI-01",
+            input_kind=TemperatureReceiverInputKind.ANALOG_CURRENT, terminals=(),
+            engineering_unit="degC",
+        )
+    with pytest.raises(ValueError, match="range bounds"):
+        TemperatureReceiverInput(
+            id="plc-ai-range", module_equipment_id="plc-ai-range", channel_designation="AI-01",
+            input_kind=TemperatureReceiverInputKind.ANALOG_CURRENT,
+            terminals=(terminal("plc-ai-range", "CH1+"),), engineering_unit="degC",
+            range_min=4.0,
+        )
