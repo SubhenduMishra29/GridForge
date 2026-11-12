@@ -232,3 +232,30 @@ def test_mapped_thermocouple_loop_requires_type_polarity_and_construction_on_eac
     invalid = InstrumentationWiringInventory(cables=cables, cores=(cores[0], wrong_leg), panel_wires=(output,))
     with pytest.raises(ValueError, match="thermocouple negative conductor path"):
         TemperatureInstrumentService._validate_physical_continuity(inventory, invalid)
+
+
+def test_thermocouple_panel_wire_requires_catalogued_designation_and_material():
+    start, end = terminal("tb", "TC+"), terminal("tx", "TC+")
+    spec = TemperatureThermocoupleCableSpec(
+        "spec-jx", "J", "JX", TemperatureThermocoupleCableClass.EXTENSION,
+        "Iron", "Constantan", "IEC 60584-3:2021", "1",
+    )
+    catalogue = (spec,)
+    valid = InstrumentationWiringInventory(panel_wires=(PanelWire(
+        "panel-tc-pos", "W-TC+", WiringConductorRole.SIGNAL, (start, end),
+        conductor_material="Iron", thermocouple_type="J", thermocouple_polarity="POSITIVE",
+        thermocouple_cable_designation="JX",
+    ),))
+    assert TemperatureInstrumentService._has_physical_route(
+        valid, (start,), (end,), thermocouple_type="J", polarity="POSITIVE",
+        thermocouple_cable_specs=catalogue,
+    )
+    wrong_material = InstrumentationWiringInventory(panel_wires=(PanelWire(
+        "panel-tc-pos-wrong", "W-TC+WRONG", WiringConductorRole.SIGNAL, (start, end),
+        conductor_material="Copper", thermocouple_type="J", thermocouple_polarity="POSITIVE",
+        thermocouple_cable_designation="JX",
+    ),))
+    assert not TemperatureInstrumentService._has_physical_route(
+        wrong_material, (start,), (end,), thermocouple_type="J", polarity="POSITIVE",
+        thermocouple_cable_specs=catalogue,
+    )
