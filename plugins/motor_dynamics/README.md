@@ -449,3 +449,10 @@ Linear induction and linear synchronous families have separate translational mod
 - `LinearSynchronousParameters` / `solve_linear_synchronous_transient_cpu`: PM d/q current dynamics, pole-pitch spatial frequency, electromagnetic thrust, translator position/speed, copper loss and lumped winding temperature.
 
 Both use the shared Core ODE engine with CPU/RK4. These are reduced-order engineering study models, not validated commissioning models. Linear induction omits longitudinal/transverse end effects, deep-bar/skin effect, saturation and secondary segmentation. Linear synchronous omits segmented magnet fields, end effects, cogging detail, PWM/dead-time, inverter and DC-link dynamics. Air-gap is provisioned as measured/configured telemetry, not calculated by either solver. No GPU/NPU acceleration is claimed for these solvers.
+
+
+## Voice-coil linear actuator (experimental)
+
+The `VOICE_COIL` family uses a distinct translational actuator model rather than the induction or synchronous travelling-field solver. `VoiceCoilParameters` and `solve_voice_coil_transient_cpu` model coil resistance/inductance, force constant, velocity back-EMF, moving mass, suspension stiffness/damping, external load, stroke and a lumped winding thermal state. The result exposes coil current, force, position, velocity, back-EMF, stroke utilization, end-stop reaction and copper loss.
+
+The implementation is an averaged lumped R-L electromechanical model on the shared Core CPU/RK4 engine. It does not resolve magnetic saturation, eddy currents, flexure modes, spatial field nonuniformity, amplifier switching or a detailed thermal network. No GPU/NPU acceleration is claimed.
