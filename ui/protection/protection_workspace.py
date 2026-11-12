@@ -131,11 +131,10 @@ class ProtectionGraphicsSurface(QGraphicsView):
             provenance = project_signal_provenance(wiring, resolutions)
         except RuntimeError:
             provenance = ()
-        protection_provenance = {
-            (item.owner_id, item.port): item
-            for item in provenance
-            if item.endpoint_kind == "PROTECTION_INPUT"
-        }
+        protection_provenance: dict[tuple[str | None, str | None], list[Any]] = {}
+        for item in provenance:
+            if item.endpoint_kind == "PROTECTION_INPUT":
+                protection_provenance.setdefault((item.owner_id, item.port), []).append(item)
         control_by_signal: dict[str, list[Any]] = {}
         for item in provenance:
             if item.endpoint_kind == "CONTROL_INPUT":
@@ -214,7 +213,8 @@ class ProtectionGraphicsSurface(QGraphicsView):
                 ):
                     input_y = row_y + 20.0 + input_index * 58.0
                     input_node_id = f"{relay_id}:element:{element_id}:input:{input_name}"
-                    input_provenance = protection_provenance.get((element_id, str(input_name)))
+                    input_provenances = tuple(protection_provenance.get((element_id, str(input_name)), ()))
+                    input_provenance = input_provenances[0] if input_provenances else None
                     input_node = self._add_node(
                         input_node_id,
                         f"RELAY INPUT\n{input_name}\n{channel_id}",
@@ -230,7 +230,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
                         peers = control_by_signal.get(input_provenance.signal_id, ())
                         peer_targets = {str(candidate.endpoint_id) for candidate in peers}
                         peer = peers[0] if len(peer_targets) == 1 else None
-                        detail = input_provenance.detail_text
+                        detail = "\n\n".join(item.detail_text for item in input_provenances)
                         if peer is not None:
                             detail += "\nDouble-click to locate the matching Control input."
                         input_node.setToolTip(detail)
