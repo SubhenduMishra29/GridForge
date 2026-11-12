@@ -1,9 +1,8 @@
-"""GGOV1 exhaust-temperature measurement chain.
+"""GGOV1 modeled exhaust-temperature signal path.
 
-The measurement path models the Tfload sensor lag followed by the
-(1+s*Tsa)/(1+s*Tsb) lead/lag conditioner. The host integrator owns both
-states and the measurement timestamp; no private clock or sample history is
-created here.
+The OpenIPSL/PSS/E topology derives a temperature proxy from net fuel flow
+and the Dm-dependent speed factor, then cascades the Tsa/Tsb lead-lag with
+the Tfload lag. The host integrator owns both states and all time history.
 """
 from __future__ import annotations
 
@@ -15,12 +14,12 @@ from .controllers import GGOV1Parameters, _number
 
 
 class GGOV1TemperatureMeasurement(DynamicPlugin):
-    """Two-state Tfload plus Tsa/Tsb exhaust-temperature conditioner."""
+    """Two-state GGOV1 temperature-proxy conditioner producing TEXM."""
 
     model_type = "PSS_E_GGOV1_TEMPERATURE_MEASUREMENT"
     state_names: ClassVar[tuple[str, ...]] = (
-        "filtered_exhaust_temperature_sensor",
-        "filtered_exhaust_temperature_lead_lag",
+        "temperature_detection_lead_lag_state",
+        "filtered_exhaust_temperature_proxy",
     )
 
     def __init__(self, parameters: GGOV1Parameters) -> None:
@@ -33,83 +32,72 @@ class GGOV1TemperatureMeasurement(DynamicPlugin):
             raise ValueError("positive Tsa requires positive Tsb for a proper lead-lag filter")
         self.parameters = parameters
 
+    def _lead_lag_output(self, state: float, signal: float) -> float:
+        p = self.parameters
+        tsb = p.temperature_lag_time_constant_s
+        if tsb == 0.0:
+            return signal
+        ratio = p.temperature_lead_time_constant_s / tsb
+        return state + ratio * (signal - state)
+
     def initial_state(
         self,
         *,
-        initial_exhaust_temperature: float,
+        initial_temperature_proxy_input_pu: float,
         **_: Any,
     ) -> tuple[float, ...]:
-        initial = _number(initial_exhaust_temperature, "initial_exhaust_temperature")
+        initial = _number(initial_temperature_proxy_input_pu, "initial_temperature_proxy_input_pu")
         return (initial, initial)
 
     def derivatives(
         self,
         state: tuple[float, ...] | list[float],
         *,
-        exhaust_temperature: float,
+        temperature_proxy_input_pu: float,
         **_: Any,
     ) -> tuple[float, ...]:
         self.validate_state(state)
         p = self.parameters
-        measured = _number(exhaust_temperature, "exhaust_temperature")
-        sensor = _number(state[0], "filtered_exhaust_temperature_sensor")
-        lead_lag = _number(state[1], "filtered_exhaust_temperature_lead_lag")
-
-        tfload = p.load_filter_time_constant_s
+        signal = _number(temperature_proxy_input_pu, "temperature_proxy_input_pu")
+        lead_lag_state = _number(state[0], "temperature_detection_lead_lag_state")
+        texm_state = _number(state[1], "filtered_exhaust_temperature_proxy")
         tsb = p.temperature_lag_time_constant_s
-        d_sensor = 0.0 if tfload == 0.0 else (measured - sensor) / tfload
-        lead_lag_input = measured if tfload == 0.0 else sensor
-        d_lead_lag = (
-            0.0 if tsb == 0.0 else (lead_lag_input - lead_lag) / tsb
-        )
-        return (d_sensor, d_lead_lag)
+        tfload = p.load_filter_time_constant_s
+        d_lead_lag = 0.0 if tsb == 0.0 else (signal - lead_lag_state) / tsb
+        lead_lag_output = self._lead_lag_output(lead_lag_state, signal)
+        d_texm = 0.0 if tfload == 0.0 else (lead_lag_output - texm_state) / tfload
+        return (d_lead_lag, d_texm)
 
     def output(
         self,
         state: tuple[float, ...] | list[float],
         *,
-        exhaust_temperature: float | None = None,
+        temperature_proxy_input_pu: float,
         **_: Any,
     ) -> float:
         self.validate_state(state)
         p = self.parameters
-        sensor = _number(state[0], "filtered_exhaust_temperature_sensor")
-        lead_lag = _number(state[1], "filtered_exhaust_temperature_lead_lag")
-
+        signal = _number(temperature_proxy_input_pu, "temperature_proxy_input_pu")
+        lead_lag_state = _number(state[0], "temperature_detection_lead_lag_state")
+        texm_state = _number(state[1], "filtered_exhaust_temperature_proxy")
         if p.load_filter_time_constant_s == 0.0:
-            if exhaust_temperature is None:
-                raise ValueError("exhaust_temperature is required for the zero-Tfload bypass")
-            lead_lag_input = _number(exhaust_temperature, "exhaust_temperature")
-        else:
-            lead_lag_input = sensor
-
-        if p.temperature_lag_time_constant_s == 0.0:
-            if p.temperature_lead_time_constant_s != 0.0:
-                raise ValueError("Tsa cannot be positive when Tsb is zero")
-            return lead_lag_input
-
-        ratio = (
-            p.temperature_lead_time_constant_s
-            / p.temperature_lag_time_constant_s
-        )
-        return lead_lag + ratio * (lead_lag_input - lead_lag)
+            return self._lead_lag_output(lead_lag_state, signal)
+        return texm_state
 
     def summary(self) -> dict[str, Any]:
         p = self.parameters
         return {
             "model_type": self.model_type,
             "state_names": self.state_names,
-            "transfer_function": (
-                "(1 / (1 + s*Tfload)) * (1 + s*Tsa) / (1 + s*Tsb)"
-            ),
+            "transfer_function": "((1+s*Tsa)/(1+s*Tsb)) * 1/(1+s*Tfload)",
             "time_constants_s": {
-                "Tfload": p.load_filter_time_constant_s,
                 "Tsa": p.temperature_lead_time_constant_s,
                 "Tsb": p.temperature_lag_time_constant_s,
+                "Tfload": p.load_filter_time_constant_s,
             },
+            "signal_source": "net fuel flow multiplied by Dm_select(speed)",
             "scope": (
-                "exhaust-temperature sensor lag and lead/lag conditioning; "
-                "OEM temperature reference, maps and plant limiter calibration remain separate"
+                "PSS/E/OpenIPSL modeled TEXM proxy; not a thermocouple model or OEM firing-temperature map"
             ),
         }
 
