@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+
+import pytest
+
+from core.application.services.temperature_instrument_service import TemperatureInstrumentService
 from core.model import (
     TemperatureAlarmTripBinding, TemperatureConsumerKind, TemperatureInputMode,
     TemperatureInstrument, TemperatureInstrumentInventory, TemperatureInterfaceDevice,
@@ -146,5 +151,14 @@ def test_temperature_sensor_pin_mapping_must_be_bijective():
         sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor_a, sensor_b),
         sensor_input_mappings=(TemperatureTerminalMapping(sensor_a, input_a),),
     )
+    inventory = TemperatureInstrumentInventory((instrument,), (interface,))
+    service = TemperatureInstrumentService()
+    service._inventory = inventory
+    channel = SimpleNamespace(
+        signal_type=SimpleNamespace(value="TEMPERATURE"),
+        unit="degC",
+        source_id="tx-3",
+        source_terminal=SimpleNamespace(terminal_role="OUT"),
+    )
     with pytest.raises(ValueError, match="cover every declared"):
-        TemperatureInstrumentService().validate_measurement_channels({})
+        service.validate_measurement_channels({"temperature-channel": channel})
