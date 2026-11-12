@@ -3832,3 +3832,32 @@ Wire endpoint hit-testing follow-up:
 - Bus attachment selection is deterministic at exact midpoint ties, including
   when multiple Bus attachments are already inside the normal snap tolerance.
 - Added overlap-priority and Bus-midpoint regression test cases.
+
+
+======================================================================
+GridForge V2 — PR #1204 Reconciliation: Latest Main Integration
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+
+Finding:
+- Reconciliation against main identified a startup-order regression inherited
+  by the feature branch: initial DraftNetwork installation called
+  Application.presentation before ProjectLifecycleService was attached.
+- Latest main also added QListWidgetItem to the centralized Qt compatibility
+  import/export surface; the feature branch had not yet incorporated it.
+
+Correction:
+- Moved initial DraftNetwork installation to immediately after
+  application.attach_project_lifecycle(lifecycle).
+- Uses lifecycle.activation_generation rather than hard-coded generation 1.
+- Preserved main's QListWidgetItem import and __all__ export in ui/core/qt.py.
+- No change to the frozen Core/Application/UI ownership boundaries.
+
+Verification:
+- Compared branch against latest main and inspected all overlapping changed
+  paths. Found and corrected the bootstrap lifecycle ordering and Qt export
+  omissions. No tests, imports, startup, or GUI runtime executed.
+- Branch still contains additional commits and requires a final full
+  reconciliation review before PR #1204 can be merged.
+======================================================================
