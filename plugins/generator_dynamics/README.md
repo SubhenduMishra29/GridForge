@@ -949,8 +949,9 @@ validated the stored evidence, the host may call
 revalidates the checkpoint identity against the active study identity, restores
 the finite augmented vector, and executes the host-supplied ordered sequence of
 positive step intervals from the archived checkpoint time. It returns only
-newly accepted step results; the previous evidence remains the host's
-responsibility to prepend when constructing the resumed trajectory.
+newly accepted step results. The host should pass those results and the
+exact accepted state to `GeneratorAugmentedStudyEvidence.resume_from_checkpoint(...)`;
+that method carries the previous archived accepted-step payload forward.
 
 An optional `continue_predicate(current_time_s, next_step_index)` is evaluated
 only between accepted steps. The host can use it to consult the canonical
@@ -972,6 +973,15 @@ solver-supported restart mechanism. Fixed-step continuation from the accepted
 augmented state is the only behavior this adapter itself establishes.
 
 ## Restoring full archived evidence for continuation
+
+The concrete Application retrieval path is `StudyResultArchive.load_latest(
+project_id, activation_generation, study_id)`. Read the decoded mapping from
+`archived.result.value`, rebuild the expected identity with the active canonical
+`StudyRequest`, `StudyExecutionContext`, and the same host-owned configuration,
+layout and solver fingerprints, then pass both to
+`GeneratorAugmentedStudyEvidence.from_archive_payload(...)`. The Core archive
+encodes and decodes this mapping recursively; it does not need a generator
+class allowlist or a dependency on the plugin.
 
 After the Application archive has decoded a persisted StudyResult value into
 ordinary mappings and tuples, call
