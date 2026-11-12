@@ -825,6 +825,18 @@ class InstrumentationWiringInventory:
                     right_ends = {right.terminal_path[0].identity, right.terminal_path[-1].identity}
                     if not left_ends.intersection(right_ends):
                         raise ValueError(f"CT secondary {route_name} carrier chain '{circuit.id}' is discontinuous.")
+            s1_route_points = {
+                terminal.terminal_point_id
+                for carrier_id in circuit.s1_carrier_ids
+                for terminal in carrier_by_id[carrier_id].terminal_path
+                if terminal.terminal_point_id is not None
+            }
+            s2_route_points = {
+                terminal.terminal_point_id
+                for carrier_id in circuit.s2_carrier_ids
+                for terminal in carrier_by_id[carrier_id].terminal_path
+                if terminal.terminal_point_id is not None
+            }
             accessory = accessory_by_id.get(circuit.shorting_accessory_id)
             if accessory is None:
                 raise ValueError(f"CT secondary circuit '{circuit.id}' references missing shorting accessory.")
@@ -837,10 +849,17 @@ class InstrumentationWiringInventory:
                 raise ValueError(f"CT secondary circuit '{circuit.id}' shorting arrangement references a missing terminal point.")
             if any(point_by_id[point_id].terminal_block_id != accessory.terminal_block_id for point_id in short_pair):
                 raise ValueError(f"CT secondary circuit '{circuit.id}' shorting points must belong to the accessory terminal block.")
+            if circuit.shorting_s1_terminal_point_id not in s1_route_points:
+                raise ValueError(f"CT secondary circuit '{circuit.id}' shorting S1 point is not on the declared S1 carrier route.")
+            if circuit.shorting_s2_terminal_point_id not in s2_route_points:
+                raise ValueError(f"CT secondary circuit '{circuit.id}' shorting S2 point is not on the declared S2 carrier route.")
             if circuit.test_disconnect_accessory_id is not None:
                 test_accessory = accessory_by_id.get(circuit.test_disconnect_accessory_id)
                 if test_accessory is None or test_accessory.kind is not TerminalAccessoryKind.TEST_DISCONNECT:
                     raise ValueError(f"CT secondary circuit '{circuit.id}' references an invalid test-disconnect accessory.")
+                test_points = set(test_accessory.terminal_point_ids)
+                if not test_points.issubset(s1_route_points | s2_route_points):
+                    raise ValueError(f"CT secondary circuit '{circuit.id}' test-disconnect accessory is not fully placed on its declared S1/S2 routes.")
 
         pt_phases: set[tuple[str, str, str]] = set()
         for circuit in self.pt_secondary_circuits:
