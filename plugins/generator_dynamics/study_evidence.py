@@ -402,6 +402,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             frozen,
             checkpoint_identity=checkpoint.identity,
         )
+
     @classmethod
     def resume_from_checkpoint(
         cls,
