@@ -11,7 +11,7 @@ from core.model.instrument_wiring import (
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 3
+WIRING_SCHEMA_VERSION = 4
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -88,6 +88,7 @@ def serialize_instrumentation_wiring(
             {
                 "id": item.id, "tag": item.tag, "description": item.description,
                 "kind": item.kind.value, "unit": item.unit, "phase": item.phase,
+                "measurement_channel_id": item.measurement_channel_id,
             }
             for item in inventory.signals
         ],
@@ -136,7 +137,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
             ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "revision"}, "Cable core"),
             ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "revision"}, "Panel wire"),
-            ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
+            ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase", "measurement_channel_id"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
             ("connection_hops", {"id", "from_terminal", "to_terminal", "carrier_kind", "carrier_id"}, {"revision", "lifecycle_status", "supersedes_hop_id"}, "Physical connection hop"),
@@ -166,6 +167,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             SignalDefinition(
                 id=item["id"], tag=item["tag"], description=item["description"],
                 kind=SignalKind(item["kind"]), unit=item.get("unit"), phase=item.get("phase"),
+                measurement_channel_id=item.get("measurement_channel_id"),
             )
             for item in data["signals"]
         )
