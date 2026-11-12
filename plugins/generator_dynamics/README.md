@@ -768,3 +768,6 @@ through `final_stage.network.convergence`. An explicit non-converged result
 fails the stage closed. A legacy mapping remains accepted for compatibility,
 but its convergence evidence is `None`; the adapter does not fabricate a
 residual or claim convergence when the host solver has not supplied evidence.
+
+
+The augmented adapter accepts `require_network_convergence_evidence=True`. In strict mode, a legacy voltage-only mapping is rejected because it cannot substantiate algebraic convergence. The default remains `False` for compatibility with existing host callbacks; production transient-study composition should enable strict mode once its network solver reports structured evidence.
