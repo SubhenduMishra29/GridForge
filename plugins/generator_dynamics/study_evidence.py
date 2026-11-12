@@ -127,6 +127,15 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         if not isinstance(accepted_state, tuple):
             raise ValueError("previous checkpoint has no accepted state vector")
         supplied_state = tuple(resume_state)
+        if any(
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+            for value in supplied_state
+        ):
+            raise TypeError("resume_state must contain only finite numeric values")
+        if len(supplied_state) != len(accepted_state):
+            raise ValueError("resume_state dimension does not match the accepted checkpoint")
         if supplied_state != accepted_state:
             raise ValueError("resume_state must exactly match the last accepted checkpoint state")
         continuation = tuple(resumed_steps)
