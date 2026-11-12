@@ -837,6 +837,25 @@ responsible for terminal status, events and durable archive writes. The plugin
 contract does not yet install an augmented runner into the production
 composition root.
 
+### Explicit transient execution-mode selection
+
+The Application-owned `generator_dynamics_composition` may select exactly one
+transient handler with `generator_transient_execution_mode`:
+
+- `sampled_ggov1` (default) retains the existing sampled GGOV1 solver contract
+  and requires `generator_transient_solver.solve_generator_transient(...)`
+  plus `create_generator_sampled_adapter(...)`.
+- `augmented_dae` selects the augmented DAE StudyService handler and requires
+  `generator_augmented_transient_solver.solve_generator_augmented_transient(...)`
+  plus `create_generator_augmented_adapter(...)`.
+
+The plugin registers only one handler for the canonical
+`generator_transient` study type. An unknown mode or an incomplete selected
+host contract fails activation; it does not silently fall back to another
+solver. The default preserves existing host compositions. Selecting
+`augmented_dae` is an explicit host opt-in, not evidence that GridForge's
+standard transient runner or DAESolver has been migrated.
+
 ### Opt-in augmented transient StudyService handler
 
 `GeneratorAugmentedTransientStudyHandler` is a separate, explicit adapter for
