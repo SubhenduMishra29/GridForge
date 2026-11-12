@@ -63,7 +63,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, InstrumentationWiringSchedulesReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -5115,7 +5115,7 @@ class Application:
             read_service=self._read_service,
         )
 
-    def read_instrumentation_wiring_schedules(self):
+    def read_instrumentation_wiring_schedules(self) -> InstrumentationWiringSchedulesReadModel:
         """Return authoritative derived schedules for the active wiring revision."""
         from .instrumentation_wiring_schedules import build_instrumentation_wiring_schedules
 
