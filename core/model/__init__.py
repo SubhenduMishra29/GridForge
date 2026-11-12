@@ -70,7 +70,9 @@ from .instrument_wiring import (
     TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint, TerminalAccessory,
     CableAssembly, CableCore, PanelWire, SignalDefinition, SignalCarrierBinding,
     SignalEndpointKind, SignalEndpointReference, SignalEndpointBinding,
-    WiringTagSeries, WiringTagPolicy, CTSecondaryCircuitState, CTSecondaryCircuit, PTSecondaryCircuitState, PTSecondaryPolarity, PTSecondaryGrounding, PTSecondaryCircuit, InstrumentationWiringInventory,
+    WiringTagSeries, WiringTagPolicy, CTSecondaryCircuitState, CTSecondaryCircuit, PTSecondaryCircuitState, PTSecondaryPolarity, PTSecondaryGrounding, PTSecondaryCircuit,
+    TemperatureSensorKind, TemperatureSensorLeadRoute, TemperatureSensorCircuit,
+    InstrumentationWiringInventory,
 )
 
 from .endpoint_reference import EndpointReference, EndpointReferenceKind, EquipmentType
