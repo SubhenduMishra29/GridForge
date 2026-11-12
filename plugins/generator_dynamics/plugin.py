@@ -34,7 +34,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "ggov1_low_value_selector",
         "ggov1_pid_tracking_input",
         "ggov1_acceleration_limiter",
-        "ggov1_fuel_flow_load_limiter",
+        "ggov1_exhaust_temperature_load_limiter",
         "ggov1_temperature_measurement_conditioner",
         "excitation_and_governor_configuration",
         "instrumentation_templates",
