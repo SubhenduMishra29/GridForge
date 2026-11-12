@@ -81,6 +81,13 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("electrical.frequency", "Supply frequency", F, N, "Hz", ("control","protection","scada"), True),
                 _p("electrical.phase_sequence", "Phase sequence", D, N, "state", ("protection","commissioning"))]
 
+    if family == MotorFamily.UNIVERSAL:
+        pts += [_p("machine.armature_current", "Armature current", C, N, "A", ("metering","protection","control"), True),
+                _p("machine.series_field_current", "Series field current", C, N, "A", ("monitoring","protection")),
+                _p("machine.field_flux", "Series field flux", X, N, "Wb", ("monitoring","analysis")),
+                _p("machine.armature_copper_loss", "Armature copper loss", P, N, "W", ("monitoring","analysis")),
+                _p("machine.field_copper_loss", "Series field copper loss", P, N, "W", ("monitoring","analysis")),
+                _p("machine.commutator_temperature", "Commutator / winding temperature", X, N, "degC", ("monitoring","alarm","maintenance"))]
     if family in {MotorFamily.SINGLE_PHASE_SPLIT_PHASE, MotorFamily.SINGLE_PHASE_CAPACITOR_START, MotorFamily.SINGLE_PHASE_PERMANENT_SPLIT_CAPACITOR, MotorFamily.SINGLE_PHASE_CAPACITOR_START_RUN, MotorFamily.SINGLE_PHASE_SHADED_POLE}:
         pts += [_p("machine.main_winding_temperature", "Main winding temperature", X, N, "degC", ("monitoring","alarm","protection")),
                 _p("machine.auxiliary_winding_current", "Auxiliary winding current", C, N, "A", ("monitoring","protection")),
