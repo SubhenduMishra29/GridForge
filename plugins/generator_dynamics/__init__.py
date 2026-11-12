@@ -12,7 +12,7 @@ from .compute import GENERATOR_WORKLOADS, NPU_INFERENCE_WORKLOADS, select_genera
 from .plugin import GeneratorDynamicsPlugin, PLUGIN_DESCRIPTOR
 from .controllers import (
     FirstOrderAVRParameters, FirstOrderAVR, TGOV1Governor,
-    PSSParameters, WashoutLeadLagPSS,
+    PSSParameters, WashoutLeadLagPSS, TGOV1Parameters, TGOV1SteamGovernor,
 )
 
 __all__ = [
@@ -23,5 +23,5 @@ __all__ = [
     "NPU_INFERENCE_WORKLOADS", "select_generator_backend",
     "GeneratorDynamicsPlugin", "PLUGIN_DESCRIPTOR",
     "FirstOrderAVRParameters", "FirstOrderAVR", "TGOV1Governor",
-    "PSSParameters", "WashoutLeadLagPSS",
+    "PSSParameters", "WashoutLeadLagPSS", "TGOV1Parameters", "TGOV1SteamGovernor",
 ]
