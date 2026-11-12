@@ -112,6 +112,21 @@ class DynamicComponentEvaluation:
         object.__setattr__(self, "mechanical_power_outputs_pu", MappingProxyType(outputs))
 
 
+def validate_dynamic_state_component(component: object) -> tuple[str, int]:
+    """Validate structural identity and state dimension before host registration."""
+    component_id = getattr(component, "component_id", None)
+    state_size = getattr(component, "state_size", None)
+    if not isinstance(component_id, str) or not component_id.strip():
+        raise DynamicComponentContractError("component_id must be a non-empty stable identity")
+    if type(state_size) is not int or state_size <= 0:
+        raise DynamicComponentContractError("state_size must be a positive integer")
+    if not callable(getattr(component, "initial_state", None)):
+        raise DynamicComponentContractError("component must provide initial_state(inputs)")
+    if not callable(getattr(component, "evaluate", None)):
+        raise DynamicComponentContractError("component must provide evaluate(state, inputs)")
+    return component_id, state_size
+
+
 @runtime_checkable
 class DynamicStateComponent(Protocol):
     """Structural protocol for solver-owned non-electrical dynamic components.
@@ -146,4 +161,5 @@ __all__ = [
     "DynamicComponentInputs",
     "DynamicComponentEvaluation",
     "DynamicStateComponent",
+    "validate_dynamic_state_component",
 ]
