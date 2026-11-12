@@ -67,6 +67,44 @@ class TemperatureConsumerKind(str, Enum):
     TRIP = "TRIP"
 
 
+class TemperatureThermocoupleCableClass(str, Enum):
+    EXTENSION = "EXTENSION"
+    COMPENSATING = "COMPENSATING"
+
+
+@dataclass(frozen=True, slots=True)
+class TemperatureThermocoupleCableSpec:
+    """Project-approved conductor pair for one thermocouple cable designation.
+
+    This is a project catalogue entry, not an embedded manufacturer's catalogue.
+    Material names are explicit procurement/engineering identifiers and are
+    compared exactly after whitespace/case normalization.
+    """
+
+    id: str
+    thermocouple_type: str
+    cable_designation: str
+    cable_class: TemperatureThermocoupleCableClass
+    positive_conductor_material: str
+    negative_conductor_material: str
+    standard_reference: str
+    tolerance_class: str
+
+    def __post_init__(self) -> None:
+        for field in ("id", "thermocouple_type", "cable_designation",
+                      "positive_conductor_material", "negative_conductor_material",
+                      "standard_reference", "tolerance_class"):
+            object.__setattr__(self, field, _text(getattr(self, field), field))
+        object.__setattr__(self, "thermocouple_type", self.thermocouple_type.upper())
+        object.__setattr__(self, "cable_designation", self.cable_designation.upper())
+        if not re.fullmatch(r"[A-Z][A-Z0-9]{0,3}", self.thermocouple_type):
+            raise ValueError("thermocouple_type must be an explicit compact designation.")
+        if not isinstance(self.cable_class, TemperatureThermocoupleCableClass):
+            raise TypeError("cable_class must be a TemperatureThermocoupleCableClass.")
+        if self.positive_conductor_material.casefold() == self.negative_conductor_material.casefold():
+            raise ValueError("Positive and negative conductor materials must be separately declared.")
+
+
 class TemperatureReceiverInputKind(str, Enum):
     RTD = "RTD"
     THERMOCOUPLE = "THERMOCOUPLE"
@@ -345,6 +383,7 @@ class TemperatureInstrumentInventory:
     interfaces: tuple[TemperatureInterfaceDevice, ...] = ()
     receiver_inputs: tuple[TemperatureReceiverInput, ...] = ()
     alarm_trip_bindings: tuple[TemperatureAlarmTripBinding, ...] = ()
+    thermocouple_cable_specs: tuple[TemperatureThermocoupleCableSpec, ...] = ()
 
     def __post_init__(self) -> None:
         groups = (
@@ -352,6 +391,7 @@ class TemperatureInstrumentInventory:
             ("interfaces", self.interfaces, TemperatureInterfaceDevice),
             ("receiver_inputs", self.receiver_inputs, TemperatureReceiverInput),
             ("alarm_trip_bindings", self.alarm_trip_bindings, TemperatureAlarmTripBinding),
+            ("thermocouple_cable_specs", self.thermocouple_cable_specs, TemperatureThermocoupleCableSpec),
         )
         all_ids: list[str] = []
         for name, values, expected in groups:
@@ -426,6 +466,9 @@ class TemperatureInstrumentInventory:
                         raise ValueError(f"Receiver input '{receiver.id}' range declaration does not match interface output range declaration.")
                     if interface.output_range_min is not None and (interface.output_range_min != receiver.range_min or interface.output_range_max != receiver.range_max or interface.output_range_unit != receiver.range_unit):
                         raise ValueError(f"Receiver input '{receiver.id}' range/value unit does not match interface output range.")
+        spec_keys = [(item.thermocouple_type, item.cable_designation) for item in self.thermocouple_cable_specs]
+        if len(spec_keys) != len(set(spec_keys)):
+            raise ValueError("Thermocouple cable catalogue contains duplicate type/designation entries.")
         for binding in self.alarm_trip_bindings:
             if binding.instrument_id not in instruments:
                 raise ValueError(f"Temperature alarm/trip binding '{binding.id}' references a missing instrument.")
@@ -435,5 +478,6 @@ __all__ = [
     "TemperatureService", "TemperatureSensorTechnology", "TemperatureInputMode",
     "TemperatureConsumerKind", "TemperatureInstrument", "TemperatureInterfaceDevice",
     "TemperatureTerminalMapping", "TemperatureReceiverInputKind", "TemperatureReceiverInput",
-    "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory",
+    "TemperatureAlarmTripBinding", "TemperatureThermocoupleCableClass",
+    "TemperatureThermocoupleCableSpec", "TemperatureInstrumentInventory",
 ]
