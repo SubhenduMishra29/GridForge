@@ -73,7 +73,7 @@ are subsequent integration work.
 ## Current status
 
 This is a foundation milestone, not a complete generator simulator or a
-claim of standards certification. Dynamic solver equations, validated
-machine parameter sources, instrument-specific CT/PT/CVT error/saturation
-models, protection function wiring, control execution, persistence migration,
-SLD editors and runtime-specific accelerator adapters remain open.
+claim of standards certification. Family-specific electrical machine dynamic equations, validated machine
+parameter sources, instrument-specific CT/PT/CVT error/saturation models,
+protection function wiring, DAE-integrated control execution, persistence
+migration, SLD editors and runtime-specific accelerator adapters remain open.
