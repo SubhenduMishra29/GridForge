@@ -227,6 +227,17 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 ("terminal_points", {"id", "terminal_block_id", "terminal_number", "designation"}, {"function", "side", "manufacturer_designation", "lifecycle_status"}, "Terminal point"),
                 ("terminal_accessories", {"id", "tag", "terminal_block_id", "kind", "state", "terminal_point_ids"}, {"conductive_pairs", "rated_voltage_v", "rated_current_a", "manufacturer", "part_number"}, "Terminal accessory"),
             )
+            for item in data["terminal_accessories"]:
+                point_ids = item["terminal_point_ids"]
+                pairs = item.get("conductive_pairs", [])
+                if not isinstance(point_ids, list) or any(not isinstance(value, str) for value in point_ids):
+                    raise InstrumentationWiringSerializationError("Terminal accessory terminal_point_ids must be an array of strings.")
+                if not isinstance(pairs, list) or any(
+                    not isinstance(pair, list) or len(pair) != 2
+                    or any(not isinstance(value, str) for value in pair)
+                    for pair in pairs
+                ):
+                    raise InstrumentationWiringSerializationError("Terminal accessory conductive_pairs must be an array of two-string arrays.")
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
