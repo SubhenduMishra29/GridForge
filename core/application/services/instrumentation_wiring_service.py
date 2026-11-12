@@ -106,6 +106,8 @@ class InstrumentationWiringService:
                 references.append(binding.endpoint.physical_terminal)
         for circuit in inventory.ct_secondary_circuits:
             references.extend((circuit.s1_terminal, circuit.s2_terminal))
+        for circuit in inventory.pt_secondary_circuits:
+            references.extend((circuit.output_terminal, circuit.return_terminal))
         terminal_points = {item.id: item for item in inventory.terminal_points}
         terminal_blocks = {item.id for item in inventory.terminal_blocks}
         seen: set[tuple[str, str, str | None]] = set()
@@ -362,6 +364,8 @@ class InstrumentationWiringService:
         if self._inventory is not expected:
             raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
         self._validate_inventory_terminals(network, replacement)
+        self._validate_ct_secondary_circuits(network, replacement)
+        self._validate_pt_secondary_circuits(network, replacement)
         previous = self._inventory
         project_id = self._project_id
         generation = self._activation_generation
@@ -385,7 +389,7 @@ class InstrumentationWiringService:
             self._inventory = previous
             raise
         return ApplicationResult.success_result(
-            value=replacement,
+            value=project_id,
             message="Instrumentation wiring inventory updated.",
             metadata={
                 "project_id": project_id,
@@ -394,6 +398,10 @@ class InstrumentationWiringService:
                 "cores": len(replacement.cores),
                 "panel_wires": len(replacement.panel_wires),
                 "signals": len(replacement.signals),
+                "signal_bindings": len(replacement.signal_bindings),
+                "endpoint_bindings": len(replacement.endpoint_bindings),
+                "ct_secondary_circuits": len(replacement.ct_secondary_circuits),
+                "pt_secondary_circuits": len(replacement.pt_secondary_circuits),
                 "terminal_blocks": len(replacement.terminal_blocks),
                 "terminal_points": len(replacement.terminal_points),
                 "terminal_accessories": len(replacement.terminal_accessories),
