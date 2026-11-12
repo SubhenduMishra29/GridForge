@@ -17,7 +17,10 @@ from core.plugin_sdk import (
     PluginDescriptor,
     validate_plugin_descriptor,
 )
-from .study_handler import GeneratorTransientStudyHandler
+from .study_handler import (
+    GeneratorAugmentedTransientStudyHandler,
+    GeneratorTransientStudyHandler,
+)
 
 GENERATOR_TRANSIENT_STUDY_TYPE = "generator_transient"
 
@@ -113,19 +116,55 @@ class GeneratorDynamicsPlugin(GridForgePlugin):
                 "generator_dynamics_composition must expose register_generator_extension"
             )
 
-        # Model-specific sampled adapters are created per StudyRequest, not
-        # retained globally across machines or study cases.
-        solver = getattr(composition, "generator_transient_solver", None)
-        adapter_factory = getattr(composition, "create_generator_sampled_adapter", None)
-        if solver is None or not callable(getattr(solver, "solve_generator_transient", None)):
-            raise RuntimeError(
-                "generator_dynamics_composition must expose the host-owned "
-                "generator_transient_solver.solve_generator_transient(...) capability"
+        # The host selects exactly one transient execution contract. The
+        # legacy sampled path remains the default for existing compositions;
+        # augmented DAE execution is never selected by capability inference.
+        execution_mode = getattr(
+            composition, "generator_transient_execution_mode", "sampled_ggov1"
+        )
+        if execution_mode == "sampled_ggov1":
+            solver = getattr(composition, "generator_transient_solver", None)
+            adapter_factory = getattr(composition, "create_generator_sampled_adapter", None)
+            if solver is None or not callable(
+                getattr(solver, "solve_generator_transient", None)
+            ):
+                raise RuntimeError(
+                    "sampled_ggov1 mode requires the host-owned "
+                    "generator_transient_solver.solve_generator_transient(...) capability"
+                )
+            if not callable(adapter_factory):
+                raise RuntimeError(
+                    "sampled_ggov1 mode requires "
+                    "create_generator_sampled_adapter(request=..., execution_context=...)"
+                )
+            handler_factory = lambda: GeneratorTransientStudyHandler(
+                solver, adapter_factory
             )
-        if not callable(adapter_factory):
-            raise RuntimeError(
-                "generator_dynamics_composition must expose "
-                "create_generator_sampled_adapter(request=..., execution_context=...)"
+        elif execution_mode == "augmented_dae":
+            solver = getattr(composition, "generator_augmented_transient_solver", None)
+            adapter_factory = getattr(
+                composition, "create_generator_augmented_adapter", None
+            )
+            if solver is None or not callable(
+                getattr(solver, "solve_generator_augmented_transient", None)
+            ):
+                raise RuntimeError(
+                    "augmented_dae mode requires the host-owned "
+                    "generator_augmented_transient_solver."
+                    "solve_generator_augmented_transient(...) capability"
+                )
+            if not callable(adapter_factory):
+                raise RuntimeError(
+                    "augmented_dae mode requires "
+                    "create_generator_augmented_adapter(request=..., execution_context=...)"
+                )
+            handler_factory = lambda: GeneratorAugmentedTransientStudyHandler(
+                solver, adapter_factory
+            )
+        else:
+            raise ValueError(
+                "generator_transient_execution_mode must be 'sampled_ggov1' "
+                "or 'augmented_dae'"
             )
 
         study_service = getattr(application, "study_service", None)
@@ -144,7 +183,7 @@ class GeneratorDynamicsPlugin(GridForgePlugin):
                 )
             self._unhooks.append(extension_token)
 
-            handler = GeneratorTransientStudyHandler(solver, adapter_factory)
+            handler = handler_factory()
 
             def release_study_handler() -> None:
                 # StudyService refuses removal while this study type is active;
