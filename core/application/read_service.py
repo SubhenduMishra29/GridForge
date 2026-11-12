@@ -34,6 +34,7 @@ from core.model.cvt import CVTPolarity
 from .read_models import (
     ElementReadModel,
     MeasurementChannelReadModel,
+    MeasurementChannelConfigurationReadModel,
     EngineeringParameterReadModel,
     NetworkReadModel,
     ProtectionReadModel,
