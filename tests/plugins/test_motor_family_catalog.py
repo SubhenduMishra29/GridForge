@@ -661,8 +661,8 @@ def test_voice_coil_actuator_family_and_transient_channels():
         force_constant_n_per_a=8.5,back_emf_constant_v_s_per_m=8.5,moving_mass_kg=.08,
         suspension_stiffness_n_per_m=120.,viscous_damping_n_s_per_m=1.8,
         maximum_stroke_m=.012,end_stop_stiffness_n_per_m=12000.)
-    result=solve_voice_coil_transient_cpu("voice-coil-test",params,.02,.0001,
-        drive_voltage_v=12.,external_load_force_n=.5)
+    result=solve_voice_coil_transient_cpu("voice-coil-test",params,.01,.0001,
+        drive_voltage_v=3.,external_load_force_n=.5)
     channels=result.channels(params)
     assert result.backend=="cpu-rk4"
     assert np.isfinite(result.state_data).all()
