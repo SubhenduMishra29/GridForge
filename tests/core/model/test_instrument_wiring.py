@@ -209,3 +209,67 @@ def test_inventory_rejects_dangling_and_duplicate_signal_endpoint_bindings():
         InstrumentationWiringInventory(
             signals=(signal,), endpoint_bindings=(first, second),
         )
+
+
+
+def test_residual_protection_input_can_have_multiple_binding_members_for_one_signal():
+    signal = SignalDefinition(
+        id="signal-1", tag="I0-101", description="Residual current",
+        kind=SignalKind.CURRENT, unit="A",
+    )
+    bindings = tuple(
+        SignalEndpointBinding(
+            id=f"endpoint-binding-{index}",
+            signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id=f"measurement-binding-{index}",
+                owner_id="protection-element-1",
+                port="residual_current",
+            ),
+        )
+        for index in (1, 2, 3)
+    )
+    inventory = InstrumentationWiringInventory(
+        signals=(signal,), endpoint_bindings=bindings,
+    )
+    assert len(inventory.endpoint_bindings) == 3
+
+
+def test_logical_protection_input_rejects_two_different_signal_designations():
+    first_signal = SignalDefinition(
+        id="signal-1", tag="IA-101", description="Phase A current",
+        kind=SignalKind.CURRENT, unit="A", phase="A",
+    )
+    second_signal = SignalDefinition(
+        id="signal-2", tag="IB-101", description="Phase B current",
+        kind=SignalKind.CURRENT, unit="A", phase="B",
+    )
+    endpoint = SignalEndpointReference(
+        kind=SignalEndpointKind.PROTECTION_INPUT,
+        endpoint_id="measurement-binding-1",
+        owner_id="protection-element-1",
+        port="IA",
+    )
+    other_binding = SignalEndpointBinding(
+        id="endpoint-binding-2",
+        signal_id=second_signal.id,
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.PROTECTION_INPUT,
+            endpoint_id="measurement-binding-2",
+            owner_id="protection-element-1",
+            port="IA",
+        ),
+    )
+    with pytest.raises(ValueError, match="only one canonical signal"):
+        InstrumentationWiringInventory(
+            signals=(first_signal, second_signal),
+            endpoint_bindings=(
+                SignalEndpointBinding(
+                    id="endpoint-binding-1",
+                    signal_id=first_signal.id,
+                    endpoint=endpoint,
+                ),
+                other_binding,
+            ),
+        )
