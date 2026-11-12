@@ -106,8 +106,12 @@ class GGOV1ControlCoordinator:
             p.valve_max_pu,
         )
         tracking = tuple(
-            (source, bounded - _number(value, f"{source}_fuel_command_pu"))
-            for source, value in candidates_pu.items()
+            (
+                source,
+                bounded - _number(candidates_pu[source], f"{source}_fuel_command_pu"),
+            )
+            for source in GGOV1LowValueSelector.SOURCE_PRIORITY
+            if source in candidates_pu
         )
         return GGOV1ControlDecision(
             selected_source=selection.selected_source,
