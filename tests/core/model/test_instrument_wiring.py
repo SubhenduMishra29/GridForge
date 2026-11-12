@@ -128,3 +128,42 @@ def test_inventory_rejects_duplicate_tags_and_dangling_signal_bindings():
     )
     with pytest.raises(ValueError, match="missing cable core"):
         InstrumentationWiringInventory(signals=(signal,), signal_bindings=(dangling,))
+
+
+def test_inventory_enforces_one_case_insensitive_tag_namespace_across_record_kinds():
+    cable = CableAssembly(id="cable-1", tag="CAB-001", service="instrument", core_count=1)
+    core = CableCore(
+        id="core-1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL, core_tag="CORE-001",
+    )
+    wire = PanelWire(
+        id="wire-1", tag="wire-001", role=WiringConductorRole.SIGNAL,
+        terminal_path=(terminal("TB-1", "1", "1"), terminal("TB-2", "1", "1")),
+    )
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-001", description="Pressure",
+        kind=SignalKind.ANALOG,
+    )
+    valid = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core,), panel_wires=(wire,), signals=(signal,),
+    )
+    assert valid.signals == (signal,)
+
+    duplicate_signal = SignalDefinition(
+        id="signal-2", tag="cab-001", description="Conflicting tag",
+        kind=SignalKind.ANALOG,
+    )
+    with pytest.raises(ValueError, match="Duplicate project wiring tag"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core,), panel_wires=(wire,),
+            signals=(signal, duplicate_signal),
+        )
+
+    duplicate_core = CableCore(
+        id="core-2", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.RETURN, core_tag="SIG-001",
+    )
+    with pytest.raises(ValueError, match="Duplicate project wiring tag"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core, duplicate_core), signals=(signal,),
+        )
