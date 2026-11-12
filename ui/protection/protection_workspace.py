@@ -12,7 +12,8 @@ from typing import Any
 from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-    ProtectionChanged, TopologyChanged, NetworkCommitted, ProjectClosed, ProjectLoaded,
+    ProtectionChanged, MeasurementChannelChanged, TopologyChanged,
+    NetworkCommitted, ProjectClosed, ProjectLoaded,
     StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
 )
 from ui.canvas.canvas_framework import CanvasStateMachine
@@ -784,7 +785,7 @@ class ProtectionWorkspace(QWidget):
     workspace_id = "protection"
     _EVENT_TYPES = (
         ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-        ProtectionChanged, TopologyChanged, NetworkCommitted,
+        ProtectionChanged, MeasurementChannelChanged, TopologyChanged, NetworkCommitted,
         ProjectLoaded, ProjectClosed,
         StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
     )
