@@ -1,3 +1,56 @@
+GridForge V2 — BTD/OTD/WTD temperature service contracts (implementation foundation)
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/btd-otd-wtd-instrument-contracts
+Issue: #1203
+
+Finding:
+- Generic RTD/thermocouple identities do not distinguish bearing, oil and winding
+  temperature services, their asset/location, intermediary transmitter/monitor,
+  or explicit alarm/trip consumer associations.
+
+Correction:
+- Added immutable Core TemperatureInstrument records with explicit BTD/OTD/WTD
+  service identity, asset/location, sensor technology, input mode, declared
+  sensor/receiver terminals, optional MeasurementChannel identity and optional
+  declared measurement range.
+- Added TemperatureInterfaceDevice contracts for transmitter, temperature
+  monitor and explicitly declared WTD thermal-image arrangements, including
+  supported sensor technologies/configurations, input/output terminals and
+  declared output signal/unit/range.
+- Added explicit TemperatureAlarmTripBinding records for signal, consumer,
+  function and stage associations. Threshold, latching and reset policy remain
+  optional only when not supplied; no values are fabricated.
+- Added immutable TemperatureInstrumentInventory validation for stable IDs,
+  unique service tags, interface ownership/mode compatibility and declared
+  sensor technology/configuration support.
+- Added a strict schema-1 temperature instrument codec and public Core and
+  Persistence package exports.
+- Added focused model and codec regression-test source. Tests were not run.
+
+Boundaries / outstanding integration:
+- This is a Core contract and codec foundation, not complete #1203 acceptance.
+- The new temperature inventory is not yet wired into the canonical project
+  instrumentation inventory/project package lifecycle or Application CRUD,
+  activation validation, MeasurementChannel/receiver terminal resolution,
+  physical carrier continuity, or SLD/Control/Protection provenance.
+- Sensor terminal roles and interface terminal maps still require active Core
+  equipment resolution; transmitter/monitor physical input/output carrier
+  routes must be bound through the canonical wiring inventory.
+- Alarm/trip bindings still require validation against actual Control and
+  Protection function registries and their configured execution semantics.
+- Dedicated temperature loop/termination schedule projection and GUI authoring
+  remain outstanding.
+- Existing generic RTD/thermocouple records are not automatically classified
+  as BTD/OTD/WTD. No sensor type, calibration, range, alarm threshold, trip
+  setting, lead compensation, or channel scaling is inferred.
+
+Verification:
+- Source additions and package exports were committed on a fresh branch from
+  current main. No Python imports, tests, GUI, save/reopen, or project lifecycle
+  execution were performed. Keep issue #1203 and PR #1207 open.
+======================================================================
+
 GridForge V2 — Group transform API and fail-closed commit correction
 Date: 2026-11-11
 Repository: SubhenduMishra29/GridForge
