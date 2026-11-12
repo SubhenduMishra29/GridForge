@@ -140,7 +140,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     try:
         _field_contracts = (
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
-            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"}, "Cable core"),
+            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity"}, "Cable core"),
             ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"}, "Panel wire"),
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
