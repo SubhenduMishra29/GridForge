@@ -919,6 +919,38 @@ from that payload before offering a resume. Evidence without an identity
 remains readable for backward compatibility but is not suitable for
 identity-verified restart.
 
+
+### Host-controlled checkpoint continuation loop
+
+After the Application archive has loaded and
+`GeneratorAugmentedArchivedCheckpoint.from_archive_payload(...)` has
+validated the stored evidence, the host may call
+`GeneratorAugmentedDAEAdapter.continue_from_checkpoint(...)`. The adapter
+revalidates the checkpoint identity against the active study identity, restores
+the finite augmented vector, and executes the host-supplied ordered sequence of
+positive step intervals from the archived checkpoint time. It returns only
+newly accepted step results; the previous evidence remains the host's
+responsibility to prepend when constructing the resumed trajectory.
+
+An optional `continue_predicate(current_time_s, next_step_index)` is evaluated
+only between accepted steps. The host can use it to consult the canonical
+StudyCancellationToken or enforce a study stop boundary. The adapter does not
+translate that predicate into a terminal status: the host must construct
+cancelled/interrupted or completed/complete evidence consistently and return
+it through StudyService. The accepted-step observer is forwarded unchanged to
+each step, so checkpoint publication remains at the accepted-step boundary.
+
+The adapter uses the Integrator and network solver supplied at construction.
+The active `GeneratorStudyCheckpointIdentity` must therefore be rebuilt from
+the current canonical request and host fingerprints for the actual configured
+solver and state layout; a mismatch rejects restoration. This continuation
+method does not serialize or restore opaque Newton histories, adaptive-step
+controller internals, random generator state, or external network-solver state.
+If a solver requires such history for mathematically equivalent continuation,
+the host must persist and restore that solver-owned state separately or use a
+solver-supported restart mechanism. Fixed-step continuation from the accepted
+augmented state is the only behavior this adapter itself establishes.
+
 ## Archive checkpoint reconstruction
 
 `GeneratorAugmentedArchivedCheckpoint.from_archive_payload(...)` is the
