@@ -20,6 +20,8 @@ from .ggov1_actuator import GGOV1ValveActuator
 from .ggov1_turbine import GGOV1TurbineFuelPath
 from .ggov1_selector import GGOV1LowValueSelector, GGOV1Selection
 from .ggov1_acceleration import GGOV1AccelerationLimiter
+from .ggov1_load_limiter import GGOV1LoadLimiter
+from .ggov1_temperature import GGOV1TemperatureMeasurement
 
 __all__ = [
     "GeneratorFamily", "GeneratorNameplate", "GeneratorOperatingMode",
@@ -33,4 +35,5 @@ __all__ = [
     "HYGOVReducedParameters", "HYGOVReducedHydroGovernor", "GGOV1Parameters",
     "GGOV1PIDGovernor", "GGOV1ValveActuator", "GGOV1TurbineFuelPath",
     "GGOV1LowValueSelector", "GGOV1Selection", "GGOV1AccelerationLimiter",
+    "GGOV1LoadLimiter", "GGOV1TemperatureMeasurement",
 ]
