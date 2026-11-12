@@ -13,6 +13,7 @@ from core.model.instrument_wiring import (
     SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
     WiringTagSeries, WiringTagPolicy, WiringTerminalReference,
     TerminalBlock, TerminalPoint, TerminalAccessory, TerminalAccessoryKind, TerminalAccessoryState,
+    CTSecondaryCircuit, CTSecondaryCircuitState,
 )
 from core.persistence.instrument_wiring_serializer import (
     InstrumentationWiringSerializationError,
@@ -325,7 +326,7 @@ def test_signal_endpoint_bindings_round_trip_for_all_endpoint_kinds():
         endpoint_bindings=endpoints,
     )
     payload = serialize_instrumentation_wiring(expected)
-    assert payload["schema"] == 5
+    assert payload["schema"] == 6
     assert len(payload["endpoint_bindings"]) == 3
     assert deserialize_instrumentation_wiring(payload) == expected
 
@@ -337,6 +338,7 @@ def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints
     payload.pop("terminal_blocks")
     payload.pop("terminal_points")
     payload.pop("terminal_accessories")
+    payload.pop("ct_secondary_circuits")
     for binding in payload["signal_bindings"]:
         binding.pop("source_channel_id")
     restored = deserialize_instrumentation_wiring(payload)
@@ -464,7 +466,7 @@ def test_schema_four_wiring_inventory_remains_readable_without_terminal_records(
     assert restored == inventory
 
 
-def test_terminal_block_points_and_accessory_state_round_trip_in_schema_five():
+def test_terminal_block_points_and_accessory_state_round_trip_in_schema_six():
     base = sample_inventory()
     block = TerminalBlock(
         id="tb-id", tag="TB-101", panel_id="PANEL-1",
@@ -609,4 +611,69 @@ def test_schema_four_endpoint_sink_reference_remains_readable_without_point_id()
     payload.pop("terminal_points")
     payload.pop("terminal_accessories")
     payload["endpoint_bindings"][0]["endpoint"]["physical_terminal"].pop("terminal_point_id")
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+
+def test_ct_secondary_circuit_codec_round_trips_explicit_shorting_arrangement():
+    base = sample_inventory()
+    block = TerminalBlock(
+        id="ct-tb", tag="TB-CT-1", panel_id="PANEL-1",
+        location="Protection marshalling", terminal_count=2,
+    )
+    point_s1 = TerminalPoint(
+        id="ct-point-s1", terminal_block_id=block.id,
+        terminal_number="1", designation="S1-LINK",
+    )
+    point_s2 = TerminalPoint(
+        id="ct-point-s2", terminal_block_id=block.id,
+        terminal_number="2", designation="S2-LINK",
+    )
+    shorting = TerminalAccessory(
+        id="ct-short", tag="TB-CT-1-SHORT", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.SHORTING_LINK,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_s1.id, point_s2.id),
+        conductive_pairs=((point_s1.id, point_s2.id),),
+    )
+    s1 = WiringTerminalReference("CT-1", "S1", "S1")
+    s2 = WiringTerminalReference("CT-1", "S2", "S2")
+    cable = CableAssembly(id="ct-cable", tag="C-CT-1", service="CT secondary", core_count=2)
+    core_s1 = CableCore(
+        id="ct-core-s1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(s1, WiringTerminalReference(block.id, "1", "S1-LINK", point_s1.id)),
+    )
+    core_s2 = CableCore(
+        id="ct-core-s2", cable_id=cable.id, core_number=2,
+        role=WiringConductorRole.RETURN,
+        terminal_path=(s2, WiringTerminalReference(block.id, "2", "S2-LINK", point_s2.id)),
+    )
+    circuit = CTSecondaryCircuit(
+        id="ct-circuit-a", ct_id="CT-1", phase="A",
+        s1_terminal=s1, s2_terminal=s2,
+        s1_carrier_ids=(core_s1.id,), s2_carrier_ids=(core_s2.id,),
+        shorting_accessory_id=shorting.id,
+        shorting_s1_terminal_point_id=point_s1.id,
+        shorting_s2_terminal_point_id=point_s2.id,
+        secondary_state=CTSecondaryCircuitState.OPEN,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables + (cable,),
+        cores=base.cores + (core_s1, core_s2),
+        signals=base.signals, signal_bindings=base.signal_bindings,
+        terminal_blocks=(block,), terminal_points=(point_s1, point_s2),
+        terminal_accessories=(shorting,), ct_secondary_circuits=(circuit,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 6
+    assert payload["ct_secondary_circuits"][0]["s1_terminal"]["terminal_role"] == "S1"
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+def test_schema_five_wiring_inventory_remains_readable_after_schema_six():
+    inventory = sample_inventory()
+    payload = serialize_instrumentation_wiring(inventory)
+    payload["schema"] = 5
+    payload.pop("ct_secondary_circuits")
     assert deserialize_instrumentation_wiring(payload) == inventory
