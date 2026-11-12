@@ -829,6 +829,13 @@ class SnapSystem:
                 candidate_order += 1
 
             eligible = [entry for entry in item_candidates if entry[0] <= self.tolerance]
+            if isinstance(item, BusItem) and eligible:
+                nearest_distance = min(entry[0] for entry in eligible)
+                nearest = [
+                    entry for entry in eligible
+                    if abs(entry[0] - nearest_distance) <= 1e-9
+                ]
+                eligible = [min(nearest, key=lambda entry: entry[1])]
             hit_shape = False
             if allow_item_hit and item_candidates:
                 contains = getattr(item, "contains", None)
