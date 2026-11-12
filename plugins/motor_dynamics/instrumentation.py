@@ -125,6 +125,16 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
         pts += [_p("excitation.field_voltage", "Field winding voltage", V, N, "V", ("control","monitoring")),
                 _p("excitation.field_current", "Field winding current", C, N, "A", ("control","monitoring","protection")),
                 _p("excitation.field_temperature", "Field winding temperature", X, N, "degC", ("monitoring","alarm"))]
+    if family in {MotorFamily.DC_SHUNT, MotorFamily.DC_SERIES, MotorFamily.DC_COMPOUND, MotorFamily.DC_SEPARATELY_EXCITED, MotorFamily.DC_PERMANENT_MAGNET}:
+        pts += [_p("machine.armature_temperature", "Armature winding temperature", X, N, "degC", ("monitoring","alarm","protection")),
+                _p("machine.air_gap_flux", "Main air-gap flux", X, N, "Wb", ("monitoring","analysis")),
+                _p("machine.back_emf", "Armature back EMF", V, N, "V", ("monitoring","control")),
+                _p("machine.armature_copper_loss", "Armature copper loss", P, N, "W", ("monitoring","analysis")),
+                _p("machine.field_copper_loss", "Field copper loss", P, N, "W", ("monitoring","analysis"))]
+        if family in {MotorFamily.DC_SERIES, MotorFamily.DC_COMPOUND}:
+            pts.append(_p("excitation.series_field_current", "Series-field current", C, N, "A", ("monitoring","protection")))
+        if family == MotorFamily.DC_COMPOUND:
+            pts.append(_p("excitation.compound_polarity", "Compound field polarity", D, N, "state", ("commissioning","control")))
     if family == MotorFamily.THREE_PHASE_WOUND_ROTOR_INDUCTION:
         pts += [_p("rotor.external_resistance", "External rotor resistance", X, N, "ohm", ("control","monitoring")),
                 _p("rotor.slip_ring_temperature", "Slip-ring temperature", X, N, "degC", ("monitoring","alarm")),

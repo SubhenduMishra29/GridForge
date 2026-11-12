@@ -1545,3 +1545,157 @@ def solve_srm_transient_cpu(motor_id,parameters,duration_s,step_s,*,phase_a_volt
     sol=solve_numerical_problem(problem)
     if sol.sample_count!=count: raise RuntimeError("shared ODE engine returned an unexpected SRM sample count")
     return SRMSimulationResult(motor_id.strip(),sol.time_s,sol.state_data,va,vb,vc,load,sol.sample_period_s,"cpu-rk4",{"integrator":sol.integrator,"precision":"float64","workload":"srm_phase_inductance_transient_single","model":"three_phase_position_dependent_inductance_srm","torque_model":"sum(0.5*i_phase^2*dL_phase/dtheta)","inductance_model":"cosine_alignment_with_current_saturation_approximation","converter":"averaged_phase_voltage_command","model_fidelity":"no_switching_bridge_current_chopping_or_flux_hysteresis","integration_engine":"core.numerics.ode.solve_rk4"})
+
+
+_DC_STATE_COUNT = 6
+_DC_STATE_NAMES = ("armature_current_a", "shunt_field_current_a", "rotor_speed_rad_s", "mechanical_position_rad", "armature_temperature_c", "field_temperature_c")
+
+
+@dataclass(frozen=True, slots=True)
+class DCMotorParameters:
+    armature_resistance_ohm: float
+    armature_inductance_h: float
+    inertia_kg_m2: float
+    excitation: str
+    pole_pairs: int = 1
+    field_resistance_ohm: float = 1.0
+    field_inductance_h: float = 0.1
+    shunt_flux_wb_per_a: float = 0.05
+    series_flux_wb_per_a: float = 0.01
+    saturation_flux_wb: float = 0.8
+    permanent_magnet_flux_wb: float = 0.05
+    compound_connection: str = "cumulative"
+    friction_n_m_s: float = 0.0
+    armature_thermal_capacity_j_k: float = 5000.0
+    field_thermal_capacity_j_k: float = 3000.0
+    thermal_conductance_w_k: float = 20.0
+    ambient_temperature_c: float = 25.0
+    resistance_temp_coefficient_per_k: float = 0.00393
+    initial_speed_rad_s: float = 0.0
+    initial_armature_temperature_c: float = 25.0
+    initial_field_temperature_c: float = 25.0
+
+    def __post_init__(self):
+        for name in ("armature_resistance_ohm","armature_inductance_h","inertia_kg_m2","field_resistance_ohm","field_inductance_h","saturation_flux_wb","armature_thermal_capacity_j_k","field_thermal_capacity_j_k"):
+            v=getattr(self,name)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or v<=0: raise ValueError(f"{name} must be finite and positive")
+        for name in ("shunt_flux_wb_per_a","series_flux_wb_per_a","permanent_magnet_flux_wb","friction_n_m_s","thermal_conductance_w_k","resistance_temp_coefficient_per_k","ambient_temperature_c","initial_speed_rad_s","initial_armature_temperature_c","initial_field_temperature_c"):
+            v=getattr(self,name)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)): raise ValueError(f"{name} must be finite and numeric")
+            if name in ("shunt_flux_wb_per_a","series_flux_wb_per_a","permanent_magnet_flux_wb","friction_n_m_s","thermal_conductance_w_k") and v<0: raise ValueError(f"{name} must be non-negative")
+        if self.excitation not in {"separately_excited","shunt","series","compound","permanent_magnet"}: raise ValueError("unsupported DC excitation")
+        if self.compound_connection not in {"cumulative","differential"}: raise ValueError("compound_connection must be cumulative or differential")
+        if isinstance(self.pole_pairs,(bool,np.bool_)) or not isinstance(self.pole_pairs,(int,np.integer)) or self.pole_pairs<1: raise ValueError("pole_pairs must be a positive integer")
+        if self.excitation in {"separately_excited","shunt","compound"} and self.shunt_flux_wb_per_a<=0: raise ValueError("shunt_flux_wb_per_a must be positive")
+        if self.excitation in {"series","compound"} and self.series_flux_wb_per_a<=0: raise ValueError("series_flux_wb_per_a must be positive")
+        if self.excitation=="permanent_magnet" and self.permanent_magnet_flux_wb<=0: raise ValueError("permanent_magnet_flux_wb must be positive")
+
+
+@dataclass(frozen=True, slots=True)
+class DCMotorSimulationResult:
+    motor_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    armature_voltage_v: np.ndarray
+    field_voltage_v: np.ndarray
+    load_torque_nm: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self):
+        if not isinstance(self.motor_id,str) or not self.motor_id.strip(): raise ValueError("motor_id must be a non-empty string")
+        for name in ("time_s","state_data","armature_voltage_v","field_voltage_v","load_torque_nm"):
+            v=np.asarray(getattr(self,name),dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(v).all(): raise ValueError(f"{name} must contain only finite values")
+            v.setflags(write=False); object.__setattr__(self,name,v)
+        n=self.time_s.size
+        if self.state_data.size!=n*_DC_STATE_COUNT: raise ValueError("DC motor state buffer does not match time grid")
+        if any(getattr(self,k).size!=n for k in ("armature_voltage_v","field_voltage_v","load_torque_nm")): raise ValueError("DC motor profiles must align with time grid")
+        if not isinstance(self.diagnostics,Mapping): raise TypeError("diagnostics must be a mapping")
+        object.__setattr__(self,"diagnostics",MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self): return int(self.time_s.size)
+    @property
+    def state_names(self): return _DC_STATE_NAMES
+    def state(self,name):
+        try: i=_DC_STATE_NAMES.index(name)
+        except ValueError as exc: raise KeyError(name) from exc
+        v=self.state_data.reshape(self.sample_count,_DC_STATE_COUNT)[:,i].view(); v.setflags(write=False); return v
+
+    def channels(self,p):
+        if not isinstance(p,DCMotorParameters): raise TypeError("parameters must be DCMotorParameters")
+        m=self.state_data.reshape(self.sample_count,_DC_STATE_COUNT)
+        ia,field_i,speed,pos,ta,tf=(m[:,i] for i in range(_DC_STATE_COUNT))
+        if p.excitation=="permanent_magnet": flux=np.full(self.sample_count,p.permanent_magnet_flux_wb); fi=np.zeros(self.sample_count)
+        elif p.excitation=="series": fi=ia; flux=p.saturation_flux_wb*np.tanh(p.series_flux_wb_per_a*ia/p.saturation_flux_wb)
+        elif p.excitation=="compound":
+            sign=-1.0 if p.compound_connection=="differential" else 1.0
+            fi=field_i; flux=p.saturation_flux_wb*np.tanh((p.shunt_flux_wb_per_a*field_i+sign*p.series_flux_wb_per_a*ia)/p.saturation_flux_wb)
+        else: fi=field_i; flux=p.saturation_flux_wb*np.tanh(p.shunt_flux_wb_per_a*field_i/p.saturation_flux_wb)
+        ke=p.pole_pairs*flux; torque=ke*ia
+        ra=p.armature_resistance_ohm*np.maximum(.05,1+p.resistance_temp_coefficient_per_k*(ta-p.ambient_temperature_c))
+        rf=p.field_resistance_ohm*np.maximum(.05,1+p.resistance_temp_coefficient_per_k*(tf-p.ambient_temperature_c))
+        fv=np.zeros(self.sample_count) if p.excitation in {"series","permanent_magnet"} else self.field_voltage_v
+        values={"armature_current_a":ia,"armature_voltage_v":self.armature_voltage_v,"field_current_a":fi,"field_voltage_v":fv,
+            "series_field_current_a":ia if p.excitation in {"series","compound"} else np.zeros(self.sample_count),
+            "air_gap_flux_wb":flux,"back_emf_v":ke*speed,"electromagnetic_torque_nm":torque,
+            "rotor_speed_rad_s":speed,"rotor_speed_rpm":speed*60/(2*np.pi),"mechanical_position_rad":pos,
+            "armature_temperature_c":ta,"field_temperature_c":tf,"winding_temperature_c":ta,
+            "armature_copper_loss_w":ra*ia**2,"field_copper_loss_w":rf*fi**2,
+            "electrical_input_power_w":self.armature_voltage_v*ia+fv*fi,"mechanical_output_power_w":torque*speed,
+            "load_torque_nm":self.load_torque_nm}
+        for v in values.values(): v.setflags(write=False)
+        return values
+
+    def publish_to(self,store,p,*,study_id=None,study_order=None):
+        publish=getattr(store,"publish",None)
+        if not callable(publish): raise TypeError("read_model_store must expose publish(...)")
+        return publish(self.motor_id,self.channels(p),self.sample_period_s,status="completed",study_id=study_id,study_order=study_order,diagnostics=self.diagnostics)
+
+
+def _dc_flux(p,ia,field_i):
+    if p.excitation=="permanent_magnet": return p.permanent_magnet_flux_wb
+    if p.excitation=="series": raw=p.series_flux_wb_per_a*ia
+    elif p.excitation=="compound": raw=p.shunt_flux_wb_per_a*field_i+(-1 if p.compound_connection=="differential" else 1)*p.series_flux_wb_per_a*ia
+    else: raw=p.shunt_flux_wb_per_a*field_i
+    return p.saturation_flux_wb*np.tanh(raw/p.saturation_flux_wb)
+
+
+def _dc_derivative(x,p,va,vf,load):
+    ia,ifield,w,_pos,ta,tf=x
+    ra=p.armature_resistance_ohm*max(.05,1+p.resistance_temp_coefficient_per_k*(ta-p.ambient_temperature_c))
+    rf=p.field_resistance_ohm*max(.05,1+p.resistance_temp_coefficient_per_k*(tf-p.ambient_temperature_c))
+    flux=_dc_flux(p,ia,ifield); ke=p.pole_pairs*flux
+    dia=(va-ra*ia-ke*w)/p.armature_inductance_h
+    dif=0.0 if p.excitation in {"series","permanent_magnet"} else (vf-rf*ifield)/p.field_inductance_h
+    torque=ke*ia; arm_loss=ra*ia**2
+    field_loss=rf*ifield**2 if p.excitation not in {"series","permanent_magnet"} else 0.0
+    return np.asarray((dia,dif,(torque-load-p.friction_n_m_s*w)/p.inertia_kg_m2,w,
+        (arm_loss-p.thermal_conductance_w_k*(ta-p.ambient_temperature_c))/p.armature_thermal_capacity_j_k,
+        (field_loss-p.thermal_conductance_w_k*(tf-p.ambient_temperature_c))/p.field_thermal_capacity_j_k),dtype=np.float64)
+
+
+def solve_dc_motor_transient_cpu(motor_id,parameters,duration_s,step_s,*,armature_voltage_v,field_voltage_v=0.0,load_torque_nm=0.0):
+    """Experimental averaged DC motor model with explicit excitation and compound polarity."""
+    if not isinstance(motor_id,str) or not motor_id.strip(): raise ValueError("motor_id must be a non-empty string")
+    if not isinstance(parameters,DCMotorParameters): raise TypeError("parameters must be DCMotorParameters")
+    count,_=_validate_time(duration_s,step_s)
+    va=_voltage_profile(armature_voltage_v,count,"armature_voltage_v")
+    vf=_voltage_profile(field_voltage_v,count,"field_voltage_v")
+    load=_voltage_profile(load_torque_nm,count,"load_torque_nm")
+    if parameters.excitation in {"series","permanent_magnet"} and np.any(vf!=0): raise ValueError("field_voltage_v must be zero for series and permanent_magnet excitation")
+    initial=np.asarray((0.,0.,parameters.initial_speed_rad_s,0.,parameters.initial_armature_temperature_c,parameters.initial_field_temperature_c))
+    problem=NumericalProblem(problem_id=motor_id.strip(),workload="dc_motor_excitation_transient_single",
+        derivative=lambda x,u:_dc_derivative(x,parameters,*u),initial_state=initial,duration_s=duration_s,maximum_step_s=step_s,
+        input_at=lambda i,_t:(float(va[i]),float(vf[i]),float(load[i])),precision="float64")
+    sol=solve_numerical_problem(problem)
+    if sol.sample_count!=count: raise RuntimeError("shared ODE engine returned an unexpected DC motor sample count")
+    return DCMotorSimulationResult(motor_id.strip(),sol.time_s,sol.state_data,va,vf,load,sol.sample_period_s,"cpu-rk4",
+        {"integrator":sol.integrator,"precision":"float64","workload":"dc_motor_excitation_transient_single",
+         "model":"brushed_dc_electromechanical_two_node_thermal","excitation":parameters.excitation,
+         "compound_connection":parameters.compound_connection if parameters.excitation=="compound" else None,
+         "flux_model":"saturating_tanh","input_profile":"zero_order_hold",
+         "model_fidelity":"averaged_armature_field_circuits_no_commutation_or_brush_arc",
+         "integration_engine":"core.numerics.ode.solve_rk4"})

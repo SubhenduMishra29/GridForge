@@ -71,7 +71,7 @@ class MotorFamilyProfile:
 def _profile(family: MotorFamily, supply: str, phases: int, principle: str,
              drive: str, *, dynamic_model: str | None = None,
              regenerative: bool = False, notes: str = "") -> MotorFamilyProfile:
-    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal", "synrm_dq": "experimental_synrm_dq", "srm_phase_inductance": "experimental_srm_phase_inductance"}.get(dynamic_model, "catalogued_model_required")
+    status = {"induction_dq": "experimental_induction_dq", "pmsm_dq": "experimental_pmsm_dq", "bldc_trapezoidal": "experimental_bldc_trapezoidal", "synrm_dq": "experimental_synrm_dq", "srm_phase_inductance": "experimental_srm_phase_inductance", "dc_excitation": "experimental_dc_excitation"}.get(dynamic_model, "catalogued_model_required")
     return MotorFamilyProfile(family, supply, phases, principle, drive, dynamic_model, status, regenerative, notes)
 
 
@@ -88,11 +88,11 @@ MOTOR_FAMILY_PROFILES: Mapping[MotorFamily, MotorFamilyProfile] = MappingProxyTy
     MotorFamily.BRUSHLESS_DC: _profile(MotorFamily.BRUSHLESS_DC, "DC link", 3, "electronically commutated PM", "six-step / FOC", dynamic_model="bldc_trapezoidal", regenerative=True, notes="Experimental CPU phase-domain model with trapezoidal back-EMF and averaged six-step inverter commands; PWM switching and closed-loop commutation are not modeled."),
     MotorFamily.SYNCHRONOUS_RELUCTANCE: _profile(MotorFamily.SYNCHRONOUS_RELUCTANCE, "AC", 3, "synchronous reluctance", "VFD / vector control", dynamic_model="synrm_dq", regenerative=True, notes="Experimental CPU rotor-dq model with saliency torque; linear inductances and no saturation or iron loss."),
     MotorFamily.SWITCHED_RELUCTANCE: _profile(MotorFamily.SWITCHED_RELUCTANCE, "DC link", 3, "switched reluctance", "asymmetric bridge converter", dynamic_model="srm_phase_inductance", regenerative=True, notes="Experimental CPU three-phase position-dependent inductance model with approximate current saturation; converter switching and current chopping are not modeled."),
-    MotorFamily.DC_SHUNT: _profile(MotorFamily.DC_SHUNT, "DC", 2, "shunt-wound brushed DC", "DC drive"),
-    MotorFamily.DC_SERIES: _profile(MotorFamily.DC_SERIES, "DC", 2, "series-wound brushed DC", "DC drive"),
-    MotorFamily.DC_COMPOUND: _profile(MotorFamily.DC_COMPOUND, "DC", 2, "compound-wound brushed DC", "DC drive"),
-    MotorFamily.DC_SEPARATELY_EXCITED: _profile(MotorFamily.DC_SEPARATELY_EXCITED, "DC", 2, "separately excited brushed DC", "four-quadrant DC drive", regenerative=True),
-    MotorFamily.DC_PERMANENT_MAGNET: _profile(MotorFamily.DC_PERMANENT_MAGNET, "DC", 2, "permanent-magnet brushed DC", "PWM DC drive", regenerative=True),
+    MotorFamily.DC_SHUNT: _profile(MotorFamily.DC_SHUNT, "DC", 2, "shunt-wound brushed DC", "DC drive", dynamic_model="dc_excitation"),
+    MotorFamily.DC_SERIES: _profile(MotorFamily.DC_SERIES, "DC", 2, "series-wound brushed DC", "DC drive", dynamic_model="dc_excitation"),
+    MotorFamily.DC_COMPOUND: _profile(MotorFamily.DC_COMPOUND, "DC", 2, "compound-wound brushed DC", "DC drive", dynamic_model="dc_excitation"),
+    MotorFamily.DC_SEPARATELY_EXCITED: _profile(MotorFamily.DC_SEPARATELY_EXCITED, "DC", 2, "separately excited brushed DC", "four-quadrant DC drive", dynamic_model="dc_excitation", regenerative=True),
+    MotorFamily.DC_PERMANENT_MAGNET: _profile(MotorFamily.DC_PERMANENT_MAGNET, "DC", 2, "permanent-magnet brushed DC", "PWM DC drive", dynamic_model="dc_excitation", regenerative=True),
     MotorFamily.UNIVERSAL: _profile(MotorFamily.UNIVERSAL, "AC/DC", 1, "series-wound commutator", "line / phase-angle / DC drive"),
     MotorFamily.STEPPER_VARIABLE_RELUCTANCE: _profile(MotorFamily.STEPPER_VARIABLE_RELUCTANCE, "DC link", 2, "variable-reluctance stepper", "stepper current driver"),
     MotorFamily.STEPPER_PERMANENT_MAGNET: _profile(MotorFamily.STEPPER_PERMANENT_MAGNET, "DC link", 2, "permanent-magnet stepper", "stepper current driver"),

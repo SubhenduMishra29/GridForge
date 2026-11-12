@@ -50,7 +50,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "pmsm_dq_cpu_transient",
         "bldc_trapezoidal_cpu_transient",
         "synrm_dq_cpu_transient",
-        "srm_phase_inductance_cpu_transient",
+        "srm_phase_inductance_cpu_transient",\n        "dc_excitation_cpu_transient",
     }),
 )
 

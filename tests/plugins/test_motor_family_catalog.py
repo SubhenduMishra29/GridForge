@@ -329,3 +329,57 @@ def test_reluctance_motor_instrumentation_is_family_specific():
     srm={p.point_id for p in motor_measurement_points(MotorFamily.SWITCHED_RELUCTANCE)}
     assert {"drive.d_axis_current_reference","drive.q_axis_current_reference","machine.d_axis_inductance","machine.q_axis_inductance","machine.reluctance_torque"}.issubset(synrm)
     assert {"drive.phase_a_voltage_command","drive.phase_b_voltage_command","drive.phase_c_voltage_command","machine.phase_a_inductance","machine.phase_b_inductance","machine.phase_c_inductance","drive.rotor_alignment_position"}.issubset(srm)
+
+
+from plugins.motor_dynamics.transient_solver import DCMotorParameters, solve_dc_motor_transient_cpu
+
+
+def _dc_parameters(excitation="separately_excited", **kw):
+    values=dict(armature_resistance_ohm=.4,armature_inductance_h=.008,inertia_kg_m2=.02,excitation=excitation,
+        field_resistance_ohm=110.,field_inductance_h=2.,shunt_flux_wb_per_a=.08,series_flux_wb_per_a=.012,
+        saturation_flux_wb=.9,permanent_magnet_flux_wb=.06)
+    values.update(kw); return DCMotorParameters(**values)
+
+
+@pytest.mark.parametrize("family,excitation",[
+    (MotorFamily.DC_SEPARATELY_EXCITED,"separately_excited"),(MotorFamily.DC_SHUNT,"shunt"),
+    (MotorFamily.DC_SERIES,"series"),(MotorFamily.DC_COMPOUND,"compound"),
+    (MotorFamily.DC_PERMANENT_MAGNET,"permanent_magnet")])
+def test_dc_family_profiles_and_excitation_solver(family,excitation):
+    import numpy as np
+    assert motor_family_profile(family).dynamic_model=="dc_excitation"
+    p=_dc_parameters(excitation)
+    result=solve_dc_motor_transient_cpu("dc-family",p,.02,.0001,armature_voltage_v=24.,
+        field_voltage_v=12. if excitation in {"separately_excited","shunt","compound"} else 0.,load_torque_nm=.01)
+    ch=result.channels(p)
+    assert result.backend=="cpu-rk4" and np.isfinite(result.state_data).all()
+    assert ch["armature_current_a"][-1]>0 and ch["electromagnetic_torque_nm"][-1]>0
+    assert not ch["air_gap_flux_wb"].flags.writeable
+
+
+def test_dc_zero_input_rest_and_series_field_tracks_armature():
+    p=_dc_parameters("series")
+    r=solve_dc_motor_transient_cpu("dc-rest",p,.01,.001,armature_voltage_v=0.)
+    assert r.state("rotor_speed_rad_s")[-1]==pytest.approx(0.)
+    assert r.channels(p)["series_field_current_a"][-1]==pytest.approx(0.)
+
+
+def test_dc_compound_cumulative_and_differential_polarity():
+    import numpy as np
+    p1=_dc_parameters("compound",compound_connection="cumulative")
+    p2=_dc_parameters("compound",compound_connection="differential")
+    a=solve_dc_motor_transient_cpu("dc-cum",p1,.01,.0001,armature_voltage_v=18.,field_voltage_v=10.).channels(p1)
+    b=solve_dc_motor_transient_cpu("dc-diff",p2,.01,.0001,armature_voltage_v=18.,field_voltage_v=10.).channels(p2)
+    assert np.all(a["air_gap_flux_wb"]>=b["air_gap_flux_wb"]-1e-12)
+
+
+def test_dc_rejects_field_voltage_for_series_and_pm():
+    with pytest.raises(ValueError,match="field_voltage_v must be zero"):
+        solve_dc_motor_transient_cpu("dc-invalid",_dc_parameters("series"),.01,.001,armature_voltage_v=12.,field_voltage_v=2.)
+
+
+def test_dc_instrumentation_exposes_field_and_thermal_points():
+    points={p.point_id for p in motor_measurement_points(MotorFamily.DC_COMPOUND)}
+    assert {"terminal.armature_voltage","terminal.armature_current","excitation.field_voltage","excitation.field_current",
+        "excitation.series_field_current","machine.air_gap_flux","machine.back_emf","machine.armature_temperature",
+        "machine.field_copper_loss"}.issubset(points)
