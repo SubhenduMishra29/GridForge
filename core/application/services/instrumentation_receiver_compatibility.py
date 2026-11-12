@@ -192,16 +192,22 @@ def validate_control_mapping_binding(
     binding = matches[0]
     if not isinstance(binding, ControlSignalBinding):
         raise TypeError("Control mapping contains an invalid binding.")
-    if binding.source.object_id != signal.id:
+    expected_channel_id = signal.measurement_channel_id
+    if expected_channel_id is None:
         return ReceiverCompatibility(
             False, "CONTROL", destination.component_id, destination.input_name,
-            (f"Persisted Control mapping source {binding.source.object_id!r} "
-             f"does not identify instrumentation signal {signal.id!r}.",),
+            ("Instrumentation signal has no persisted MeasurementChannel association; Control must consume the canonical measurement domain.",),
         )
-    if binding.source.domain != "instrumentation" or binding.source.element_type != "signal":
+    if (
+        binding.source.domain != "measurement"
+        or binding.source.element_type != "measurement_channel"
+        or binding.source.object_id != expected_channel_id
+        or binding.source.signal not in {"value", "engineering_value", signal.kind.value.casefold()}
+    ):
         return ReceiverCompatibility(
             False, "CONTROL", destination.component_id, destination.input_name,
-            ("Persisted Control mapping source is not an instrumentation signal reference.",),
+            (f"Persisted Control mapping must reference MeasurementChannel {expected_channel_id!r} "
+             "through the measurement domain and its engineering value.",),
         )
     return validate_control_receiver(signal, destination)
 
@@ -314,18 +320,27 @@ def validate_inventory_receiver_bindings(
 
     results: list[ReceiverCompatibility] = []
 
+    signals_by_channel = {
+        item.measurement_channel_id: item
+        for item in inventory.signals
+        if item.measurement_channel_id is not None
+    }
     for binding in control_mapping.bindings:
         source = binding.source
-        if source.domain != "instrumentation":
-            continue
-        signal = signals.get(source.object_id)
-        if signal is None or source.element_type != "signal":
+        if source.domain == "instrumentation":
             results.append(ReceiverCompatibility(
                 False, "CONTROL", binding.destination.component_id,
                 binding.destination.input_name,
-                (f"Control mapping references unknown/non-signal instrumentation identity "
-                 f"{source.element_type!r}:{source.object_id!r}.",),
+                ("ControlSignalMapping cannot resolve the instrumentation domain at runtime; "
+                 "bind the associated canonical MeasurementChannel in the measurement domain.",),
             ))
+            continue
+        if source.domain != "measurement":
+            continue
+        signal = signals_by_channel.get(source.object_id)
+        if signal is None:
+            # Measurement channels not owned by instrumentation remain valid
+            # generic measurement sources and are outside this reconciliation.
             continue
         results.append(validate_control_mapping_binding(
             signal, control_mapping, binding.destination
