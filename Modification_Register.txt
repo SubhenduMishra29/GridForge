@@ -4537,3 +4537,30 @@ Verification:
 - Source-level invariant review only; no tests, imports, startup, GUI or
   save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Preserve Multi-Member Residual Protection Endpoint Binding
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+PR: #1207
+
+Audit reconciliation:
+- Reverted the overly strict duplicate Protection endpoint restriction after
+  inspecting the existing regression contract for ANSI residual-current
+  inputs. A single logical residual-current input may intentionally contain
+  multiple ProtectionMeasurementBinding members (for example, a three-phase
+  residual sum) that share one canonical signal designation.
+- Retained rejection of duplicate endpoint bindings for MeasurementChannel
+  and Control inputs, and rejection of conflicting signal designations for
+  the same logical Protection input.
+- This preserves the distinction between one logical Protection input and
+  its multiple typed measurement-binding members; no source semantics were
+  changed.
+
+Verification:
+- Existing regression-test source explicitly covers the multi-member
+  residual-current case. No tests, imports, startup, GUI or save/reopen
+  runtime was executed.
+======================================================================
