@@ -626,3 +626,31 @@ adapter: the current `DAESolver` callback still cannot receive it, and AVR
 derivatives still need to be evaluated from the resulting terminal-voltage
 solution at the same integrator stage time. Therefore the complete AVR–network
 closed loop remains an integration task.
+
+### Stage-scoped AVR excitation network adapter
+
+The plugin now exports `GeneratorNetworkStageRequest`,
+`GeneratorNetworkStageSolution` and
+`solve_generator_network_stage()`. A request combines a detached,
+read-only machine-state vector with one immutable
+`GeneratorExcitationSnapshot`. The adapter calls the host-supplied network
+solver with exactly three stage inputs: machine state, the snapshot's
+integrator-stage timestamp, and its immutable machine-ID-to-field-voltage
+mapping. The returned solution retains that timestamp, field-voltage map and
+AVR component provenance alongside the solved bus voltages.
+
+This prevents a host adapter from accidentally solving the network with one
+AVR field-voltage map and later presenting a different map as the source of
+the machine-side electrical equations. The host must use the returned
+`field_voltages_pu` unchanged when evaluating machine electrical outputs and
+derivatives for that same stage, and must derive authoritative terminal
+voltages from the same network solution.
+
+This is a plugin-side stage adapter, not a change to the existing
+`DAESolver`. It does not append AVR states to the machine-only DAE vector,
+construct the AVR state from RK4 intermediate vectors, project bus voltages
+onto Core terminal identities, or evaluate AVR derivatives. The current
+transient runner still does not invoke this adapter. Full closed-loop
+execution therefore remains blocked on a Core-owned augmented-state
+protocol and a coordinated DAE/network composition path; legacy
+`network_solver(state, time)` callers remain unchanged.
