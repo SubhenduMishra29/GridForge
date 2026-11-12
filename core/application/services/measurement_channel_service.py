@@ -508,7 +508,9 @@ class MeasurementChannelService:
             or timestamp_domain != timestamp_domain.strip()
         ):
             raise ValueError("CT secondary channels require an explicit canonical timestamp_domain.")
-        if self._clock_domain is not None and timestamp_domain != self._clock_domain:
+        if self._clock_domain is None or not self._clock_domain.strip():
+            raise ValueError("CT channel authoring requires a configured trusted Application clock domain.")
+        if timestamp_domain != self._clock_domain:
             raise ValueError("CT channel timestamp_domain must match the configured trusted Application clock domain.")
         if "phase" not in definition:
             raise ValueError("CT secondary channels require an explicit phase setting.")
