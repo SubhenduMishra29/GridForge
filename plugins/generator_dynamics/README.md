@@ -359,3 +359,28 @@ facility. The governor-output feedback input is deliberately explicit rather
 than hiding a circular or algebraic feedback dependency. All blocks must use
 the same GGOV1 parameter contract and explicit positive tracking constants.
 The adapter does not certify OEM equivalence or plant-level model validity.
+
+### Application StudyService registration boundary
+
+The plugin now registers the study type `generator_transient` with the
+existing Application-owned `StudyService` and unregisters it by handler
+identity during shutdown. StudyService therefore remains the only owner of
+study scheduling, cancellation tokens, provenance checks, terminal status,
+durable StudyResult persistence and lifecycle events. The plugin creates no
+second scheduler or result store.
+
+The host-supplied `generator_dynamics_composition` must expose both
+`generator_transient_solver.solve_generator_transient(...)` and
+`create_generator_sampled_adapter(request=..., execution_context=...)`.
+The adapter factory is called per StudyRequest so different generator
+machines/studies do not share parameterized controller instances. The solver
+receives the canonical StudyRequest, detached StudyExecutionContext,
+StudyCancellationToken and sampled adapter. It owns numerical integration,
+sample acceptance, rejected-step rollback, partial trajectory evidence and
+solver-specific delay handling.
+
+This establishes the plugin-side registration and lifecycle contract. The
+Application composition root still needs to provide that solver capability
+and adapter factory; without them activation fails closed. This branch does
+not claim that a production transient solver or DAE integrator has been wired
+or validated.
