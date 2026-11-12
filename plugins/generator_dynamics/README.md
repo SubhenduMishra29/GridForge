@@ -179,7 +179,7 @@ The class follows the existing `DynamicPlugin` local-state contract only. It doe
 
 \`GGOV1Parameters\` is the validated, immutable parameter contract for the next gas-turbine governor implementation milestone. It captures the distinct turbine MW rating, droop feedback selector (\`Rselect\`), fuel-speed selector (\`Flag\`), PID governor gains, electrical-power measurement lag, governor error and valve limits, actuator time/rate limits, turbine lead-lag and transport constants, no-load fuel flow, load limiter, plant power controller, acceleration limiter, speed deadband, temperature-detection lead/lag, and load-limit slew rates.
 
-The parameter contract is accompanied by `GGOV1PIDGovernor`, an executable PSS/E-derived frequency-control PID and supervisory reset sub-block. The plugin descriptor advertises both `ggov1_parameter_contract` and `ggov1_pid_subblock`, but deliberately does not advertise a complete `ggov1_executable` capability. The block is not a complete GGOV1 governor and must not be selected as a full plant model. The PID sub-block exposes local initialization, derivatives and output through the existing DynamicPlugin contract; it is not connected to the transient DAE.
+The parameter contract is accompanied by `GGOV1PIDGovernor`, an executable PSS/E-derived frequency-control PID and supervisory reset sub-block. The plugin descriptor advertises both `ggov1_parameter_contract` and `ggov1_pid_subblock`, but deliberately does not advertise a complete `ggov1_executable` capability. The block is not a complete GGOV1 governor and must not be selected as a full plant model. The PID sub-block exposes local initialization, derivatives and output through the existing DynamicPlugin contract; it is not connected to the transient DAE. The separate `GGOV1ValveActuator` implements the first-order `Tact` response with asymmetric `Ropen`/`Rclose` slew limits and `Vmin`/`Vmax` position stops. It accepts the already selected and limited fuel-stroke command; it does not perform the GGOV1 low-value selection or limiter tracking.
 
 The turbine rating is explicit, positive, and is not inferred from generator MVA. \`system_to_turbine_power_base_ratio()\` exposes the numerical system-base/turbine-rating ratio; the caller must still apply the correct MW/MVA and per-unit convention for the connected machine and study. No hidden base conversion is performed. The selector contract follows the NERC PSS/E definition: \`Rselect\` values 1, 0, -1 and -2 select electrical power, no feedback, valve stroke and governor output respectively; \`Flag\` is binary. Parameter checks enforce ordered error/valve limits, positive opening and negative closing rates, and the turbine lead/lag zero-time consistency rule. Mechanical damping is finite but intentionally not constrained to be positive because published manufacturer data can use a negative value.
 
@@ -199,3 +199,20 @@ ORNL GridKit currently marks multiple GGOV1 damping, fuel-flow, PID, limiter, te
 
 
 The selector helpers have deliberately narrow responsibilities: \`droop_feedback_signal()\` returns Pelec for Rselect=1, zero for isochronous Rselect=0, valve stroke for -1, and governor output for -2; \`fuel_speed_multiplier()\` returns shaft speed for Flag=1 and unity for Flag=0. \`GGOV1PIDGovernor\` uses the selected feedback in its speed-error summing junction and implements the local PID and supervisory reset states. It does not implement fuel/turbine dynamics or the outer low-value selector. The NERC block diagram also shows controller tracking during low-value-select transfers; that behavior remains a required part of full GGOV1 integration rather than being approximated by the selector helpers.
+
+
+### GGOV1 fuel-valve actuator sub-block
+
+`GGOV1ValveActuator` contributes one solver-owned state, actual valve position.
+Its continuous-time response is the first-order actuator request
+`(bounded_command - valve_position) / Tact`, limited to the configured
+negative closing and positive opening rates. Position stops prevent further
+motion beyond `Vmin` and `Vmax`; an out-of-range numerical trial state may
+move back toward the admissible interval. Initialization clamps the supplied
+initial position to the configured bounds.
+
+The input is explicitly the post-selector, post-limiter fuel-stroke request.
+This block does not choose between the speed, temperature and acceleration
+controllers, and does not implement controller tracking during selector
+transfers. It is a valve actuator sub-block, not a complete GGOV1 turbine
+model and is not yet coupled to the transient DAE.
