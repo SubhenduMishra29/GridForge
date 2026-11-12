@@ -203,6 +203,7 @@ class SLDCanvasProjection:
                             "core_id": segment.core_id,
                             "core_number": segment.core_number,
                             "signal_tags": segment.signal_tags,
+                            "signal_ids": segment.signal_ids,
                         }),
                         layer_id="default",
                         layer_visible=layer_by_id["default"].visible,
