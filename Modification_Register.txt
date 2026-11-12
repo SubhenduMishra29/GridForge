@@ -4150,3 +4150,49 @@ Verification:
 - Source-level review only; no pytest, CI, imports, startup, GUI or
   save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Control and Protection Signal Provenance Projection
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added a renderer-neutral UI provenance adapter that joins canonical
+  SignalDefinition tags, physical cable-core/panel-wire carrier tags and
+  active endpoint-resolution diagnostics into detached presentation records.
+- ControlUpdateCoordinator refreshes the Control canvas provenance after
+  the authoritative Control read-model projection. Control input ports show
+  the signal tag and cable/core or panel-wire designations; hover detail
+  includes endpoint identity, carrier list, resolution state and diagnostics.
+- Protection input nodes show the same signal/cable provenance and expand
+  their presentation height only when provenance is present. Hover detail
+  includes the complete detached endpoint and resolution diagnostic data.
+- Protection canvas selection now publishes the canonical Protection element
+  identity for relay input/function nodes. The Protection inspector resolves
+  a selected element ID directly to its owning relay/function configuration.
+  Canonical element selection highlights matching Protection nodes.
+- Existing Application/Core records remain the only identity authority;
+  canvas labels are read-only projections and do not create duplicate cable,
+  core or signal records.
+- Added UI adapter regression-test source for cable/core and panel-wire tag
+  projection and unresolved diagnostics.
+
+Boundary:
+- This slice displays provenance on Control and Protection inputs and
+  synchronizes selection at Control component / Protection element level.
+- It does not yet implement an explicit cross-canvas navigation command
+  that changes the active editor and scrolls/centres the target, nor a
+  physical sink-terminal mapping for every PLC/relay input.
+- SLD remains the editable physical wiring authoring canvas; Control and
+  Protection only project canonical provenance.
+- Cable/core/terminal schedules and loop/interconnection/point-to-point
+  reports remain open #1203 acceptance work.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
