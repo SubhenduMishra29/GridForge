@@ -287,14 +287,16 @@ topology. It forms `temperature_reference = Wfnl + LDREF / Kturb`, computes
 forms `FSRT = min(1.0, Kpload * error + integral)`. Its integral is initialized
 from the electrical-power operating point as `(PELEC + Dm) / Kturb + Wfnl`.
 The block accepts conditioned exhaust temperature `TEXM`; the separate
-`GGOV1TemperatureMeasurement` block implements the `Tsa/Tsb` lead-lag.
+`GGOV1TemperatureMeasurement` block implements the `Tfload` sensor lag and
+`Tsa/Tsb` lead-lag chain.
 Optional selected-command tracking is explicit and uses a caller-supplied
 positive time constant. The lower FSR bound is intentionally not invented:
 the reference LoadLimiter applies an upper limit of 1.0 pu only.
 
-`GGOV1TemperatureMeasurement` implements the proper first-order lead/lag
-measurement conditioner `(1+s*Tsa)/(1+s*Tsb)` for the exhaust-temperature
-signal. It deliberately does not invent an exhaust-temperature reference,
+`GGOV1TemperatureMeasurement` implements the cascaded exhaust-temperature
+measurement path: the `Tfload` first-order sensor lag followed by the
+`(1+s*Tsa)/(1+s*Tsb)` lead/lag conditioner. Its two states are owned by the
+host integrator; zero-time constants use explicit algebraic bypasses. It deliberately does not invent an exhaust-temperature reference,
 ambient correction, OEM firing-temperature map or limiter threshold. Its
 conditioned measurement must be combined with plant-specific control logic
 before a final temperature-limiter fuel request can be advertised as the
