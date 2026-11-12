@@ -17,7 +17,11 @@ from typing import Any
 
 from core.application.application import Application
 from core.application.events import (
-    ApplicationEvent, MeasurementChannelChanged, InstrumentationWiringChanged, ProjectClosed, ProjectLoaded,
+    ApplicationEvent,
+    MeasurementChannelChanged,
+    InstrumentationWiringChanged,
+    ProjectClosed,
+    ProjectLoaded,
 )
 from core.application.control_events import (
     ControlComponentCreated,

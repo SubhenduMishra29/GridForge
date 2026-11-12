@@ -57,8 +57,11 @@ from .event_bus import ApplicationEventBus
 from .events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkCommitted,
     NetworkChanged, ProjectClosed, ProjectLoaded, ProjectSaved,
-    SLDPresentationChanged, TopologyChanged, ProtectionChanged, MeasurementChannelChanged, InstrumentationWiringChanged, ValidationChanged, DraftChanged, StudyCaseCreated,
-    SimpleWireConnectionCreated, SimpleWireConnectionRemoved, JunctionCreated, JunctionRemoved,
+    SLDPresentationChanged, TopologyChanged, ProtectionChanged,
+    MeasurementChannelChanged, InstrumentationWiringChanged,
+    ValidationChanged, DraftChanged, StudyCaseCreated,
+    SimpleWireConnectionCreated, SimpleWireConnectionRemoved,
+    JunctionCreated, JunctionRemoved,
 )
 from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService

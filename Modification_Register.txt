@@ -5093,8 +5093,9 @@ Correction:
   wiring changes; CanvasComposition re-reads the Application wiring read model
   and rebuilds the presentation-only physical carrier projection.
 - ControlUpdateCoordinator and ProtectionWorkspace subscribe to the same
-  semantic event so their provenance/read projections refresh at the same
-  Application boundary without introducing duplicate wiring stores.
+  semantic event and refresh their existing read projections. This establishes
+  the shared invalidation boundary for the still-pending dedicated cross-canvas
+  provenance presentation without introducing duplicate wiring stores.
 
 Architecture:
 - Core remains the owner of physical wiring identities and validation.

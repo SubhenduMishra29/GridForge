@@ -12,8 +12,8 @@ from typing import Any
 from core.protection import get_protection_function
 from core.application.events import (
     ElementCreated, ElementRemoved, ElementUpdated, NetworkChanged,
-    ProtectionChanged, MeasurementChannelChanged, InstrumentationWiringChanged, TopologyChanged,
-    NetworkCommitted, ProjectClosed, ProjectLoaded,
+    ProtectionChanged, MeasurementChannelChanged, InstrumentationWiringChanged,
+    TopologyChanged, NetworkCommitted, ProjectClosed, ProjectLoaded,
     StudyStarted, StudyCompleted, StudyFailed, StudyCancelled,
 )
 from ui.canvas.canvas_framework import CanvasStateMachine
