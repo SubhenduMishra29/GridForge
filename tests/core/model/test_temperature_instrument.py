@@ -186,3 +186,47 @@ def test_thermocouple_measurement_pair_excludes_screen_terminal():
                 terminal("tc-1", "+"), terminal("tc-1", "-"), terminal("tc-1", "SCREEN"),
             ),
         )
+
+def test_thermocouple_mapping_requires_explicit_positive_and_negative_polarity():
+    from core.model import TemperatureTerminalMapping
+
+    sensor_positive = terminal("tc-2", "P")
+    sensor_negative = terminal("tc-2", "N")
+    input_positive = terminal("monitor-2", "TC+")
+    input_negative = terminal("monitor-2", "TC-")
+    interface = TemperatureInterfaceDevice(
+        id="monitor-2", tag="TM-2", equipment_kind=TemperatureInputMode.TEMPERATURE_MONITOR,
+        supported_sensor_technologies=(TemperatureSensorTechnology.THERMOCOUPLE,),
+        supported_sensor_configurations=("Type K",),
+        input_terminals=(input_positive, input_negative),
+        output_terminals=(terminal("monitor-2", "OUT"),),
+        output_signal_kind="DIGITAL", output_unit="degC",
+    )
+    instrument = TemperatureInstrument(
+        id="temp-tc-2", tag="WTD-TC-2", service=TemperatureService.WTD,
+        asset_id="transformer-1", location="winding", sensor_equipment_id="tc-2",
+        sensor_technology=TemperatureSensorTechnology.THERMOCOUPLE,
+        input_mode=TemperatureInputMode.TEMPERATURE_MONITOR, interface_equipment_id="monitor-2",
+        sensor_configuration="Type K",
+        sensor_terminals=(sensor_positive, sensor_negative),
+        sensor_input_mappings=(
+            TemperatureTerminalMapping(sensor_positive, input_positive, "POSITIVE"),
+            TemperatureTerminalMapping(sensor_negative, input_negative, "NEGATIVE"),
+        ),
+    )
+    assert TemperatureInstrumentInventory((instrument,), (interface,)).instruments
+
+    invalid = TemperatureInstrument(
+        id="temp-tc-3", tag="WTD-TC-3", service=TemperatureService.WTD,
+        asset_id="transformer-1", location="winding", sensor_equipment_id="tc-3",
+        sensor_technology=TemperatureSensorTechnology.THERMOCOUPLE,
+        input_mode=TemperatureInputMode.TEMPERATURE_MONITOR, interface_equipment_id="monitor-2",
+        sensor_configuration="Type K",
+        sensor_terminals=(terminal("tc-3", "P"), terminal("tc-3", "N")),
+        sensor_input_mappings=(
+            TemperatureTerminalMapping(terminal("tc-3", "P"), input_positive, "POSITIVE"),
+            TemperatureTerminalMapping(terminal("tc-3", "N"), input_negative, "POSITIVE"),
+        ),
+    )
+    with pytest.raises(ValueError, match="positive and negative"):
+        TemperatureInstrumentInventory((invalid,), (interface,))
