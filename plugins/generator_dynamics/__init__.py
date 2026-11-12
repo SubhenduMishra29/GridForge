@@ -45,6 +45,7 @@ from .excitation_handoff import (
     GeneratorExcitationSnapshot,
     build_generator_excitation_snapshot,
 )
+from .avr_component import AVRComponentBindingError, FirstOrderAVRStateComponent
 from .network_stage import (
     GeneratorNetworkStageError,
     GeneratorNetworkStageRequest,
@@ -76,6 +77,7 @@ __all__ = [
     "GGOV1BindingError", "GGOV1GeneratorBinding", "GGOV1MechanicalPowerHandoff",
     "ExcitationHandoffError", "AVRGeneratorBinding",
     "GeneratorExcitationSnapshot", "build_generator_excitation_snapshot",
+    "AVRComponentBindingError", "FirstOrderAVRStateComponent",
     "GeneratorNetworkStageError", "GeneratorNetworkStageRequest",
     "GeneratorNetworkStageSolution", "GeneratorNetworkSolver",
     "solve_generator_network_stage",
