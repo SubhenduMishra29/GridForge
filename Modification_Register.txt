@@ -3806,6 +3806,9 @@ Implemented:
 - The hit test uses item.mapFromScene() and item.contains(); it does not
   infer endpoints from arbitrary scene geometry or symbol bounding boxes
   outside the item's accepted hit shape.
+- When the pointer is inside a registered device shape, that device's declared
+  endpoint candidates take precedence over a nearby Bus/device anchor outside
+  the clicked shape, preventing adjacent equipment from stealing the click.
 - Exact midpoint ties between Bus attachment points resolve deterministically
   by declared attachment order. Ambiguous equal-distance equipment terminals
   remain rejected rather than silently choosing a terminal.
