@@ -49,10 +49,19 @@ class GGOV1PIDGovernor(DynamicPlugin):
         power_reference_pu: float,
         valve_stroke_pu: float,
         governor_output_pu: float,
+        electrical_power_pu: float | None = None,
     ) -> float:
         p = self.parameters
+        if p.electrical_power_time_constant_s == 0.0:
+            if electrical_power_pu is None:
+                raise ValueError(
+                    "electrical_power_pu is required when T_pelec is zero (algebraic bypass)"
+                )
+            feedback_power = _number(electrical_power_pu, "electrical_power_pu")
+        else:
+            feedback_power = _number(state[0], "electrical_power_filtered_pu")
         feedback = p.droop_feedback_signal(
-            electrical_power_pu=_number(state[0], "electrical_power_filtered_pu"),
+            electrical_power_pu=feedback_power,
             valve_stroke_pu=valve_stroke_pu,
             governor_output_pu=governor_output_pu,
         )
@@ -93,6 +102,7 @@ class GGOV1PIDGovernor(DynamicPlugin):
             power_reference_pu=initial_power_reference_pu,
             valve_stroke_pu=initial_valve_stroke_pu,
             governor_output_pu=initial_governor_output_pu,
+            electrical_power_pu=pelec,
         )
         # A filtered derivative initialized to the current error has zero
         # derivative output at the operating point.
@@ -123,6 +133,7 @@ class GGOV1PIDGovernor(DynamicPlugin):
             power_reference_pu=power_reference_pu,
             valve_stroke_pu=valve_stroke_pu,
             governor_output_pu=governor_output_pu,
+            electrical_power_pu=pelec,
         )
 
         d_pelec = (
@@ -136,7 +147,8 @@ class GGOV1PIDGovernor(DynamicPlugin):
         d_integral = p.governor_integral_gain_per_s * error
 
         reset_limit = 1.1 * p.droop_pu
-        d_reset = p.power_controller_integral_gain_per_s * (pmw_set - pelec_f)
+        measured_power = pelec if p.electrical_power_time_constant_s == 0.0 else pelec_f
+        d_reset = p.power_controller_integral_gain_per_s * (pmw_set - measured_power)
         if (reset >= reset_limit and d_reset > 0.0) or (
             reset <= -reset_limit and d_reset < 0.0
         ):
@@ -153,6 +165,7 @@ class GGOV1PIDGovernor(DynamicPlugin):
         power_reference_pu: float,
         valve_stroke_pu: float = 0.0,
         governor_output_pu: float = 0.0,
+        electrical_power_pu: float | None = None,
         **_: Any,
     ) -> float:
         self.validate_state(state)
@@ -163,6 +176,7 @@ class GGOV1PIDGovernor(DynamicPlugin):
             power_reference_pu=power_reference_pu,
             valve_stroke_pu=valve_stroke_pu,
             governor_output_pu=governor_output_pu,
+            electrical_power_pu=electrical_power_pu,
         )
         derivative_state = _number(state[1], "derivative_filter_state_pu")
         integral = _number(state[2], "governor_integral_output_pu")
