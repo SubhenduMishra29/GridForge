@@ -100,7 +100,7 @@ class GeneratorAugmentedTransientStudyHandler:
         cancellation: StudyCancellationToken,
     ) -> Any:
         from .integrator_adapter import GeneratorAugmentedDAEAdapter
-        from .study_evidence import GeneratorAugmentedStudyEvidence
+        from .study_evidence import (\n            GeneratorAugmentedStudyEvidence,\n            GeneratorStudyCheckpointIdentity,\n        )
 
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be StudyRequest")
@@ -149,6 +149,14 @@ class GeneratorAugmentedTransientStudyHandler:
                     prior_steps,
                     solver_error,
                     termination=termination if isinstance(termination, Mapping) else None,
+                    checkpoint_identity=(
+                        getattr(solver_error, "checkpoint_identity", None)
+                        if isinstance(
+                            getattr(solver_error, "checkpoint_identity", None),
+                            GeneratorStudyCheckpointIdentity,
+                        )
+                        else None
+                    ),
                 )
                 solver_error.partial_result = partial
                 solver_error.failing_time = partial.time[-1]
