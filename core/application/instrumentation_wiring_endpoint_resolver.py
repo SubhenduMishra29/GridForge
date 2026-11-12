@@ -199,6 +199,13 @@ def resolve_signal_endpoint_bindings(
                             }:
                                 status = "UNRESOLVED"
                                 diagnostics.append("Control source signal selector is incompatible with its MeasurementChannel.")
+                            if status == "RESOLVED":
+                                physical_diagnostics = physical_source_diagnostics(
+                                    binding.signal_id, source_channel
+                                )
+                                if physical_diagnostics:
+                                    status = "UNRESOLVED"
+                                    diagnostics.extend(physical_diagnostics)
                     elif source_domain == "core":
                         if read_service is None or not callable(getattr(read_service, "element", None)):
                             status = "UNRESOLVED"
