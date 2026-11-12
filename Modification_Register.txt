@@ -3784,3 +3784,38 @@ Physical route-edit interaction and immediate canvas refresh:
 - CanvasComposition binds a refresh callback into the one canonical SLDRouteEditController. After a successful route edit/reset, the active document is reprojected with the latest DraftNetwork and physical wiring read model, then the existing render system reconciles the route immediately.
 - The SLD route geometry remains document metadata; Core electrical connectivity and the Application instrumentation inventory are unchanged.
 - Added test source for scene-position bend insertion, route reset, persistence, controller dispatch and refresh callback. Tests remain unexecuted; GUI context-menu operation and movement/rotation/reopen scenarios have not been runtime-verified.
+
+
+======================================================================
+GridForge V2 — SLD Wire Endpoint Hit-Testing Correction
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+Related PR: #1204
+
+Implemented:
+- Updated SnapSystem wire-start and wire-target snapping to support clicks
+  inside the actual realized Bus/equipment presentation shape when the
+  pointer is outside the normal 10-scene-unit terminal-anchor tolerance.
+- The fallback resolves to the nearest candidate returned by the registered
+  item's canonical snap_points() API. Bus clicks resolve to a declared Bus
+  attachment; equipment clicks resolve to a declared equipment terminal.
+- The fallback is restricted to WIRE_START/WIRE_TARGET intents. Placement,
+  move, route-edit and ordinary endpoint snapping retain the existing
+  tolerance contract.
+- The hit test uses item.mapFromScene() and item.contains(); it does not
+  infer endpoints from arbitrary scene geometry or symbol bounding boxes
+  outside the item's accepted hit shape.
+- Exact midpoint ties between Bus attachment points resolve deterministically
+  by declared attachment order. Ambiguous equal-distance equipment terminals
+  remain rejected rather than silently choosing a terminal.
+- Added focused regression test source for Bus bar hit-testing, equipment-body
+  hit-testing, rejection outside the symbol shape, and unchanged non-wire
+  snap tolerance behavior.
+
+Verification:
+- Source change and regression test source committed.
+- Tests, Python import/syntax execution, Qt GUI interaction and full Bus-to-
+  device matrix have not been executed in this environment.
+- PR #1204 remains draft and must be reconciled with latest main before merge.
+======================================================================
