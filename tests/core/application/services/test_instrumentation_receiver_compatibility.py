@@ -104,7 +104,7 @@ def test_control_binding_requires_persisted_mapping_to_reference_signal_identity
         validate_control_mapping_binding,
     )
 
-    signal = _signal()
+    signal = _signal(measurement_channel_id="channel-current-1")
     destination = ControlSignalDestination(
         control_id="CTRL-1",
         component_id="PID-1",
@@ -116,9 +116,9 @@ def test_control_binding_requires_persisted_mapping_to_reference_signal_identity
     matching = ControlSignalMapping(bindings=(
         ControlSignalBinding(
             source=ControlSignalSource(
-                domain="instrumentation",
-                element_type="signal",
-                object_id=signal.id,
+                domain="measurement",
+                element_type="measurement_channel",
+                object_id=signal.measurement_channel_id,
                 signal="value",
             ),
             destination=destination,
@@ -129,9 +129,9 @@ def test_control_binding_requires_persisted_mapping_to_reference_signal_identity
     wrong_source = ControlSignalMapping(bindings=(
         ControlSignalBinding(
             source=ControlSignalSource(
-                domain="instrumentation",
-                element_type="signal",
-                object_id="another-signal",
+                domain="measurement",
+                element_type="measurement_channel",
+                object_id="another-channel",
                 signal="value",
             ),
             destination=destination,
