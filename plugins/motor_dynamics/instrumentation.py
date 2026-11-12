@@ -58,6 +58,14 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("terminal.current", "Single-phase line current", C, N, "A", ("metering","protection","control"), True),
                 _p("electrical.input_power", "Single-phase input power", P, N, "kW", ("metering","scada"), True),
                 _p("electrical.frequency", "Supply frequency", F, N, "Hz", ("control","protection","scada"))]
+    elif profile.phase_count == 2:
+        # Two-phase winding motors (stepper families) are measured at the
+        # winding phases, not misrepresented as three-phase line equipment.
+        pts += [_p("terminal.phase_a_voltage", "Winding phase-A voltage", V, A, "V", ("control","monitoring"), True),
+                _p("terminal.phase_a_current", "Winding phase-A current", C, A, "A", ("control","protection","monitoring"), True),
+                _p("terminal.phase_b_voltage", "Winding phase-B voltage", V, B, "V", ("control","monitoring"), True),
+                _p("terminal.phase_b_current", "Winding phase-B current", C, B, "A", ("control","protection","monitoring"), True),
+                _p("electrical.input_power", "Stepper drive input power", P, N, "kW", ("metering","analysis"), True)]
     else:
         for phase, suffix in ((A,"a"), (B,"b"), (CPH,"c")):
             pts += [_p(f"terminal.i{suffix}", f"Phase-{suffix.upper()} current", C, phase, "A", ("metering","protection","scada"), True),
@@ -103,8 +111,9 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
         MotorFamily.TRACTION_INDUCTION, MotorFamily.TRACTION_PERMANENT_MAGNET,
         MotorFamily.TORQUE, MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS}
     if profile.supply in {"DC link", "AC / DC link"} or family in drive_families:
-        pts += [_p("drive.dc_link_voltage", "Drive DC-link voltage", V, N, "V", ("control","protection","monitoring")),
-                _p("drive.dc_link_current", "Drive DC-link current", C, N, "A", ("control","protection","monitoring")),
+        stepper_drive = family in {MotorFamily.STEPPER_VARIABLE_RELUCTANCE, MotorFamily.STEPPER_PERMANENT_MAGNET, MotorFamily.STEPPER_HYBRID}
+        pts += [_p("drive.dc_link_voltage", "Drive DC-link voltage", V, N, "V", ("control","protection","monitoring"), stepper_drive),
+                _p("drive.dc_link_current", "Drive DC-link current", C, N, "A", ("control","protection","monitoring"), stepper_drive),
                 _p("drive.inverter_temperature", "Inverter heat-sink temperature", X, N, "degC", ("monitoring","alarm")),
                 _p("drive.switching_frequency", "Inverter switching frequency", F, N, "Hz", ("control","diagnostics")),
                 _p("drive.active_current_reference", "Active-axis current reference", C, N, "A", ("control","diagnostics")),

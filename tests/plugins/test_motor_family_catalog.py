@@ -34,3 +34,17 @@ def test_dc_nameplate_does_not_require_frequency() -> None:
 def test_only_existing_induction_family_claims_a_dynamic_solver() -> None:
     assert motor_family_profile(MotorFamily.THREE_PHASE_SQUIRREL_CAGE_INDUCTION).dynamic_model == "induction_dq"
     assert motor_family_profile(MotorFamily.PERMANENT_MAGNET_SYNCHRONOUS).dynamic_model is None
+
+
+
+@pytest.mark.parametrize("family", [
+    MotorFamily.STEPPER_VARIABLE_RELUCTANCE,
+    MotorFamily.STEPPER_PERMANENT_MAGNET,
+    MotorFamily.STEPPER_HYBRID,
+])
+def test_stepper_instrumentation_uses_two_winding_phases(family: MotorFamily) -> None:
+    point_ids = {point.point_id for point in motor_measurement_points(family)}
+    assert "terminal.phase_a_current" in point_ids
+    assert "terminal.phase_b_current" in point_ids
+    assert "terminal.ic" not in point_ids
+    assert "drive.dc_link_voltage" in point_ids
