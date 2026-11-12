@@ -16,7 +16,9 @@ from .transient_solver import (
     PMSMServoParameters, PMSMServoSimulationResult, solve_pmsm_servo_transient_cpu,
     InductionServoParameters, InductionServoSimulationResult, solve_induction_servo_transient_cpu,
     DCServoParameters, DCServoSimulationResult, solve_dc_servo_transient_cpu,
-    StepperParameters, StepperSimulationResult, solve_stepper_transient_cpu,\n    LinearInductionParameters, LinearSynchronousParameters, LinearMotorSimulationResult,\n    solve_linear_induction_transient_cpu, solve_linear_synchronous_transient_cpu,
+    StepperParameters, StepperSimulationResult, solve_stepper_transient_cpu,
+    LinearInductionParameters, LinearSynchronousParameters, LinearMotorSimulationResult,
+    solve_linear_induction_transient_cpu, solve_linear_synchronous_transient_cpu,
 )
 __all__ = [
     "MotorDynamicsPlugin", "MotorFamily", "MotorFamilyProfile", "MotorNameplate", "MotorOperatingMode",
@@ -33,6 +35,8 @@ __all__ = [
     "PMSMServoParameters", "PMSMServoSimulationResult", "solve_pmsm_servo_transient_cpu",
     "InductionServoParameters", "InductionServoSimulationResult", "solve_induction_servo_transient_cpu",
     "DCServoParameters", "DCServoSimulationResult", "solve_dc_servo_transient_cpu",
-    "StepperParameters", "StepperSimulationResult", "solve_stepper_transient_cpu",\n    "LinearInductionParameters", "LinearSynchronousParameters", "LinearMotorSimulationResult",\n    "solve_linear_induction_transient_cpu", "solve_linear_synchronous_transient_cpu",
+    "StepperParameters", "StepperSimulationResult", "solve_stepper_transient_cpu",
+    "LinearInductionParameters", "LinearSynchronousParameters", "LinearMotorSimulationResult",
+    "solve_linear_induction_transient_cpu", "solve_linear_synchronous_transient_cpu",
     "solve_transient_cpu", "solve_transient_batch", "cuda_available",
 ]
