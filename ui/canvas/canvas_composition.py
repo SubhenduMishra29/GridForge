@@ -701,8 +701,8 @@ class CanvasComposition:
         return composite
 
     def _project_signal_provenance_targets(self) -> None:
-        """Join active endpoint identities to the SLD's physical carrier projections."""
-        targets: dict[str, list[dict[str, Any]]] = {}
+        """Join active endpoint identities to SLD carrier routes without duplicate targets."""
+        targets: dict[str, dict[tuple[str, str, str], dict[str, Any]]] = {}
         try:
             wiring = self.application.read_instrumentation_wiring()
             resolutions = self.application.read_instrumentation_wiring_endpoint_resolution()
@@ -721,14 +721,31 @@ class CanvasComposition:
                 endpoint_label = f"PROTECTION {item.port or item.endpoint_id}"
             else:
                 continue
-            targets.setdefault(item.signal_id, []).append({
-                "label": f"{item.signal_tag} | {endpoint_label}",
-                "detail": item.detail_text,
-                "target_editor": target_editor if item.status == "RESOLVED" and target_object_id else None,
-                "target_object_id": str(target_object_id) if item.status == "RESOLVED" and target_object_id else None,
-            })
+            target_id = str(target_object_id) if target_object_id else ""
+            key = (target_editor, target_id, endpoint_label)
+            by_target = targets.setdefault(item.signal_id, {})
+            entry = by_target.get(key)
+            if entry is None:
+                entry = {
+                    "label": f"{item.signal_tag} | {endpoint_label}",
+                    "details": [],
+                    "target_editor": target_editor if item.status == "RESOLVED" and target_id else None,
+                    "target_object_id": target_id if item.status == "RESOLVED" and target_id else None,
+                }
+                by_target[key] = entry
+            entry["details"].append(item.detail_text)
+            if item.status != "RESOLVED":
+                entry["target_editor"] = None
+                entry["target_object_id"] = None
+
         self.sld_canvas_render_system.set_signal_provenance_targets({
-            signal_id: tuple(entries) for signal_id, entries in targets.items()
+            signal_id: tuple({
+                "label": entry["label"],
+                "detail": "\n\n".join(entry["details"]),
+                "target_editor": entry["target_editor"],
+                "target_object_id": entry["target_object_id"],
+            } for entry in by_target.values())
+            for signal_id, by_target in targets.items()
         })
 
     @staticmethod
