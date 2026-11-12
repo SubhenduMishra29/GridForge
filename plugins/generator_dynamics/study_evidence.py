@@ -44,7 +44,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
     the terminal StudyResult status and owns durable persistence.
     """
 
-    __slots__ = ("_payload", "provenance", "time")
+    __slots__ = ("_payload", "_accepted_steps", "provenance", "time")
 
     def __init__(
         self,
@@ -94,6 +94,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         self.provenance = provenance_data
         self.time = times
         self._payload = payload
+        self._accepted_steps = steps
 
     @classmethod
     def resume_from_checkpoint(
@@ -136,9 +137,7 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         if continuation[0].simulation_time_s <= previous.time[-1]:
             raise ValueError("resumed steps must begin after the prior checkpoint time")
         return cls(
-            (*tuple(
-                step for step in getattr(previous, "_accepted_steps", ())
-            ), *continuation),
+            (*previous._accepted_steps, *continuation),
             execution_status=execution_status,
             trajectory_status=trajectory_status,
             termination=termination,
