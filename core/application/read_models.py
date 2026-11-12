@@ -776,6 +776,12 @@ class MeasurementChannelReadModel:
     stale_after: float | None
     producer_id: str | None
     validity: str
+    source_id: str | None = None
+    source_terminal_role: str | None = None
+    name: str = ""
+    nominal_value: float | None = None
+    scale: float | None = None
+    polarity: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.channel_id, str) or not self.channel_id.strip():
@@ -803,6 +809,22 @@ class MeasurementChannelReadModel:
             raise ValueError("MeasurementChannelReadModel.stale_after must be finite and non-negative.")
         object.__setattr__(self, "channel_id", self.channel_id.strip())
         object.__setattr__(self, "value", _freeze(self.value))
+        for field_name in ("source_id", "source_terminal_role"):
+            field_value = getattr(self, field_name)
+            if field_value is not None and (
+                not isinstance(field_value, str) or not field_value.strip()
+            ):
+                raise ValueError(f"MeasurementChannelReadModel.{field_name} must be non-empty or None.")
+        if not isinstance(self.name, str):
+            raise TypeError("MeasurementChannelReadModel.name must be a string.")
+        for field_name in ("nominal_value", "scale", "polarity"):
+            field_value = getattr(self, field_name)
+            if field_value is not None and (
+                isinstance(field_value, bool)
+                or not isinstance(field_value, (int, float))
+                or not math.isfinite(field_value)
+            ):
+                raise ValueError(f"MeasurementChannelReadModel.{field_name} must be finite or None.")
 
 
 __all__ = [
