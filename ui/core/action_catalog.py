@@ -57,6 +57,7 @@ _SURFACE_ACTIONS: tuple[ActionDefinition, ...] = (
     ActionDefinition("view.reports", "Reports", "Show published study results.", category="workspace"),
     ActionDefinition("view.maximize_editor", "Maximize Editor", "Maximize or restore the active workspace editor.", shortcut="Ctrl+Space", category="view"),
     ActionDefinition("view.toggle_explorer", "Explorer", "Show or hide the explorer when available in the active workspace.", category="view"),
+    ActionDefinition("view.layers", "SLD Layers", "Open the SLD layer manager.", category="view"),
     ActionDefinition("view.toggle_inspector", "Inspector", "Show or hide the inspector in the active workspace.", category="view"),
     ActionDefinition("view.toggle_messages", "Messages", "Show or hide messages and diagnostics in the active workspace.", category="view"),
     ActionDefinition("view.toggle_tool_settings", "Tool Settings", "Show or hide contextual tool settings in the active workspace.", category="view"),
