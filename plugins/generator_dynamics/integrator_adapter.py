@@ -62,6 +62,68 @@ class GeneratorAugmentedStepResult:
         object.__setattr__(self, "state", state)
         object.__setattr__(self, "simulation_time_s", float(self.simulation_time_s))
 
+    def to_archive_payload(self) -> dict[str, object]:
+        """Return a versioned JSON-compatible evidence snapshot for StudyResult.
+
+        The payload intentionally contains primitives, lists and string-keyed
+        mappings only. Core's StudyResultArchive can persist it without
+        importing plugin classes or expanding its trusted dataclass allowlist.
+        Derivative stages are explicitly labelled as solver evaluations, not
+        accepted trajectory points; the accepted vector and final algebraic
+        stage remain separate fields.
+        """
+        def stage_payload(stage: GeneratorDynamicStageResult) -> dict[str, object]:
+            convergence = stage.network.convergence
+            return {
+                "simulation_time_s": stage.component_inputs.simulation_time_s,
+                "excitation": {
+                    "field_voltages_pu": dict(stage.excitation.field_voltages_pu),
+                    "component_ids_by_machine": dict(stage.excitation.component_ids_by_machine),
+                },
+                "network": {
+                    "bus_voltages": {
+                        bus_id: {"real": voltage.real, "imag": voltage.imag}
+                        for bus_id, voltage in stage.network.bus_voltages.items()
+                    },
+                    "convergence": None if convergence is None else {
+                        "converged": convergence.converged,
+                        "iteration_count": convergence.iteration_count,
+                        "residual_norm": convergence.residual_norm,
+                        "tolerance": convergence.tolerance,
+                        "solver_id": convergence.solver_id,
+                    },
+                },
+                "inputs": {
+                    "terminal_voltages": {
+                        terminal_id: {"real": voltage.real, "imag": voltage.imag}
+                        for terminal_id, voltage in stage.component_inputs.terminal_voltages.items()
+                    },
+                    "electrical_active_power_pu": dict(stage.component_inputs.electrical_active_power_pu),
+                    "mechanical_power_inputs_pu": dict(stage.component_inputs.mechanical_power_inputs_pu),
+                },
+                "derivatives": {
+                    "state_derivatives": stage.derivative_assembly.state_derivatives.tolist(),
+                    "mechanical_powers_pu": dict(stage.derivative_assembly.mechanical_powers_pu),
+                    "component_derivatives": {
+                        component_id: list(values)
+                        for component_id, values in stage.derivative_assembly.component_evaluation.component_derivatives.items()
+                    },
+                    "mechanical_power_outputs_pu": dict(
+                        stage.derivative_assembly.component_evaluation.mechanical_power_outputs_pu
+                    ),
+                },
+            }
+
+        return {
+            "schema": "gridforge.generator_augmented_step",
+            "schema_version": 1,
+            "simulation_time_s": self.simulation_time_s,
+            "accepted_state": self.state.tolist(),
+            "final_stage": stage_payload(self.final_stage),
+            "derivative_stage_semantics": "solver_evaluations_not_accepted_states",
+            "derivative_stages": [stage_payload(stage) for stage in self.derivative_stages],
+        }
+
 
 class GeneratorAugmentedDAEAdapter:
     """Run augmented machine-plus-extension state through Core's Integrator.
