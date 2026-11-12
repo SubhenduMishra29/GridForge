@@ -188,6 +188,7 @@ class PanelWire:
     conductor_material: Optional[str] = None
     thermocouple_type: Optional[str] = None
     thermocouple_polarity: Optional[str] = None
+    thermocouple_cable_designation: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required_text(self.id, "id"))
@@ -205,8 +206,10 @@ class PanelWire:
             raise ValueError("cross_section_mm2 must be positive when supplied.")
         object.__setattr__(self, "cross_section_mm2", area)
         object.__setattr__(self, "colour", _optional_text(self.colour, "colour"))
-        for field in ("conductor_material", "thermocouple_type", "thermocouple_polarity"):
+        for field in ("conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"):
             object.__setattr__(self, field, _optional_text(getattr(self, field), field))
+        if self.thermocouple_cable_designation is not None:
+            object.__setattr__(self, "thermocouple_cable_designation", self.thermocouple_cable_designation.upper())
         if self.thermocouple_type is not None:
             object.__setattr__(self, "thermocouple_type", self.thermocouple_type.upper())
         if self.thermocouple_polarity is not None:
