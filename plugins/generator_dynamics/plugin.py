@@ -32,6 +32,8 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "ggov1_valve_actuator_subblock",
         "ggov1_turbine_fuel_path_subblock",
         "ggov1_low_value_selector",
+        "ggov1_control_coordinator",
+        "ggov1_common_fuel_command_limiter",
         "ggov1_pid_tracking_input",
         "ggov1_acceleration_limiter",
         "ggov1_exhaust_temperature_load_limiter",
