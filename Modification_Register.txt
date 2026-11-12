@@ -4714,3 +4714,33 @@ integration; canvas projections/schedules; runtime and save/reopen verification.
 
 
 [2026-11-12] PR #1215 scope reconciliation: retained only the motor-dynamics family catalogue, family-aware measurement templates, explicitly experimental CPU transient models, manifest/exports and focused catalogue/solver coverage for a clean follow-up integration. Rejected generator-dynamics additions because current authoritative main has no generator_dynamics_composition or generator transient host service; rejected generic Core dynamic-component scaffolding because DAESolver/MultiMachineSystem do not consume that contract; rejected unrelated UI/CT editor changes. Transformer dynamics are not implemented by this retained motor-only scope. Original PR #1215 is superseded and must not be merged wholesale.
+
+
+======================================================================
+GridForge V2 — Project-wide instrumentation tag namespace
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: integration/instrumentation-global-tag-namespace
+
+Finding:
+- Cable, panel-wire and signal tags were checked in separate collections.
+- Cable-core tags were checked separately, allowing cross-category and case-only collisions.
+- Application tag allocation searched only the selected category.
+
+Correction:
+- Enforced one case-insensitive namespace across cable tags, cable-core tags,
+  panel-wire tags and signal tags. Stable record IDs remain canonical identity.
+- Updated tag allocation to avoid collisions across all instrumentation record kinds.
+- Added source regression coverage for valid cross-category designations and
+  cross-category/case-insensitive collisions.
+
+Scope:
+- This is an isolated Core/Application tag-identity correction.
+- It does not yet add stable physical connection-hop records, route revision
+  history, persistence migration, schedules, or Control/Protection receiver
+  reconciliation from PR #1216.
+
+Verification:
+- Updated source and regression-test files fetched back from the branch.
+- No tests, imports, GUI interaction, or save/reopen checks were run.
+======================================================================
