@@ -8,7 +8,8 @@ from core.model.instrument_wiring import (
 from core.model.temperature_instrument import (
     TemperatureInputMode, TemperatureInstrument, TemperatureInstrumentInventory,
     TemperatureInterfaceDevice, TemperatureSensorTechnology, TemperatureService,
-    TemperatureTerminalMapping,
+    TemperatureTerminalMapping, TemperatureThermocoupleCableClass,
+    TemperatureThermocoupleCableSpec,
 )
 
 
@@ -140,23 +141,35 @@ def test_thermocouple_route_requires_matching_type_polarity_and_material():
         (sensor_neg, tx_neg), conductor_material="declared-alloy-b",
         thermocouple_type="K", thermocouple_polarity="NEGATIVE",
     )
-    wiring = wiring_inventory(positive, negative)
-    # The helper's cable assemblies must carry declared construction metadata.
-    cables = tuple(
-        CableAssembly(
-            id=item.id, tag=item.tag, service=item.service, core_count=item.core_count,
-            cable_type="declared-K-extension", conductor_material="declared-pair-construction",
-        ) for item in wiring.cables
+    wiring = InstrumentationWiringInventory(
+        cables=(
+            CableAssembly("tc-cable-pos", "C-POS", "TC extension", 1, cable_type="KX", conductor_material="pair-construction"),
+            CableAssembly("tc-cable-neg", "C-NEG", "TC extension", 1, cable_type="KX", conductor_material="pair-construction"),
+        ),
+        cores=(
+            CableCore("tc-pos", "tc-cable-pos", 1, WiringConductorRole.SIGNAL,
+                      (sensor_pos, tx_pos), conductor_material="Nickel Chromium",
+                      thermocouple_type="K", thermocouple_polarity="POSITIVE"),
+            CableCore("tc-neg", "tc-cable-neg", 1, WiringConductorRole.RETURN,
+                      (sensor_neg, tx_neg), conductor_material="Nickel Aluminium",
+                      thermocouple_type="K", thermocouple_polarity="NEGATIVE"),
+        ),
     )
-    wiring = InstrumentationWiringInventory(cables=cables, cores=wiring.cores)
+    catalogue = (TemperatureThermocoupleCableSpec(
+        "spec-kx", "K", "KX", TemperatureThermocoupleCableClass.EXTENSION,
+        "Nickel Chromium", "Nickel Aluminium", "IEC 60584-3:2021", "1",
+    ),)
     assert TemperatureInstrumentService._has_physical_route(
-        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="K", polarity="POSITIVE"
+        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="K", polarity="POSITIVE",
+        thermocouple_cable_specs=catalogue,
     )
     assert not TemperatureInstrumentService._has_physical_route(
-        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="J", polarity="POSITIVE"
+        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="J", polarity="POSITIVE",
+        thermocouple_cable_specs=catalogue,
     )
     assert not TemperatureInstrumentService._has_physical_route(
-        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="K", polarity="NEGATIVE"
+        wiring, (sensor_pos,), (tx_pos,), thermocouple_type="K", polarity="NEGATIVE",
+        thermocouple_cable_specs=catalogue,
     )
 
 
@@ -191,16 +204,22 @@ def test_mapped_thermocouple_loop_requires_type_polarity_and_construction_on_eac
             TemperatureTerminalMapping(sensor_neg, tx_neg, "NEGATIVE"),
         ),
     )
-    inventory = TemperatureInstrumentInventory(instruments=(instrument,), interfaces=(interface,))
+    catalogue = (TemperatureThermocoupleCableSpec(
+        "spec-kx", "K", "KX", TemperatureThermocoupleCableClass.EXTENSION,
+        "Nickel Chromium", "Nickel Aluminium", "IEC 60584-3:2021", "1",
+    ),)
+    inventory = TemperatureInstrumentInventory(
+        instruments=(instrument,), interfaces=(interface,), thermocouple_cable_specs=catalogue,
+    )
     cables = (
-        CableAssembly("cable-pos", "C-POS", "TC extension", 1, cable_type="K-extension", conductor_material="declared-pair"),
-        CableAssembly("cable-neg", "C-NEG", "TC extension", 1, cable_type="K-extension", conductor_material="declared-pair"),
+        CableAssembly("cable-pos", "C-POS", "TC extension", 1, cable_type="KX", conductor_material="pair-construction"),
+        CableAssembly("cable-neg", "C-NEG", "TC extension", 1, cable_type="KX", conductor_material="pair-construction"),
     )
     cores = (
         CableCore("core-pos", "cable-pos", 1, WiringConductorRole.SIGNAL, (sensor_pos, tx_pos),
-                  conductor_material="declared-positive-alloy", thermocouple_type="K", thermocouple_polarity="POSITIVE"),
+                  conductor_material="Nickel Chromium", thermocouple_type="K", thermocouple_polarity="POSITIVE"),
         CableCore("core-neg", "cable-neg", 1, WiringConductorRole.RETURN, (sensor_neg, tx_neg),
-                  conductor_material="declared-negative-alloy", thermocouple_type="K", thermocouple_polarity="NEGATIVE"),
+                  conductor_material="Nickel Aluminium", thermocouple_type="K", thermocouple_polarity="NEGATIVE"),
     )
     output = PanelWire("out-wire", "W-OUT", WiringConductorRole.SIGNAL, (tx_out, receiver))
     wiring = InstrumentationWiringInventory(cables=cables, cores=cores, panel_wires=(output,))
