@@ -108,3 +108,47 @@ claim of standards certification. Family-specific electrical machine dynamic equ
 parameter sources, instrument-specific CT/PT/CVT error/saturation models,
 protection function wiring, DAE-integrated control execution, persistence
 migration, SLD editors and runtime-specific accelerator adapters remain open.
+
+## Hydro and legacy gas-turbine governor model selection
+
+HYGOV is a distinct hydro governor/penstock model, not a generic droop
+controller. Its published parameter contract includes permanent and temporary
+droop, governor and filter time constants, gate-servo time constant, gate
+velocity and position limits, water starting time, turbine gain and damping,
+and no-load flow. Its turbine/penstock response is operating-point dependent;
+the linearized penstock transfer function depends on water time constant,
+initial flow and initial head. A future implementation must preserve the
+nonlinear water-flow/head relationship or state clearly which linearization
+and operating point it uses. It must not silently replace HYGOV with the
+existing generic two-lag governor.
+
+The legacy PSS/E GAST model is also a distinct model, with governor/valve,
+combustion-chamber/turbine and exhaust/load-limit dynamics. It is retained as
+a compatibility model only if implemented; it must not be selected as the
+default model for a modern digitally controlled gas turbine. NERC's 2017
+modeling notification describes GAST as a simplified early model, notes that
+it omits important heavy-duty gas-turbine physics, and recommends transition
+to a more representative GGOV1 model after verification. Any future GAST
+implementation must therefore be explicitly labeled legacy, preserve its
+ambient-temperature load limit and low-value-gate behavior, and require
+plant-specific verification. A modern gas-turbine controller should be
+represented by a separately parameterized model such as GGOV1 only after its
+full state/limiter contract and machine-base conversions are implemented.
+
+References for model selection and parameter boundaries:
+- NERC, *Gas Turbine Governor Modeling* (2017), Appendix B and recommendations:
+  https://www.nerc.com/comm/PC/NERCModelingNotifications/Gas_Turbine_Governor_Modeling.pdf
+- ORNL GridKit HYGOV parameter contract and documented limitations:
+  https://gridkit.readthedocs.io/en/latest/GridKit/Model/PhasorDynamics/Governor/HYGOV/README.html
+- OpenIPSL HYGOV model parameters and connectors:
+  https://build.openmodelica.org/Documentation/OpenIPSL.Electrical.Controls.PSSE.TG.HYGOV.html
+- Argonne, *Hydro Turbine-Governor Simulation Models in PSS/E* (2013), including
+  the operating-point-dependent penstock linearization:
+  https://www.osti.gov/servlets/purl/1098022
+
+These model-selection notes do not claim that HYGOV, GAST or GGOV1 is
+implemented by this plugin yet. The executable controller set remains the
+generic AVR/governor/PSS blocks and the focused TGOV1 steam block documented
+above. Model-specific hydro and gas-turbine equations remain separate
+implementation milestones; no controller is connected to the transient DAE
+until the canonical augmented-state contract is available.
