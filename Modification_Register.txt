@@ -4280,3 +4280,52 @@ Verification:
   imports, startup, GUI interaction and project save/reopen were not run.
 - No CI gate was requested or treated as acceptance evidence.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — SLD Physical Signal Provenance Navigation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Preserved stable SignalDefinition IDs alongside signal tags in each detached
+  SLD physical carrier segment projection. IDs are attached to the final
+  terminal hop of each carrier so a long cable does not repeat a navigation
+  label at every intermediate terminal.
+- SLDCanvasProjection carries those signal IDs as renderer-neutral connection
+  properties. No SLDConnection or Core topology record is created for the
+  projected instrumentation route.
+- SLDCanvasRenderSystem projects read-only SignalProvenanceItem labels onto
+  physical route graphics. Labels show the signal designation and the
+  matching Control input or Protection input target; hover detail retains
+  cable/core, terminal, direction and resolution diagnostics.
+- Double-click on an SLD route provenance label uses the canonical
+  ControlSurfaceHost navigation callback to activate the matching Control
+  component or Protection element and centre its canonical identity.
+- SLDCanvasSurface now binds the host navigation callback and its normal
+  active-document presentation path refreshes the complete committed +
+  DraftNetwork + instrumentation wiring projection before rendering.
+- Labels are transient graphics tracked with their owning route realization;
+  route deletion, document reconciliation and renderer disposal remove them.
+  They are not persisted as independent SLD records.
+
+Boundary:
+- SLD-to-Control and SLD-to-Protection navigation is implemented for explicit
+  signal endpoint bindings. Existing Control-to-Protection navigation remains
+  a separate peer-endpoint path.
+- Reverse navigation from Control/Protection to the corresponding SLD
+  physical carrier, plus cross-canvas selection of cable/core/terminal objects,
+  remains outstanding. Multiple physical carrier segments can represent one
+  signal; a future selection contract must highlight the complete carrier
+  route rather than invent a second physical connection.
+- Engineering cable/core/terminal schedules and loop/interconnection/
+  point-to-point reports remain open #1203 acceptance work.
+
+Verification:
+- Source-level inspection only. Adapter/canvas regression-test source was
+  extended; tests, imports, startup, GUI interaction and save/reopen were not
+  run. No CI gate was requested or treated as acceptance evidence.
+======================================================================
