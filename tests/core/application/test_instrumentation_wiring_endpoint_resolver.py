@@ -460,6 +460,9 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
     cable_b = CableAssembly(
         id="cable-b", tag="C-IB", service="CT phase B", core_count=1,
     )
+    cable_c = CableAssembly(
+        id="cable-c", tag="C-IC", service="CT phase C", core_count=1,
+    )
     core_a = CableCore(
         id="core-a", cable_id=cable_a.id, core_number=1,
         role=WiringConductorRole.SIGNAL,
@@ -478,6 +481,15 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
             WiringTerminalReference("IED-101", "IB", "IB"),
         ),
     )
+    core_c = CableCore(
+        id="core-c", cable_id=cable_c.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("CT-C", "S1", "S1"),
+            WiringTerminalReference("TB-C", "1", "1"),
+            WiringTerminalReference("IED-101", "IC", "IC"),
+        ),
+    )
     channel_a = SimpleNamespace(
         channel_id="channel-a", signal_type="CURRENT", source_id="CT-A",
         source_terminal={"kind": "TERMINAL", "equipment_id": "CT-A", "terminal_role": "S1"},
@@ -485,6 +497,10 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
     channel_b = SimpleNamespace(
         channel_id="channel-b", signal_type="CURRENT", source_id="CT-B",
         source_terminal={"kind": "TERMINAL", "equipment_id": "CT-B", "terminal_role": "S1"},
+    )
+    channel_c = SimpleNamespace(
+        channel_id="channel-c", signal_type="CURRENT", source_id="CT-C",
+        source_terminal={"kind": "TERMINAL", "equipment_id": "CT-C", "terminal_role": "S1"},
     )
     carrier_bindings = (
         SignalCarrierBinding(
@@ -494,6 +510,10 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
         SignalCarrierBinding(
             id="carrier-b", signal_id=signal.id, carrier_kind=CarrierKind.CABLE_CORE,
             carrier_id=core_b.id, source_channel_id=channel_b.channel_id,
+        ),
+        SignalCarrierBinding(
+            id="carrier-c", signal_id=signal.id, carrier_kind=CarrierKind.CABLE_CORE,
+            carrier_id=core_c.id, source_channel_id=channel_c.channel_id,
         ),
     )
     measurement_endpoints = (
@@ -509,6 +529,13 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
             endpoint=SignalEndpointReference(
                 kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
                 endpoint_id=channel_b.channel_id,
+            ),
+        ),
+        SignalEndpointBinding(
+            id="channel-endpoint-c", signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+                endpoint_id=channel_c.channel_id,
             ),
         ),
     )
@@ -531,9 +558,18 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
                 physical_terminal=WiringTerminalReference("IED-101", "IB", "IB"),
             ),
         ),
+        SignalEndpointBinding(
+            id="protection-endpoint-c", signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id="binding-c", owner_id="element-1",
+                port="residual_current",
+                physical_terminal=WiringTerminalReference("IED-101", "IC", "IC"),
+            ),
+        ),
     )
     inventory = InstrumentationWiringInventory(
-        cables=(cable_a, cable_b), cores=(core_a, core_b),
+        cables=(cable_a, cable_b, cable_c), cores=(core_a, core_b, core_c),
         signals=(signal,), signal_bindings=carrier_bindings,
         endpoint_bindings=measurement_endpoints + protection_endpoints,
     )
@@ -546,12 +582,16 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
             binding_id="binding-b", protection_element_id="element-1",
             relay_input_id="residual_current", channel_id="channel-b",
         ),
+        "binding-c": SimpleNamespace(
+            binding_id="binding-c", protection_element_id="element-1",
+            relay_input_id="residual_current", channel_id="channel-c",
+        ),
     }
     element = SimpleNamespace(
         function_code="51N",
         residual_current_input=SimpleNamespace(
             mode="THREE_PHASE_SUM",
-            phase_binding_ids={"A": "binding-a", "B": "binding-b"},
+            phase_binding_ids={"A": "binding-a", "B": "binding-b", "C": "binding-c"},
         ),
         input_channel_ids={},
     )
@@ -561,10 +601,10 @@ def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths(
     )
     result = resolve_signal_endpoint_bindings(
         inventory,
-        measurement_channels=(channel_a, channel_b),
+        measurement_channels=(channel_a, channel_b, channel_c),
         control_signal_mapping=None,
         protection_configuration=configuration,
     )
     assert tuple(item.status for item in result) == (
-        "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED",
+        "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED",
     )
