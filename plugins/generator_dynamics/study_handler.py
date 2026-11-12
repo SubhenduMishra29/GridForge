@@ -26,13 +26,13 @@ class GeneratorTransientStudyHandler:
     and partial-result evidence. This adapter only connects it to StudyService.
     """
 
-    def __init__(self, solver: Any, sampled_adapter: GGOV1SampledExecutionAdapter) -> None:
+    def __init__(self, solver: Any, sampled_adapter_factory: Any) -> None:
         if solver is None or not callable(getattr(solver, "solve_generator_transient", None)):
             raise TypeError("generator transient solver must expose solve_generator_transient(...)")
-        if not isinstance(sampled_adapter, GGOV1SampledExecutionAdapter):
-            raise TypeError("sampled_adapter must be GGOV1SampledExecutionAdapter")
+        if not callable(sampled_adapter_factory):
+            raise TypeError("sampled_adapter_factory must be callable")
         self._solver = solver
-        self._sampled_adapter = sampled_adapter
+        self._sampled_adapter_factory = sampled_adapter_factory
 
     def __call__(
         self,
@@ -56,13 +56,18 @@ class GeneratorTransientStudyHandler:
             raise ValueError("generator transient request/context provenance mismatch")
         if cancellation.cancelled:
             return None
+        sampled_adapter = self._sampled_adapter_factory(
+            request=request, execution_context=execution_context
+        )
+        if not isinstance(sampled_adapter, GGOV1SampledExecutionAdapter):
+            raise TypeError("sampled adapter factory must return GGOV1SampledExecutionAdapter")
         # Return the solver-owned detached result unchanged. StudyService is
         # responsible for terminal status, durable persistence and events.
         return self._solver.solve_generator_transient(
             request=request,
             execution_context=execution_context,
             cancellation=cancellation,
-            sampled_adapter=self._sampled_adapter,
+            sampled_adapter=sampled_adapter,
         )
 
 
