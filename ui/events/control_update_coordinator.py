@@ -16,7 +16,9 @@ from collections.abc import Callable
 from typing import Any
 
 from core.application.application import Application
-from core.application.events import ApplicationEvent, ProjectClosed, ProjectLoaded
+from core.application.events import (
+    ApplicationEvent, InstrumentationWiringChanged, ProjectClosed, ProjectLoaded,
+)
 from ui.instrumentation_wiring_provenance import project_signal_provenance
 from core.application.control_events import (
     ControlComponentCreated,
@@ -49,6 +51,7 @@ _CONTROL_EVENTS = (
     ControlExecutionStarted,
     ControlExecutionCompleted,
     ControlExecutionFailed,
+    InstrumentationWiringChanged,
     ProjectLoaded,
     ProjectClosed,
 )
