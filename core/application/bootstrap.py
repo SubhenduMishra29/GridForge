@@ -69,6 +69,7 @@ from .services.control_service import ControlApplicationService
 from .services.model_service import ModelService
 from .services.protection_configuration_service import ProtectionConfigurationService
 from .services.measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
+from .services.instrumentation_wiring_service import InstrumentationWiringService, InstrumentationWiringCommandHandlers
 from .synchronism_check import (
     BypassAuthorization,
     ProjectScopedSynchronismAuditSink,
@@ -135,6 +136,7 @@ def create_application(
             target[command_type] = handler
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
+    instrumentation_wiring_service = InstrumentationWiringService()
     application: Application | None = None
     synchronism_guard: Any = None
 
@@ -202,6 +204,7 @@ def create_application(
         register_handlers(handlers, build_model_command_handlers(model_service), "model")
         register_handlers(handlers, ElectricalConnectionCommandHandlers().handlers(), "electrical connection")
         register_handlers(handlers, SimpleWireConnectionCommandHandlers().handlers(), "simple wire connectivity")
+        register_handlers(handlers, InstrumentationWiringCommandHandlers(instrumentation_wiring_service).handlers(), "instrumentation wiring")
         register_handlers(handlers, PhaseDomainConductorNetworkCommandHandlers().handlers(), "phase-domain conductor network")
         register_handlers(handlers, JunctionCommandHandlers().handlers(), "junction topology")
         register_handlers(
@@ -639,6 +642,7 @@ def create_application(
         measurement_channel_service=measurement_channel_service,
         control_service=control_service,
         protection_execution_audit_store=protection_execution_audit_store,
+        instrumentation_wiring_service=instrumentation_wiring_service,
     )
     measurement_channel_service.bind_execution_lock(application._execution_lock)
     # Study outputs are durable execution artifacts, stored outside the
@@ -731,6 +735,7 @@ def create_application(
         previous_configuration = protection_configuration_service.configuration
         previous_synchronism_guard = synchronism_guard
         previous_measurement_state = measurement_channel_service.snapshot_state()
+        previous_wiring_state = instrumentation_wiring_service.snapshot_state()
         previous_protection_runtime = application.protection_runtime
         previous_protection_presentation = getattr(application, "protection_presentation", None)
         # Capture the exact pre-transition authority. Reconstructing a synthetic
@@ -762,6 +767,7 @@ def create_application(
             nonlocal synchronism_guard
             synchronism_guard = previous_synchronism_guard
             measurement_channel_service.restore_state(previous_measurement_state)
+            instrumentation_wiring_service.restore_state(previous_wiring_state)
             if previous_configuration is None:
                 protection_configuration_service.deactivate()
             else:
@@ -780,6 +786,12 @@ def create_application(
             # validating protection bindings or composing ProtectionRuntime.
             # The loaded definitions are configuration only; activation binds
             # them to this candidate Network and project generation.
+            instrumentation_wiring_service.activate(
+                context,
+                loaded.instrumentation_wiring if context is not None and loaded is not None else None,
+                network=network if context is not None else None,
+                generation=generation,
+            )
             measurement_channel_service.activate(
                 context,
                 network,
@@ -1022,6 +1034,7 @@ def create_application(
             draft_network_collection=application.draft_network_collection,
             presentation_collection=presentation_collection,
             study_cases=application.study_cases,
+            instrumentation_wiring=instrumentation_wiring_service.inventory,
             protection_presentation=(                application.protection_presentation.to_dict()
                 if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
                 else getattr(application, "protection_presentation", None)
@@ -1031,6 +1044,7 @@ def create_application(
         return Network()
 
     application.dynamic_models = dynamic_models
+    application.instrumentation_wiring_service = instrumentation_wiring_service
 
     lifecycle = ProjectLifecycleService(
         network=network,

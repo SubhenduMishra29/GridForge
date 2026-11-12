@@ -3630,6 +3630,260 @@ Disposition:
   decision to be documented before implementation.
 ======================================================================
 
+======================================================================
+GridForge V2 — Instrument Wiring Implementation Slice 1
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+
+Implemented:
+- Added immutable Core records for WiringTerminalReference, CableAssembly,
+  CableCore, PanelWire, SignalDefinition and SignalCarrierBinding.
+- Added explicit conductor roles, signal kinds and carrier kinds.
+- Kept physical cable/core/wire identities separate from logical signal identity
+  and from the existing power-network Cable branch and MeasurementChannel.
+- Added InstrumentationWiringInventory cross-record validation for stable-ID
+  uniqueness, cable/core ownership, core-number range/uniqueness, tag uniqueness
+  and signal-to-carrier references.
+- Exported the new records through core.model.
+- Added focused unit-test source for record immutability, invalid values,
+  terminal paths, cable/core inventory invariants and dangling signal bindings.
+
+Limitations / next implementation slice:
+- This is the Core record foundation only. Application commands/services,
+  project persistence and migration, tag allocation policy, terminal registry
+  integration, canvas projections/navigation, schedules and commissioning
+  lifecycle are not yet implemented.
+- No runtime, pytest, GUI or CI execution was performed in this environment;
+  the test file was authored but not executed.
+
+Disposition:
+- Implementation is on feature/instrument-wiring-domain-foundation for review.
+- Issue #1203 remains OPEN until the complete cross-layer acceptance scope is
+  implemented and reconciled.
+======================================================================
+
+======================================================================
+GridForge V2 — Instrumentation wiring project persistence and activation
+Date: 2026-11-11
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+PR: #1204
+Issue: #1203
+
+Implementation slice:
+- Added a dedicated, schema-versioned JSON codec for the canonical instrumentation wiring inventory. It serializes cable assemblies, cable cores, panel wires, signal definitions, signal-carrier bindings, and stable terminal references; no Qt objects, SLD geometry, live samples, or inferred cable data are serialized.
+- Extended LoadedProject and ProjectPersistenceService to load/save the inventory under the canonical project.json instrumentation_wiring field.
+- Advanced project schema from 5 to 6. The 5-to-6 migration inserts an explicit empty inventory only; it does not infer physical wiring from existing SLD connections or instrument attributes.
+- Added a project-scoped InstrumentationWiringService with immutable inventory exposure, activation-generation identity, snapshot and rollback support.
+- Integrated service activation/rollback into the Application project-state activation transaction and included the active inventory in project saves.
+- Exported the Application service and persistence codec through their package APIs.
+- Strengthened the Core aggregate to enforce globally unique stable IDs across wiring record categories.
+
+Verification:
+- Added codec round-trip, unknown-field rejection, schema migration detachment, project activation/rollback, and project-less activation tests.
+- Tests were authored but not executed. No Python import/syntax execution, project save/reopen runtime, GUI interaction, or CI execution is claimed.
+- Source review still required for strict per-record unknown-field rejection, terminal references against the authoritative terminal registry, and end-to-end persistence acceptance.
+
+Follow-up source correction:
+- The wiring codec now rejects unknown fields in each record category as well as unknown top-level inventory fields, preventing accidental silent loss of unsupported data.
+- The current project schema requires the instrumentation_wiring field; only the explicit 5-to-6 migration creates an empty inventory for historical projects. A schema-6 payload missing the field is rejected.
+- Boolean values are rejected as wiring schema versions even though Python treats bool as an int subclass.
+- Added regression test source for unknown per-record fields, boolean schema values, and global stable-ID collisions.
+- Remaining unresolved integration boundary: stable WiringTerminalReference.terminal_id values are not yet reconciled against a canonical Core terminal registry. This is intentionally left open rather than guessed from terminal role/designation or SLD projection.
+
+Terminal identity reconciliation:
+- Source inspection of core/model/terminal.py and core/application/endpoint_resolver.py confirmed that GridForge has no independent Terminal ID. Its canonical identity is the owning equipment identity plus the exact, case-sensitive terminal role.
+- Replaced the proposed terminal_id field with terminal_role. The visible designation remains a separate display label and is not part of stable identity.
+- InstrumentationWiringService now validates every referenced equipment/terminal pair against the candidate project's canonical Network before activation. Missing owners, missing roles, duplicate matching roles, and cross-project/unregistered identities fail closed.
+- Project activation passes the exact candidate Network into this validation and preserves service/network identity in rollback snapshots.
+- Added a test source for rejection of terminal references absent from the active Network. Positive save/reopen and live project activation remain unexecuted.
+
+Application mutation command slice:
+- Added SetInstrumentationWiringInventoryCommand as an explicit reversible Application command. It carries immutable expected and replacement inventory snapshots.
+- Registered the command handler in the canonical Application command registry; it is bound to the project-scoped InstrumentationWiringService.
+- The handler requires an active transaction, exact active Network identity, an unchanged expected inventory snapshot, and valid candidate Core terminal references before mutation.
+- The inventory replacement is atomic and records a stale-state-safe undo closure. Undo rejects if project identity, activation generation, Network identity, or installed inventory object has changed. Redo re-executes the original command through CommandManager.
+- This is the aggregate mutation boundary; user-facing typed create/update/delete builders and project-scoped tag allocation policy are still outstanding.
+- Added test source for transactional replacement, undo journal restoration and stale expected-snapshot rejection. Tests remain unexecuted.
+
+Project-scoped identification and tag allocation:
+- Added immutable WiringTagSeries and WiringTagPolicy Core value objects. Each series explicitly defines record category, prefix, separator, minimum digit width and next sequence number.
+- No IEC, ISA, plant or vendor tag syntax is assumed. A project must configure its own series before automatic allocation is available.
+- Allocation is pure: it skips tags already present in the corresponding inventory category and returns the next tag plus an advanced policy snapshot. The counter is not consumed until the resulting inventory is committed through the reversible Application command.
+- Persisted the policy inside instrumentation_wiring schema 2 and advanced project schema 6 to 7. The 6-to-7 migration adds an empty policy only; it does not create tag conventions or renumber existing records.
+- Added test source for explicit separator/prefix formatting, collision skipping, migration, and transactional policy-counter consumption. Tests remain unexecuted.
+- Typed record-level CRUD builders remain outstanding; the aggregate reversible command is currently the only mutation endpoint.
+
+Typed record operations and detached read boundary:
+- Added Application command builders for adding, updating and removing CableAssembly, CableCore, PanelWire, SignalDefinition and SignalCarrierBinding records. All operations reduce to the single reversible inventory command, preserving one atomic aggregate mutation boundary and normal command history.
+- Add rejects duplicate stable IDs; updates locate by immutable stable ID; removals reconstruct the aggregate and therefore fail closed while dependent cable cores or signal-carrier bindings still reference the record.
+- Add can accept the advanced tag-policy inventory returned by allocate_tag(), so the tag counter and new record are committed atomically in one command. A tag allocation alone never consumes the counter.
+- Added InstrumentationWiringReadModel as a detached immutable Application DTO. Nested record data is recursively frozen; Core dataclass instances and canvas geometry are not exposed.
+- Added Application.read_instrumentation_wiring(), guarded by active project lifecycle state, and injected the project-scoped wiring service through the composition root.
+- Added test source for typed add/update/remove, duplicate identity/tag rejection, dangling dependency prevention, dependency-ordered removal, detached read model immutability and projectless read rejection. Tests remain unexecuted.
+
+SLD physical instrumentation wiring projection:
+- Added a renderer-neutral SLD adapter that consumes only the detached Application InstrumentationWiringReadModel and the active SLDDocument model.
+- Each CableCore terminal path becomes ordered presentation segments, one segment per consecutive terminal hop. Every segment retains carrier/core identity, cable assembly identity/tag, core number, conductor role and associated signal tags.
+- PanelWire terminal paths use the same projection contract while retaining their distinct carrier identity.
+- Terminal endpoints resolve only through an exact unique SLD node equipment_id match and preserve the canonical terminal_role. Missing or duplicate equipment nodes produce an explicit unresolved record with diagnostics; the adapter never guesses a node or emits partial segments for an incomplete carrier.
+- Empty/unassigned terminal paths remain visible as unresolved projection records and are not drawn as if connected.
+- Projection is read-only: it does not add SLDConnection document records, mutate Core topology, allocate IDs, or duplicate physical cable/core identity in SLD persistence.
+- Added SLDController.read_instrumentation_wiring_projection() as the active-document integration boundary and lazy exports for the presentation DTOs/adapter.
+- Added regression test source for multi-hop core projection, signal provenance, absent/ambiguous node handling, unassigned paths, and non-mutation of SLDModel. Tests remain unexecuted; no Qt canvas realization or GUI drawing is claimed in this slice.
+
+SLD Canvas snapshot and render realization hand-off:
+- Extended the renderer-neutral SLDCanvasSnapshot projection to accept the explicit physical wiring projection and append transient SLDCanvasConnection render inputs for each physical conductor segment.
+- Render inputs retain cable/core/wire identity, role, segment index and signal tags in detached properties. They use stable projection IDs scoped by carrier and segment.
+- Unresolved carrier diagnostics are exposed on SLDCanvasSnapshot.physical_wiring_diagnostics; incomplete carriers contribute no render connections.
+- Physical wiring uses the SLD default presentation layer and the existing terminal-anchor resolver, ConnectionRouter and SLDConnectionItem realization path. The existing renderer therefore tracks endpoint movement/rotation without introducing a second graphics subsystem.
+- Prevented projected physical wiring items from binding to the authored SLD route-edit controller: their geometry is regenerated from canonical terminal paths and their projection IDs are not persisted SLD connection IDs.
+- The render snapshot path is still transient: no SLDDocument connection is added and no Core topology mutation is performed.
+- Added canvas projection test source for segment metadata, terminal identity, signal provenance, unresolved diagnostics and document non-mutation. Tests and Qt realization remain unexecuted.
+
+Renderer realization contract for transient instrumentation segments:
+- Canvas projection converts resolved physical conductor segments into renderer-neutral SLDCanvasConnection values in the committed canvas snapshot, while retaining their instrumentation_wiring projection source marker and stable carrier/segment identity.
+- Existing SLDCanvasRenderSystem then uses the canonical SLDEndpointResolver, ConnectionRouter and SLDGraphicsItemFactory path. Equipment rotation/mirroring therefore re-resolves terminal anchors through the existing realization mechanism.
+- Projected wiring connections are read-only: SLDCanvasRenderSystem does not bind them to the persisted SLD route-edit controller. Their route is regenerated from canonical terminal path and auto-routing; authored SLD connection route state is not created or overwritten.
+- The canvas snapshot exposes unresolved carrier diagnostics separately and contributes no graphics connection for incomplete paths.
+- Added renderer-input test source for segment metadata and diagnostics. Runtime Qt rendering and composition-root automatic provider binding are still outstanding; current SLDController projection API and SLDCanvasProjection input contract are available for that integration.
+
+Transient projection identity collision protection:
+- Namespaced derived physical wiring render IDs under the GridForge instrumentation-wiring projection namespace.
+- Before adding transient render inputs, SLDCanvasProjection checks each derived ID against persisted SLD connection IDs and other IDs already emitted in the same snapshot. A collision is reported as a physical wiring diagnostic and the derived connection is omitted; authored presentation connections are never replaced.
+- Added regression test source for an authored SLD connection that deliberately occupies a derived projection ID.
+
+Automatic active-canvas composition binding for physical wiring:
+- CanvasPlugin.synchronize_sld() now obtains the current physical wiring projection from the canonical CanvasComposition.sld_controller.read_instrumentation_wiring_projection() API on every active-document synchronization.
+- The plugin passes that detached snapshot into SLDCanvasSurface.present_composite_document(), which forwards it into SLDCanvasProjection.project(..., instrumentation_wiring=...).
+- This binds the read model to the actual CanvasPlugin → CanvasComposition → SLDCanvasSurface → SLDCanvasProjection → SLDCanvasRenderSystem lifecycle. Refreshes and document activations therefore rebuild transient wiring segments from the current Application inventory instead of relying on a one-time projection.
+- Project-closed handling remains unchanged and produces an empty committed snapshot; the next active-project synchronization reads the newly activated project's inventory.
+- Updated CanvasPlugin active-document test doubles for the new keyword-only contract and added a regression asserting that the active wiring projection is forwarded into the surface.
+- Test source only; no runtime, Qt, import or CI execution claimed.
+
+Physical wiring hover identification:
+- SLDGraphicsItemFactory now gives transient instrumentation-wiring connection graphics a structured hover tooltip containing carrier kind/tag, conductor role, segment index, cable assembly tag, core number and all bound signal tags.
+- This makes the physical cable/core and signal provenance discoverable on the SLD route without creating a second editable label or another identity source. The tooltip is regenerated from the Application projection on each canvas synchronization.
+- Added factory regression test source for cable/core/signal hover metadata. Test remains unexecuted.
+
+Engineer-owned physical instrumentation route geometry:
+- Added an SLDDocument metadata-owned route registry keyed by carrier kind, stable carrier ID and terminal-hop segment index. It persists only route mode/ownership/bend coordinates; cable/core/wire identity and terminal path remain exclusively in the canonical Application inventory.
+- SLDDocument validates route overrides as finite, normalized SLDRoute values with engineer ownership. Routes round-trip through the existing SLD document metadata serialization without changing Core or project electrical topology schema.
+- SLDInstrumentationWiringAdapter now attaches the matching route override to each derived physical segment. Unconfigured segments remain automatic; configured segments render as engineer-owned/manual through the existing ConnectionRouter and SLDConnectionItem route realization.
+- SLDController validates that a carrier/segment still exists in the current Application projection before accepting route geometry. It persists edits in the active SLD document and marks that document dirty; no Core connection command or electrical mutation is issued.
+- SLDConnectionItem can emit physical-carrier route bend and reset requests using carrier kind/ID/segment identity, without fabricating a Core connection ID. SLDRouteEditController dispatches those requests to the dedicated SLDController route methods. Render-system route-edit signal binding now includes these projected items.
+- Added reset-to-auto support. Clearing a route override returns the segment to automatic routing; clearing the SLD document also clears its physical route overrides.
+- Added test source for document save/reopen round-trip, automatic reset, route controller dispatch, projection override selection, bend identity and reset requests. Tests remain unexecuted; no Qt interaction, movement/rotation or save/reopen runtime is claimed.
+- Geometry policy: engineer bend coordinates are SLD scene coordinates. On equipment movement/rotation, endpoint anchors are re-resolved from stable equipment/terminal identities; engineer bend coordinates remain fixed, and the renderer joins the updated endpoints through those bends. Automatic routes are recalculated by the existing router.
+
+Physical route-edit interaction and immediate canvas refresh:
+- Added a path context menu on physical instrumentation wiring graphics with Add bend here and, for engineer-owned routes, Reset to automatic route.
+- Add bend uses the clicked scene coordinate and inserts it at the nearest route segment; bend changes are emitted as immutable requests keyed by carrier kind/ID/segment index. The graphics item does not optimistically mutate its accepted route.
+- Reset emits a distinct clear-route request. SLDRouteEditController validates the request shape and dispatches to SLDController's dedicated physical route set/clear methods.
+- CanvasComposition binds a refresh callback into the one canonical SLDRouteEditController. After a successful route edit/reset, the active document is reprojected with the latest DraftNetwork and physical wiring read model, then the existing render system reconciles the route immediately.
+- The SLD route geometry remains document metadata; Core electrical connectivity and the Application instrumentation inventory are unchanged.
+- Added test source for scene-position bend insertion, route reset, persistence, controller dispatch and refresh callback. Tests remain unexecuted; GUI context-menu operation and movement/rotation/reopen scenarios have not been runtime-verified.
+
+
+======================================================================
+GridForge V2 — SLD Wire Endpoint Hit-Testing Correction
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+Related PR: #1204
+
+Implemented:
+- Updated SnapSystem wire-start and wire-target snapping to support clicks
+  inside the actual realized Bus/equipment presentation shape when the
+  pointer is outside the normal 10-scene-unit terminal-anchor tolerance.
+- The fallback resolves to the nearest candidate returned by the registered
+  item's canonical snap_points() API. Bus clicks resolve to a declared Bus
+  attachment; equipment clicks resolve to a declared equipment terminal.
+- The fallback is restricted to WIRE_START/WIRE_TARGET intents. Placement,
+  move, route-edit and ordinary endpoint snapping retain the existing
+  tolerance contract.
+- The hit test uses item.mapFromScene() and item.contains(); it does not
+  infer endpoints from arbitrary scene geometry or symbol bounding boxes
+  outside the item's accepted hit shape.
+- When the pointer is inside a registered device shape, that device's declared
+  endpoint candidates take precedence over a nearby Bus/device anchor outside
+  the clicked shape, preventing adjacent equipment from stealing the click.
+- Exact midpoint ties between Bus attachment points resolve deterministically
+  by declared attachment order, including when both attachments are within the
+  normal snap tolerance. Ambiguous equal-distance equipment terminals
+  remain rejected rather than silently choosing a terminal.
+- Added focused regression test source for Bus bar hit-testing, equipment-body
+  hit-testing, rejection outside the symbol shape, and unchanged non-wire
+  snap tolerance behavior.
+
+Verification:
+- Source change and regression test source committed.
+- Tests, Python import/syntax execution, Qt GUI interaction and full Bus-to-
+  device matrix have not been executed in this environment.
+- PR #1204 remains draft and must be reconciled with latest main before merge.
+======================================================================
+
+
+Wire endpoint hit-testing follow-up:
+- Clicked-symbol candidates now take precedence over nearby endpoint candidates
+  belonging to other registered items, preventing adjacent Bus/device anchors
+  from stealing a wire target click.
+- Bus attachment selection is deterministic at exact midpoint ties, including
+  when multiple Bus attachments are already inside the normal snap tolerance.
+- Added overlap-priority and Bus-midpoint regression test cases.
+
+
+======================================================================
+GridForge V2 — PR #1204 Reconciliation: Latest Main Integration
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+
+Finding:
+- Reconciliation against main identified a startup-order regression inherited
+  by the feature branch: initial DraftNetwork installation called
+  Application.presentation before ProjectLifecycleService was attached.
+- Latest main also added QListWidgetItem to the centralized Qt compatibility
+  import/export surface; the feature branch had not yet incorporated it.
+
+Correction:
+- Moved initial DraftNetwork installation to immediately after
+  application.attach_project_lifecycle(lifecycle).
+- Uses lifecycle.activation_generation rather than hard-coded generation 1.
+- Preserved main's QListWidgetItem import and __all__ export in ui/core/qt.py.
+- No change to the frozen Core/Application/UI ownership boundaries.
+
+Verification:
+- Compared branch against latest main and inspected all overlapping changed
+  paths. Found and corrected the bootstrap lifecycle ordering and Qt export
+  omissions. No tests, imports, startup, or GUI runtime executed.
+- Branch still contains additional commits and requires a final full
+  reconciliation review before PR #1204 can be merged.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Wire endpoint hit-test fixture correction
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+
+Finding:
+- Follow-up source review found one regression test calling the shared
+  _system(monkeypatch, item) fixture with an extra EquipmentItem class
+  argument. This would raise TypeError before exercising the outside-shape
+  rejection behavior.
+
+Correction:
+- Corrected the fixture invocation to pass only the candidate equipment item.
+- No production snapping behavior changed.
+
+Verification:
+- Test source and fixture signature inspected after correction.
+- Test execution remains outstanding; no pytest, import, or GUI run is claimed.
+======================================================================
+
 
 ======================================================================
 GridForge V2 — Application Bootstrap Lifecycle Ordering Correction
@@ -3730,4 +3984,36 @@ Disposition:
   stale-age configuration tracked by #1047.
 - Wider Control/Protection consumer freshness and timestamp-domain policy
   remains tracked separately by #1031 and #1049.
+======================================================================
+
+
+======================================================================
+GridForge V2 — PR #1204 Mainline Merge Reconciliation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+PR: #1204
+
+Reconciliation:
+- Created merge commit f841a35efa524f82c9ea0ddc2e0359659142ea9d.
+- Merge commit parents are feature head b5e62c1708823e77a6df77740f12f72ab54c98b1
+  and main head 79a9aa8cf2bb81c20d117c102fd7655a4b0ef63f.
+- Carried forward main-only measurement-channel staleness model/test and
+  SLD action-catalog changes.
+- Verified overlapping bootstrap and Qt files preserve main's additions;
+  branch bootstrap retains instrumentation wiring lifecycle composition.
+- Carried forward main's Modification_Register entries and retained the
+  feature branch's wiring-specific register entries.
+- PR now targets latest main and GitHub reports mergeable=true, ahead-only.
+- Marked PR ready for review.
+
+Merge blocker:
+- GitHub rejected merge operation with HTTP 403 because the authenticated
+  account has no verified email address. PR remains open and unmerged.
+- Issue #1203 remains open pending successful PR merge.
+
+Verification:
+- Git history, merge parents, branch head, compare result and mergeability
+  were inspected. No pytest, import, application startup, save/reopen or
+  GUI interaction was executed.
 ======================================================================

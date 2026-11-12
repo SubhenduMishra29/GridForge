@@ -34,6 +34,11 @@ from core.protection.project_configuration import ProtectionProjectConfiguration
 from core.application.services.validation_service import ValidationService, ValidationSeverity
 
 from .network_serializer import deserialize_network, serialize_network
+from .instrument_wiring_serializer import (
+    deserialize_instrumentation_wiring,
+    serialize_instrumentation_wiring,
+)
+from core.model.instrument_wiring import InstrumentationWiringInventory
 from .migration import ProjectPersistenceMigration, ProjectMigrationError, SLDMigrationError, validate_canonical_sld
 from .project_package import (
     MANIFEST_NAME,
@@ -65,6 +70,7 @@ class LoadedProject:
     protection_presentation: Mapping[str, Any] | None = None
     control_signal_mapping: ControlSignalMapping | None = None
     study_cases: tuple[StudyCaseDefinition, ...] = ()
+    instrumentation_wiring: InstrumentationWiringInventory = InstrumentationWiringInventory()
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -197,6 +203,11 @@ class ProjectPersistenceService:
         if len({case.study_id for case in study_cases}) != len(study_cases):
             raise ProjectPersistenceError("Persisted Study Cases contain duplicate study identities.")
 
+        try:
+            instrumentation_wiring = deserialize_instrumentation_wiring(project["instrumentation_wiring"])
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ProjectPersistenceError(f"Invalid persisted instrumentation wiring inventory: {exc}") from exc
+
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(
             context, network, presentation, presentation_collection,
@@ -217,6 +228,7 @@ class ProjectPersistenceService:
             draft_network_collection=draft_network_collection,
             protection_presentation=protection_presentation,
             study_cases=study_cases,
+            instrumentation_wiring=instrumentation_wiring,
         )
 
     def save(self, context: ProjectContext, network: Network,
@@ -231,7 +243,8 @@ class ProjectPersistenceService:
              draft_network_collection: DraftNetworkCollection | None = None,
              protection_presentation: Mapping[str, Any] | None = None,
              presentation_collection: Mapping[str, Any] | None = None,
-             study_cases: Sequence[StudyCaseDefinition] = ()) -> None:
+             study_cases: Sequence[StudyCaseDefinition] = (),
+             instrumentation_wiring: InstrumentationWiringInventory | None = None) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -291,6 +304,10 @@ class ProjectPersistenceService:
             control_configuration.validate()
         if control_signal_mapping is not None and not isinstance(control_signal_mapping, ControlSignalMapping):
             raise TypeError("control_signal_mapping must be ControlSignalMapping or None.")
+        if instrumentation_wiring is not None and not isinstance(instrumentation_wiring, InstrumentationWiringInventory):
+            raise TypeError("instrumentation_wiring must be an InstrumentationWiringInventory or None.")
+        if instrumentation_wiring is None:
+            instrumentation_wiring = InstrumentationWiringInventory()
         if not isinstance(study_cases, Sequence) or any(
             not isinstance(item, StudyCaseDefinition) for item in study_cases
         ):
@@ -374,6 +391,7 @@ class ProjectPersistenceService:
             "dynamic_models": [item.to_dict() for item in dynamic_models],
             "measurement": {"channels": [dict(item) for item in measurement_definitions]},
             "study_cases": [self._serialize_study_case(item) for item in study_cases],
+            "instrumentation_wiring": serialize_instrumentation_wiring(instrumentation_wiring),
         }
         if protection_snapshot is not None:
             project["protection"] = protection_snapshot.to_dict()
@@ -718,7 +736,7 @@ class ProjectPersistenceService:
         allowed = {
             "schema", "project", "network", "presentations", "dynamic_models",
             "measurement", "control", "control_signal_mapping", "protection", "protection_presentation",
-            "draft_network", "draft_networks", "study_cases",
+            "draft_network", "draft_networks", "study_cases", "instrumentation_wiring",
         }
         unknown = sorted(set(project) - allowed)
         if unknown:
@@ -775,6 +793,9 @@ class ProjectPersistenceService:
                 raise ProjectPersistenceError(f"Canonical {key} payload must be an object.")
         if "draft_network" in project and "draft_networks" in project:
             raise ProjectPersistenceError("Canonical project cannot contain both draft_network and draft_networks.")
+        wiring = project.get("instrumentation_wiring")
+        if not isinstance(wiring, Mapping):
+            raise ProjectPersistenceError("Canonical instrumentation_wiring payload must be an object.")
         study_cases = project.get("study_cases", [])
         if not isinstance(study_cases, list) or any(not isinstance(item, Mapping) for item in study_cases):
             raise ProjectPersistenceError("Canonical study_cases must be an array of objects.")

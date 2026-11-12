@@ -252,6 +252,59 @@ class SLDDocument(Document):
         self._model.get_node(node_id).set_position(x, y)
         self.mark_modified()
 
+    INSTRUMENTATION_WIRING_ROUTES_KEY = "instrumentation_wiring_routes"
+
+    def instrumentation_wiring_routes(self) -> Dict[str, Dict[str, Any]]:
+        """Return detached presentation routes keyed by carrier kind/id/segment.
+
+        These coordinates belong to this SLD document only. They never alter
+        the canonical Core cable, core, wire or terminal connectivity.
+        """
+        routes = self.metadata.get(self.INSTRUMENTATION_WIRING_ROUTES_KEY, {})
+        if not isinstance(routes, Mapping):
+            raise ValueError("SLD instrumentation wiring routes must be a mapping.")
+        from .sld_model import SLDRoute
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for key, value in routes.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError("SLD instrumentation route keys must be non-empty strings.")
+            route = SLDRoute.from_dict(value)
+            if route.ownership != "engineer":
+                raise ValueError("Persisted instrumentation route overrides must be engineer-owned.")
+            normalized[key] = route.to_dict()
+        return normalized
+
+    def set_instrumentation_wiring_route(
+        self,
+        carrier_kind: str,
+        carrier_id: str,
+        segment_index: int,
+        points: tuple[tuple[float, float], ...] | list[tuple[float, float]],
+    ) -> None:
+        """Persist engineer-owned bend geometry without changing physical identity."""
+        if not isinstance(carrier_kind, str) or not carrier_kind.strip():
+            raise ValueError("carrier_kind must be non-empty.")
+        if not isinstance(carrier_id, str) or not carrier_id.strip():
+            raise ValueError("carrier_id must be non-empty.")
+        if isinstance(segment_index, bool) or not isinstance(segment_index, int) or segment_index < 1:
+            raise ValueError("segment_index must be a positive integer.")
+        from .sld_model import SLDRoute
+        route = SLDRoute(routing_mode="manual", ownership="engineer", points=tuple(points))
+        key = f"{carrier_kind}:{carrier_id}:{segment_index}"
+        routes = self.instrumentation_wiring_routes()
+        routes[key] = route.to_dict()
+        self.set_metadata(self.INSTRUMENTATION_WIRING_ROUTES_KEY, routes)
+
+    def clear_instrumentation_wiring_route(
+        self, carrier_kind: str, carrier_id: str, segment_index: int,
+    ) -> None:
+        key = f"{carrier_kind}:{carrier_id}:{segment_index}"
+        routes = self.instrumentation_wiring_routes()
+        if key not in routes:
+            return
+        del routes[key]
+        self.set_metadata(self.INSTRUMENTATION_WIRING_ROUTES_KEY, routes)
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the SLD document and its structural model."""
         return {
@@ -296,6 +349,8 @@ class SLDDocument(Document):
         """Clear presentation structure without touching Core."""
         self._model.clear()
         self._annotation_blocks.clear()
+        if self.instrumentation_wiring_routes():
+            self.set_metadata(self.INSTRUMENTATION_WIRING_ROUTES_KEY, {})
         self.mark_modified()
 
     def __repr__(self) -> str:

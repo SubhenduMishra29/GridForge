@@ -272,6 +272,61 @@ class _ProjectSchema4To5(ProjectMigration):
         return result
 
 
+class _ProjectSchema5To6(ProjectMigration):
+    source_schema = 5
+    target_schema = 6
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 5-to-6 received a non-schema-5 payload.")
+        # Historical projects have no canonical instrumentation wiring
+        # inventory. An empty inventory is explicit and lossless; migration
+        # never infers cable tags or terminal paths from SLD geometry.
+        result.setdefault(
+            "instrumentation_wiring",
+            {
+                "schema": 1,
+                "cables": [],
+                "cores": [],
+                "panel_wires": [],
+                "signals": [],
+                "signal_bindings": [],
+            },
+        )
+        result["schema"] = self.target_schema
+        return result
+
+
+class _ProjectSchema6To7(ProjectMigration):
+    source_schema = 6
+    target_schema = 7
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 6-to-7 received a non-schema-6 payload.")
+        wiring = result.get("instrumentation_wiring")
+        if not isinstance(wiring, Mapping):
+            raise ProjectMigrationError(
+                "Project schema 6 requires an instrumentation_wiring object for 6-to-7 migration."
+            )
+        wiring_copy = deepcopy(dict(wiring))
+        if wiring_copy.get("schema") != 1:
+            raise ProjectMigrationError(
+                "Project schema 6 requires instrumentation_wiring schema 1 for migration."
+            )
+        if "tag_policy" in wiring_copy:
+            raise ProjectMigrationError(
+                "Instrumentation wiring schema 1 cannot already contain tag_policy."
+            )
+        wiring_copy["tag_policy"] = []
+        wiring_copy["schema"] = 2
+        result["instrumentation_wiring"] = wiring_copy
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -695,6 +750,8 @@ class ProjectPersistenceMigration:
         2: _ProjectSchema2To3(),
         3: _ProjectSchema3To4(),
         4: _ProjectSchema4To5(),
+        5: _ProjectSchema5To6(),
+        6: _ProjectSchema6To7(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3(), 3: _SLDSchema3To4()}
 

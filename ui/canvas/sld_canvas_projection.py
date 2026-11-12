@@ -21,6 +21,7 @@ from core.application.read_models import ElementReadModel, StudyResultReadModel
 
 from ui.equipment.symbol.symbol_base import SymbolBase
 from ui.sld.sld_model import SLDAnnotationBlock, SLDConnection, SLDModel, SLDNode, SLDEndpoint, SLDRoute, SLDPresentationLayer
+from ui.sld.instrumentation_wiring_projection import SLDInstrumentationWiringProjection
 from ui.canvas.draft_sld_projection import DraftSLDCanvasSnapshot
 
 
@@ -99,6 +100,7 @@ class SLDCanvasSnapshot:
     nodes: tuple[SLDCanvasNode, ...]
     connections: tuple[SLDCanvasConnection, ...]
     annotations: tuple[SLDCanvasAnnotation, ...] = ()
+    physical_wiring_diagnostics: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,19 +149,76 @@ class SLDCanvasProjection:
         model: SLDModel,
         annotation_blocks: tuple[SLDAnnotationBlock, ...] | list[SLDAnnotationBlock] = (),
         layers: tuple[SLDPresentationLayer, ...] | list[SLDPresentationLayer] = (),
+        instrumentation_wiring: SLDInstrumentationWiringProjection | None = None,
     ) -> SLDCanvasSnapshot:
         """Project SLD structure and resolve annotation values from Application read models."""
         if not isinstance(model, SLDModel):
             raise TypeError("model must be an SLDModel.")
+        if instrumentation_wiring is not None and not isinstance(instrumentation_wiring, SLDInstrumentationWiringProjection):
+            raise TypeError("instrumentation_wiring must be an SLDInstrumentationWiringProjection or None.")
         layer_by_id = {layer.layer_id: layer for layer in layers}
         if not layer_by_id:
             layer_by_id = {"default": SLDPresentationLayer("default", "Default")}
         nodes = tuple(self._project_node(node, self._require_layer(layer_by_id, node.layer_id)) for node in model.nodes)
         connections = tuple(self._project_connection(connection, self._require_layer(layer_by_id, connection.layer_id)) for connection in model.connections)
+        physical_diagnostics: tuple[str, ...] = ()
+        if instrumentation_wiring is not None:
+            if "default" not in layer_by_id:
+                raise ValueError("Physical instrumentation wiring requires the SLD default presentation layer.")
+            physical_connections = []
+            diagnostics = []
+            occupied_connection_ids = {item.connection_id for item in model.connections}
+            projected_connection_ids: set[str] = set()
+            for record in instrumentation_wiring.records:
+                diagnostics.extend(
+                    f"{record.carrier_kind} {record.carrier_tag}: {message}"
+                    for message in record.diagnostics
+                )
+                for segment in record.segments:
+                    if segment.projection_id in occupied_connection_ids or segment.projection_id in projected_connection_ids:
+                        diagnostics.append(
+                            f"{record.carrier_kind} {record.carrier_tag}: transient projection identity "
+                            f"{segment.projection_id!r} collides with another SLD connection."
+                        )
+                        continue
+                    projected_connection_ids.add(segment.projection_id)
+                    physical_connections.append(SLDCanvasConnection(
+                        connection_id=segment.projection_id,
+                        source_node_id=segment.source.node_id,
+                        target_node_id=segment.target.node_id,
+                        source_endpoint=segment.source,
+                        target_endpoint=segment.target,
+                        route=segment.route,
+                        connection_kind="instrumentation",
+                        presentation_owner="application_projection",
+                        projection_source="instrumentation_wiring",
+                        properties=MappingProxyType({
+                            "carrier_kind": segment.carrier_kind,
+                            "carrier_id": segment.carrier_id,
+                            "carrier_tag": segment.carrier_tag,
+                            "conductor_role": segment.conductor_role,
+                            "segment_index": segment.segment_index,
+                            "cable_id": segment.cable_id,
+                            "cable_tag": segment.cable_tag,
+                            "core_id": segment.core_id,
+                            "core_number": segment.core_number,
+                            "signal_tags": segment.signal_tags,
+                        }),
+                        layer_id="default",
+                        layer_visible=layer_by_id["default"].visible,
+                        layer_opacity=layer_by_id["default"].opacity,
+                        layer_order=layer_by_id["default"].order,
+                        layer_locked=layer_by_id["default"].locked,
+                    ))
+            connections += tuple(physical_connections)
+            physical_diagnostics = tuple(diagnostics)
         nodes_by_id = {node.node_id: node for node in nodes}
         annotations = tuple(self._project_annotation(block, nodes_by_id, self._require_layer(layer_by_id, block.layer_id)) for block in annotation_blocks)
         annotations += self._project_study_result_annotations(nodes, self._study_result)
-        return SLDCanvasSnapshot(nodes=nodes, connections=connections, annotations=annotations)
+        return SLDCanvasSnapshot(
+            nodes=nodes, connections=connections, annotations=annotations,
+            physical_wiring_diagnostics=physical_diagnostics,
+        )
 
     @staticmethod
     def _require_layer(layers: Mapping[str, SLDPresentationLayer], layer_id: str) -> SLDPresentationLayer:

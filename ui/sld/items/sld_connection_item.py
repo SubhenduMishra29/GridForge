@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Iterable
 import math
 
-from ui.core.qt import QObject, QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, Signal
+from ui.core.qt import QObject, QGraphicsItem, QGraphicsPathItem, QPainterPath, QPainterPathStroker, QPen, QPointF, QMenu, Signal
 from ui.sld.sld_model import SLDEndpoint
 from ui.styling.presentation_style import VisualState, visual_pen
 
@@ -35,6 +35,7 @@ class SLDConnectionItem(QGraphicsPathItem):
         presentation_owner: str | None = None,
         projection_source: str | None = None,
         core_connection_id: str | None = None,
+        instrumentation_route_identity: tuple[str, str, int] | None = None,
     ) -> None:
         for name, value in (("object_id", object_id), ("source_object_id", source_object_id), ("target_object_id", target_object_id)):
             if not isinstance(value, str) or not value:
@@ -55,6 +56,11 @@ class SLDConnectionItem(QGraphicsPathItem):
         self._connection_kind = connection_kind
         self._presentation_owner = presentation_owner
         self._projection_source = projection_source
+        if instrumentation_route_identity is not None:
+            kind, carrier_id, segment_index = instrumentation_route_identity
+            if not kind or not carrier_id or isinstance(segment_index, bool) or not isinstance(segment_index, int) or segment_index < 1:
+                raise ValueError("instrumentation route identity must contain carrier kind, carrier ID and positive segment index")
+        self._instrumentation_route_identity = instrumentation_route_identity
         self._route_points: tuple[tuple[float, float], ...] = ()
         self._route_ownership = "auto"
         self._visual_source = QPointF()
@@ -267,8 +273,9 @@ class SLDConnectionItem(QGraphicsPathItem):
     def insert_bend(self, index: int, x: float, y: float) -> tuple[tuple[float, float], ...]:
         """Insert one authored bend into a draft or persistent route proposal."""
         is_draft = self._projection_source == "draft_network"
-        if self._core_connection_id is None and not is_draft:
-            raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
+        is_instrumentation = self._projection_source == "instrumentation_wiring" and self._instrumentation_route_identity is not None
+        if self._core_connection_id is None and not is_draft and not is_instrumentation:
+            raise RuntimeError("Cannot edit route without an explicit Core, DraftNetwork or physical carrier identity.")
         if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index > len(self._route_points):
             raise IndexError(index)
         point = (float(x), float(y))
@@ -282,6 +289,9 @@ class SLDConnectionItem(QGraphicsPathItem):
             "core_connection_id": self._core_connection_id,
             "points": proposed_route,
         }
+        if is_instrumentation:
+            kind, carrier_id, segment_index = self._instrumentation_route_identity
+            request.update({"instrumentation_wiring": True, "carrier_kind": kind, "carrier_id": carrier_id, "segment_index": segment_index})
         if is_draft:
             request["draft_connection_id"] = self._presentation_id
         self.route_edit_requested.emit(request)
@@ -295,8 +305,9 @@ class SLDConnectionItem(QGraphicsPathItem):
         Application command decides whether the persistent SLD route changes.
         """
         is_draft = self._projection_source == "draft_network"
-        if self._core_connection_id is None and not is_draft:
-            raise RuntimeError("Cannot edit route without an explicit Core or DraftNetwork connection identity.")
+        is_instrumentation = self._projection_source == "instrumentation_wiring" and self._instrumentation_route_identity is not None
+        if self._core_connection_id is None and not is_draft and not is_instrumentation:
+            raise RuntimeError("Cannot edit route without an explicit Core, DraftNetwork or physical carrier identity.")
         if isinstance(index, bool) or not isinstance(index, int) or index < 0 or index >= len(self._route_points):
             raise IndexError(index)
         if any(
@@ -318,10 +329,77 @@ class SLDConnectionItem(QGraphicsPathItem):
             "core_connection_id": self._core_connection_id,
             "points": proposed_route,
         }
+        if is_instrumentation:
+            kind, carrier_id, segment_index = self._instrumentation_route_identity
+            request.update({"instrumentation_wiring": True, "carrier_kind": kind, "carrier_id": carrier_id, "segment_index": segment_index})
         if is_draft:
             request["draft_connection_id"] = self._presentation_id
         self.route_edit_requested.emit(request)
         return proposed_route
+
+    def insert_instrumentation_bend_at(self, position: QPointF) -> tuple[tuple[float, float], ...]:
+        """Insert a bend at a scene position near this physical conductor path."""
+        if self._projection_source != "instrumentation_wiring" or self._instrumentation_route_identity is None:
+            raise RuntimeError("Only a physical instrumentation wiring segment supports this route action.")
+        px, py = float(position.x()), float(position.y())
+        polyline = [
+            (float(self._visual_source.x()), float(self._visual_source.y())),
+            *self._route_points,
+            (float(self._visual_target.x()), float(self._visual_target.y())),
+        ]
+        best_distance = float("inf")
+        best_index = 0
+        for index, (start, end) in enumerate(zip(polyline, polyline[1:])):
+            ax, ay = start
+            bx, by = end
+            dx, dy = bx - ax, by - ay
+            length_sq = dx * dx + dy * dy
+            if length_sq <= 0.0:
+                continue
+            ratio = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length_sq))
+            nearest = (ax + ratio * dx, ay + ratio * dy)
+            distance = math.hypot(px - nearest[0], py - nearest[1])
+            if distance < best_distance:
+                best_distance = distance
+                best_index = index
+        return self.insert_bend(best_index, px, py)
+
+    def contextMenuEvent(self, event) -> None:
+        """Expose physical route bend and reset actions directly on the SLD path."""
+        if self._projection_source != "instrumentation_wiring" or self._instrumentation_route_identity is None:
+            event.ignore()
+            return
+        menu = QMenu()
+        add_bend_action = menu.addAction("Add bend here")
+        reset_action = None
+        if self._route_ownership == "engineer":
+            reset_action = menu.addAction("Reset to automatic route")
+        selected = menu.exec(event.screenPos())
+        if selected is add_bend_action:
+            self.insert_instrumentation_bend_at(event.scenePos())
+            event.accept()
+            return
+        if reset_action is not None and selected is reset_action:
+            self.reset_instrumentation_route()
+            event.accept()
+            return
+        event.ignore()
+
+    def reset_instrumentation_route(self) -> None:
+        """Request removal of engineer-owned bends for this physical segment."""
+        if self._projection_source != "instrumentation_wiring" or self._instrumentation_route_identity is None:
+            raise RuntimeError("Only a physical instrumentation wiring segment has a resettable route.")
+        kind, carrier_id, segment_index = self._instrumentation_route_identity
+        self.route_edit_requested.emit({
+            "connection_id": self._presentation_id,
+            "core_connection_id": None,
+            "instrumentation_wiring": True,
+            "carrier_kind": kind,
+            "carrier_id": carrier_id,
+            "segment_index": segment_index,
+            "clear_route": True,
+            "points": (),
+        })
 
     def _rebuild_visual_path(self) -> None:
         """Rebuild the visible path from the last accepted realized route."""

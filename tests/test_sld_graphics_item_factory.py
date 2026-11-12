@@ -108,3 +108,120 @@ def test_factory_keeps_missing_core_connection_identity_non_selectable() -> None
     assert item.presentation_id == "line-orphan"
     assert item.core_connection_id is None
     assert item.object_id is None
+
+def test_instrumentation_wiring_item_exposes_cable_core_and_signal_tags_on_hover():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:CABLE_CORE:core-1:1",
+        source_node_id="ct-node",
+        target_node_id="tb-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "CABLE_CORE",
+            "carrier_tag": "IC-001/1",
+            "conductor_role": "SIGNAL",
+            "segment_index": 1,
+            "cable_tag": "IC-001",
+            "core_number": 1,
+            "signal_tags": ("IA_A", "IA_B"),
+        },
+    )
+    item = factory.create_connection(connection, QPointF(10.0, 20.0), QPointF(40.0, 50.0))
+
+    assert item.projection_source == "instrumentation_wiring"
+    assert "CABLE_CORE: IC-001/1" in item.toolTip()
+    assert "Cable: IC-001" in item.toolTip()
+    assert "Core: 1" in item.toolTip()
+    assert "Signals: IA_A, IA_B" in item.toolTip()
+
+def test_instrumentation_wiring_route_bend_emits_carrier_identity_not_core_identity():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:CABLE_CORE:core-1:1",
+        source_node_id="ct-node",
+        target_node_id="tb-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(routing_mode="manual", ownership="engineer", points=((20.0, 30.0),)),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "CABLE_CORE", "carrier_id": "core-1",
+            "segment_index": 1, "carrier_tag": "IC-001/1",
+        },
+    )
+    item = factory.create_connection(connection, QPointF(0.0, 0.0), QPointF(50.0, 0.0))
+    requests = []
+    item.route_edit_requested.connect(requests.append)
+
+    proposed = item.set_bend(0, 25.0, 35.0)
+
+    assert proposed == ((25.0, 35.0),)
+    assert requests[0]["instrumentation_wiring"] is True
+    assert requests[0]["carrier_kind"] == "CABLE_CORE"
+    assert requests[0]["carrier_id"] == "core-1"
+    assert requests[0]["segment_index"] == 1
+    assert requests[0]["core_connection_id"] is None
+    assert item.route_points() == ((20.0, 30.0),)
+
+def test_instrumentation_wiring_item_can_request_reset_to_automatic_route():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:PANEL_WIRE:wire-1:1",
+        source_node_id="tb-node",
+        target_node_id="relay-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(routing_mode="manual", ownership="engineer", points=((20.0, 30.0),)),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "PANEL_WIRE", "carrier_id": "wire-1",
+            "segment_index": 1, "carrier_tag": "W-001",
+        },
+    )
+    item = factory.create_connection(connection, QPointF(0.0, 0.0), QPointF(50.0, 0.0))
+    requests = []
+    item.route_edit_requested.connect(requests.append)
+
+    item.reset_instrumentation_route()
+
+    assert requests[0]["clear_route"] is True
+    assert requests[0]["carrier_kind"] == "PANEL_WIRE"
+    assert requests[0]["carrier_id"] == "wire-1"
+    assert requests[0]["segment_index"] == 1
+    assert requests[0]["points"] == ()
+
+def test_instrumentation_wiring_bend_can_be_inserted_at_scene_position():
+    factory = _factory()
+    connection = SLDCanvasConnection(
+        connection_id="__gf_projection__:instrumentation_wiring:CABLE_CORE:core-1:1",
+        source_node_id="ct-node",
+        target_node_id="tb-node",
+        source_endpoint=None,
+        target_endpoint=None,
+        route=SLDRoute(),
+        connection_kind="instrumentation",
+        presentation_owner="application_projection",
+        projection_source="instrumentation_wiring",
+        properties={
+            "carrier_kind": "CABLE_CORE", "carrier_id": "core-1",
+            "segment_index": 1, "carrier_tag": "IC-001/1",
+        },
+    )
+    item = factory.create_connection(connection, QPointF(0.0, 0.0), QPointF(100.0, 0.0))
+    requests = []
+    item.route_edit_requested.connect(requests.append)
+
+    proposed = item.insert_instrumentation_bend_at(QPointF(50.0, 20.0))
+
+    assert proposed == ((50.0, 20.0),)
+    assert requests[0]["instrumentation_wiring"] is True
+    assert requests[0]["points"] == ((50.0, 20.0),)

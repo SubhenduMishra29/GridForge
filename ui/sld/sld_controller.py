@@ -7,10 +7,10 @@
 # ============================================================
 """Controller for the presentation-owned SLD workflow.
 
-The controller coordinates document structure and interaction state. Persistent
-SLD mutations are submitted to the Application command boundary; the
-controller never mutates the SLD document directly or composes Application
-services.
+The controller coordinates SLD document structure, presentation geometry and
+interaction state. Electrical/domain mutations cross the Application command
+boundary; document-owned presentation metadata is persisted by SLDDocument.
+The controller never composes Application services.
 """
 
 from __future__ import annotations
@@ -624,6 +624,22 @@ class SLDController:
         self._state.clear_selection()
         self._state.mark_dirty()
         return True
+    def read_instrumentation_wiring_projection(self):
+        """Project canonical physical wiring onto the active SLD document nodes.
+
+        The returned value is a detached presentation snapshot. This method
+        does not add SLDConnection records, mutate Core topology, or persist
+        duplicate cable/wire identity in the document.
+        """
+        document = self._require_active_document()
+        from .instrumentation_wiring_projection import SLDInstrumentationWiringAdapter
+
+        read_model = self.application.read_instrumentation_wiring()
+        return SLDInstrumentationWiringAdapter().project(
+            read_model, document.model,
+            route_overrides=document.instrumentation_wiring_routes(),
+        )
+
     def add_connection(self, connection: SLDConnection) -> None:
         self._require_active_document()
         document = self._require_active_document()
@@ -641,6 +657,45 @@ class SLDController:
         ))
         if not result.success:
             raise RuntimeError(result.message)
+        self._state.mark_dirty()
+
+    def set_instrumentation_wiring_route(
+        self,
+        carrier_kind: str,
+        carrier_id: str,
+        segment_index: int,
+        points: tuple[tuple[float, float], ...] | list[tuple[float, float]],
+    ) -> None:
+        """Persist SLD-only physical route geometry for a canonical carrier segment."""
+        document = self._require_active_document()
+        # Re-read the Application inventory and resolve the requested carrier
+        # identity before accepting presentation geometry.
+        projection = self.read_instrumentation_wiring_projection()
+        match = next((
+            segment for segment in projection.segments
+            if segment.carrier_kind == carrier_kind
+            and segment.carrier_id == carrier_id
+            and segment.segment_index == segment_index
+        ), None)
+        if match is None:
+            raise ValueError("Physical wiring route target is not present in the active Application projection.")
+        document.set_instrumentation_wiring_route(carrier_kind, carrier_id, segment_index, points)
+        self._state.mark_dirty()
+
+    def clear_instrumentation_wiring_route(
+        self, carrier_kind: str, carrier_id: str, segment_index: int,
+    ) -> None:
+        """Return one physical segment to automatic presentation routing."""
+        document = self._require_active_document()
+        projection = self.read_instrumentation_wiring_projection()
+        if not any(
+            segment.carrier_kind == carrier_kind
+            and segment.carrier_id == carrier_id
+            and segment.segment_index == segment_index
+            for segment in projection.segments
+        ):
+            raise ValueError("Physical wiring route target is not present in the active Application projection.")
+        document.clear_instrumentation_wiring_route(carrier_kind, carrier_id, segment_index)
         self._state.mark_dirty()
 
     def set_connection_route(
