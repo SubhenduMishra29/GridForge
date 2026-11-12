@@ -63,7 +63,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -5079,6 +5079,40 @@ class Application:
         if service is None:
             raise RuntimeError("Application instrumentation wiring service is not configured.")
         return service.read_model()
+
+    def read_instrumentation_wiring_endpoint_resolution(
+        self,
+    ) -> tuple[SignalEndpointResolutionReadModel, ...]:
+        """Resolve wiring endpoint references against active Application owners."""
+        lifecycle = self.project_lifecycle
+        if not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Signal endpoint resolution requires an active project.")
+        service = self._instrumentation_wiring_service
+        if service is None:
+            raise RuntimeError("Application instrumentation wiring service is not configured.")
+
+        from .instrumentation_wiring_endpoint_resolver import resolve_signal_endpoint_bindings
+
+        try:
+            channels = self.read_measurement_channels()
+        except RuntimeError:
+            channels = None
+        control_mapping = (
+            self._dynamic_control_signal_mapping
+            if self._dynamic_control_signal_mapping is not None
+            else self._control_signal_mapping
+        )
+        protection_service = getattr(self, "protection_configuration_service", None)
+        protection_configuration = (
+            getattr(protection_service, "configuration", None)
+            if protection_service is not None else None
+        )
+        return resolve_signal_endpoint_bindings(
+            service.inventory,
+            measurement_channels=channels,
+            control_signal_mapping=control_mapping,
+            protection_configuration=protection_configuration,
+        )
 
     def read_measurement_channels(self) -> tuple[MeasurementChannelReadModel, ...]:
         """Return immutable snapshots of the active project's MeasurementChannels."""
