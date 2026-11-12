@@ -363,7 +363,11 @@ class MeasurementChannelService:
             return ApplicationResult.success_result(
                 value=channel.id,
                 message=f"CT secondary measurement channel updated: {normalized_id}",
-                metadata={"channel_id": normalized_id},
+                metadata={
+                    "channel_id": normalized_id,
+                    "source_id": channel.source_id,
+                    "terminal_role": channel.source_terminal.terminal_role,
+                },
             )
 
     def delete_channel(
@@ -383,7 +387,11 @@ class MeasurementChannelService:
             return ApplicationResult.success_result(
                 value=channel.id,
                 message=f"CT secondary measurement channel deleted: {normalized_id}",
-                metadata={"channel_id": normalized_id},
+                metadata={
+                    "channel_id": normalized_id,
+                    "source_id": channel.source_id,
+                    "terminal_role": channel.source_terminal.terminal_role,
+                },
             )
 
     @staticmethod
