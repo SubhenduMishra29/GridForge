@@ -244,7 +244,116 @@ class WashoutLeadLagPSS(DynamicPlugin):
                 "parameters": self.parameters}
 
 
+@dataclass(frozen=True, slots=True)
+class TGOV1Parameters:
+    """IEEE TGOV1 steam-governor parameters on the connected machine base.
+
+    T1 is the steam-bowl/governor time constant, T2 the reheater numerator
+    time constant, and T3 the reheater lag time constant. All power and
+    speed quantities are per-unit on the same declared base.
+    """
+    droop_pu: float
+    t1_s: float
+    t2_s: float
+    t3_s: float
+    valve_min_pu: float = 0.0
+    valve_max_pu: float = 1.0
+    turbine_damping_pu: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name in ("droop_pu", "t1_s", "t3_s"):
+            value = _number(getattr(self, name), name)
+            if value <= 0.0:
+                raise ValueError(f"{name} must be greater than zero")
+            object.__setattr__(self, name, value)
+        t2 = _number(self.t2_s, "t2_s")
+        if t2 < 0.0:
+            raise ValueError("t2_s must be non-negative")
+        object.__setattr__(self, "t2_s", t2)
+        low = _number(self.valve_min_pu, "valve_min_pu")
+        high = _number(self.valve_max_pu, "valve_max_pu")
+        if low >= high:
+            raise ValueError("valve limits must satisfy minimum < maximum")
+        object.__setattr__(self, "valve_min_pu", low)
+        object.__setattr__(self, "valve_max_pu", high)
+        damping = _number(self.turbine_damping_pu, "turbine_damping_pu")
+        if damping < 0.0:
+            raise ValueError("turbine_damping_pu must be non-negative")
+        object.__setattr__(self, "turbine_damping_pu", damping)
+
+
+class TGOV1SteamGovernor(DynamicPlugin):
+    """Two-state IEEE TGOV1 steam governor/reheater block.
+
+    States are valve position Pv and reheater/turbine power Pt. The output
+    Pm = Pt - Dt*speed_deviation. The caller supplies the reference and
+    speed at every integrator stage; this object owns no simulation clock.
+    """
+    model_type = "IEEE_TGOV1_STEAM_GOVERNOR"
+    state_names: ClassVar[tuple[str, ...]] = (
+        "valve_position_pu", "turbine_power_pu",
+    )
+
+    def __init__(self, parameters: TGOV1Parameters) -> None:
+        if not isinstance(parameters, TGOV1Parameters):
+            raise TypeError("parameters must be TGOV1Parameters")
+        self.parameters = parameters
+
+    def initial_state(self, *, mechanical_power_pu: float,
+                      speed_deviation_pu: float = 0.0,
+                      power_reference_pu: float | None = None,
+                      **_: Any) -> tuple[float, ...]:
+        pm = _number(mechanical_power_pu, "mechanical_power_pu")
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        valve = pm + self.parameters.turbine_damping_pu * speed
+        if not self.parameters.valve_min_pu <= valve <= self.parameters.valve_max_pu:
+            raise ValueError("steady-state valve position is outside TGOV1 limits")
+        expected_reference = speed + self.parameters.droop_pu * valve
+        if power_reference_pu is not None:
+            supplied = _number(power_reference_pu, "power_reference_pu")
+            if abs(supplied - expected_reference) > 1e-8:
+                raise ValueError(
+                    "power reference is inconsistent with the requested TGOV1 steady state"
+                )
+        return (valve, valve)
+
+    def derivatives(self, state: tuple[float, ...] | list[float], *,
+                    speed_deviation_pu: float, power_reference_pu: float,
+                    **_: Any) -> tuple[float, ...]:
+        self.validate_state(state)
+        valve, turbine_power = (_number(value, "TGOV1 state") for value in state)
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        reference = _number(power_reference_pu, "power_reference_pu")
+        p = self.parameters
+
+        governor_error = (reference - speed) / p.droop_pu - valve
+        d_valve = governor_error / p.t1_s
+        if (valve >= p.valve_max_pu and d_valve > 0.0) or (
+            valve <= p.valve_min_pu and d_valve < 0.0
+        ):
+            d_valve = 0.0
+
+        d_turbine = (valve + p.t2_s * d_valve - turbine_power) / p.t3_s
+        if not all(isfinite(value) for value in (d_valve, d_turbine)):
+            raise ValueError("TGOV1 derivative contains non-finite values")
+        return (d_valve, d_turbine)
+
+    def output(self, state: tuple[float, ...] | list[float], *,
+               speed_deviation_pu: float, **_: Any) -> float:
+        self.validate_state(state)
+        speed = _number(speed_deviation_pu, "speed_deviation_pu")
+        return _number(state[1], "turbine_power_pu") - self.parameters.turbine_damping_pu * speed
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "model_type": self.model_type,
+            "state_names": self.state_names,
+            "parameters": self.parameters,
+            "power_base": "connected_machine_base",
+        }
+
+
 __all__ = [
     "FirstOrderAVRParameters", "FirstOrderAVR", "TGOV1Governor",
-    "PSSParameters", "WashoutLeadLagPSS",
+    "PSSParameters", "WashoutLeadLagPSS", "TGOV1Parameters", "TGOV1SteamGovernor",
 ]
