@@ -14,6 +14,7 @@ from core.model.instrument_wiring import (
     CableCore,
     CarrierKind,
     InstrumentationWiringInventory,
+    PanelWire,
     SignalCarrierBinding,
     SignalDefinition,
     SignalEndpointBinding,
@@ -266,9 +267,7 @@ def test_multi_carrier_signal_path_resolves_when_terminal_hops_are_contiguous():
         "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
     )
     base = _signal_inventory(endpoint)
-    panel_wire = __import__(
-        "core.model.instrument_wiring", fromlist=["PanelWire"]
-    ).PanelWire(
+    panel_wire = PanelWire(
         id="jumper-1", tag="W-101", role=WiringConductorRole.SIGNAL,
         terminal_path=(
             WiringTerminalReference("TB-101", "1", "1"),
@@ -299,7 +298,6 @@ def test_multi_carrier_signal_path_reports_disconnected_jumper():
         "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
     )
     base = _signal_inventory(endpoint)
-    from core.model.instrument_wiring import PanelWire
     panel_wire = PanelWire(
         id="jumper-2", tag="W-102", role=WiringConductorRole.SIGNAL,
         terminal_path=(
