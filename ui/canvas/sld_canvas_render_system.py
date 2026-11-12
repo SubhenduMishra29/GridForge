@@ -112,7 +112,7 @@ class SLDCanvasRenderSystem:
         self._provenance_navigation_callback: Callable[[str, str], None] | None = None
         self._signal_provenance_targets: dict[str, tuple[dict[str, Any], ...]] = {}
         self._connection_signal_ids: dict[str, tuple[str, ...]] = {}
-        self._provenance_items: dict[str, tuple[Any, ...]] = ()
+        self._provenance_items: dict[str, tuple[Any, ...]] = {}
         self._diagnostic_sink: Callable[[RenderDiagnostic], None] | None = None
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
