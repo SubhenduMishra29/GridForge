@@ -78,6 +78,7 @@ class GeneratorAugmentedDAEAdapter:
         terminal_voltage_projector: TerminalVoltageProjector,
         base_mechanical_powers_pu: Mapping[str, float],
         machine_connection_state: MachineConnectionResolver | None = None,
+        require_network_convergence_evidence: bool = False,
     ) -> None:
         if not isinstance(machine_system, MultiMachineSystem):
             raise TypeError("machine_system must be the canonical MultiMachineSystem")
@@ -89,6 +90,8 @@ class GeneratorAugmentedDAEAdapter:
             raise TypeError("network solver and terminal voltage projector must be callable")
         if machine_connection_state is not None and not callable(machine_connection_state):
             raise TypeError("machine_connection_state must be callable when supplied")
+        if type(require_network_convergence_evidence) is not bool:
+            raise TypeError("require_network_convergence_evidence must be an explicit bool")
 
         canonical_slices = tuple(
             (item.machine_id, item.start, item.stop)
@@ -118,6 +121,7 @@ class GeneratorAugmentedDAEAdapter:
         self.machine_bus_ids = {machine.machine_id: machine.bus_id for machine in machine_system.machines}
         self.base_mechanical_powers_pu = dict(base_mechanical_powers_pu)
         self.machine_connection_state = machine_connection_state
+        self.require_network_convergence_evidence = require_network_convergence_evidence
 
     def initialize_state(
         self,
@@ -211,7 +215,7 @@ class GeneratorAugmentedDAEAdapter:
             )
 
         try:
-            return evaluate_generator_dynamic_stage(
+            stage = evaluate_generator_dynamic_stage(
                 global_state=global_state,
                 simulation_time_s=simulation_time_s,
                 layout=self.layout,
@@ -226,6 +230,11 @@ class GeneratorAugmentedDAEAdapter:
                 machine_derivative_evaluator=machine_derivative_evaluator,
                 machine_connection_states=connection_states,
             )
+            if self.require_network_convergence_evidence and stage.network.convergence is None:
+                raise GeneratorAugmentedIntegratorError(
+                    "host network solver omitted required algebraic convergence evidence"
+                )
+            return stage
         except Exception as exc:
             raise GeneratorAugmentedIntegratorError(
                 f"augmented generator stage failed at t={float(simulation_time_s):.12g} s"
