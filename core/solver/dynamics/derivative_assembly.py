@@ -65,6 +65,7 @@ def evaluate_composed_dynamic_derivatives(
     bindings: Sequence[DynamicComponentBinding],
     inputs: DynamicComponentInputs,
     bus_voltages: Mapping[str, complex],
+    machine_bus_ids: Mapping[str, str],
     base_mechanical_powers_pu: Mapping[str, float],
     machine_derivative_evaluator: MachineDerivativeEvaluator,
     machine_connection_states: Mapping[str, bool] | None = None,
@@ -91,8 +92,6 @@ def evaluate_composed_dynamic_derivatives(
         raise TypeError("inputs must be DynamicComponentInputs")
     if not callable(machine_derivative_evaluator):
         raise TypeError("machine_derivative_evaluator must be callable")
-    if not np.isclose(inputs.simulation_time_s, float(inputs.simulation_time_s), rtol=0.0, atol=1e-12):
-        raise DynamicDerivativeAssemblyError("component input time must be finite")
     machine_vector = np.asarray(machine_state, dtype=float)
     if machine_vector.ndim != 1 or machine_vector.size != layout.machine_state_size or not np.all(np.isfinite(machine_vector)):
         raise DynamicDerivativeAssemblyError("machine_state must match the finite machine state segment")
@@ -100,6 +99,10 @@ def evaluate_composed_dynamic_derivatives(
     machine_ids = {block.owner_id for block in layout.machine_blocks}
     if set(base_mechanical_powers_pu) != machine_ids:
         raise DynamicDerivativeAssemblyError("base mechanical-power identities must match machine state owners exactly")
+    if set(machine_bus_ids) != machine_ids:
+        raise DynamicDerivativeAssemblyError("machine bus identities must match machine state owners exactly")
+    if any(not isinstance(bus_id, str) or not bus_id.strip() for bus_id in machine_bus_ids.values()):
+        raise DynamicDerivativeAssemblyError("machine bus identities must be non-empty strings")
     base_powers: dict[str, float] = {}
     for machine_id, value in base_mechanical_powers_pu.items():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not np.isfinite(float(value)):
@@ -107,6 +110,9 @@ def evaluate_composed_dynamic_derivatives(
         base_powers[machine_id] = float(value)
     if dict(inputs.mechanical_power_inputs_pu) != base_powers:
         raise DynamicDerivativeAssemblyError("component inputs and base mechanical-power snapshot must agree exactly")
+    if machine_connection_states is not None:
+        if set(machine_connection_states) != machine_ids or any(type(value) is not bool for value in machine_connection_states.values()):
+            raise DynamicDerivativeAssemblyError("machine connection states must be explicit booleans for every machine")
 
     time = float(inputs.simulation_time_s)
     voltages: dict[str, complex] = {}
@@ -122,6 +128,14 @@ def evaluate_composed_dynamic_derivatives(
     for binding in bindings:
         if not isinstance(binding, DynamicComponentBinding):
             raise DynamicDerivativeAssemblyError("bindings must contain DynamicComponentBinding values")
+        if binding.machine_id not in machine_ids:
+            raise DynamicDerivativeAssemblyError(
+                f"component {binding.component_id!r} references unknown machine {binding.machine_id!r}"
+            )
+        if machine_bus_ids[binding.machine_id] != binding.bus_id:
+            raise DynamicDerivativeAssemblyError(
+                f"component {binding.component_id!r} bus identity does not match its canonical machine"
+            )
         if binding.bus_id not in voltages:
             raise DynamicDerivativeAssemblyError(
                 f"component {binding.component_id!r} has no solved voltage for bus {binding.bus_id!r}"
@@ -129,6 +143,15 @@ def evaluate_composed_dynamic_derivatives(
         if binding.terminal_id not in inputs.terminal_voltages:
             raise DynamicDerivativeAssemblyError(
                 f"component {binding.component_id!r} has no voltage for terminal {binding.terminal_id!r}"
+            )
+        if not np.isclose(
+            inputs.terminal_voltages[binding.terminal_id],
+            voltages[binding.bus_id],
+            rtol=1e-9,
+            atol=1e-12,
+        ):
+            raise DynamicDerivativeAssemblyError(
+                f"component {binding.component_id!r} terminal voltage is inconsistent with its solved bus voltage"
             )
 
     global_state = layout.pack(machine_vector, component_states)
