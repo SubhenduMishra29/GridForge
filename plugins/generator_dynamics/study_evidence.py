@@ -225,9 +225,45 @@ class GeneratorAugmentedArchivedCheckpoint:
                 raise ValueError(f"accepted step {index} state vector is malformed")
             if not isinstance(final_stage, Mapping) or final_stage.get("simulation_time_s") != step_time:
                 raise ValueError(f"accepted step {index} final stage time is inconsistent")
-            for section in ("excitation", "network", "inputs", "derivatives"):
-                if not isinstance(final_stage.get(section), Mapping):
-                    raise ValueError(f"accepted step {index} is missing {section} evidence")
+            sections = {
+                name: final_stage.get(name)
+                for name in ("excitation", "network", "inputs", "derivatives")
+            }
+            if any(not isinstance(value, Mapping) for value in sections.values()):
+                raise ValueError(f"accepted step {index} has incomplete stage evidence")
+            excitation = sections["excitation"]
+            network = sections["network"]
+            inputs = sections["inputs"]
+            derivatives = sections["derivatives"]
+            field_values = excitation.get("field_voltages_pu")
+            avr_sources = excitation.get("component_ids_by_machine")
+            buses = network.get("bus_voltages")
+            terminal_voltages = inputs.get("terminal_voltages")
+            state_derivatives = derivatives.get("state_derivatives")
+            component_derivatives = derivatives.get("component_derivatives")
+            if not isinstance(field_values, Mapping) or not field_values or not isinstance(avr_sources, Mapping) or set(field_values) != set(avr_sources):
+                raise ValueError(f"accepted step {index} excitation provenance is malformed")
+            if not isinstance(buses, Mapping) or not buses or not isinstance(terminal_voltages, Mapping) or not terminal_voltages:
+                raise ValueError(f"accepted step {index} voltage evidence is incomplete")
+            for voltage_map in (buses, terminal_voltages):
+                for voltage in voltage_map.values():
+                    if not isinstance(voltage, Mapping) or set(voltage) != {"real", "imag"}:
+                        raise ValueError(f"accepted step {index} contains malformed complex voltage")
+                    if any(
+                        isinstance(part, bool) or not isinstance(part, (int, float))
+                        or not math.isfinite(float(part))
+                        for part in voltage.values()
+                    ):
+                        raise ValueError(f"accepted step {index} contains non-finite voltage")
+            if not isinstance(state_derivatives, tuple) or len(state_derivatives) != len(state):
+                raise ValueError(f"accepted step {index} derivative vector does not match its state")
+            if any(
+                isinstance(value, bool) or not isinstance(value, (int, float))
+                or not math.isfinite(float(value)) for value in state_derivatives
+            ):
+                raise ValueError(f"accepted step {index} has invalid state derivatives")
+            if not isinstance(component_derivatives, Mapping):
+                raise ValueError(f"accepted step {index} component derivatives are malformed")
             previous_time = float(step_time)
             last_time = previous_time
             last_state = tuple(float(value) for value in state)
