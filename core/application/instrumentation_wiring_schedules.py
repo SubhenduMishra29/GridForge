@@ -173,7 +173,6 @@ def build_instrumentation_wiring_schedules(
                 })
         for index, (source, target) in enumerate(zip(path, path[1:]), start=1):
             interconnection_list.append({
-                "connection_id": f'{carrier["carrier_id"]}:{index}',
                 "carrier_kind": kind,
                 "carrier_id": carrier["carrier_id"],
                 "carrier_tag": carrier.get("carrier_tag"),
@@ -289,8 +288,10 @@ def build_instrumentation_wiring_schedules(
             carrier for carrier in carrier_records
             if signal_id in carrier.get("signal_ids", ())
         )
-        all_resolved = bool(consumers) and all(
-            item["resolution_status"] == "RESOLVED" for item in consumers
+        all_resolved = (
+            bool(sources)
+            and bool(consumers)
+            and all(item["resolution_status"] == "RESOLVED" for item in endpoint_rows)
         )
         instrument_loop_schedule.append({
             "signal_id": signal_id,
