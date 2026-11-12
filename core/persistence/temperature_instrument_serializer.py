@@ -8,7 +8,7 @@ from core.model.instrument_wiring import WiringTerminalReference
 from core.model.temperature_instrument import (
     TemperatureAlarmTripBinding, TemperatureConsumerKind, TemperatureInputMode,
     TemperatureInstrument, TemperatureInstrumentInventory, TemperatureInterfaceDevice,
-    TemperatureSensorTechnology, TemperatureService,
+    TemperatureSensorTechnology, TemperatureService, TemperatureTerminalMapping,
 )
 
 TEMPERATURE_INSTRUMENT_SCHEMA_VERSION = 1
@@ -53,6 +53,11 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
             "range_min": x.range_min, "range_max": x.range_max,
             "sensor_terminals": [_terminal_to_dict(t) for t in x.sensor_terminals],
             "receiver_terminals": [_terminal_to_dict(t) for t in x.receiver_terminals],
+            "sensor_input_mappings": [{
+                "sensor_terminal": _terminal_to_dict(m.sensor_terminal),
+                "interface_terminal": _terminal_to_dict(m.interface_terminal),
+                "polarity": m.polarity,
+            } for m in x.sensor_input_mappings],
         } for x in inventory.instruments],
         "interfaces": [{
             "id": x.id, "tag": x.tag, "equipment_kind": x.equipment_kind.value,
@@ -88,7 +93,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
         instruments = []
         for raw in data["instruments"]:
             x = _record(raw, {"id", "tag", "service", "asset_id", "location", "sensor_equipment_id", "sensor_technology", "input_mode"},
-                        {"sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "range_min", "range_max", "sensor_terminals", "receiver_terminals"}, "TemperatureInstrument")
+                        {"sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "range_min", "range_max", "sensor_terminals", "receiver_terminals", "sensor_input_mappings"}, "TemperatureInstrument")
             instruments.append(TemperatureInstrument(
                 id=x["id"], tag=x["tag"], service=TemperatureService(x["service"]), asset_id=x["asset_id"],
                 location=x["location"], sensor_equipment_id=x["sensor_equipment_id"],
@@ -97,6 +102,11 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 measurement_channel_id=x.get("measurement_channel_id"), unit=x.get("unit"), range_min=x.get("range_min"),
                 range_max=x.get("range_max"), sensor_terminals=tuple(_terminal_from_dict(t) for t in x.get("sensor_terminals", [])),
                 receiver_terminals=tuple(_terminal_from_dict(t) for t in x.get("receiver_terminals", [])),
+                sensor_input_mappings=tuple(TemperatureTerminalMapping(
+                    sensor_terminal=_terminal_from_dict(m["sensor_terminal"]),
+                    interface_terminal=_terminal_from_dict(m["interface_terminal"]),
+                    polarity=m.get("polarity"),
+                ) for m in x.get("sensor_input_mappings", [])),
             ))
         interfaces = []
         for x in data["interfaces"]:
