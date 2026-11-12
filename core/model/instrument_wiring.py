@@ -838,6 +838,7 @@ class InstrumentationWiringInventory:
             + [binding.endpoint.physical_terminal for binding in self.endpoint_bindings if binding.endpoint.physical_terminal is not None]
             + [terminal for circuit in self.ct_secondary_circuits for terminal in (circuit.s1_terminal, circuit.s2_terminal)]
             + [terminal for circuit in self.pt_secondary_circuits for terminal in (circuit.output_terminal, circuit.return_terminal)]
+            + [lead.terminal for circuit in self.temperature_sensor_circuits for lead in circuit.leads]
         ):
             if reference.terminal_point_id is None:
                 if reference.equipment_id in terminal_blocks_by_id:
