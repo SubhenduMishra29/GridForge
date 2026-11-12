@@ -14,6 +14,7 @@ from core.model.instrument_wiring import (
     WiringTagSeries, WiringTagPolicy, WiringTerminalReference,
     TerminalBlock, TerminalPoint, TerminalAccessory, TerminalAccessoryKind, TerminalAccessoryState,
     CTSecondaryCircuit, CTSecondaryCircuitState,
+    PTSecondaryCircuit, PTSecondaryCircuitState, PTSecondaryPolarity, PTSecondaryGrounding,
 )
 from core.persistence.instrument_wiring_serializer import (
     InstrumentationWiringSerializationError,
@@ -326,7 +327,7 @@ def test_signal_endpoint_bindings_round_trip_for_all_endpoint_kinds():
         endpoint_bindings=endpoints,
     )
     payload = serialize_instrumentation_wiring(expected)
-    assert payload["schema"] == 6
+    assert payload["schema"] == 7
     assert len(payload["endpoint_bindings"]) == 3
     assert deserialize_instrumentation_wiring(payload) == expected
 
@@ -339,6 +340,7 @@ def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints
     payload.pop("terminal_points")
     payload.pop("terminal_accessories")
     payload.pop("ct_secondary_circuits")
+    payload.pop("pt_secondary_circuits")
     for binding in payload["signal_bindings"]:
         binding.pop("source_channel_id")
     restored = deserialize_instrumentation_wiring(payload)
@@ -466,7 +468,7 @@ def test_schema_four_wiring_inventory_remains_readable_without_terminal_records(
     assert restored == inventory
 
 
-def test_terminal_block_points_and_accessory_state_round_trip_in_schema_six():
+def test_terminal_block_points_and_accessory_state_round_trip_in_schema_seven():
     base = sample_inventory()
     block = TerminalBlock(
         id="tb-id", tag="TB-101", panel_id="PANEL-1",
@@ -671,7 +673,7 @@ def test_ct_secondary_circuit_codec_round_trips_explicit_shorting_arrangement():
     assert deserialize_instrumentation_wiring(payload) == inventory
 
 
-def test_schema_five_wiring_inventory_remains_readable_after_schema_six():
+def test_schema_five_wiring_inventory_remains_readable_after_schema_seven():
     inventory = sample_inventory()
     payload = serialize_instrumentation_wiring(inventory)
     payload["schema"] = 5
@@ -737,3 +739,86 @@ def test_in_service_ct_open_secondary_requires_closed_explicit_shorting_link():
         InstrumentationWiringService._validate_ct_secondary_circuits(
             network, normal_service_inventory
         )
+
+
+def _pt_secondary_inventory(*, fuse_state=TerminalAccessoryState.CLOSED):
+    base = sample_inventory()
+    block = TerminalBlock(id="pt-tb", tag="TB-PT-1", panel_id="PANEL-1", location="PT marshalling", terminal_count=4)
+    points = (
+        TerminalPoint(id="pt-p1", terminal_block_id=block.id, terminal_number="1", designation="X1-IN"),
+        TerminalPoint(id="pt-p2", terminal_block_id=block.id, terminal_number="2", designation="X1-OUT"),
+        TerminalPoint(id="pt-p3", terminal_block_id=block.id, terminal_number="3", designation="X2-IN"),
+        TerminalPoint(id="pt-p4", terminal_block_id=block.id, terminal_number="4", designation="X2-OUT"),
+    )
+    fuse = TerminalAccessory(
+        id="pt-fuse", tag="FU-PT-1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.FUSE_LINK, state=fuse_state,
+        terminal_point_ids=("pt-p1", "pt-p2"),
+        conductive_pairs=(("pt-p1", "pt-p2"),),
+    )
+    cable = CableAssembly(id="pt-cable", tag="C-PT-1", service="PT secondary", core_count=2)
+    output = WiringTerminalReference("PT-1", "X1", "X1")
+    returned = WiringTerminalReference("PT-1", "X2", "X2")
+    core_out = CableCore(
+        id="pt-core-out", cable_id=cable.id, core_number=1, role=WiringConductorRole.SIGNAL,
+        terminal_path=(output, WiringTerminalReference(block.id, "1", "X1-IN", "pt-p1"), WiringTerminalReference(block.id, "2", "X1-OUT", "pt-p2")),
+    )
+    core_return = CableCore(
+        id="pt-core-return", cable_id=cable.id, core_number=2, role=WiringConductorRole.RETURN,
+        terminal_path=(returned, WiringTerminalReference(block.id, "3", "X2-IN", "pt-p3"), WiringTerminalReference(block.id, "4", "X2-OUT", "pt-p4")),
+    )
+    circuit = PTSecondaryCircuit(
+        id="pt-circuit-a", instrument_id="PT-1", instrument_kind="PT", phase="A",
+        output_terminal=output, return_terminal=returned,
+        output_carrier_ids=(core_out.id,), return_carrier_ids=(core_return.id,),
+        fuse_accessory_ids=(fuse.id,),
+        grounding=PTSecondaryGrounding.UNGROUNDED_BY_DESIGN,
+        polarity=PTSecondaryPolarity.NORMAL,
+        secondary_state=PTSecondaryCircuitState.CLOSED,
+    )
+    return InstrumentationWiringInventory(
+        cables=base.cables + (cable,), cores=base.cores + (core_out, core_return),
+        signals=base.signals, signal_bindings=base.signal_bindings,
+        terminal_blocks=(block,), terminal_points=points, terminal_accessories=(fuse,),
+        pt_secondary_circuits=(circuit,),
+    )
+
+
+def test_pt_secondary_schema_seven_round_trip_preserves_terminals_fusing_and_grounding():
+    inventory = _pt_secondary_inventory()
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 7
+    circuit = payload["pt_secondary_circuits"][0]
+    assert circuit["output_terminal"]["designation"] == "X1"
+    assert circuit["fuse_accessory_ids"] == ["pt-fuse"]
+    assert circuit["grounding"] == "UNGROUNDED_BY_DESIGN"
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+def test_pt_secondary_fuse_must_be_physically_on_output_route():
+    inventory = _pt_secondary_inventory()
+    circuit = inventory.pt_secondary_circuits[0]
+    detached = TerminalAccessory(
+        id="detached-fuse", tag="FU-PT-DETACHED", terminal_block_id="pt-tb",
+        kind=TerminalAccessoryKind.FUSE_LINK, state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=("pt-p3", "pt-p4"),
+        conductive_pairs=(("pt-p3", "pt-p4"),),
+    )
+    with pytest.raises(ValueError, match="not physically located on the declared output carrier route"):
+        replace(inventory, terminal_accessories=(detached,), pt_secondary_circuits=(replace(circuit, fuse_accessory_ids=(detached.id,)),))
+
+
+def test_in_service_pt_rejects_open_secondary_fuse_and_unknown_grounding():
+    from dataclasses import replace
+    from types import SimpleNamespace
+    inventory = _pt_secondary_inventory(fuse_state=TerminalAccessoryState.OPEN)
+    network = SimpleNamespace(get_by_identity=lambda identity: SimpleNamespace(
+        id=identity, element_type="PT", in_service=True,
+    ))
+    with pytest.raises(ValueError, match="fuse link that is not explicitly CLOSED"):
+        InstrumentationWiringService._validate_pt_secondary_circuits(network, inventory)
+    fuse_closed = replace(inventory.terminal_accessories[0], state=TerminalAccessoryState.CLOSED)
+    circuit_unknown_ground = replace(inventory.pt_secondary_circuits[0], grounding=PTSecondaryGrounding.UNKNOWN)
+    unknown_inventory = replace(inventory, terminal_accessories=(fuse_closed,), pt_secondary_circuits=(circuit_unknown_ground,))
+    with pytest.raises(ValueError, match="requires an explicit grounded or ungrounded-by-design"):
+        InstrumentationWiringService._validate_pt_secondary_circuits(network, unknown_inventory)
