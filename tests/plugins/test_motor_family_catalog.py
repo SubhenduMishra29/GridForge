@@ -243,3 +243,22 @@ def test_bldc_rejects_duty_outside_normalized_inverter_range() -> None:
             "bldc-invalid-duty", _bldc_parameters(), 0.01, 0.001,
             dc_bus_voltage_v=48.0, duty_a=1.1, duty_b=-0.5, duty_c=-0.5,
         )
+
+
+
+def test_bldc_instrumentation_exposes_commutation_and_phase_back_emf_points() -> None:
+    points = {point.point_id: point for point in motor_measurement_points(MotorFamily.BRUSHLESS_DC)}
+    assert {
+        "drive.dc_link_voltage",
+        "drive.dc_link_current",
+        "drive.commutation_sector",
+        "drive.phase_a_duty",
+        "drive.phase_b_duty",
+        "drive.phase_c_duty",
+        "feedback.hall_state",
+        "machine.phase_a_back_emf",
+        "machine.phase_b_back_emf",
+        "machine.phase_c_back_emf",
+    }.issubset(points)
+    assert points["drive.commutation_sector"].unit == "sector"
+    assert points["machine.phase_a_back_emf"].unit == "V"

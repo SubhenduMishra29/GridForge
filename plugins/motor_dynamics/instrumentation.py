@@ -147,6 +147,18 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
                 _p("feedback.encoder_speed", "Encoder speed feedback", X, N, "rpm", ("control","commissioning")),
                 _p("feedback.resolver_position", "Resolver position feedback", X, N, "deg", ("control","commissioning")),
                 _p("feedback.hall_state", "Hall sensor commutation state", D, N, "state", ("control","diagnostics"))]
+    if family == MotorFamily.BRUSHLESS_DC:
+        # Drive telemetry is distinct from motor-terminal CT/VT measurements.
+        # Optional points are provisioned only when the inverter exposes them.
+        pts += [
+            _p("drive.commutation_sector", "Electronic commutation sector", D, N, "sector", ("control","diagnostics")),
+            _p("drive.phase_a_duty", "Inverter phase-A signed duty", X, A, "pu", ("control","diagnostics")),
+            _p("drive.phase_b_duty", "Inverter phase-B signed duty", X, B, "pu", ("control","diagnostics")),
+            _p("drive.phase_c_duty", "Inverter phase-C signed duty", X, CPH, "pu", ("control","diagnostics")),
+            _p("machine.phase_a_back_emf", "Phase-A back-EMF", V, A, "V", ("analysis","diagnostics")),
+            _p("machine.phase_b_back_emf", "Phase-B back-EMF", V, B, "V", ("analysis","diagnostics")),
+            _p("machine.phase_c_back_emf", "Phase-C back-EMF", V, CPH, "V", ("analysis","diagnostics")),
+        ]
     if family in {MotorFamily.LINEAR_INDUCTION, MotorFamily.LINEAR_SYNCHRONOUS}:
         pts += [_p("linear.thrust_force", "Linear motor thrust force", X, N, "N", ("control","analysis")),
                 _p("linear.air_gap", "Primary-secondary air gap", X, N, "mm", ("monitoring","maintenance")),
