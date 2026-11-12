@@ -363,3 +363,38 @@ def test_wiring_service_adds_and_reads_signal_endpoint_binding():
     read_model = service.read_model()
     assert read_model.endpoint_bindings[0]["id"] == binding.id
     assert read_model.endpoint_bindings[0]["endpoint"]["endpoint_id"] == "channel-1"
+
+
+
+def test_endpoint_sink_terminal_round_trips_without_losing_designation():
+    from core.model.instrument_wiring import WiringTerminalReference
+
+    base = sample_inventory()
+    endpoint = SignalEndpointBinding(
+        id="endpoint-binding-id",
+        signal_id="signal-id",
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.CONTROL_INPUT,
+            endpoint_id="component-id",
+            owner_id="control-id",
+            port="PV",
+            physical_terminal=WiringTerminalReference(
+                "PLC-101", "AI-01+", "AI-01+",
+            ),
+        ),
+        direction="SOURCE_TO_SINK",
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables,
+        cores=base.cores,
+        signals=base.signals,
+        signal_bindings=base.signal_bindings,
+        endpoint_bindings=(endpoint,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["endpoint_bindings"][0]["endpoint"]["physical_terminal"] == {
+        "equipment_id": "PLC-101",
+        "terminal_role": "AI-01+",
+        "designation": "AI-01+",
+    }
+    assert deserialize_instrumentation_wiring(payload) == inventory
