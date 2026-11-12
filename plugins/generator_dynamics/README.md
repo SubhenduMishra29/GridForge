@@ -912,12 +912,14 @@ the archive-safe evidence payload and must match exactly when calling
 the identity when the host attaches it to the publication exception as
 `checkpoint_identity`.
 
-This is an identity contract, not an archive loader. The canonical
-Application archive remains responsible for loading persisted result payloads;
-a host must validate and reconstruct typed accepted-step/checkpoint objects
-from that payload before offering a resume. Evidence without an identity
-remains readable for backward compatibility but is not suitable for
-identity-verified restart.
+This is an identity contract, not a replacement archive loader. The
+canonical Application archive remains responsible for loading persisted
+result payloads. Once it returns the decoded mapping, the host can call
+`GeneratorAugmentedStudyEvidence.from_archive_payload(...)` to validate the
+resumable envelope and rehydrate the immutable evidence wrapper. Accepted
+stage records remain archive-safe primitive mappings rather than reconstructed
+plugin dataclasses. Evidence without an identity remains readable for
+backward compatibility but is not suitable for identity-verified restart.
 
 
 
