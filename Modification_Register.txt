@@ -4128,3 +4128,37 @@ Verification:
 - Static source reconciliation only. No tests, imports, startup, Qt GUI,
   keyboard, undo/redo or save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Synchronize View → Panels Checked State with Editor Visibility
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: fix/view-panel-visibility-state
+Issue: #1193
+
+Audit correction:
+- Marked Explorer, Inspector, Messages and Tool Settings canonical actions as
+  checkable and added a read-only UIActionRouter checked-state provider.
+- MenuPlugin now projects checkable/checked state to QAction, refreshes the
+  Panels submenu immediately before display, and re-reads state after routed
+  menu actions. Checked-state evaluation failures fail closed and are logged
+  once per unchanged failure, matching enabled-state diagnostics.
+- Added ControlSurfaceHost.region_visibility() as a live query of the owning
+  editor's effective visibility. It does not maintain a second visibility
+  store and respects the SLD editor's pending restore state while maximized.
+- Corrected toggle_region() to invert effective visibility rather than
+  QWidget.isVisible(), which reports false when an ancestor editor is hidden
+  or maximized even though the user's restore visibility remains true.
+- SLDEditor now emits region-visibility changes for direct header toggles,
+  maximize/restore and editor-definition projection. ControlSurfaceHost relays
+  those changes and emits fallback notifications for editors without their
+  own signal.
+- Composition root binds checked state to the active editor's live visibility
+  and refreshes menu/toolbar projections on region changes and initial
+  workspace activation. No Core/Application visibility state was introduced.
+
+Verification:
+- Static source reconciliation only. No tests, imports, startup, Qt GUI,
+  menu interaction, maximize/restore or cross-workspace runtime was executed.
+======================================================================
