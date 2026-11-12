@@ -4794,3 +4794,58 @@ Date: 2026-11-12
   that shorting link must be explicitly OPEN; CLOSED, REMOVED and UNKNOWN
   are rejected because they can bypass the burden or leave the state unsafe.
 - Added both unsafe-state regression-test assertions.
+
+
+======================================================================
+GridForge V2 — PT/CVT Secondary Circuit Protection and Grounding
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added immutable PTSecondaryCircuit records for PT and CVT with stable
+  instrument identity, phase, exact manufacturer output/return terminal
+  references, separate physical carrier chains, fuse-link IDs, optional
+  isolating-link IDs, explicit polarity, explicit secondary state and
+  explicit grounding declaration.
+- Added three-state polarity and grounding declarations. GROUNDED requires
+  an identified EARTH_LINK accessory and exact terminal point; an
+  UNGROUNDED_BY_DESIGN declaration is explicit rather than inferred.
+- Core aggregate validation checks duplicate phase circuits, route carrier
+  existence and continuity, exact source-terminal endpoints, separate
+  output/return carriers, fuse-link and isolating-link accessory types,
+  physical placement of those accessories on the declared routes, and
+  grounding accessory/terminal identity.
+- Application active-project validation resolves the exact Core PT/CVT
+  identity and fails closed for in-service unknown/isolated secondary
+  states, unknown polarity, unknown grounding, non-closed fuse links,
+  non-closed isolating links, and a grounded circuit whose earth link is
+  not explicitly closed.
+- Added detached Application read-model exposure and typed controlled
+  record add/update/remove mapping.
+- Extended nested wiring persistence to schema 7. Schema 2–6 remain
+  readable; schema 6 retains CT profiles without inferring PT/CVT records.
+- Corrected the CT schema-6 record field contract so CT secondary payloads
+  are validated against one required/optional field contract rather than a
+  malformed tuple shape.
+- Added regression-test source for PT schema-7 round-trip, exact terminal
+  preservation, fuse placement on the output route, unsafe in-service fuse
+  state, unknown grounding, and schema-6 compatibility.
+
+Boundary:
+- No PT/CVT ratio, rated voltage, burden, fuse rating, fuse characteristic,
+  grounding design, polarity, terminal designation or cable property is
+  invented. Ratio/nameplate truth remains on the Core PT/CVT model.
+- This does not close #1203. RTD/thermocouple, shield/earth/drain/armour,
+  communication links, report/schedule generation, full cross-canvas
+  navigation and save/reopen/GUI acceptance remain outstanding.
+
+Verification:
+- Source files were fetched back after updates. Model aggregate, serializer,
+  service activation validation, read model, exports and test source were
+  inspected.
+- Regression-test source was added but not executed. No import/startup,
+  GUI, schedule export, save/reopen or runtime electrical test was performed.
+======================================================================
