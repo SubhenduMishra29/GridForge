@@ -467,4 +467,8 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         return len(self._payload)
 
 
-__all__ = [\n    "GeneratorAugmentedStudyEvidence",\n    "GeneratorStudyCheckpointIdentity",\n    "GeneratorAugmentedArchivedCheckpoint",\n]
+__all__ = [
+    "GeneratorAugmentedStudyEvidence",
+    "GeneratorStudyCheckpointIdentity",
+    "GeneratorAugmentedArchivedCheckpoint",
+]
