@@ -124,21 +124,25 @@ def resolve_signal_endpoint_bindings(
                         diagnostics.append(
                             "Protection binding owner/input identity does not match the declared endpoint."
                         )
-                    elif endpoint.port == "residual_current" and getattr(element_configuration, "function_code", None) in {"50N", "51N"}:
-                        residual = getattr(element_configuration, "residual_current_input", None)
-                        if residual is None:
+                    elif endpoint.port == "residual_current":
+                        if getattr(element_configuration, "function_code", None) not in {"50N", "51N"}:
                             status = "UNRESOLVED"
-                            diagnostics.append("Residual-current relay input has no explicit residual source configuration.")
+                            diagnostics.append("Residual-current endpoint is not valid for this Protection function.")
                         else:
-                            residual_ids = (
-                                set((getattr(residual, "phase_binding_ids", None) or {}).values())
-                                if getattr(residual, "mode", None) == "THREE_PHASE_SUM"
-                                else {getattr(residual, "direct_binding_id", None)}
-                            )
-                            if protection_binding.binding_id not in residual_ids:
+                            residual = getattr(element_configuration, "residual_current_input", None)
+                            if residual is None:
                                 status = "UNRESOLVED"
-                                diagnostics.append("Protection binding is not declared by the residual-current input configuration.")
-                    elif endpoint.port != "residual_current" and element_configuration.input_channel_ids.get(endpoint.port) != protection_binding.channel_id:
+                                diagnostics.append("Residual-current relay input has no explicit residual source configuration.")
+                            else:
+                                residual_ids = (
+                                    set((getattr(residual, "phase_binding_ids", None) or {}).values())
+                                    if getattr(residual, "mode", None) == "THREE_PHASE_SUM"
+                                    else {getattr(residual, "direct_binding_id", None)}
+                                )
+                                if protection_binding.binding_id not in residual_ids:
+                                    status = "UNRESOLVED"
+                                    diagnostics.append("Protection binding is not declared by the residual-current input configuration.")
+                    elif element_configuration.input_channel_ids.get(endpoint.port) != protection_binding.channel_id:
                         status = "UNRESOLVED"
                         diagnostics.append(
                             "Protection binding channel does not match the configured relay input channel."
