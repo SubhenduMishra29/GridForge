@@ -621,11 +621,11 @@ each bound `FirstOrderAVR`, validates one-to-one AVR/component/machine
 identity, and returns an immutable, time-stamped machine-to-field-voltage
 mapping. The same snapshot is intended to be passed to the network's machine
 current-injection assembly and to `MultiMachineSystem` electrical-output and
-derivative calls. This is an explicit sample contract, not a network solver
-adapter: the current `DAESolver` callback still cannot receive it, and AVR
-derivatives still need to be evaluated from the resulting terminal-voltage
-solution at the same integrator stage time. Therefore the complete AVR–network
-closed loop remains an integration task.
+derivative calls. The stage-scoped network adapter described below now passes this
+snapshot to a host-supplied network callback without changing the Core DAE
+callback. AVR derivatives still need to be evaluated from the resulting
+terminal-voltage solution at the same integrator stage time. Therefore the
+complete AVR–network closed loop remains an integration task.
 
 ### Stage-scoped AVR excitation network adapter
 
