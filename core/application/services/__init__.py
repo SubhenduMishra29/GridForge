@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from .instrumentation_wiring_service import InstrumentationWiringService, InstrumentationWiringServiceState, InstrumentationWiringCommandHandlers
 from .instrumentation_wiring_schedules import PhysicalWiringScheduleRow, SignalLoopScheduleRow, build_cable_core_schedule, build_panel_wire_schedule, build_signal_loop_schedule
-from .instrumentation_receiver_compatibility import ReceiverCompatibility, validate_control_receiver, validate_protection_receiver, validate_control_mapping_binding, validate_protection_configuration_binding
+from .instrumentation_receiver_compatibility import ReceiverCompatibility, validate_control_receiver, validate_protection_receiver, validate_control_mapping_binding, validate_protection_configuration_binding, validate_inventory_receiver_bindings
 from .electrical_connection_service import ElectricalConnectionCommandHandlers, ElectricalConnectionService
 from .measurement_channel_service import MeasurementChannelService, MeasurementSampleAttestation
 from .ct_measurement_association_service import CTMeasurementAssociationService
@@ -37,6 +37,7 @@ __all__ = [
     "validate_protection_receiver",
     "validate_control_mapping_binding",
     "validate_protection_configuration_binding",
+    "validate_inventory_receiver_bindings",
     "ElectricalConnectionCommandHandlers",
     "ElectricalConnectionService",
     "MeasurementChannelService",
