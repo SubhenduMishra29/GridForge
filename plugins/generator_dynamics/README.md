@@ -293,10 +293,14 @@ temperature proxy, not a thermocouple measurement or OEM firing-temperature
 map.
 
 The three candidate requests—governor `FSRN`, acceleration `FSRA`, and
-temperature/load `FSRT`—feed the low-value selector. Its output is clamped
-to `[Vmin, Vmax]`, drives the valve actuator, and is fed back to the
-acceleration limiter. The PID and load PI tracking inputs remain explicit
-host-supplied tracking corrections. `Rup`/`Rdown` are retained as model data
+temperature/load `FSRT`—feed `GGOV1ControlCoordinator`. It applies the
+low-value selector followed by the common `[Vmin, Vmax]` clamp and returns an
+immutable `GGOV1ControlDecision`. Its `actuator_command_pu` is the one final
+command to pass to `GGOV1ValveActuator.derivatives()` and back to the
+acceleration limiter. Pass the same command as `selected_fuel_command_pu`
+to PID and load-limiter derivatives when enabling their explicit tracking
+inputs. The decision exposes final-command-minus-request tracking errors for
+each active candidate. The coordinator owns no dynamic state or solver clock. `Rup`/`Rdown` are retained as model data
 but are not applied by the OpenIPSL GGOV1 reference implementation used
 here; they must not be confused with actuator `Ropen`/`Rclose`.
 
