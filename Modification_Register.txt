@@ -4545,3 +4545,37 @@ PR: #1214
 - Added source-level regression tests. Not executed.
 
 ======================================================================
+
+GridForge V2 — Explicit temperature receiver input capability
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added TemperatureReceiverInputKind and immutable TemperatureReceiverInput
+  records for one declared PLC/RTU/temperature-monitor receiver channel.
+- Each record requires a stable module/channel identity, explicit physical
+  terminal references, input kind and engineering unit. Direct RTD/TC input
+  capability must explicitly list supported sensor technologies and may list
+  supported sensor configurations. Optional range bounds must be supplied as
+  a valid pair.
+- Temperature instruments may bind to a receiver_input_id. Inventory validation
+  checks the receiver exists, receiver terminals match exactly, and engineering
+  units agree. Direct sensor capability is checked against technology and
+  configured sensor type. Intermediary interface output kind/unit/range are
+  checked against the receiver capability when declared.
+- Receiver input terminals are resolved against active Core equipment during
+  project activation. No PLC/RTU module catalogue, terminal map, range or
+  manufacturer capability is invented.
+- The schema-1 serializer stores receiver capabilities; older schema-1 payloads
+  without receiver_inputs remain readable as unconfigured/unverified.
+- Added regression-test source for capability round-trip, signal-kind mismatch,
+  missing physical terminals and incomplete ranges. Not executed.
+
+Remaining:
+- Separate raw electrical input range/unit from engineering process range and
+  validate explicit analog scaling/calibration end-to-end.
+- Thermocouple extension/compensating conductor material/type compatibility.
+- Control/Protection consumer registry/runtime integration, canvas projections,
+  schedules and runtime/save-reopen verification.
+
+======================================================================
