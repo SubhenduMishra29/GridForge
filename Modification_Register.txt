@@ -4329,3 +4329,45 @@ Verification:
   extended; tests, imports, startup, GUI interaction and save/reopen were not
   run. No CI gate was requested or treated as acceptance evidence.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Explicit MeasurementChannel Ownership of Signal Carriers
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added optional stable source_channel_id to SignalCarrierBinding. Physical
+  carrier segments are now assigned explicitly to the MeasurementChannel
+  whose physical source terminal they carry; no carrier/channel ownership is
+  inferred from a tag or from graph proximity.
+- Advanced the nested instrumentation wiring codec to schema 4. Schema 2
+  and schema 3 remain strictly readable; their carrier source_channel_id is
+  restored as None and therefore cannot be treated as resolved physical
+  provenance until explicitly assigned.
+- Resolver filters cable-core and panel-wire graph segments by exact
+  source_channel_id. Unassigned physical carriers and carrier references to
+  channels not declared for the signal fail closed.
+- Independent channel paths for one logical signal are resolved separately.
+  This supports multi-input protection arrangements such as residual-current
+  phase summation without incorrectly requiring CT-A, CT-B and CT-C cable
+  routes to be physically joined to one another.
+- Existing directed carrier-flow and explicit physical sink-terminal
+  validation remains in force for Control and Protection consumers.
+- Added regression-test source for schema 4, schema 2/3 compatibility and
+  independent three-phase residual paths.
+
+Boundary:
+- Core-domain Control signal sources remain unresolved for physical wiring
+  until a typed source-terminal contract exists for those Core attributes.
+- Physical source-to-sink validation is channel-specific. The UI currently
+  displays the complete set of carrier tags bound to the signal designation;
+  finer per-channel route highlighting remains follow-up work.
+
+Verification:
+- Source-level review only; no pytest, CI, imports, startup, GUI interaction
+  or save/reopen runtime was executed.
+======================================================================
