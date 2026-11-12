@@ -1684,6 +1684,8 @@ def solve_dc_motor_transient_cpu(motor_id,parameters,duration_s,step_s,*,armatur
     count,_=_validate_time(duration_s,step_s)
     va=_voltage_profile(armature_voltage_v,count,"armature_voltage_v")
     vf=_voltage_profile(field_voltage_v,count,"field_voltage_v")
+    if parameters.excitation in {"shunt","compound"}:
+        vf=va.copy()  # shunt field is connected across the armature supply
     load=_voltage_profile(load_torque_nm,count,"load_torque_nm")
     if parameters.excitation in {"series","permanent_magnet"} and np.any(vf!=0): raise ValueError("field_voltage_v must be zero for series and permanent_magnet excitation")
     initial=np.asarray((0.,0.,parameters.initial_speed_rad_s,0.,parameters.initial_armature_temperature_c,parameters.initial_field_temperature_c))
