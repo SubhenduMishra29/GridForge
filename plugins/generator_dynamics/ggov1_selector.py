@@ -7,7 +7,6 @@ Each controller consumes its own selected-minus-requested tracking error.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
 from typing import Mapping
 
 from .controllers import _number
