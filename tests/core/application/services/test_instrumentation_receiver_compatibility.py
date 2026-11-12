@@ -77,3 +77,17 @@ def test_unsupported_protection_contract_and_ambiguous_signal_kind_fail_closed()
     )
     assert not ambiguous.compatible
     assert any("no authoritative MeasurementSignalType mapping" in item for item in ambiguous.diagnostics)
+
+
+
+def test_control_receiver_with_incomplete_capability_contract_fails_closed():
+    destination = ControlSignalDestination(
+        control_id="CTRL-1",
+        component_id="PID-LEGACY",
+        input_name="PV",
+    )
+    result = validate_control_receiver(_signal(), destination)
+    assert not result.compatible
+    assert any("no declared accepted signal types" in item for item in result.diagnostics)
+    assert any("no declared accepted phases" in item for item in result.diagnostics)
+    assert any("no declared accepted engineering units" in item for item in result.diagnostics)
