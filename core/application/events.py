@@ -156,6 +156,31 @@ class SimpleWireConnectionRemoved(ApplicationEvent):
 
 
 @dataclass(frozen=True)
+class MeasurementChannelChanged(ApplicationEvent):
+    """Semantic fact that a project's logical measurement-channel definition changed."""
+
+    def __init__(
+        self, *, operation: str, channel_id: str, source_id: str | None = None,
+        terminal_role: str | None = None, correlation_id: UUID | None = None,
+        causation_id: UUID | None = None, metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            raise ValueError("channel_id must be a non-empty string.")
+        payload = {
+            "operation": operation,
+            "channel_id": channel_id.strip(),
+            "source_id": source_id,
+            "terminal_role": terminal_role,
+        }
+        if metadata:
+            payload.update(metadata)
+        super().__init__(
+            "measurement.channel_changed", payload,
+            correlation_id=correlation_id, causation_id=causation_id,
+        )
+
+
+@dataclass(frozen=True)
 class ProtectionChanged(ApplicationEvent):
     """Semantic fact that Application-owned protection read state changed."""
 
@@ -290,7 +315,7 @@ def __getattr__(name: str) -> Any:
 
 __all__ = [
     "ApplicationEvent", "ElementCreated", "ElementRemoved", "ElementUpdated",
-    "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
+    "TopologyChanged", "NetworkChanged", "SimpleWireConnectionCreated", "SimpleWireConnectionRemoved", "MeasurementChannelChanged", "ProtectionChanged", "SLDPresentationChanged", "OperationCompleted",
     "ProtectionTripRequested",
     "ProjectLoaded", "ProjectSaved", "ProjectClosed", "DraftChanged",
     "StudyCaseCreated", "StudyStarted", "StudyCompleted", "StudyFailed", "StudyCancelled", "ValidationChanged",
