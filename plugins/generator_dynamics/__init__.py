@@ -13,7 +13,7 @@ from .plugin import GeneratorDynamicsPlugin, PLUGIN_DESCRIPTOR
 from .controllers import (
     FirstOrderAVRParameters, FirstOrderAVR, TGOV1Governor,
     PSSParameters, WashoutLeadLagPSS, TGOV1Parameters, TGOV1SteamGovernor,
-    HYGOVReducedParameters, HYGOVReducedHydroGovernor,
+    HYGOVReducedParameters, HYGOVReducedHydroGovernor, GGOV1Parameters,
 )
 
 __all__ = [
@@ -25,5 +25,5 @@ __all__ = [
     "GeneratorDynamicsPlugin", "PLUGIN_DESCRIPTOR",
     "FirstOrderAVRParameters", "FirstOrderAVR", "TGOV1Governor",
     "PSSParameters", "WashoutLeadLagPSS", "TGOV1Parameters", "TGOV1SteamGovernor",
-    "HYGOVReducedParameters", "HYGOVReducedHydroGovernor",
+    "HYGOVReducedParameters", "HYGOVReducedHydroGovernor", "GGOV1Parameters",
 ]
