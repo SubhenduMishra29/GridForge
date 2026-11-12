@@ -275,13 +275,14 @@ def validate_inventory_receiver_bindings(
     control_mapping: Any,
     protection_configuration: Any,
     channels: Any,
-    signal_channel_ids: Any,
+    signal_channel_ids: Any | None = None,
 ) -> tuple[ReceiverCompatibility, ...]:
-    """Reconcile explicitly declared instrumentation receivers for one project snapshot.
+    """Reconcile persisted instrumentation receivers for one project snapshot.
 
-    signal_channel_ids is an explicit signal-ID -> MeasurementChannel-ID
-    mapping supplied by Application composition. No join by tag, description,
-    carrier, or list position is performed.
+    The canonical relationship is SignalDefinition.measurement_channel_id.
+    The optional legacy argument is accepted only as a consistency assertion;
+    it can never supply or override a missing persisted relationship.
+    No join by tag, description, carrier, or list position is performed.
     """
     from collections.abc import Mapping
     from core.model.instrument_wiring import InstrumentationWiringInventory
@@ -294,10 +295,23 @@ def validate_inventory_receiver_bindings(
         raise TypeError("control_mapping must be a ControlSignalMapping.")
     if not isinstance(protection_configuration, ProtectionProjectConfiguration):
         raise TypeError("protection_configuration must be a ProtectionProjectConfiguration.")
-    if not isinstance(channels, Mapping) or not isinstance(signal_channel_ids, Mapping):
-        raise TypeError("channels and signal_channel_ids must be mappings.")
-
+    if not isinstance(channels, Mapping):
+        raise TypeError("channels must be a channel-ID mapping.")
     signals = {item.id: item for item in inventory.signals}
+    persisted_signal_channels = {
+        item.id: item.measurement_channel_id
+        for item in inventory.signals
+        if item.measurement_channel_id is not None
+    }
+    if signal_channel_ids is not None:
+        if not isinstance(signal_channel_ids, Mapping):
+            raise TypeError("signal_channel_ids consistency assertion must be a mapping.")
+        if dict(signal_channel_ids) != persisted_signal_channels:
+            raise ValueError(
+                "Application-supplied signal/channel associations must exactly match "
+                "the persisted SignalDefinition.measurement_channel_id relationships."
+            )
+
     results: list[ReceiverCompatibility] = []
 
     for binding in control_mapping.bindings:
@@ -318,13 +332,17 @@ def validate_inventory_receiver_bindings(
         ))
 
     channel_to_signal: dict[str, str] = {}
-    for signal_id, channel_id in signal_channel_ids.items():
-        if not isinstance(signal_id, str) or not isinstance(channel_id, str):
-            raise TypeError("signal_channel_ids must map string signal IDs to string channel IDs.")
-        if signal_id not in signals:
+    for signal_id, channel_id in persisted_signal_channels.items():
+        if not isinstance(channel_id, str) or not channel_id.strip():
+            results.append(ReceiverCompatibility(
+                False, "PROTECTION", signal_id, "CHANNEL",
+                ("Persisted measurement_channel_id is not a canonical non-empty channel identity.",),
+            ))
+            continue
+        if channel_id not in channels:
             results.append(ReceiverCompatibility(
                 False, "PROTECTION", signal_id, channel_id,
-                (f"Explicit signal-to-channel mapping references unknown signal {signal_id!r}.",),
+                (f"Persisted MeasurementChannel {channel_id!r} for signal {signal_id!r} is missing from the active project registry.",),
             ))
             continue
         if channel_id in channel_to_signal:
