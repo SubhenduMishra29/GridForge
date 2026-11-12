@@ -4347,3 +4347,35 @@ Limitations:
 - No cable reroute/replacement command, immutable audit event, schedule
   projection, or cross-canvas selection/highlighting is yet connected.
 - No tests, imports, GUI, or save/reopen checks were run.
+
+
+======================================================================
+GridForge V2 — Controlled instrumentation carrier route revision
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Stable connection-hop records existed, but changing a carrier terminal path
+  could not preserve unchanged hop IDs while retiring removed physical segments.
+- Historical hops would also fail current-path adjacency validation after reroute.
+
+Correction:
+- Added explicit revision counters to CableCore and PanelWire route records.
+- Inventory adjacency validation now requires PLANNED/INSTALLED hops to match
+  current adjacent route segments; RETIRED/REPLACED records remain as history.
+- Added Application create_update_carrier_route_command(). It preserves IDs
+  for unchanged terminal pairs, retires removed active hops with an incremented
+  hop revision, and creates new PLANNED hops only from caller-supplied IDs.
+- Route revision increments the owning carrier revision and is returned as a
+  normal stale-snapshot SetInstrumentationWiringInventoryCommand.
+- Added regression-test source for preservation, retirement, new hop creation,
+  explicit ID requirements and ID reuse rejection.
+
+Limitations:
+- The command still relies on the existing transaction/command execution path;
+  no separate durable event/audit store or persistence migration is included.
+- The caller must supply IDs for new segments; no automatic UUID or tag is
+  fabricated. Historical route endpoint equipment/terminal deletion policy
+  remains a separate lifecycle concern.
+- No tests, imports, GUI, or project save/reopen checks were run.
