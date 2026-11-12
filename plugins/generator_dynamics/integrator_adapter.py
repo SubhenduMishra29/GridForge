@@ -12,7 +12,7 @@ from typing import Callable, Mapping, Sequence
 import numpy as np
 
 from core.solver.dynamics.component_assembly import DynamicComponentBinding
-from core.solver.dynamics.component_contract import DynamicStateComponent
+from core.solver.dynamics.component_contract import DynamicComponentInputs, DynamicStateComponent
 from core.solver.dynamics.dynamic_state_layout import DynamicSystemStateLayout
 from core.solver.dynamics.integrator import Integrator
 from core.solver.dynamics.multimachine import MultiMachineSystem
@@ -118,6 +118,55 @@ class GeneratorAugmentedDAEAdapter:
         self.machine_bus_ids = {machine.machine_id: machine.bus_id for machine in machine_system.machines}
         self.base_mechanical_powers_pu = dict(base_mechanical_powers_pu)
         self.machine_connection_state = machine_connection_state
+
+    def initialize_state(
+        self,
+        machine_state: Sequence[float] | np.ndarray,
+        operating_point_inputs: DynamicComponentInputs,
+    ) -> np.ndarray:
+        """Build the augmented initial vector from a host-validated operating point.
+
+        The host must first solve/validate the initial algebraic network state
+        and supply terminal voltages and machine powers on the study base.
+        Every registered continuous component contributes its own initial
+        state; no controller state is guessed from nameplate defaults.
+        """
+        if not isinstance(operating_point_inputs, DynamicComponentInputs):
+            raise TypeError("operating_point_inputs must be DynamicComponentInputs")
+        machine = np.asarray(machine_state, dtype=float)
+        if machine.ndim != 1 or machine.size != self.machine_system.state_size or not np.all(np.isfinite(machine)):
+            raise GeneratorAugmentedIntegratorError(
+                "machine_state must match the canonical finite machine state vector"
+            )
+        if dict(operating_point_inputs.mechanical_power_inputs_pu) != self.base_mechanical_powers_pu:
+            raise GeneratorAugmentedIntegratorError(
+                "operating-point mechanical powers must match the configured study inputs exactly"
+            )
+        if set(operating_point_inputs.electrical_active_power_pu) != set(self.machine_bus_ids):
+            raise GeneratorAugmentedIntegratorError(
+                "operating-point electrical powers must cover the canonical machine set exactly"
+            )
+        component_ids = {getattr(component, "component_id", None) for component in self.components}
+        if component_ids != {block.owner_id for block in self.layout.component_blocks}:
+            raise GeneratorAugmentedIntegratorError(
+                "registered component identities must match the composed layout exactly"
+            )
+        states: dict[str, Sequence[float]] = {}
+        for component in self.components:
+            component_id = component.component_id
+            try:
+                initial = component.initial_state(operating_point_inputs)
+            except Exception as exc:
+                raise GeneratorAugmentedIntegratorError(
+                    f"component {component_id!r} could not initialize from the supplied operating point"
+                ) from exc
+            states[component_id] = initial
+        try:
+            return self.layout.pack(machine, states)
+        except Exception as exc:
+            raise GeneratorAugmentedIntegratorError(
+                "operating-point component states do not satisfy the composed layout"
+            ) from exc
 
     def evaluate_stage(
         self,
