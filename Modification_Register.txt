@@ -3861,3 +3861,25 @@ Verification:
 - Branch still contains additional commits and requires a final full
   reconciliation review before PR #1204 can be merged.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Wire endpoint hit-test fixture correction
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrument-wiring-domain-foundation
+
+Finding:
+- Follow-up source review found one regression test calling the shared
+  _system(monkeypatch, item) fixture with an extra EquipmentItem class
+  argument. This would raise TypeError before exercising the outside-shape
+  rejection behavior.
+
+Correction:
+- Corrected the fixture invocation to pass only the candidate equipment item.
+- No production snapping behavior changed.
+
+Verification:
+- Test source and fixture signature inspected after correction.
+- Test execution remains outstanding; no pytest, import, or GUI run is claimed.
+======================================================================
