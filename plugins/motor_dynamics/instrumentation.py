@@ -271,7 +271,14 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
     if family in {MotorFamily.LINEAR_INDUCTION, MotorFamily.LINEAR_SYNCHRONOUS}:
         pts += [_p("linear.thrust_force", "Linear motor thrust force", X, N, "N", ("control","analysis")),
                 _p("linear.air_gap", "Primary-secondary air gap", X, N, "mm", ("monitoring","maintenance")),
-                _p("linear.position", "Translator position", X, N, "mm", ("control","monitoring"))]
+                _p("linear.position", "Translator position", X, N, "mm", ("control","monitoring")),
+                _p("linear.translator_velocity", "Translator linear velocity", X, N, "m/s", ("control","protection","monitoring"), True),
+                _p("linear.translator_acceleration", "Translator linear acceleration", X, N, "m/s2", ("monitoring","analysis")),
+                _p("linear.load_force", "External load force", X, N, "N", ("control","analysis")),
+                _p("linear.primary_winding_temperature", "Primary winding temperature", X, N, "degC", ("monitoring","alarm","maintenance")),
+                _p("linear.secondary_temperature", "Secondary reaction-plate temperature", X, N, "degC", ("monitoring","alarm","maintenance")),
+                _p("linear.drive_electrical_frequency", "Travelling-field electrical frequency", F, N, "Hz", ("control","diagnostics")),
+                _p("linear.end_effect_compensation_state", "End-effect compensation state", D, N, "state", ("control","diagnostics"))]
 
     ids = [point.point_id for point in pts]
     if len(ids) != len(set(ids)):
