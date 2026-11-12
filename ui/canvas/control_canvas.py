@@ -81,6 +81,7 @@ class ControlCanvas(GridScene):
         self._preview_item: ControlLogicItem | None = None
         self._connection_preview: QGraphicsLineItem | None = None
         self._port_positions: dict[tuple[str, str, str], tuple[float, float]] = {}
+        self._signal_provenance_items: list[Any] = []
         self._provenance_navigation_callback = None
 
     @property
@@ -209,6 +210,13 @@ class ControlCanvas(GridScene):
 
     def project_signal_provenance(self, provenance: tuple[Any, ...] = ()) -> None:
         """Overlay canonical signal/cable identity at matching Control input ports."""
+        for previous in tuple(self._signal_provenance_items):
+            try:
+                if previous is not None and previous.scene() is self:
+                    self.removeItem(previous)
+            except RuntimeError:
+                pass
+        self._signal_provenance_items.clear()
         if not provenance:
             return
         protection_by_signal: dict[str, list[Any]] = {}
@@ -251,6 +259,7 @@ class ControlCanvas(GridScene):
             label.setPos(float(position[0]) + 7.0, float(position[1]) - 13.0)
             label.setZValue(20.0)
             self.addItem(label)
+            self._signal_provenance_items.append(label)
 
     def component_at(self, x: float, y: float) -> ControlLogicItem | None:
         point = QPointF(float(x), float(y))
