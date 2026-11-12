@@ -96,10 +96,16 @@ both the filtered acceleration and FSRA integrator. A selected-command
 tracking correction is optional and uses a caller-supplied positive tracking
 time constant.
 
-The fuel-flow load-limiter PI is a separate approximation using
-`Ldref - filtered_fuel_flow`, `Kpload`, and `Kiload`; it is not a substitute
-for the complete PSS/E exhaust-temperature controller. The
-`GGOV1TemperatureMeasurement` block supplies only the
-`(1+s*Tsa)/(1+s*Tsb)` exhaust-temperature measurement conditioning. OEM
-temperature references, ambient compensation, limiter maps and combined
-FSRT composition remain explicit integration requirements.
+`GGOV1LoadLimiter` implements the PSS/E-derived OpenIPSL `LoadLimiter.mo`
+signal path. It forms `TREF = Wfnl + LDREF / Kturb`, computes
+`eT = TREF - TEXM`, integrates `Kiload * eT`, and produces
+`FSRT = min(1.0, Kpload * eT + integral)`. The integral operating-point
+initialization is `(PELEC + Dm) / Kturb + Wfnl`. `TEXM` is supplied by the
+separate `GGOV1TemperatureMeasurement` conditioner implementing
+`(1+s*Tsa)/(1+s*Tsb)`. The lower fuel-stroke bound is not added because the
+referenced LoadLimiter applies only the upper 1.0 pu limit.
+
+This is a PSS/E-derived sub-block topology, not a claim of universal OEM
+implementation equivalence. Ambient compensation, OEM firing-temperature
+maps, plant-specific calibration, complete limiter coordination and DAE
+integration remain open.
