@@ -151,6 +151,8 @@ class Terminal:
         "current_transformer": (CT_PRIMARY_1_ROLE, CT_PRIMARY_2_ROLE, CT_SECONDARY_1_ROLE, CT_SECONDARY_2_ROLE),
         "potential_transformer": (PT_PRIMARY_A_ROLE, PT_PRIMARY_B_ROLE, PT_SECONDARY_A_ROLE, PT_SECONDARY_B_ROLE),
         "cvt": (CVT_PRIMARY_1_ROLE, CVT_PRIMARY_2_ROLE, CVT_SECONDARY_1_ROLE, CVT_SECONDARY_2_ROLE),
+        "rtd": ("A", "B", "B1", "B2", "A1", "A2"),
+        "thermocouple": ("POSITIVE", "NEGATIVE"),
         "relay": (),
     })
 
