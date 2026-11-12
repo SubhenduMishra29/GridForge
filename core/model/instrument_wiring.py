@@ -345,12 +345,26 @@ class InstrumentationWiringInventory:
         if len(all_ids) != len(set(all_ids)):
             raise ValueError("Instrumentation wiring records must have globally unique stable IDs.")
 
-        self._validate_unique_tags(self.cables, "cable")
-        self._validate_unique_tags(self.panel_wires, "panel wire")
-        self._validate_unique_tags(self.signals, "signal")
-        core_tags = [item.core_tag for item in self.cores if item.core_tag is not None]
-        if len(core_tags) != len(set(core_tags)):
-            raise ValueError("Cable cores contain duplicate core tags.")
+        # Tags are project-wide engineering designations, not record IDs.
+        # Enforce one case-insensitive namespace across all tagged wiring
+        # objects so SLD, Control, Protection and schedules cannot resolve the
+        # same visible tag to different physical/logical records.
+        tagged_records = (
+            *((item.tag, "cable") for item in self.cables),
+            *((item.core_tag, "cable core") for item in self.cores if item.core_tag is not None),
+            *((item.tag, "panel wire") for item in self.panel_wires),
+            *((item.tag, "signal") for item in self.signals),
+        )
+        seen_tags: dict[str, tuple[str, str]] = {}
+        for tag, label in tagged_records:
+            normalized = tag.strip().casefold()
+            if normalized in seen_tags:
+                previous_tag, previous_label = seen_tags[normalized]
+                raise ValueError(
+                    f"Duplicate project wiring tag {tag!r} ({label}); "
+                    f"already assigned to {previous_tag!r} ({previous_label})."
+                )
+            seen_tags[normalized] = (tag, label)
 
         cable_by_id = {item.id: item for item in self.cables}
         core_numbers: set[tuple[str, int]] = set()
@@ -385,9 +399,9 @@ class InstrumentationWiringInventory:
 
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:
-        tags = [record.tag for record in records]
+        tags = [record.tag.strip().casefold() for record in records]
         if len(tags) != len(set(tags)):
-            raise ValueError(f"Duplicate {label} tag in wiring inventory.")
+            raise ValueError(f"Duplicate {label} tag in wiring inventory (case-insensitive).")
 
 
 __all__ = [
