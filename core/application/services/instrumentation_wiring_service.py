@@ -167,6 +167,45 @@ class InstrumentationWiringService:
                     )
 
     @staticmethod
+    def _validate_pt_secondary_circuits(network: Any, inventory: InstrumentationWiringInventory) -> None:
+        """Fail closed for in-service PT/CVT secondary protection and grounding."""
+        accessories = {item.id: item for item in inventory.terminal_accessories}
+        for circuit in inventory.pt_secondary_circuits:
+            try:
+                instrument = network.get_by_identity(circuit.instrument_id)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"PT/CVT secondary circuit '{circuit.id}' references unregistered instrument '{circuit.instrument_id}'."
+                ) from exc
+            if (
+                getattr(instrument, "id", None) != circuit.instrument_id
+                or getattr(instrument, "element_type", None) != circuit.instrument_kind
+            ):
+                raise ValueError(
+                    f"PT/CVT secondary circuit '{circuit.id}' must reference the exact Core {circuit.instrument_kind} identity."
+                )
+            if not bool(getattr(instrument, "in_service", False)):
+                continue
+            if circuit.secondary_state is PTSecondaryCircuitState.UNKNOWN:
+                raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' has UNKNOWN secondary state.")
+            if circuit.secondary_state is PTSecondaryCircuitState.ISOLATED:
+                raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' cannot have an ISOLATED secondary circuit.")
+            if circuit.polarity is PTSecondaryPolarity.UNKNOWN:
+                raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' has UNKNOWN secondary polarity.")
+            if circuit.grounding is PTSecondaryGrounding.UNKNOWN:
+                raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' requires an explicit grounded or ungrounded-by-design declaration.")
+            for accessory_id in circuit.fuse_accessory_ids:
+                if accessories[accessory_id].state is not TerminalAccessoryState.CLOSED:
+                    raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' has a fuse link that is not explicitly CLOSED.")
+            for accessory_id in circuit.isolation_accessory_ids:
+                if accessories[accessory_id].state is not TerminalAccessoryState.CLOSED:
+                    raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' has an isolation link that is not explicitly CLOSED.")
+            if circuit.grounding is PTSecondaryGrounding.GROUNDED:
+                earth = accessories[circuit.grounding_accessory_id]
+                if earth.state is not TerminalAccessoryState.CLOSED:
+                    raise ValueError(f"In-service {circuit.instrument_kind} '{circuit.instrument_id}' is declared GROUNDED but its earth link is not explicitly CLOSED.")
+
+    @staticmethod
     def _read_value(value: Any) -> Any:
         if isinstance(value, Enum):
             return value.value
@@ -392,6 +431,7 @@ class InstrumentationWiringService:
                 raise ValueError("An active project wiring inventory requires the canonical Core Network.")
             self._validate_inventory_terminals(network, candidate)
             self._validate_ct_secondary_circuits(network, candidate)
+            self._validate_pt_secondary_circuits(network, candidate)
             next_project_id = project_id.strip()
             next_generation = generation
             next_network = network
