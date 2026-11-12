@@ -119,6 +119,18 @@ def build_instrumentation_wiring_schedules(
     for kind, records in (("CABLE_CORE", cores), ("PANEL_WIRE", panel_wires)):
         for carrier_id in sorted(records):
             carrier_records.append(carrier_summary(kind, carrier_id))
+    physical_keys = {(str(item["carrier_kind"]), str(item["carrier_id"])) for item in carrier_records}
+    for binding in wiring.signal_bindings:
+        kind = str(binding["carrier_kind"])
+        carrier_id = str(binding["carrier_id"])
+        key = (kind, carrier_id)
+        if key in physical_keys:
+            continue
+        unsupported = carrier_summary(kind, carrier_id)
+        unsupported["unsupported_physical_carrier"] = True
+        unsupported["terminal_path"] = ()
+        carrier_records.append(unsupported)
+        physical_keys.add(key)
 
     cable_schedule = []
     for cable_id in sorted(cables):
