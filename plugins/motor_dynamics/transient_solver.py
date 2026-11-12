@@ -1787,7 +1787,7 @@ class SinglePhaseMotorSimulationResult:
         im,ia,w,pos,temp=(m[:,i] for i in range(len(_SINGLE_PHASE_STATE_NAMES)))
         omega=2*np.pi*p.frequency_hz
         xa=omega*p.auxiliary_inductance_h-(1/(omega*p.auxiliary_capacitance_f) if p.auxiliary_capacitance_f>0 else 0.0)
-        phase=np.arctan2(xa,p.auxiliary_resistance_ohm)-np.arctan2(omega*p.main_inductance_h,p.main_resistance_ohm)
+        phase=np.arctan2(omega*p.main_inductance_h,p.main_resistance_ohm)-np.arctan2(xa,p.auxiliary_resistance_ohm)
         torque=p.torque_constant_nm_per_a2*im*ia*np.sin(phase)
         if p.family=="shaded_pole": torque*=p.shaded_pole_torque_factor
         active=np.ones(self.sample_count)
@@ -1799,7 +1799,7 @@ class SinglePhaseMotorSimulationResult:
               "auxiliary_phase_displacement_rad":np.full(self.sample_count,phase),
               "electromagnetic_torque_nm":torque,"rotor_speed_rad_s":w,"rotor_speed_rpm":w*60/(2*np.pi),
               "rotor_position_rad":pos,"winding_temperature_c":temp,
-              "electrical_input_power_w":self.supply_voltage_v*np.hypot(im,ia*active),
+              "apparent_input_power_va":self.supply_voltage_v*np.hypot(im,ia*active),
               "mechanical_output_power_w":torque*w,"load_torque_nm":self.load_torque_nm}
         for v in vals.values(): v.setflags(write=False)
         return vals
@@ -1810,7 +1810,7 @@ def _single_phase_targets(p, voltage):
     zm=np.hypot(p.main_resistance_ohm,omega*p.main_inductance_h)
     xa=omega*p.auxiliary_inductance_h-(1/(omega*p.auxiliary_capacitance_f) if p.auxiliary_capacitance_f>0 else 0.0)
     za=np.hypot(p.auxiliary_resistance_ohm,xa)
-    phase=np.arctan2(xa,p.auxiliary_resistance_ohm)-np.arctan2(omega*p.main_inductance_h,p.main_resistance_ohm)
+    phase=np.arctan2(omega*p.main_inductance_h,p.main_resistance_ohm)-np.arctan2(xa,p.auxiliary_resistance_ohm)
     return abs(voltage)/zm,abs(voltage)/za,phase
 
 
