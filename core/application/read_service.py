@@ -2027,14 +2027,19 @@ class MeasurementChannelReadService:
         if channel is None:
             raise KeyError(f"MeasurementChannel '{normalized}' is not available.")
         reference = channel.source_terminal
-        if reference is None or not callable(getattr(reference, "to_mapping", None)):
-            raise ValueError(f"MeasurementChannel '{normalized}' has no canonical source terminal reference.")
+        reference_mapping = (
+            reference.to_mapping()
+            if reference is not None and callable(getattr(reference, "to_mapping", None))
+            else None
+        )
         return MeasurementChannelConfigurationReadModel(
             channel_id=str(channel.id),
             name=str(channel.name),
-            source_id=str(channel.source_id),
-            source_equipment_type=str(reference.equipment_type.value),
-            source_terminal_reference=reference.to_mapping(),
+            source_id=str(channel.source_id) if channel.source_id is not None else None,
+            source_equipment_type=(
+                str(reference.equipment_type.value) if reference_mapping is not None else None
+            ),
+            source_terminal_reference=reference_mapping,
             signal_type=channel.signal_type.value,
             phase=channel.phase.value,
             unit=str(channel.unit),
