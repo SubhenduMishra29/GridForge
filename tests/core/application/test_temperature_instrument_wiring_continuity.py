@@ -8,6 +8,7 @@ from core.model.instrument_wiring import (
 from core.model.temperature_instrument import (
     TemperatureInputMode, TemperatureInstrument, TemperatureInstrumentInventory,
     TemperatureInterfaceDevice, TemperatureSensorTechnology, TemperatureService,
+    TemperatureTerminalMapping,
 )
 
 
@@ -150,8 +151,55 @@ def test_thermocouple_route_requires_matching_type_polarity_and_material():
 
 
 def test_thermocouple_conductor_metadata_must_be_complete():
-    with pytest.raises(ValueError, match="declared together"):
+    with pytest.raises(ValueError, match="conductor_material"):
         CableCore(
             "tc-incomplete", "cable", 1, WiringConductorRole.SIGNAL,
             thermocouple_type="K",
         )
+
+
+def test_mapped_thermocouple_loop_requires_type_polarity_and_construction_on_each_leg():
+    sensor_pos, sensor_neg = terminal("tc", "POS"), terminal("tc", "NEG")
+    tx_pos, tx_neg = terminal("tx", "IN+"), terminal("tx", "IN-")
+    tx_out, receiver = terminal("tx", "OUT"), terminal("plc", "AI+")
+    interface = TemperatureInterfaceDevice(
+        id="tx", tag="TT-1", equipment_kind=TemperatureInputMode.TRANSMITTER,
+        supported_sensor_technologies=(TemperatureSensorTechnology.THERMOCOUPLE,),
+        supported_sensor_configurations=("Type K",),
+        input_terminals=(tx_pos, tx_neg), output_terminals=(tx_out,),
+        output_signal_kind="4-20mA", output_unit="degC",
+    )
+    instrument = TemperatureInstrument(
+        id="temp-tc", tag="OTD-TC-1", service=TemperatureService.OTD,
+        asset_id="transformer-1", location="top oil", sensor_equipment_id="tc",
+        sensor_technology=TemperatureSensorTechnology.THERMOCOUPLE,
+        input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx",
+        sensor_configuration="Type K", thermocouple_type="K",
+        sensor_terminals=(sensor_pos, sensor_neg), receiver_terminals=(receiver,),
+        sensor_input_mappings=(
+            TemperatureTerminalMapping(sensor_pos, tx_pos, "POSITIVE"),
+            TemperatureTerminalMapping(sensor_neg, tx_neg, "NEGATIVE"),
+        ),
+    )
+    inventory = TemperatureInstrumentInventory(instruments=(instrument,), interfaces=(interface,))
+    cables = (
+        CableAssembly("cable-pos", "C-POS", "TC extension", 1, cable_type="K-extension", conductor_material="declared-pair"),
+        CableAssembly("cable-neg", "C-NEG", "TC extension", 1, cable_type="K-extension", conductor_material="declared-pair"),
+    )
+    cores = (
+        CableCore("core-pos", "cable-pos", 1, WiringConductorRole.SIGNAL, (sensor_pos, tx_pos),
+                  conductor_material="declared-positive-alloy", thermocouple_type="K", thermocouple_polarity="POSITIVE"),
+        CableCore("core-neg", "cable-neg", 1, WiringConductorRole.RETURN, (sensor_neg, tx_neg),
+                  conductor_material="declared-negative-alloy", thermocouple_type="K", thermocouple_polarity="NEGATIVE"),
+    )
+    output = PanelWire("out-wire", "W-OUT", WiringConductorRole.SIGNAL, (tx_out, receiver))
+    wiring = InstrumentationWiringInventory(cables=cables, cores=cores, panel_wires=(output,))
+    assert TemperatureInstrumentService._validate_physical_continuity(inventory, wiring) == ()
+
+    wrong_leg = CableCore(
+        "core-neg", "cable-neg", 1, WiringConductorRole.RETURN, (sensor_neg, tx_neg),
+        conductor_material="declared-negative-alloy", thermocouple_type="K", thermocouple_polarity="POSITIVE",
+    )
+    invalid = InstrumentationWiringInventory(cables=cables, cores=(cores[0], wrong_leg), panel_wires=(output,))
+    with pytest.raises(ValueError, match="thermocouple negative conductor path"):
+        TemperatureInstrumentService._validate_physical_continuity(inventory, invalid)
