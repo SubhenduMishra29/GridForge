@@ -343,7 +343,7 @@ class MeasurementChannelService:
 
     def update_channel(
         self, *, channel_id: str, definition: Mapping[str, Any], transaction: Transaction,
-    ) -> ApplicationResult[MeasurementChannel]:
+    ) -> ApplicationResult[str]:
         """Replace an unbound CT channel definition without mutating a sealed channel."""
         self._require_transaction(transaction)
         normalized_id = self._normalize_id(channel_id)
@@ -385,7 +385,7 @@ class MeasurementChannelService:
 
     def delete_channel(
         self, *, channel_id: str, transaction: Transaction,
-    ) -> ApplicationResult[MeasurementChannel]:
+    ) -> ApplicationResult[str]:
         """Delete an unbound CT channel; references must be explicitly unbound first."""
         self._require_transaction(transaction)
         normalized_id = self._normalize_id(channel_id)
@@ -427,20 +427,6 @@ class MeasurementChannelService:
                 f"Measurement channel {channel_id!r} is still referenced by Protection or Control configuration; "
                 "unbind every consumer before editing or deleting it."
             )
-
-    def _ensure_unique_ct_source(self, source_id: str, terminal_role: str, channel_id: str) -> None:
-        for existing_id, existing in self._channels.items():
-            if existing_id == channel_id:
-                continue
-            reference = existing.source_terminal
-            if (
-                getattr(existing.source, "id", None) == source_id
-                and isinstance(reference, EndpointReference)
-                and reference.terminal_role == terminal_role
-            ):
-                raise ValueError(
-                    f"CT secondary terminal {source_id}:{terminal_role} already has measurement channel {existing_id!r}."
-                )
 
     def _build_ct_channel(self, definition: Mapping[str, Any]) -> MeasurementChannel:
         if not isinstance(definition, Mapping):
