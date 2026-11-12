@@ -544,6 +544,7 @@ class SLDCanvasSurface(QWidget):
         composition = self._composition
         if (
             composition is not None
+            and composition.draft_sld_projection is not None
             and composition.sld_controller.active_document is document
         ):
             composite = composition.refresh_active_document()
