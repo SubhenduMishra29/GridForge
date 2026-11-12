@@ -230,16 +230,29 @@ class ProtectionGraphicsSurface(QGraphicsView):
                         peers = control_by_signal.get(input_provenance.signal_id, ())
                         peer_targets = {str(candidate.endpoint_id) for candidate in peers}
                         peer = peers[0] if len(peer_targets) == 1 else None
-                        detail = "\n\n".join(item.detail_text for item in input_provenances)
+                        detail = "\\n\\n".join(item.detail_text for item in input_provenances)
+                        sld_target = input_provenance.status == "RESOLVED"
                         if peer is not None:
-                            detail += "\nDouble-click to locate the matching Control input."
+                            detail += "\\nDouble-click to locate the matching Control input; right-click for the SLD route."
+                        elif sld_target:
+                            detail += "\\nDouble-click to highlight the complete physical SLD route."
                         input_node.setToolTip(detail)
                         provenance_label = SignalProvenanceItem(
                             input_provenance.short_label,
                             detail,
-                            target_editor="control" if peer is not None else None,
-                            target_object_id=str(peer.endpoint_id) if peer is not None else None,
+                            target_editor=(
+                                "control" if peer is not None
+                                else "sld" if sld_target else None
+                            ),
+                            target_object_id=(
+                                str(peer.endpoint_id) if peer is not None
+                                else input_provenance.signal_id if sld_target else None
+                            ),
                             navigate=self._provenance_navigation_callback,
+                            alternate_targets=(
+                                (("Open SLD physical route", "sld", input_provenance.signal_id),)
+                                if peer is not None and sld_target else ()
+                            ),
                             parent=input_node,
                         )
                         provenance_label.setPos(8.0, 52.0)
