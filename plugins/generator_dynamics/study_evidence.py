@@ -8,10 +8,31 @@ contract when a cooperative cancellation returns an interrupted trajectory.
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
+import math
 from types import MappingProxyType
 from typing import Any
 
 from .integrator_adapter import GeneratorAugmentedStepResult
+
+
+def _freeze_archive_value(value: object, *, path: str = "value") -> object:
+    """Validate and recursively freeze the primitive archive contract."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError(f"{path} must not contain non-finite numbers")
+        return value
+    if isinstance(value, Mapping):
+        frozen: dict[str, object] = {}
+        for key, item in value.items():
+            if not isinstance(key, str):
+                raise TypeError(f"{path} mapping keys must be strings")
+            frozen[key] = _freeze_archive_value(item, path=f"{path}.{key}")
+        return MappingProxyType(frozen)
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze_archive_value(item, path=f"{path}[{index}]") for index, item in enumerate(value))
+    raise TypeError(f"{path} contains unsupported archive value {type(value).__name__}")
 
 
 class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
@@ -52,20 +73,23 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
             raise ValueError("accepted step times must be strictly increasing")
         if any(not isinstance(item, Mapping) for item in event_schedule):
             raise TypeError("event_schedule entries must be mappings")
-        provenance_data: dict[str, object] = {
+        provenance_data = _freeze_archive_value({
             "execution_status": execution_status,
             "trajectory_status": trajectory_status,
             "termination": dict(termination or {}),
             "event_schedule": tuple(dict(item) for item in event_schedule),
-        }
-        self.provenance = MappingProxyType(provenance_data)
-        self.time = times
-        self._payload = MappingProxyType({
+        }, path="provenance")
+        payload = _freeze_archive_value({
             "schema": "gridforge.generator_augmented_study",
             "schema_version": 1,
             "provenance": provenance_data,
             "accepted_steps": tuple(step.to_archive_payload() for step in steps),
-        })
+        }, path="study_evidence")
+        if not isinstance(provenance_data, Mapping) or not isinstance(payload, Mapping):
+            raise TypeError("study evidence payload must be a mapping")
+        self.provenance = provenance_data
+        self.time = times
+        self._payload = payload
 
     def __getitem__(self, key: str) -> object:
         return self._payload[key]
