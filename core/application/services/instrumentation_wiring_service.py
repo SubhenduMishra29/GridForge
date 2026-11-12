@@ -18,7 +18,8 @@ from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
     SignalCarrierBinding, SignalDefinition, SignalEndpointBinding,
     TerminalBlock, TerminalPoint, TerminalAccessory,
-    CTSecondaryCircuit, CTSecondaryCircuitState, TerminalAccessoryState,
+    CTSecondaryCircuit, CTSecondaryCircuitState, PTSecondaryCircuit, PTSecondaryCircuitState,
+    PTSecondaryPolarity, PTSecondaryGrounding, TerminalAccessoryState,
 )
 
 
@@ -204,6 +205,7 @@ class InstrumentationWiringService:
             terminal_points=tuple(self._read_value(item) for item in inventory.terminal_points),
             terminal_accessories=tuple(self._read_value(item) for item in inventory.terminal_accessories),
             ct_secondary_circuits=tuple(self._read_value(item) for item in inventory.ct_secondary_circuits),
+            pt_secondary_circuits=tuple(self._read_value(item) for item in inventory.pt_secondary_circuits),
         )
 
     def allocate_tag(
@@ -244,6 +246,7 @@ class InstrumentationWiringService:
             TerminalPoint: "terminal_points",
             TerminalAccessory: "terminal_accessories",
             CTSecondaryCircuit: "ct_secondary_circuits",
+            PTSecondaryCircuit: "pt_secondary_circuits",
         }
         try:
             return collections[record_type]
@@ -257,7 +260,7 @@ class InstrumentationWiringService:
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
         for field in (
             "cables", "cores", "panel_wires", "signals", "signal_bindings",
-            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories", "ct_secondary_circuits",
+            "endpoint_bindings", "terminal_blocks", "terminal_points", "terminal_accessories", "ct_secondary_circuits", "pt_secondary_circuits",
         ):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
