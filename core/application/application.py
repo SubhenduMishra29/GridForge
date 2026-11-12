@@ -63,7 +63,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -5085,6 +5085,22 @@ class Application:
         if service is None:
             raise RuntimeError("Application instrumentation wiring service is not configured.")
         return service.read_model()
+
+    def read_measurement_channel_configurations(self) -> tuple[MeasurementChannelConfigurationReadModel, ...]:
+        """Return detached project configuration, separate from live telemetry."""
+        lifecycle = self.project_lifecycle
+        if not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("MeasurementChannel configuration reads require an active project.")
+        service = self._measurement_channel_read_service
+        if service is None:
+            raise RuntimeError("Application MeasurementChannel read service is not configured.")
+        return service.configurations()
+
+    @property
+    def measurement_clock_domain(self) -> str | None:
+        """Expose only the configured trusted clock-domain identity."""
+        service = self._measurement_channel_service
+        return service.clock_domain if service is not None else None
 
     def read_measurement_channels(self) -> tuple[MeasurementChannelReadModel, ...]:
         """Return immutable snapshots of the active project's MeasurementChannels."""
