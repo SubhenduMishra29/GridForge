@@ -538,3 +538,28 @@ def test_ac_servo_catalogue_distinguishes_machine_technologies_and_drive_feedbac
     }.issubset(points)
     assert points["feedback.position_error"].unit == "rad"
     assert points["drive.brake_state"].signal_type.value == "digital"
+
+
+def test_pmsm_servo_cascade_tracks_position_and_reports_encoder_and_regeneration():
+    import numpy as np
+    from plugins.motor_dynamics.transient_solver import PMSMServoParameters, solve_pmsm_servo_transient_cpu
+    machine = _pmsm_parameters()
+    drive = PMSMServoParameters(machine, position_kp=12., speed_kp=1.5, speed_ki=8.,
+        current_kp=3., current_ki=80., maximum_speed_rad_s=80.,
+        maximum_current_a=35., maximum_voltage_v=300., encoder_counts_per_revolution=4096)
+    result = solve_pmsm_servo_transient_cpu("servo-01", drive, .02, .0001,
+        position_command_rad=.05, load_torque_nm=0.)
+    channels = result.channels(drive)
+    assert result.backend == "cpu-rk4"
+    assert np.isfinite(result.state_data).all()
+    assert abs(channels["mechanical_position_rad"][-1]) > 0.
+    assert np.isfinite(channels["encoder_position_rad"]).all()
+    assert np.isfinite(channels["position_error_rad"]).all()
+
+
+def test_pmsm_servo_rejects_invalid_current_limit():
+    from plugins.motor_dynamics.transient_solver import PMSMServoParameters
+    with pytest.raises(ValueError, match="maximum_current_a"):
+        PMSMServoParameters(_pmsm_parameters(), position_kp=1., speed_kp=1., speed_ki=1.,
+            current_kp=1., current_ki=1., maximum_speed_rad_s=10.,
+            maximum_current_a=0., maximum_voltage_v=100.)
