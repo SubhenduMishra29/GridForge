@@ -28,6 +28,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "prime_mover_models",
         "reduced_hydro_governor_model",
         "ggov1_parameter_contract",
+        "ggov1_pid_subblock",
         "excitation_and_governor_configuration",
         "instrumentation_templates",
         "measurement_channel_provisioning",
