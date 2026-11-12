@@ -12,7 +12,7 @@ from core.model.instrument_wiring import (
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 3
+WIRING_SCHEMA_VERSION = 4
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -105,6 +105,7 @@ def serialize_instrumentation_wiring(
                 "id": item.id, "signal_id": item.signal_id,
                 "carrier_kind": item.carrier_kind.value,
                 "carrier_id": item.carrier_id, "direction": item.direction,
+                "source_channel_id": item.source_channel_id,
             }
             for item in inventory.signal_bindings
         ],
@@ -137,6 +138,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
     expected_v2 = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
     expected_v3 = expected_v2 | {"endpoint_bindings"}
+    expected_v4 = expected_v3
     schema = data.get("schema")
     expected = expected_v2 if schema == 2 else expected_v3
     if set(data) != expected:
@@ -144,7 +146,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             "Instrumentation wiring payload fields are not canonical: "
             + ", ".join(sorted(str(key) for key in set(data) ^ expected))
         )
-    if isinstance(schema, bool) or schema not in {2, WIRING_SCHEMA_VERSION}:
+    if isinstance(schema, bool) or schema not in {2, 3, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {schema!r}."
         )
@@ -167,14 +169,20 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
         )
-        if schema == WIRING_SCHEMA_VERSION:
+        if schema >= 4:
+            _field_contracts = tuple(
+                (name, required, optional | {"source_channel_id"}, label)
+                if name == "signal_bindings" else (name, required, optional, label)
+                for name, required, optional, label in _field_contracts
+            )
+        if schema >= 3:
             _field_contracts += (
                 ("endpoint_bindings", {"id", "signal_id", "endpoint"}, {"direction"}, "Signal endpoint binding"),
             )
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
-        if schema == WIRING_SCHEMA_VERSION:
+        if schema >= 3:
             for item in data["endpoint_bindings"]:
                 endpoint = item.get("endpoint")
                 if not isinstance(endpoint, Mapping):
@@ -218,6 +226,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 id=item["id"], signal_id=item["signal_id"],
                 carrier_kind=CarrierKind(item["carrier_kind"]),
                 carrier_id=item["carrier_id"], direction=item.get("direction", "BIDIRECTIONAL"),
+                source_channel_id=item.get("source_channel_id"),
             )
             for item in data["signal_bindings"]
         )
