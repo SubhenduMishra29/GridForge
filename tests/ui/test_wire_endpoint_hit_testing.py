@@ -99,7 +99,7 @@ def test_wire_hit_fallback_does_not_accept_click_outside_symbol_shape(monkeypatc
         ({"position": QPointF(0, 0), "object_id": "CB-001", "terminal_id": "CB-001:line", "terminal_name": "line"},),
         (-10, -10, 10, 10),
     )
-    system = _system(monkeypatch, _EquipmentCandidate, equipment)
+    system = _system(monkeypatch, equipment)
 
     result = system.snap(QPointF(40, 40), allow_grid=False, allow_object=True, intent=SnapIntent.WIRE_TARGET)
 
