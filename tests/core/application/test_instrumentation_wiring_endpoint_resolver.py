@@ -134,3 +134,67 @@ def test_protection_input_requires_matching_binding_owner_port_and_channel():
         protection_configuration=configuration,
     )
     assert tuple(item.status for item in result) == ("RESOLVED", "RESOLVED")
+
+
+
+def test_control_core_source_is_checked_through_application_read_service():
+    control_ref = _endpoint_binding(
+        "control-ref", SignalEndpointKind.CONTROL_INPUT,
+        "component-1", "control-1", "PV",
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="core", element_type="bus",
+                object_id="BUS-1", signal="voltage_pu",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    class ReadService:
+        def element(self, element_type, object_id):
+            assert (element_type, object_id) == ("bus", "BUS-1")
+            return SimpleNamespace(attributes={"voltage_pu": 1.0})
+
+    result = resolve_signal_endpoint_bindings(
+        _signal_inventory(control_ref),
+        measurement_channels=(),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+        read_service=ReadService(),
+    )
+    assert result[0].status == "RESOLVED"
+
+
+def test_control_core_source_missing_from_read_service_is_unresolved():
+    control_ref = _endpoint_binding(
+        "control-ref", SignalEndpointKind.CONTROL_INPUT,
+        "component-1", "control-1", "PV",
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="core", element_type="bus",
+                object_id="missing-bus", signal="voltage_pu",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1", component_id="component-1",
+                input_name="PV",
+            ),
+        ),
+    ))
+    class ReadService:
+        def element(self, element_type, object_id):
+            raise KeyError(object_id)
+
+    result = resolve_signal_endpoint_bindings(
+        _signal_inventory(control_ref),
+        measurement_channels=(),
+        control_signal_mapping=mapping,
+        protection_configuration=None,
+        read_service=ReadService(),
+    )
+    assert result[0].status == "UNRESOLVED"
