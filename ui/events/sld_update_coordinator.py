@@ -25,6 +25,7 @@ from core.application.events import (
     ProjectLoaded,
     ProjectClosed,
     ProtectionChanged,
+    InstrumentationWiringChanged,
     SLDPresentationChanged,
     TopologyChanged,
     DraftChanged,
@@ -49,6 +50,7 @@ class SLDUpdateCoordinator:
         NetworkChanged,
         NetworkCommitted,
         ProtectionChanged,
+        InstrumentationWiringChanged,
         SLDPresentationChanged,
         DraftChanged,
         ProjectLoaded,
@@ -348,7 +350,13 @@ class SLDUpdateCoordinator:
             return
 
         try:
-            if isinstance(event, ProtectionChanged):
+            if isinstance(event, InstrumentationWiringChanged):
+                # Wiring is a separate canonical project model, not Core
+                # topology. Re-render its SLD projection without mutating or
+                # revising the electrical Network.
+                self._refresh_canvas()
+                return
+            elif isinstance(event, ProtectionChanged):
                 self._synchronizer.synchronize_protection(
                     document,
                     self._application.read_protection(),
