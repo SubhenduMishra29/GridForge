@@ -5051,3 +5051,22 @@ Verification:
 - No Python syntax/import execution, tests, GUI startup, project save/reopen
   or runtime project-activation check was performed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Instrumentation wiring reconciliation merged to main
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Pull Request: #1218
+Merge commit: fdc5897c5a238a7ff9f7d1fbb2690cac019ab655
+
+Outcome:
+- Reconciled implementation onto a fresh branch from current main; mainline
+  temperature-instrument, RTD/thermocouple, MeasurementChannel and lifecycle
+  changes were preserved.
+- PR #1218 merged successfully to main.
+- The stale divergent PR #1216 was closed as superseded; it was not merged.
+- Original feature branch was not force-updated.
+- Runtime/test/save-reopen verification remains outstanding and was not
+  represented as completed by this merge record.
+======================================================================
