@@ -153,7 +153,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         if not isinstance(data.get(key), list) or any(not isinstance(item, Mapping) for item in data[key]):
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
 
-    if schema == WIRING_SCHEMA_VERSION and (
+    if schema >= 3 and (
         not isinstance(data.get("endpoint_bindings"), list)
         or any(not isinstance(item, Mapping) for item in data["endpoint_bindings"])
     ):
