@@ -331,7 +331,7 @@ class MeasurementChannelService:
             transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
             self._channels = next_channels
             return ApplicationResult.success_result(
-                value=channel,
+                value=channel.id,
                 message=f"CT secondary measurement channel created: {channel.id}",
                 metadata={"channel_id": channel.id, "source_id": channel.source_id,
                           "terminal_role": channel.source_terminal.terminal_role},
@@ -361,7 +361,7 @@ class MeasurementChannelService:
             transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
             self._channels = next_channels
             return ApplicationResult.success_result(
-                value=channel,
+                value=channel.id,
                 message=f"CT secondary measurement channel updated: {normalized_id}",
                 metadata={"channel_id": normalized_id},
             )
@@ -381,7 +381,7 @@ class MeasurementChannelService:
             transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
             self._channels = next_channels
             return ApplicationResult.success_result(
-                value=channel,
+                value=channel.id,
                 message=f"CT secondary measurement channel deleted: {normalized_id}",
                 metadata={"channel_id": normalized_id},
             )
