@@ -158,8 +158,16 @@ class InstrumentationWiringService:
         }
         if kind not in used_by_kind:
             raise ValueError(f"Unsupported instrumentation wiring tag category: {kind!r}.")
+        # A tag is globally resolvable across all engineering canvases. Do
+        # not allocate a category-local value that collides with another
+        # cable/core/wire/signal designation.
+        all_used_tags = tuple(
+            tag_value
+            for values in used_by_kind.values()
+            for tag_value in values
+        )
         tag, updated_policy = self._inventory.tag_policy.allocate(
-            kind, used_tags=used_by_kind[kind]
+            kind, used_tags=all_used_tags
         )
         return tag, replace(self._inventory, tag_policy=updated_policy)
 
