@@ -4,8 +4,8 @@
 
 """Engineer-facing CT secondary-channel authoring surface.
 
-This widget stages presentation values only. It reads detached
-MeasurementChannelReadModel snapshots and submits immutable commands
+This widget stages presentation values only. It reads detached channel
+configuration and live-telemetry snapshots separately and submits immutable commands
 through Application.execute(); it never touches Core equipment or
 MeasurementChannel objects directly.
 """
@@ -173,7 +173,16 @@ class CTSecondaryChannelEditor(QGroupBox):
     def _on_measurement_channel_changed(self, event: MeasurementChannelChanged) -> None:
         payload = getattr(event, "payload", {})
         source_id = payload.get("source_id") if callable(getattr(payload, "get", None)) else None
-        if self._target_id is not None and source_id in {None, self._target_id}:
+        previous_source_id = payload.get("previous_source_id") if callable(getattr(payload, "get", None)) else None
+        operation = payload.get("operation") if callable(getattr(payload, "get", None)) else None
+        if (
+            self._target_id is not None
+            and (
+                operation in {"undo", "redo"}
+                or source_id in {None, self._target_id}
+                or previous_source_id == self._target_id
+            )
+        ):
             self._refresh_channels()
 
     def set_target(self, projection: Any | None) -> None:
