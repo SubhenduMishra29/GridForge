@@ -216,6 +216,48 @@ def build_instrumentation_wiring_schedules(
             "complete": len(path) >= 2,
         })
 
+    for accessory in wiring.terminal_accessories:
+        for pair_index, (first_id, second_id) in enumerate(accessory.get("conductive_pairs", ()), start=1):
+            first_point = terminal_points[str(first_id)]
+            second_point = terminal_points[str(second_id)]
+            first_terminal = {
+                "equipment_id": first_point["terminal_block_id"],
+                "terminal_role": first_point["terminal_number"],
+                "designation": first_point["designation"],
+                "terminal_point_id": first_point["id"],
+            }
+            second_terminal = {
+                "equipment_id": second_point["terminal_block_id"],
+                "terminal_role": second_point["terminal_number"],
+                "designation": second_point["designation"],
+                "terminal_point_id": second_point["id"],
+            }
+            conductive = str(accessory["state"]) == "CLOSED"
+            interconnection_list.append({
+                "carrier_kind": "TERMINAL_ACCESSORY",
+                "carrier_id": accessory["id"],
+                "carrier_tag": accessory["tag"],
+                "accessory_kind": accessory["kind"],
+                "accessory_state": accessory["state"],
+                "conductive": conductive,
+                "from_terminal": first_terminal,
+                "to_terminal": second_terminal,
+                "hop_number": pair_index,
+            })
+            point_to_point_list.append({
+                "carrier_kind": "TERMINAL_ACCESSORY",
+                "carrier_id": accessory["id"],
+                "carrier_tag": accessory["tag"],
+                "accessory_kind": accessory["kind"],
+                "accessory_state": accessory["state"],
+                "conductive": conductive,
+                "from_terminal": first_terminal,
+                "to_terminal": second_terminal,
+                "terminal_path": (first_terminal, second_terminal),
+                "intermediate_terminals": (),
+                "complete": True,
+            })
+
     terminal_plan = []
     accessories_by_block: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for accessory in wiring.terminal_accessories:
