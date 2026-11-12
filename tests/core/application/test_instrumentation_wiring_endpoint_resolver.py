@@ -233,3 +233,28 @@ def test_control_core_source_missing_from_read_service_is_unresolved():
         read_service=ReadService(),
     )
     assert result[0].status == "UNRESOLVED"
+
+
+
+def test_measurement_channel_source_terminal_must_be_present_on_a_signal_carrier():
+    binding = _endpoint_binding(
+        "channel-ref", SignalEndpointKind.MEASUREMENT_CHANNEL, "channel-1",
+    )
+    mismatched_channel = SimpleNamespace(
+        channel_id="channel-1",
+        signal_type="CURRENT",
+        source_id="CT-101",
+        source_terminal={
+            "kind": "TERMINAL",
+            "equipment_id": "CT-101",
+            "terminal_role": "S2",
+        },
+    )
+    result = resolve_signal_endpoint_bindings(
+        _signal_inventory(binding),
+        measurement_channels=(mismatched_channel,),
+        control_signal_mapping=None,
+        protection_configuration=None,
+    )
+    assert result[0].status == "UNRESOLVED"
+    assert "does not include the MeasurementChannel source terminal" in result[0].diagnostics[0]
