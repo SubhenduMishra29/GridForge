@@ -259,6 +259,14 @@ class TemperatureInstrumentService:
                             f"Temperature instrument '{instrument.id}' has no continuous canonical "
                             "per-lead sensor-to-interface terminal path."
                         )
+            if interface is not None and instrument.input_mode.value != "DIRECT_SENSOR":
+                if not cls._has_physical_route(
+                    wiring_inventory, tuple(interface.output_terminals), tuple(instrument.receiver_terminals)
+                ):
+                    raise ValueError(
+                        f"Temperature instrument '{instrument.id}' has no continuous canonical "
+                        "interface-output-to-receiver terminal path."
+                    )
             else:
                 for starts, ends, stage in stages:
                     if not cls._has_physical_route(wiring_inventory, tuple(starts), tuple(ends)):
