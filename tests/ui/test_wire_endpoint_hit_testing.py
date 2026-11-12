@@ -41,7 +41,7 @@ class _EquipmentCandidate(_CandidateItem):
     pass
 
 
-def _system(monkeypatch, item_type, item):
+def _system(monkeypatch, item):
     monkeypatch.setattr(snap_module, "BusItem", _BusCandidate)
     monkeypatch.setattr(snap_module, "EquipmentItem", _EquipmentCandidate)
     system = SnapSystem(scene=item._scene, tolerance=10.0)
@@ -60,7 +60,7 @@ def test_wire_click_inside_bus_bar_resolves_nearest_declared_attachment(monkeypa
         ),
         (0, -5, 100, 5),
     )
-    system = _system(monkeypatch, _BusCandidate, bus)
+    system = _system(monkeypatch, bus)
 
     result = system.snap(QPointF(78, 2), allow_grid=False, allow_object=True, intent=SnapIntent.WIRE_START)
 
@@ -81,7 +81,7 @@ def test_wire_click_inside_equipment_body_resolves_nearest_declared_terminal(mon
         ),
         (0, -20, 100, 20),
     )
-    system = _system(monkeypatch, _EquipmentCandidate, equipment)
+    system = _system(monkeypatch, equipment)
 
     result = system.snap(QPointF(91, 5), allow_grid=False, allow_object=True, intent=SnapIntent.WIRE_TARGET)
 
