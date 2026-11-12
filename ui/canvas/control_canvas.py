@@ -238,6 +238,17 @@ class ControlCanvas(GridScene):
             label.setPos(float(position[0]) + 7.0, float(position[1]) - 13.0)
             label.setZValue(20.0)
             self.addItem(label)
+            if item.status == "RESOLVED":
+                sld_label = SignalProvenanceItem(
+                    f"{item.signal_tag} | SLD route",
+                    detail + "\\nDouble-click to highlight the complete physical SLD route.",
+                    target_editor="sld",
+                    target_object_id=item.signal_id,
+                    navigate=self._provenance_navigation_callback,
+                )
+                sld_label.setPos(float(position[0]) + 7.0, float(position[1]) + 2.0)
+                sld_label.setZValue(21.0)
+                self.addItem(sld_label)
 
     def component_at(self, x: float, y: float) -> ControlLogicItem | None:
         point = QPointF(float(x), float(y))
