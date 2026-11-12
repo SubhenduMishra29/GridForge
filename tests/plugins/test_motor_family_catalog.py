@@ -563,3 +563,24 @@ def test_pmsm_servo_rejects_invalid_current_limit():
         PMSMServoParameters(_pmsm_parameters(), position_kp=1., speed_kp=1., speed_ki=1.,
             current_kp=1., current_ki=1., maximum_speed_rad_s=10.,
             maximum_current_a=0., maximum_voltage_v=100.)
+
+
+def test_induction_servo_foc_is_distinct_and_reports_flux_encoder_and_limits():
+    import numpy as np
+    from plugins.motor_dynamics.transient_solver import MotorParameters, InductionServoParameters, solve_induction_servo_transient_cpu
+    machine = MotorParameters(stator_resistance_ohm=.45, rotor_resistance_ohm=.3, stator_leakage_inductance_h=.012, rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18, pole_pairs=2, inertia_kg_m2=.02)
+    drive = InductionServoParameters(machine, rotor_time_constant_s=.08, rotor_inductance_h=.192, position_kp=8., speed_kp=1.2, speed_ki=5., current_kp=2., current_ki=30., flux_current_reference_a=4., maximum_speed_rad_s=60., maximum_current_a=25., maximum_voltage_v=250., encoder_counts_per_revolution=4096)
+    result = solve_induction_servo_transient_cpu('ind-servo', drive, .01, .0001, position_command_rad=.02, load_torque_nm=.02)
+    channels = result.channels(drive)
+    assert result.backend == 'cpu-rk4' and np.isfinite(result.state_data).all()
+    assert np.isfinite(channels['rotor_flux_magnitude_wb']).all()
+    assert np.isfinite(channels['encoder_position_rad']).all()
+    assert np.isfinite(channels['electromagnetic_torque_nm']).all()
+    assert result.diagnostics['model'] == 'rotor_flux_oriented_induction_position_speed_current_cascade'
+
+
+def test_induction_servo_rejects_invalid_rotor_time_constant():
+    from plugins.motor_dynamics.transient_solver import MotorParameters, InductionServoParameters
+    machine = MotorParameters(stator_resistance_ohm=.45, rotor_resistance_ohm=.3, stator_leakage_inductance_h=.012, rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18, pole_pairs=2, inertia_kg_m2=.02)
+    with pytest.raises(ValueError, match='rotor_time_constant_s'):
+        InductionServoParameters(machine, rotor_time_constant_s=0., rotor_inductance_h=.192, position_kp=1., speed_kp=1., speed_ki=1., current_kp=1., current_ki=1., flux_current_reference_a=1., maximum_speed_rad_s=10., maximum_current_a=10., maximum_voltage_v=100.)

@@ -233,6 +233,10 @@ def motor_measurement_points(family: MotorFamily) -> tuple[MotorMeasurementPoint
         # host provisions only signals actually exposed by its servo drive.
         pts += [
             _p("drive.dc_link_voltage", "Servo DC-link voltage", V, N, "V", ("control","diagnostics")),
+            _p("machine.rotor_flux_magnitude", "Induction servo rotor flux magnitude", X, N, "Wb", ("control","diagnostics")),
+            _p("drive.rotor_flux_reference", "Induction servo rotor flux reference", X, N, "Wb", ("control","diagnostics")),
+            _p("drive.voltage_saturation", "Servo voltage vector saturation", D, N, "state", ("control","protection")),
+            _p("drive.current_saturation", "Servo current limit active", D, N, "state", ("control","protection")),
             _p("drive.dc_link_current", "Servo DC-link current", C, N, "A", ("control","diagnostics")),
             _p("drive.d_axis_current_reference", "Servo d-axis current reference", C, N, "A", ("control","diagnostics")),
             _p("drive.q_axis_current_reference", "Servo q-axis current reference", C, N, "A", ("control","diagnostics")),

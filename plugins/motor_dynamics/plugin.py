@@ -44,7 +44,7 @@ PLUGIN_DESCRIPTOR = PluginDescriptor(
         "srm_phase_inductance_cpu_transient", "dc_excitation_cpu_transient",
         "single_phase_rms_envelope_cpu_transient", "universal_series_commutator_cpu_transient",
         "wound_field_synchronous_damper_cpu_transient",
-        "hysteresis_torque_angle_cpu_transient", "pmsm_servo_cascade_cpu_transient",
+        "hysteresis_torque_angle_cpu_transient", "pmsm_servo_cascade_cpu_transient", "induction_servo_foc_cpu_transient",
     }),
 )
 

@@ -420,3 +420,10 @@ The AC-servo catalogue now distinguishes synchronous permanent-magnet and induct
 An experimental CPU/RK4 model now integrates cascaded position-P, speed-PI and d/q-current-PI control around the PMSM rotor-dq equations. It includes bounded speed/current/voltage commands, conditional anti-windup, encoder position quantisation, mechanical position/speed, electromagnetic torque, winding temperature, copper loss and regenerative mechanical power reporting. Use `PMSMServoParameters` and `solve_pmsm_servo_transient_cpu`; the model is separate from the open-loop PMSM solver.
 
 This is an averaged control-envelope model, not a validated drive commissioning or safety model. PWM switching/dead-time, inverter DC-link energy dynamics, discrete controller delays, resolver dynamics, torque ripple, STO/brake safety sequencing and validated gain tuning are omitted. The AC-servo family still includes induction servo variants, which require a distinct rotor-flux-oriented servo model and are not covered by this synchronous-PM implementation. GPU/NPU acceleration is not claimed for this stateful cascade.
+
+
+## Induction AC servo rotor-flux FOC (experimental)
+
+A distinct CPU/RK4 induction-servo model is available through InductionServoParameters and solve_induction_servo_transient_cpu. It uses a reduced-order rotor-flux-oriented induction-machine envelope with a rotor-flux state, position-P / speed-PI / d-q-current-PI cascade, encoder quantisation, current and voltage limits, conditional anti-windup, mechanical position/speed, torque, copper-loss and lumped winding-temperature outputs. This is not an alias for the PMSM servo solver.
+
+The model is an experimental averaged-control approximation. It does not resolve PWM/inverter switching or dead-time, discrete controller delay, rotor-flux observer error, field weakening, DC-link energy, detailed saturation/cross-saturation, parameter identification, safety-rated STO/brake sequencing or validated drive commissioning. Use measured drive feedback and independently validate controller tuning before engineering decisions. CPU/RK4 only; no GPU/NPU capability is claimed.

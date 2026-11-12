@@ -2407,7 +2407,7 @@ class InductionServoSimulationResult:
             "d_axis_current_reference_a": np.full(self.sample_count, p.flux_current_reference_a),
             "winding_temperature_c": temp, "load_torque_nm": self.load_torque_nm,
             "stator_copper_loss_w": 1.5 * m.stator_resistance_ohm * (ids * ids + iqs * iqs),
-            "rotor_copper_loss_w": 1.5 * m.rotor_resistance_ohm * (flux / p.rotor_inductance_h) ** 2,
+            "rotor_copper_loss_w": 1.5 * m.rotor_resistance_ohm * (((flux - m.magnetizing_inductance_h * ids) / p.rotor_inductance_h) ** 2 + ((m.magnetizing_inductance_h / p.rotor_inductance_h) * iqs) ** 2),
             "mechanical_output_power_w": torque * speed,
             "regenerative_power_w": np.maximum(0.0, -torque * speed),
         }
@@ -2429,7 +2429,7 @@ def solve_induction_servo_transient_cpu(motor_id: str, parameters: InductionServ
     p, m = parameters, parameters.machine
     lm, lr = m.magnetizing_inductance_h, parameters.rotor_inductance_h
     leakage = m.stator_leakage_inductance_h + lm * (1.0 - lm / lr)
-    flux_ref = (lm / lr) * p.flux_current_reference_a
+    flux_ref = lm * p.flux_current_reference_a
     initial = np.asarray((0.0, 0.0, 0.0, m.initial_speed_rad_s, 0.0,
         p.initial_mechanical_position_rad, m.initial_temperature_c, 0.0, 0.0, 0.0), dtype=np.float64)
 
@@ -2443,7 +2443,7 @@ def solve_induction_servo_transient_cpu(motor_id: str, parameters: InductionServ
         id_ref = p.flux_current_reference_a
         rs = m.stator_resistance_ohm * max(0.05, 1.0 + m.resistance_temp_coefficient_per_k * (temp - m.ambient_temperature_c))
         flux_safe = max(abs(flux), max(flux_ref * 0.05, 1e-6))
-        slip = (lm / (p.rotor_time_constant_s * lr)) * iqs / flux_safe
+        slip = (lm / p.rotor_time_constant_s) * iqs / flux_safe
         electrical_speed = m.pole_pairs * speed + slip
         vd_raw = p.current_kp * (id_ref - ids) + id_int - electrical_speed * leakage * iqs
         vq_raw = p.current_kp * (iq_ref - iqs) + iq_int + electrical_speed * (leakage * ids + (lm / lr) * flux)
@@ -2454,7 +2454,9 @@ def solve_induction_servo_transient_cpu(motor_id: str, parameters: InductionServ
         diq = (vq - rs * iqs - electrical_speed * (leakage * ids + (lm / lr) * flux)) / leakage
         dflux = (lm * ids - flux) / p.rotor_time_constant_s
         torque = 1.5 * m.pole_pairs * (lm / lr) * flux * iqs
-        losses = 1.5 * (rs * (ids * ids + iqs * iqs) + m.rotor_resistance_ohm * (flux / lr) ** 2)
+        rotor_id = (flux - lm * ids) / lr
+        rotor_iq = -(lm / lr) * iqs
+        losses = 1.5 * (rs * (ids * ids + iqs * iqs) + m.rotor_resistance_ohm * (rotor_id * rotor_id + rotor_iq * rotor_iq))
         dtemp = (losses - m.thermal_conductance_w_k * (temp - m.ambient_temperature_c)) / m.thermal_capacity_j_k
         saturated = voltage_magnitude > p.maximum_voltage_v
         did_int = p.current_ki * (id_ref - ids) if not saturated or vd_raw * (id_ref - ids) < 0.0 else 0.0
