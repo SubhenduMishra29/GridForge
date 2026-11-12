@@ -1,6 +1,7 @@
 """Core dynamic-state adapter for the generator plugin's first-order AVR."""
 from __future__ import annotations
 
+import math
 from typing import Sequence
 
 from core.solver.dynamics.component_contract import (
@@ -51,12 +52,12 @@ class FirstOrderAVRStateComponent:
         ):
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise TypeError(f"{name} must be finite numeric data")
-            if not __import__("math").isfinite(float(value)):
+            if not math.isfinite(float(value)):
                 raise ValueError(f"{name} must be finite numeric data")
         if initial_regulator_output_pu is not None:
             if isinstance(initial_regulator_output_pu, bool) or not isinstance(initial_regulator_output_pu, (int, float)):
                 raise TypeError("initial_regulator_output_pu must be finite numeric data")
-            if not __import__("math").isfinite(float(initial_regulator_output_pu)):
+            if not math.isfinite(float(initial_regulator_output_pu)):
                 raise ValueError("initial_regulator_output_pu must be finite numeric data")
         self._component_id = component_id
         self.machine_id = machine_id
