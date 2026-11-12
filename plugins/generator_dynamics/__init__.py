@@ -37,7 +37,10 @@ from .ggov1_component_contract import (
 from .ggov1_step_transaction import (
     GGOV1AcceptedStepCheckpoint, GGOV1StepAttempt, begin_ggov1_step_attempt,
 )
-from .study_handler import GeneratorTransientStudyHandler
+from .study_handler import (
+    GeneratorTransientStudyHandler,
+    GeneratorAugmentedTransientStudyHandler,
+)
 from .study_evidence import GeneratorAugmentedStudyEvidence
 from .plugin import GENERATOR_TRANSIENT_STUDY_TYPE
 from .excitation_handoff import (
@@ -83,7 +86,8 @@ __all__ = [
     "GGOV1LoadLimiter", "GGOV1TemperatureMeasurement",
     "GGOV1SampleStates", "GGOV1SampleInputs", "GGOV1SampleDerivatives",
     "GGOV1SampleEvaluation", "GGOV1SampledExecutionAdapter",
-    "GeneratorTransientStudyHandler", "GeneratorAugmentedStudyEvidence",
+    "GeneratorTransientStudyHandler", "GeneratorAugmentedTransientStudyHandler",
+    "GeneratorAugmentedStudyEvidence",
     "GENERATOR_TRANSIENT_STUDY_TYPE",
     "GGOV1AcceptedStepCheckpoint", "GGOV1StepAttempt", "begin_ggov1_step_attempt",
     "GGOV1StateSlice", "GGOV1DynamicStateLayout",
