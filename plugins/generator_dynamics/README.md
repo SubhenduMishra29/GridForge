@@ -545,3 +545,51 @@ internal-emf feedback is not yet solved by this contract. The current
 and fixed mechanical-power mapping; neither the new layout nor this evaluator
 is wired into production integration. Discrete GGOV1 sample feedback remains
 owned by the accepted-step transaction boundary, never by a derivative call.
+
+### Coordinated machine/controller derivative assembly
+
+Core now exports `evaluate_composed_dynamic_derivatives()` and the immutable
+`DynamicSystemDerivativeAssembly` result. The component binding explicitly
+carries component ID, canonical machine ID, canonical bus ID and authoritative
+terminal ID. The coordinated boundary checks that the bus belongs to the
+declared machine through the supplied machine-to-bus identity snapshot, and
+that the terminal voltage equals the solved voltage for that bus within a
+strict numerical tolerance. This prevents terminal IDs from being silently
+treated as bus IDs.
+
+The differential-side phase order is explicit:
+
+1. The caller solves the algebraic network for the current machine state and
+   intermediate integrator time.
+2. The caller derives terminal voltages and machine electrical-power inputs
+   from that same network/state snapshot and creates immutable
+   `DynamicComponentInputs`.
+3. Core packs the unchanged machine-state segment with the component states.
+4. Each continuous component is evaluated without mutation against that
+   detached state and input snapshot.
+5. Component mechanical-power outputs replace the base mechanical-power
+   input only for their explicitly bound machine. They are not added to it;
+   untouched machines retain the base input.
+6. The existing machine derivative callback receives the same bus-voltage
+   snapshot, effective mechanical-power mapping, connection-state snapshot
+   and simulation time.
+7. Core assembles machine and component derivatives into the same frozen
+   global state layout.
+
+The boundary rejects incomplete machine maps, inconsistent base-power
+snapshots, mismatched machine/bus/terminal identities, inconsistent
+terminal-versus-bus voltage snapshots, duplicate dynamic drivers and
+non-finite or dimensionally invalid derivatives. The machine callback remains
+the existing machine-equation authority; this boundary does not reimplement
+swing equations or mutate machine objects.
+
+This is now a reusable differential-side composition function, but it is
+still not wired into `DAESolver` or `TransientStabilityRunner`. The current
+DAE solver validates a machine-only state vector and calls the existing
+machine derivative API directly. The caller must also solve the algebraic
+network and construct the matching terminal/electrical-power input snapshot
+before invoking this function. AVR excitation/internal-emf feedback and
+network re-solution coupling remain unresolved; this contract does not claim
+a closed-loop generator model. Sampled GGOV1 acceleration feedback must be
+held constant through every integrator stage and committed only by the
+accepted-step transaction owner.
