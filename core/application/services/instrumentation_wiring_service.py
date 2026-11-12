@@ -160,9 +160,9 @@ class InstrumentationWiringService:
                         f"In-service CT '{circuit.ct_id}' secondary is OPEN without a CLOSED, explicitly bridged shorting link."
                     )
             elif circuit.secondary_state is CTSecondaryCircuitState.CLOSED:
-                if shorting.state is TerminalAccessoryState.CLOSED:
+                if shorting.state is not TerminalAccessoryState.OPEN:
                     raise ValueError(
-                        f"In-service CT '{circuit.ct_id}' has its shorting link CLOSED while the secondary is declared in normal CLOSED service; the burden path would be bypassed."
+                        f"In-service CT '{circuit.ct_id}' normal CLOSED secondary service requires the shorting link to be explicitly OPEN; CLOSED, REMOVED or UNKNOWN is not accepted."
                     )
 
     @staticmethod
