@@ -142,6 +142,7 @@ class CableCore:
     colour: Optional[str] = None
     pair_id: Optional[str] = None
     core_tag: Optional[str] = None
+    revision: int = 1
 
     def __post_init__(self) -> None:
         for field in ("id", "cable_id"):
@@ -159,6 +160,7 @@ class CableCore:
         object.__setattr__(self, "terminal_path", path)
         for field in ("colour", "pair_id", "core_tag"):
             object.__setattr__(self, field, _optional_text(getattr(self, field), field))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +173,7 @@ class PanelWire:
     terminal_path: tuple[WiringTerminalReference, ...]
     cross_section_mm2: Optional[float] = None
     colour: Optional[str] = None
+    revision: int = 1
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "id", _required_text(self.id, "id"))
@@ -188,6 +191,7 @@ class PanelWire:
             raise ValueError("cross_section_mm2 must be positive when supplied.")
         object.__setattr__(self, "cross_section_mm2", area)
         object.__setattr__(self, "colour", _optional_text(self.colour, "colour"))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,9 +442,9 @@ class InstrumentationWiringInventory:
                 (path[index].identity, path[index + 1].identity)
                 for index in range(len(path) - 1)
             }
-            if pair not in adjacent_pairs and pair[::-1] not in adjacent_pairs:
+            if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in adjacent_pairs and pair[::-1] not in adjacent_pairs:
                 raise ValueError(
-                    f"Physical connection hop '{hop.id}' endpoints are not an adjacent "
+                    f"Active physical connection hop '{hop.id}' endpoints are not an adjacent "
                     "segment of its carrier terminal path."
                 )
             if hop.supersedes_hop_id is not None and hop.supersedes_hop_id not in hop_by_id:
