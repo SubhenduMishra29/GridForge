@@ -4083,3 +4083,20 @@ Date: 2026-11-12
 - No Core/Application model, electrical topology, terminal identity, or
   connection state is modified by this shortcut-routing change.
 - Runtime keyboard, undo/redo and focus behavior remain to be verified.
+
+
+Follow-up correction — editor-scoped edit/history shortcuts
+Date: 2026-11-12
+- Scoped canonical Copy, Paste, Delete, Undo, Redo, Select All, and Cut
+  shortcut definitions to the SLD editor, so GraphicsView installs them
+  through the same UIActionRouter focus-owned dispatch mechanism as tools
+  and rotation.
+- Removed SelectTool's direct Delete-key dispatch. Delete now has one
+  canonical action route, with the existing SLD selection/enabled-state
+  guard deciding whether it can execute.
+- Text fields retain their widget-native editing shortcuts because the
+  application actions are no longer globally scoped; the canvas actions
+  exist only within the SLD widget focus subtree.
+- No Core/Application domain behavior or project persistence was changed.
+- Runtime Qt focus arbitration and clipboard/edit-history behavior remain
+  pending local GUI verification.
