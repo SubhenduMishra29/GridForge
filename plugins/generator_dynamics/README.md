@@ -216,3 +216,25 @@ This block does not choose between the speed, temperature and acceleration
 controllers, and does not implement controller tracking during selector
 transfers. It is a valve actuator sub-block, not a complete GGOV1 turbine
 model and is not yet coupled to the transient DAE.
+
+### GGOV1 turbine fuel-to-mechanical-power sub-block
+
+`GGOV1TurbineFuelPath` adds the turbine fuel response after the actual valve
+stroke. `Flag=0` makes fuel flow equal to valve stroke; `Flag=1` multiplies
+valve stroke by absolute shaft speed in per-unit. The no-load fuel flow
+`Wfnl` is subtracted before the turbine gain. For `Tb > 0`, one solver-owned
+state represents the lagged net fuel flow and the output applies the
+`(1+s*Tc)/(1+s*Tb)` lead-lag response. `Tb=Tc=0` is an algebraic bypass.
+Mechanical output is `Kturb * turbine_response - Dm * speed_deviation`; this
+uses a linear damping correction and is not a substitute for every
+manufacturer-specific speed-dependent capability curve.
+
+`Teng` is deliberately not implemented with an internal queue or private
+clock. When `Teng > 0`, the caller must supply `delayed_fuel_flow_pu` from a
+solver-owned transport-delay facility at every evaluation; initialization
+requires an explicit initial fuel-flow value. When `Teng=0`, the delay input
+is not used. This keeps all integration history and time ownership in the
+host solver. The block does not implement the outer low-value selector,
+limiter tracking, exhaust-temperature/acceleration/load limiting, or DAE
+coupling. It is a GGOV1 turbine/fuel response sub-block, not a complete
+GGOV1 model.
