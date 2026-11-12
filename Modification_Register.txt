@@ -1,3 +1,37 @@
+GridForge V2 — BTD/OTD/WTD Application lifecycle and command integration
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+Additional correction:
+- Added project-scoped TemperatureInstrumentService with immutable inventory
+  snapshots, activation generation, Core terminal-owner/role resolution,
+  stale-state guarded atomic replacement, undo support and add/update/remove
+  command preparation for instrument, interface and alarm/trip records.
+- Added SetTemperatureInstrumentInventoryCommand and command handler
+  registration in the Application composition root.
+- Integrated service activation and compensation rollback into project
+  activation/close transitions.
+- Application exposes read_temperature_instruments() with active-project and
+  activation-generation checks.
+- Project save now persists the active temperature inventory; project load
+  restores it; MeasurementChannel references are validated at both save and
+  load boundaries.
+- Added Application lifecycle test source.
+
+Remaining:
+- Receiver terminal pin-to-channel binding and sensor/interface physical
+  carrier continuity across cable cores and panel wires.
+- Validate actual receiver module input type, sensor configuration, units,
+  scaling and terminal ownership, not only declared interface capability.
+- Cross-canvas SLD/Control/Protection read models, authoring and route
+  highlighting; dedicated temperature loop and termination schedules.
+- Alarm/trip binding validation against configured Control/Protection
+  function registries and runtime semantics.
+- Runtime/import/test/save-reopen/GUI verification not performed.
+
+======================================================================
+
 GridForge V2 — BTD/OTD/WTD project persistence integration
 Date: 2026-11-12
 Issue: #1203
