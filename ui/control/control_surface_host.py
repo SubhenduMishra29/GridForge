@@ -45,6 +45,7 @@ class ControlSurfaceHost(QWidget):
         tool_active_providers: Mapping[str, Any] | None = None,
         icon_provider: Any | None = None,
         study_runtime: Any | None = None,
+        navigation_targets: Mapping[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -65,6 +66,9 @@ class ControlSurfaceHost(QWidget):
             activators.setdefault("sld", tool_activator)
         providers = dict(tool_active_providers or {})
         self._application = application
+        self._navigation_targets = dict(navigation_targets or normalized)
+        if any(not isinstance(key, str) or not key.strip() for key in self._navigation_targets):
+            raise TypeError("Navigation target IDs must be non-empty strings.")
         self._study_runtime = study_runtime
         self._study_reports_view: ReportsWorkspaceView | None = None
         self._host = EngineeringEditorHost(parent=self)
@@ -152,6 +156,11 @@ class ControlSurfaceHost(QWidget):
         # do not define WorkspaceDefinition/EditorDefinition policy.
         self._host.register_editor("topology", TopologyWorkspaceView(application, parent=self._host))
         self._host.register_editor("map", MapWorkspaceView(parent=self._host))
+
+        for target in self._navigation_targets.values():
+            bind_navigation = getattr(target, "set_editor_navigation_callback", None)
+            if callable(bind_navigation):
+                bind_navigation(self.navigate_to_endpoint)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -282,6 +291,23 @@ class ControlSurfaceHost(QWidget):
             widget = self._host.widget("map")
             if isinstance(widget, MapWorkspaceView):
                 widget.set_document(self._sld_document)
+
+    def navigate_to_endpoint(self, editor_type: str, object_id: str) -> None:
+        """Activate a discipline editor and centre its canonical target."""
+        target_editor = str(editor_type).strip().lower()
+        target_id = str(object_id).strip()
+        if not target_id:
+            raise ValueError("object_id must be a non-empty string.")
+        surface = self._navigation_targets.get(target_editor)
+        if surface is None:
+            raise KeyError(f"Unknown signal provenance target editor: {target_editor!r}")
+        selector = getattr(surface, "select_canonical_object", None)
+        if not callable(selector):
+            raise RuntimeError(
+                f"Editor {target_editor!r} does not expose canonical target selection."
+            )
+        self.activate(target_editor)
+        selector(target_id)
 
     def set_editor_context(self, context: object | None) -> None:
         self._host.set_editor_context(context)
