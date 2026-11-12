@@ -974,6 +974,13 @@ class ProtectionWorkspace(QWidget):
     def presentation(self) -> ProtectionPresentationDocument:
         return self._presentation
 
+    def set_editor_navigation_callback(self, callback: Any | None) -> None:
+        """Bind host-owned cross-editor navigation without owning editor state."""
+        self._canvas.set_provenance_navigation_callback(callback)
+
+    def select_canonical_object(self, object_id: str) -> None:
+        self._canvas.select_canonical_object(object_id)
+
     def refresh(self) -> None:
         self._explorer.refresh()
         self._canvas.refresh()
