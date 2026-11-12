@@ -4564,3 +4564,54 @@ Verification:
   residual-current case. No tests, imports, startup, GUI or save/reopen
   runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical Derived Instrumentation Wiring Schedules
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added an immutable InstrumentationWiringSchedulesReadModel bound to the
+  active project ID and wiring activation generation.
+- Added a pure Application-side schedule builder and Application facade read
+  method. Schedules are derived from one detached InstrumentationWiringReadModel
+  plus the current endpoint-resolution snapshot; no schedule is independently
+  editable or persisted as a duplicate source of truth.
+- Generated cable schedule rows with declared cable construction, service,
+  route locations, length, revision, lifecycle and nested core/signal details.
+  Unspecified construction and engineering values remain None.
+- Generated core schedule rows with cable/core identity, conductor role,
+  colour/pair metadata, exact terminal path, signal designations,
+  MeasurementChannel ownership and direction.
+- Generated terminal plans per terminal block, including terminal point
+  designation/manufacturer designation, function, side, connected carriers,
+  accessories, explicit conductive pairs and accessory state.
+- Generated instrument loop/wiring schedule rows per signal, with explicit
+  MeasurementChannel sources, Control/Protection consumers, physical carriers,
+  sink terminals, resolution status and diagnostics.
+- Generated interconnection rows per adjacent terminal hop and point-to-point
+  rows per cable core or panel wire, preserving the entire terminal path.
+- Exported the read model and builder through the Application package.
+- Added regression-test source for all six schedule families, immutability,
+  unresolved endpoint diagnostics and preservation of unspecified values.
+
+Boundary:
+- These are authoritative derived Application read models, not yet complete
+  report UI/export workflows. Printable/exportable schedules, filtering,
+  sorting, revision comparison and report sign-off remain outstanding.
+- Schedule rows do not invent cable type, material, cross-section, voltage,
+  length, colour, manufacturer, terminal assignment or route data.
+- CT/PT/RTD/thermocouple and communication-specific validation remains open,
+  including CT secondary safety and PT grounding/fusing semantics.
+- Per-terminal SLD symbol placement, label-density/visibility filters and
+  independent cable/core/terminal-point selection remain open #1203 scope.
+
+Verification:
+- Source-level inspection only. Regression-test source was added but tests,
+  imports, startup, GUI interaction, report rendering/export and save/reopen
+  were not run. No CI gate was requested or treated as acceptance evidence.
+======================================================================
