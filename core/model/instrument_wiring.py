@@ -656,10 +656,11 @@ class InstrumentationWiringInventory:
                 )
             key = binding.endpoint.logical_identity
             existing_signal = endpoint_signals.get(key)
-            if existing_signal is not None:
-                raise ValueError(
-                    "A logical endpoint may have exactly one canonical signal endpoint binding."
-                )
+            if existing_signal is not None and (
+                existing_signal != binding.signal_id
+                or binding.endpoint.kind is not SignalEndpointKind.PROTECTION_INPUT
+            ):
+                raise ValueError("A logical endpoint may have only one canonical signal designation.")
             endpoint_signals[key] = binding.signal_id
 
     @staticmethod
