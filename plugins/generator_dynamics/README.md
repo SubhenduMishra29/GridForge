@@ -919,3 +919,23 @@ from that payload before offering a resume. Evidence without an identity
 remains readable for backward compatibility but is not suitable for
 identity-verified restart.
 
+## Archive checkpoint reconstruction
+
+`GeneratorAugmentedArchivedCheckpoint.from_archive_payload(...)` is the
+strict boundary for reconstructing a restart point from an Application-loaded
+study result. It accepts only the supported evidence and step schema versions,
+requires a complete checkpoint identity matching the active request, validates
+chronological accepted-step times, finite state vectors, final-stage time,
+excitation/AVR provenance, complex bus and terminal voltages, and derivative
+vector dimensions. Only cancelled/interrupted or failed/incomplete trajectories
+are eligible for restart; completed or status-inconsistent evidence is rejected.
+
+Pass the validated checkpoint and the newly derived expected identity to
+`GeneratorAugmentedDAEAdapter.restore_checkpoint_state(...)`. The adapter
+checks identity again and verifies the restored vector against the configured
+augmented state-layout dimension before returning a detached state vector.
+The host remains responsible for restoring the matching solver/network
+configuration and continuing the simulation clock from the checkpoint time.
+This does not deserialize arbitrary Python objects or bypass Application
+archive ownership.
+
