@@ -27,7 +27,10 @@ class TemperatureInstrumentServiceState:
 class TemperatureInstrumentService:
     """Own temperature inventory activation, terminal resolution and mutation."""
 
-    def __init__(self) -> None:
+    def __init__(self, instrumentation_wiring_service: Any | None = None) -> None:
+        if instrumentation_wiring_service is not None and not hasattr(instrumentation_wiring_service, "inventory"):
+            raise TypeError("instrumentation_wiring_service must expose the canonical wiring inventory.")
+        self._instrumentation_wiring_service = instrumentation_wiring_service
         self._project_id: str | None = None
         self._activation_generation = 0
         self._network: Any | None = None
@@ -91,6 +94,79 @@ class TemperatureInstrumentService:
                 continue
             seen.add(reference.identity)
             cls._validate_terminal(network, reference)
+
+    @staticmethod
+    def _has_physical_route(wiring_inventory: Any, starts: tuple[Any, ...], ends: tuple[Any, ...]) -> bool:
+        """Return whether every declared terminal has a path to the opposite endpoint set.
+
+        Edges come only from ordered terminal paths in canonical cable cores and
+        panel wires. Signal bindings and MeasurementChannel IDs are not treated
+        as evidence of physical continuity.
+        """
+        adjacency: dict[tuple[str, str], set[tuple[str, str]]] = {}
+        for carrier in tuple(wiring_inventory.cores) + tuple(wiring_inventory.panel_wires):
+            path = tuple(carrier.terminal_path)
+            for left, right in zip(path, path[1:]):
+                a, b = left.identity, right.identity
+                adjacency.setdefault(a, set()).add(b)
+                adjacency.setdefault(b, set()).add(a)
+
+        def reachable(start: tuple[str, str], targets: set[tuple[str, str]]) -> bool:
+            pending = [start]
+            visited = {start}
+            while pending:
+                current = pending.pop()
+                if current in targets:
+                    return True
+                for neighbour in adjacency.get(current, ()):
+                    if neighbour not in visited:
+                        visited.add(neighbour)
+                        pending.append(neighbour)
+            return False
+
+        start_ids = {item.identity for item in starts}
+        end_ids = {item.identity for item in ends}
+        if not start_ids or not end_ids:
+            return False
+        return (
+            all(reachable(item, end_ids) for item in start_ids)
+            and all(reachable(item, start_ids) for item in end_ids)
+        )
+
+    @classmethod
+    def _validate_physical_continuity(
+        cls, inventory: TemperatureInstrumentInventory, wiring_inventory: Any
+    ) -> tuple[str, ...]:
+        """Fail closed on declared but physically discontinuous temperature loops.
+
+        Records with no terminal map remain explicitly unverified and are
+        returned to the caller; this method never invents terminal assignments.
+        """
+        unverified: list[str] = []
+        interfaces = {item.id: item for item in inventory.interfaces}
+        for instrument in inventory.instruments:
+            interface = interfaces.get(instrument.interface_equipment_id)
+            if not instrument.sensor_terminals or not instrument.receiver_terminals:
+                unverified.append(instrument.id)
+                continue
+            if instrument.input_mode.value == "DIRECT_SENSOR":
+                stages = ((instrument.sensor_terminals, instrument.receiver_terminals, "sensor-to-receiver"),)
+            elif interface is None:
+                raise ValueError(
+                    f"Temperature instrument '{instrument.id}' has no declared interface for its physical route."
+                )
+            else:
+                stages = (
+                    (instrument.sensor_terminals, interface.input_terminals, "sensor-to-interface-input"),
+                    (interface.output_terminals, instrument.receiver_terminals, "interface-output-to-receiver"),
+                )
+            for starts, ends, stage in stages:
+                if not cls._has_physical_route(wiring_inventory, tuple(starts), tuple(ends)):
+                    raise ValueError(
+                        f"Temperature instrument '{instrument.id}' has no continuous canonical cable-core/"
+                        f"panel-wire route for {stage}."
+                    )
+        return tuple(unverified)
 
     def create_replace_command(
         self, replacement: TemperatureInstrumentInventory
@@ -162,6 +238,10 @@ class TemperatureInstrumentService:
             raise ValueError("Temperature inventory changed since command preparation.")
         replacement = command.payload["replacement_inventory"]
         self._validate_inventory(network, replacement)
+        if self._instrumentation_wiring_service is not None:
+            self._validate_physical_continuity(
+                replacement, self._instrumentation_wiring_service.inventory
+            )
         previous = self._inventory
         project_id, generation = self._project_id, self._activation_generation
         self._inventory = replacement
@@ -206,6 +286,10 @@ class TemperatureInstrumentService:
             if network is None or not callable(getattr(network, "get_by_identity", None)):
                 raise ValueError("Active temperature instruments require the canonical Core Network.")
             self._validate_inventory(network, candidate)
+            if self._instrumentation_wiring_service is not None:
+                self._validate_physical_continuity(
+                    candidate, self._instrumentation_wiring_service.inventory
+                )
             next_project, next_generation, next_network = project_id.strip(), generation, network
         previous = self.snapshot_state()
         self._project_id, self._activation_generation = next_project, next_generation
