@@ -537,6 +537,12 @@ class SLDCanvasSurface(QWidget):
         """Bind host-owned cross-editor navigation for physical signal routes."""
         self._sld_canvas_render_system.set_provenance_navigation_callback(callback)
 
+    def select_canonical_object(self, signal_id: str) -> None:
+        """Select and centre every SLD physical carrier segment for one signal ID."""
+        bounds = self._sld_canvas_render_system.select_signal_routes(signal_id)
+        view = self._navigation_controller.get_view()
+        view.centerOn(bounds.center())
+
     def present_document(self, document: SLDDocument) -> SLDCanvasSnapshot:
         """Present the Application-authoritative document and its canonical wiring projection."""
         if not isinstance(document, SLDDocument):
