@@ -11,7 +11,8 @@ from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
     SignalCarrierBinding, SignalDefinition, SignalKind, WiringConductorRole,
     SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
-    WiringTagSeries, WiringTagPolicy,
+    WiringTagSeries, WiringTagPolicy, WiringTerminalReference,
+    TerminalBlock, TerminalPoint, TerminalAccessory, TerminalAccessoryKind, TerminalAccessoryState,
 )
 from core.persistence.instrument_wiring_serializer import (
     InstrumentationWiringSerializationError,
@@ -324,7 +325,7 @@ def test_signal_endpoint_bindings_round_trip_for_all_endpoint_kinds():
         endpoint_bindings=endpoints,
     )
     payload = serialize_instrumentation_wiring(expected)
-    assert payload["schema"] == 4
+    assert payload["schema"] == 5
     assert len(payload["endpoint_bindings"]) == 3
     assert deserialize_instrumentation_wiring(payload) == expected
 
@@ -333,6 +334,9 @@ def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints
     payload = serialize_instrumentation_wiring(sample_inventory())
     payload["schema"] = 2
     payload.pop("endpoint_bindings")
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
     for binding in payload["signal_bindings"]:
         binding.pop("source_channel_id")
     restored = deserialize_instrumentation_wiring(payload)
@@ -360,6 +364,9 @@ def test_schema_three_wiring_inventory_remains_readable_without_channel_ownershi
     inventory = sample_inventory()
     payload = serialize_instrumentation_wiring(inventory)
     payload["schema"] = 3
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
     for binding in payload["signal_bindings"]:
         binding.pop("source_channel_id")
     restored = deserialize_instrumentation_wiring(payload)
@@ -440,5 +447,75 @@ def test_endpoint_sink_terminal_round_trips_without_losing_designation():
         "equipment_id": "PLC-101",
         "terminal_role": "AI-01+",
         "designation": "AI-01+",
+        "terminal_point_id": None,
     }
     assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+
+def test_schema_four_wiring_inventory_remains_readable_without_terminal_records():
+    inventory = sample_inventory()
+    payload = serialize_instrumentation_wiring(inventory)
+    payload["schema"] = 4
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
+    restored = deserialize_instrumentation_wiring(payload)
+    assert restored == inventory
+
+
+def test_terminal_block_points_and_accessory_state_round_trip_in_schema_five():
+    base = sample_inventory()
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="PANEL-1",
+        location="MCC-1 / marshalling section", terminal_count=4,
+        terminal_type="feed-through", manufacturer="approved make",
+        part_number="TB-4MM",
+    )
+    point_a = TerminalPoint(
+        id="tb-point-a", terminal_block_id=block.id,
+        terminal_number="1", designation="1A",
+        manufacturer_designation="1A", function="FEED_THROUGH",
+    )
+    point_b = TerminalPoint(
+        id="tb-point-b", terminal_block_id=block.id,
+        terminal_number="2", designation="2A",
+        manufacturer_designation="2A", function="FEED_THROUGH",
+    )
+    accessory = TerminalAccessory(
+        id="tb-link-id", tag="TB-101-L1", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_a.id, point_b.id),
+        conductive_pairs=((point_a.id, point_b.id),),
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=base.cables, cores=base.cores, signals=base.signals,
+        signal_bindings=base.signal_bindings,
+        terminal_blocks=(block,), terminal_points=(point_a, point_b),
+        terminal_accessories=(accessory,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 5
+    assert payload["terminal_accessories"][0]["conductive_pairs"] == [["tb-point-a", "tb-point-b"]]
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+
+def test_inventory_rejects_terminal_block_reference_without_stable_point_identity():
+    block = TerminalBlock(
+        id="tb-id", tag="TB-101", panel_id="PANEL-1",
+        location="Marshalling", terminal_count=2,
+    )
+    point = TerminalPoint(
+        id="tb-point-1", terminal_block_id=block.id,
+        terminal_number="1", designation="1",
+    )
+    with pytest.raises(ValueError, match="must include terminal_point_id"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=(point,),
+            cores=(CableCore(
+                id="core", cable_id="missing-cable", core_number=1,
+                role=WiringConductorRole.SIGNAL,
+                terminal_path=(WiringTerminalReference("TB-101", "1", "1"),),
+            ),),
+        )
