@@ -341,8 +341,8 @@ __all__ = [
     "ControlComponentCreated", "ControlComponentUpdated", "ControlComponentRemoved",
     "ControlConnectionCreated", "ControlConnectionRemoved", "ControlDependencyCreated", "ControlDependencyRemoved",
     "ControlProgramChanged", "ControlStateChanged", "ControlExecutionStarted", "ControlExecutionCompleted",
-    "ControlExecutionFailed",
-, "InstrumentationWiringChanged"]
+    "ControlExecutionFailed", "InstrumentationWiringChanged",
+]
 
 
 @dataclass(frozen=True)
