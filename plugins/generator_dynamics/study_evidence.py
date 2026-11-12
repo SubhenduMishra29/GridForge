@@ -91,6 +91,42 @@ class GeneratorAugmentedStudyEvidence(Mapping[str, object]):
         self.time = times
         self._payload = payload
 
+    @classmethod
+    def from_checkpoint_publication_failure(
+        cls,
+        accepted_steps: Sequence[GeneratorAugmentedStepResult],
+        failure: BaseException,
+        *,
+        termination: Mapping[str, object] | None = None,
+        event_schedule: Sequence[Mapping[str, object]] = (),
+    ) -> "GeneratorAugmentedStudyEvidence":
+        """Retain a numerically accepted step when its checkpoint observer fails."""
+        if not isinstance(failure, BaseException):
+            raise TypeError("failure must be an exception")
+        accepted_step = getattr(failure, "accepted_step_result", None)
+        if not isinstance(accepted_step, GeneratorAugmentedStepResult):
+            raise ValueError(
+                "failure does not carry an accepted GeneratorAugmentedStepResult"
+            )
+        prior_steps = tuple(accepted_steps)
+        if prior_steps and accepted_step.simulation_time_s <= prior_steps[-1].simulation_time_s:
+            raise ValueError("failed checkpoint time must follow all previously accepted steps")
+        if termination is not None and not isinstance(termination, Mapping):
+            raise TypeError("termination must be a mapping when supplied")
+        details = dict(termination or {})
+        details.update({
+            "reason": "checkpoint_publication_failed",
+            "failing_time": accepted_step.simulation_time_s,
+            "cause_type": str(getattr(failure, "cause_type", type(failure).__name__)),
+            "diagnostic_message": str(failure),
+        })
+        return cls(
+            (*prior_steps, accepted_step),
+            execution_status="failed",
+            trajectory_status="incomplete",
+            termination=details,
+            event_schedule=event_schedule,
+        )
     def __getitem__(self, key: str) -> object:
         return self._payload[key]
 
