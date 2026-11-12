@@ -16,6 +16,7 @@ from .controllers import (
     HYGOVReducedParameters, HYGOVReducedHydroGovernor, GGOV1Parameters,
 )
 from .ggov1_pid import GGOV1PIDGovernor
+from .ggov1_actuator import GGOV1ValveActuator
 
 __all__ = [
     "GeneratorFamily", "GeneratorNameplate", "GeneratorOperatingMode",
@@ -27,5 +28,5 @@ __all__ = [
     "FirstOrderAVRParameters", "FirstOrderAVR", "TGOV1Governor",
     "PSSParameters", "WashoutLeadLagPSS", "TGOV1Parameters", "TGOV1SteamGovernor",
     "HYGOVReducedParameters", "HYGOVReducedHydroGovernor", "GGOV1Parameters",
-    "GGOV1PIDGovernor",
+    "GGOV1PIDGovernor", "GGOV1ValveActuator",
 ]
