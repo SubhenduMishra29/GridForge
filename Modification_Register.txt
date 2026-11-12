@@ -4522,3 +4522,36 @@ Important boundary:
 Verification:
 - Updated module and package export fetched back from the feature branch.
 - No tests, imports, activation transaction, or GUI checks were executed.
+
+
+======================================================================
+GridForge V2 — Persisted instrumentation signal-to-MeasurementChannel identity and receiver activation gate
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Instrumentation SignalDefinition had no persisted foreign key to the canonical MeasurementChannel registry.
+- The prior project-wide receiver reconciliation accepted an Application-supplied signal-ID -> channel-ID mapping. No persisted authority supplied that relationship, so activation could not safely reconstruct it after save/reopen.
+- InstrumentationWiringService mutations and project activation did not invoke receiver reconciliation.
+
+Correction:
+- Added optional SignalDefinition.measurement_channel_id as the explicit canonical relationship to one MeasurementChannel ID. The field is engineering identity only; Core does not import MeasurementChannel or Application types.
+- Inventory validation rejects two instrumentation signals claiming the same MeasurementChannel ID.
+- Advanced instrumentation wiring serialization schema 3 to 4 and persist/restore the optional relationship.
+- Advanced project schema 8 to 9. The 8-to-9 migration adds an explicitly null association to historical signal records; it never infers channel IDs from tags, descriptions, carrier bindings, source_id, or list order.
+- Receiver reconciliation now derives the signal-to-channel index exclusively from persisted SignalDefinition.measurement_channel_id. The former signal_channel_ids argument is retained only as a consistency assertion and cannot supply or override persisted data.
+- InstrumentationWiringService now supports an injected receiver validator and invokes it before inventory mutation. A rejection leaves the active inventory unchanged.
+- Project activation defers the wiring receiver check until candidate MeasurementChannel, Protection configuration and Control mapping authorities are activated, then validates inside the existing project activation rollback boundary.
+- Added regression-test source for codec round-trip, schema 8-to-9 migration, one-to-one channel ownership, missing channel rejection, rejection of non-persisted external associations, and mutation precondition rollback.
+
+Architecture:
+- SignalDefinition owns only a stable channel ID reference; MeasurementChannel remains owned by the canonical MeasurementChannel service/registry.
+- ControlSignalMapping remains authoritative for Control source-to-destination bindings.
+- Protection configuration remains authoritative for element input-to-channel bindings.
+- Receiver reconciliation is Application-owned. No Core/Application dependency inversion, duplicate receiver registry, inferred identity, or canvas geometry persistence was introduced.
+
+Verification:
+- Source and test changes were committed and fetched back from the feature branch.
+- No Python syntax/import execution, tests, project activation runtime, save/reopen, or Qt GUI checks were executed.
+======================================================================
