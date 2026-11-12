@@ -333,6 +333,11 @@ def _build_application_impl(
             "control": control_workspace.editor_canvas,
             "protection": protection_workspace.editor_canvas,
         },
+        navigation_targets={
+            "sld": canvas_composition,
+            "control": control_workspace,
+            "protection": protection_workspace,
+        },
         application=gridforge_application,
         tool_definitions=contextual_tool_definitions_all,
         tool_activator=controller.set_tool,
