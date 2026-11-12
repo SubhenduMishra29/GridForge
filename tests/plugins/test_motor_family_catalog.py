@@ -646,3 +646,25 @@ def test_linear_motor_family_models_and_translational_channels():
         d_axis_voltage_v=0.,q_axis_voltage_v=20.,load_force_n=5.)
     assert sr.backend=="cpu-rk4" and np.isfinite(sr.state_data).all()
     assert np.isfinite(sr.channels(sp)["translator_position_m"]).all()
+
+
+def test_voice_coil_actuator_family_and_transient_channels():
+    import numpy as np
+    from plugins.motor_dynamics import (
+        VoiceCoilParameters, solve_voice_coil_transient_cpu,
+    )
+    assert motor_family_profile(MotorFamily.VOICE_COIL).dynamic_model == "voice_coil_actuator"
+    ids={p.point_id for p in motor_measurement_points(MotorFamily.VOICE_COIL)}
+    assert {"voice_coil.current","voice_coil.position","voice_coil.velocity",
+            "voice_coil.force","voice_coil.stroke_utilization","voice_coil.winding_temperature"} <= ids
+    params=VoiceCoilParameters(coil_resistance_ohm=3.2,coil_inductance_h=.012,
+        force_constant_n_per_a=8.5,back_emf_constant_v_s_per_m=8.5,moving_mass_kg=.08,
+        suspension_stiffness_n_per_m=120.,viscous_damping_n_s_per_m=1.8,
+        maximum_stroke_m=.012,end_stop_stiffness_n_per_m=12000.)
+    result=solve_voice_coil_transient_cpu("voice-coil-test",params,.02,.0001,
+        drive_voltage_v=12.,external_load_force_n=.5)
+    channels=result.channels(params)
+    assert result.backend=="cpu-rk4"
+    assert np.isfinite(result.state_data).all()
+    assert np.isfinite(channels["motor_force_n"]).all()
+    assert np.max(channels["stroke_utilization_pu"]) < 1.0
