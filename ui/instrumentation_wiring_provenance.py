@@ -23,6 +23,8 @@ class SignalProvenancePresentation:
 
     @property
     def short_label(self) -> str:
+        if self.status != "RESOLVED":
+            return f"! {self.status}: {self.signal_tag}"
         carrier_text = ", ".join(self.carrier_labels) if self.carrier_labels else "no physical carrier"
         return f"{self.signal_tag} | {carrier_text}"
 
