@@ -159,3 +159,61 @@ def test_control_binding_without_persisted_mapping_fails_closed():
     result = validate_control_mapping_binding(_signal(), ControlSignalMapping(), destination)
     assert not result.compatible
     assert any("exactly one persisted canonical mapping" in item for item in result.diagnostics)
+
+
+def test_inventory_reconciliation_uses_only_persisted_signal_channel_identity():
+    import pytest
+    from core.application.control_signal_mapping import ControlSignalMapping
+    from core.application.services.instrumentation_receiver_compatibility import (
+        validate_inventory_receiver_bindings,
+    )
+    from core.model.instrument_wiring import InstrumentationWiringInventory
+    from core.protection.project_configuration import ProtectionProjectConfiguration
+
+    signal = _signal(measurement_channel_id="channel-explicit")
+    inventory = InstrumentationWiringInventory(signals=(signal,))
+    result = validate_inventory_receiver_bindings(
+        inventory,
+        control_mapping=ControlSignalMapping(),
+        protection_configuration=ProtectionProjectConfiguration("project-1"),
+        channels={},
+    )
+    assert len(result) == 1
+    assert not result[0].compatible
+    assert "missing from the active project registry" in result[0].diagnostics[0]
+
+    # An external mapping cannot silently fill a missing persisted foreign key.
+    unbound_inventory = InstrumentationWiringInventory(signals=(_signal(),))
+    with pytest.raises(ValueError, match="exactly match"):
+        validate_inventory_receiver_bindings(
+            unbound_inventory,
+            control_mapping=ControlSignalMapping(),
+            protection_configuration=ProtectionProjectConfiguration("project-1"),
+            channels={"channel-explicit": object()},
+            signal_channel_ids={"signal-current-1": "channel-explicit"},
+        )
+
+
+def test_inventory_mutation_receiver_validator_runs_before_state_change():
+    import pytest
+    from core.application.services.instrumentation_wiring_service import InstrumentationWiringService
+    from core.application.project import ProjectContext
+    from core.application.transaction import Transaction
+    from core.model.instrument_wiring import InstrumentationWiringInventory
+    from types import SimpleNamespace
+
+    def reject(_inventory):
+        raise ValueError("receiver reconciliation rejected")
+
+    service = InstrumentationWiringService(receiver_validator=reject)
+    network = SimpleNamespace()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    service.activate(
+        context, InstrumentationWiringInventory(), network=network,
+        generation=1, validate_receivers=False,
+    )
+    before = service.inventory
+    command = service.create_replace_command(InstrumentationWiringInventory())
+    with pytest.raises(ValueError, match="receiver reconciliation rejected"):
+        service.execute(command, SimpleNamespace(network=network), Transaction())
+    assert service.inventory is before
