@@ -10,6 +10,10 @@ from .instrumentation import (
 )
 from .compute import GENERATOR_WORKLOADS, NPU_INFERENCE_WORKLOADS, select_generator_backend
 from .plugin import GeneratorDynamicsPlugin, PLUGIN_DESCRIPTOR
+from .controllers import (
+    FirstOrderAVRParameters, FirstOrderAVR, TGOV1Governor,
+    PSSParameters, WashoutLeadLagPSS,
+)
 
 __all__ = [
     "GeneratorFamily", "GeneratorNameplate", "GeneratorOperatingMode",
@@ -18,4 +22,6 @@ __all__ = [
     "provision_generator_measurement_channels", "GENERATOR_WORKLOADS",
     "NPU_INFERENCE_WORKLOADS", "select_generator_backend",
     "GeneratorDynamicsPlugin", "PLUGIN_DESCRIPTOR",
+    "FirstOrderAVRParameters", "FirstOrderAVR", "TGOV1Governor",
+    "PSSParameters", "WashoutLeadLagPSS",
 ]
