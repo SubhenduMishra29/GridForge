@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
+from weakref import ref
 
 from core.application.errors import ExecutionError
 from core.application.events import MeasurementChannelChanged
@@ -46,6 +47,7 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._target_id: str | None = None
         self._refreshing = False
         self._channels_by_id: dict[str, Any] = {}
+        self._event_callback: Any | None = None
 
         self._channel_selector = QComboBox(self)
         self._channel_selector.setObjectName("CTSecondaryChannelSelector")
@@ -154,12 +156,18 @@ class CTSecondaryChannelEditor(QGroupBox):
         if not callable(getattr(application, "read_measurement_channels", None)):
             raise TypeError("Application must expose read_measurement_channels().")
         previous_bus = getattr(self._application, "event_bus", None)
-        if previous_bus is not None:
-            previous_bus.unsubscribe(MeasurementChannelChanged, self._on_measurement_channel_changed)
+        if previous_bus is not None and self._event_callback is not None:
+            previous_bus.unsubscribe(MeasurementChannelChanged, self._event_callback)
         self._application = application
-        application.event_bus.subscribe(
-            MeasurementChannelChanged, self._on_measurement_channel_changed
-        )
+        owner_ref = ref(self)
+
+        def refresh_owner(event: MeasurementChannelChanged) -> None:
+            owner = owner_ref()
+            if owner is not None:
+                owner._on_measurement_channel_changed(event)
+
+        self._event_callback = refresh_owner
+        application.event_bus.subscribe(MeasurementChannelChanged, refresh_owner)
         self._refresh_channels()
 
     def _on_measurement_channel_changed(self, event: MeasurementChannelChanged) -> None:
