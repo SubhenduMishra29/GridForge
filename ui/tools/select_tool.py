@@ -245,13 +245,6 @@ class SelectTool(ToolBase):
     def on_key_press(self, event: Any) -> bool:
         self._ensure_active()
         key = self._event_key(event)
-        if key in {16777223, 127}:  # Qt.Key_Delete
-            dispatch = getattr(self.get_controller(), "delete_selection", None)
-            if not callable(dispatch):
-                # Do not consume Delete in a partially composed tool host.
-                return False
-            dispatch()
-            return True
         if key == 16777216 or key in ("Escape", "escape"):  # Qt.Key_Escape
             return self.on_cancel()
         if key in (71, "G", "g"):  # Grab: arm the next pointer drag for the selected group.
@@ -267,10 +260,6 @@ class SelectTool(ToolBase):
             return True
         if key in (80, "P", "p"):  # Pick a transient shared pivot with the next canvas click.
             self._pivot_pick_pending = True
-            return True
-        if key in (82, "R", "r"):
-            angle = -90.0 if self._event_modifiers(event) & self.SHIFT_MODIFIER else 90.0
-            self._commit_group_transform(rotation_degrees=angle)
             return True
         if key in (83, "S", "s"):
             factor = (1.0 / 1.1) if self._event_modifiers(event) & self.SHIFT_MODIFIER else 1.1

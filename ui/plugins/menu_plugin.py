@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, TypeAlias
 
-from ui.core.qt import QAction, QMainWindow, QMenu, QMenuBar, QObject
+from ui.core.qt import QAction, QMainWindow, QMenu, QMenuBar, QObject, Qt
 from ui.core.action_definition import ActionDefinition
 from ui.core.action_router import UIActionRouter
 from ui.plugins.plugin_context import PluginContext
@@ -141,6 +141,12 @@ class MenuPlugin(QObject):
             shortcut = item.shortcut or definition.shortcut
             if shortcut:
                 action.setShortcut(shortcut)
+                # SLD shortcuts are installed on the focused SLD canvas. Keep
+                # their menu QAction visible for discoverability without
+                # competing for the same keystroke at MainWindow scope.
+                editor_type = definition.metadata.get("editor_type")
+                if definition.scope == "sld" or editor_type == "sld":
+                    action.setShortcutContext(Qt.ShortcutContext.WidgetShortcut)
             action.triggered.connect(
                 lambda _checked=False, action_id=item.action_id: self._dispatch_action(action_id)
             )
