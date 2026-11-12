@@ -41,7 +41,9 @@ from .study_handler import (
     GeneratorTransientStudyHandler,
     GeneratorAugmentedTransientStudyHandler,
 )
-from .study_evidence import (\n    GeneratorAugmentedStudyEvidence, GeneratorStudyCheckpointIdentity,\n)
+from .study_evidence import (
+    GeneratorAugmentedStudyEvidence, GeneratorStudyCheckpointIdentity,
+)
 from .plugin import GENERATOR_TRANSIENT_STUDY_TYPE
 from .excitation_handoff import (
     ExcitationHandoffError,
