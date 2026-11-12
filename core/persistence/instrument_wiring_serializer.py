@@ -167,8 +167,11 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase", "measurement_channel_id"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
             ("connection_hops", {"id", "from_terminal", "to_terminal", "carrier_kind", "carrier_id"}, {"revision", "lifecycle_status", "supersedes_hop_id"}, "Physical connection hop"),
+
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
         )
+        if schema < 4:
+            _field_contracts = tuple(item for item in _field_contracts if item[0] != "connection_hops")
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
