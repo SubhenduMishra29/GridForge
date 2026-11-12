@@ -161,12 +161,26 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour"}, "Panel wire"),
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
-            ("endpoint_bindings", {"id", "signal_id", "endpoint"}, {"direction"}, "Signal endpoint binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
         )
+        if schema == WIRING_SCHEMA_VERSION:
+            _field_contracts += (
+                ("endpoint_bindings", {"id", "signal_id", "endpoint"}, {"direction"}, "Signal endpoint binding"),
+            )
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
+        if schema == WIRING_SCHEMA_VERSION:
+            for item in data["endpoint_bindings"]:
+                endpoint = item.get("endpoint")
+                if not isinstance(endpoint, Mapping):
+                    raise InstrumentationWiringSerializationError("Signal endpoint reference must be an object.")
+                _check_record_fields(
+                    endpoint,
+                    required={"kind", "endpoint_id"},
+                    optional={"owner_id", "port"},
+                    label="Signal endpoint reference",
+                )
         cables = tuple(CableAssembly(**dict(item)) for item in data["cables"])
         cores = tuple(
             CableCore(
