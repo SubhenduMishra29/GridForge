@@ -98,6 +98,9 @@ class InstrumentationWiringService:
             references.extend(core.terminal_path)
         for wire in inventory.panel_wires:
             references.extend(wire.terminal_path)
+        for binding in inventory.endpoint_bindings:
+            if binding.endpoint.physical_terminal is not None:
+                references.append(binding.endpoint.physical_terminal)
         seen: set[tuple[str, str]] = set()
         for reference in references:
             if reference.identity in seen:
