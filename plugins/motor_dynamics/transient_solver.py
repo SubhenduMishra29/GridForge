@@ -2482,3 +2482,87 @@ def solve_induction_servo_transient_cpu(motor_id: str, parameters: InductionServ
             "integration_engine": "core.numerics.ode.solve_rk4"})
 
 __all__ += ["InductionServoParameters", "InductionServoSimulationResult", "solve_induction_servo_transient_cpu"]
+
+
+@dataclass(frozen=True, slots=True)
+class DCServoParameters:
+    machine: DCMotorParameters
+    position_kp: float
+    speed_kp: float
+    speed_ki: float
+    current_kp: float
+    current_ki: float
+    maximum_speed_rad_s: float
+    maximum_current_a: float
+    maximum_armature_voltage_v: float
+    field_voltage_v: float = 0.0
+
+    def __post_init__(self):
+        if not isinstance(self.machine, DCMotorParameters): raise TypeError("machine must be DCMotorParameters")
+        for name in ("position_kp","speed_kp","speed_ki","current_kp","current_ki","maximum_speed_rad_s","maximum_current_a","maximum_armature_voltage_v"):
+            v=getattr(self,name)
+            if not _is_numeric_scalar(v) or not isfinite(float(v)) or v<=0: raise ValueError(f"{name} must be finite and positive")
+        if not _is_numeric_scalar(self.field_voltage_v) or not isfinite(float(self.field_voltage_v)): raise ValueError("field_voltage_v must be finite")
+
+
+@dataclass(frozen=True, slots=True)
+class DCServoSimulationResult:
+    motor_id: str
+    time_s: np.ndarray
+    state_data: np.ndarray
+    position_command_rad: np.ndarray
+    load_torque_nm: np.ndarray
+    sample_period_s: float
+    backend: str
+    diagnostics: Mapping[str, Any]
+
+    def __post_init__(self):
+        n=int(np.asarray(self.time_s).size)
+        for name in ("time_s","state_data","position_command_rad","load_torque_nm"):
+            v=np.asarray(getattr(self,name),dtype=np.float64).reshape(-1).copy()
+            if not np.isfinite(v).all(): raise ValueError(f"{name} must be finite")
+            v.setflags(write=False); object.__setattr__(self,name,v)
+        if self.state_data.size!=n*8 or self.position_command_rad.size!=n or self.load_torque_nm.size!=n: raise ValueError("DC servo result arrays do not align")
+        object.__setattr__(self,"diagnostics",MappingProxyType(dict(self.diagnostics)))
+
+    @property
+    def sample_count(self): return int(self.time_s.size)
+
+    def channels(self,p):
+        if not isinstance(p,DCServoParameters): raise TypeError("parameters must be DCServoParameters")
+        x=self.state_data.reshape(self.sample_count,8)
+        speed_ref=np.clip(p.position_kp*(self.position_command_rad-x[:,3]),-p.maximum_speed_rad_s,p.maximum_speed_rad_s)
+        current_ref=np.clip(p.speed_kp*(speed_ref-x[:,2])+x[:,7],-p.maximum_current_a,p.maximum_current_a)
+        voltage=np.clip(p.current_kp*(current_ref-x[:,0])+x[:,6],-p.maximum_armature_voltage_v,p.maximum_armature_voltage_v)
+        field=voltage if p.machine.excitation in {"shunt","compound"} else np.full(self.sample_count,p.field_voltage_v)
+        base=DCMotorSimulationResult(self.motor_id,self.time_s,x[:,:6].reshape(-1).copy(),voltage,field,self.load_torque_nm,self.sample_period_s,self.backend,self.diagnostics)
+        out=base.channels(p.machine)
+        out.update({"position_command_rad":self.position_command_rad,"position_error_rad":self.position_command_rad-x[:,3],
+            "speed_reference_rad_s":speed_ref,"speed_error_rad_s":speed_ref-x[:,2],"armature_current_reference_a":current_ref,
+            "armature_voltage_command_v":voltage})
+        for v in out.values(): v.setflags(write=False)
+        return out
+
+
+def solve_dc_servo_transient_cpu(motor_id,parameters,duration_s,step_s,*,position_command_rad,load_torque_nm=0.0):
+    if not isinstance(motor_id,str) or not motor_id.strip(): raise ValueError("motor_id must be non-empty")
+    if not isinstance(parameters,DCServoParameters): raise TypeError("parameters must be DCServoParameters")
+    n,_=_validate_time(duration_s,step_s); pos=_voltage_profile(position_command_rad,n,"position_command_rad"); load=_voltage_profile(load_torque_nm,n,"load_torque_nm")
+    p,m=parameters,parameters.machine
+    initial=np.asarray((0.,0.,m.initial_speed_rad_s,0.,m.initial_armature_temperature_c,m.initial_field_temperature_c,0.,0.))
+    def derivative(x,u):
+        ia,fi,w,angle,ta,tf,ii,si=x; cmd,tload=u
+        wr=float(np.clip(p.position_kp*(cmd-angle),-p.maximum_speed_rad_s,p.maximum_speed_rad_s)); ew=wr-w
+        iraw=p.speed_kp*ew+si; iref=float(np.clip(iraw,-p.maximum_current_a,p.maximum_current_a))
+        ei=iref-ia; vraw=p.current_kp*ei+ii; va=float(np.clip(vraw,-p.maximum_armature_voltage_v,p.maximum_armature_voltage_v))
+        vf=va if m.excitation in {"shunt","compound"} else p.field_voltage_v
+        dx=_dc_derivative(np.asarray((ia,fi,w,angle,ta,tf)),m,va,vf,tload)
+        di=p.current_ki*ei if abs(vraw)<=p.maximum_armature_voltage_v or vraw*ei<0 else 0.
+        ds=p.speed_ki*ew if abs(iraw)<=p.maximum_current_a or iraw*ew<0 else 0.
+        return np.concatenate((dx,np.asarray((di,ds))))
+    problem=NumericalProblem(problem_id=motor_id.strip(),workload="dc_servo_position_speed_current_single",derivative=derivative,initial_state=initial,duration_s=duration_s,maximum_step_s=step_s,input_at=lambda k,_t:(float(pos[k]),float(load[k])),precision="float64")
+    sol=solve_numerical_problem(problem)
+    if sol.sample_count!=n: raise RuntimeError("shared ODE engine returned unexpected DC servo sample count")
+    return DCServoSimulationResult(motor_id.strip(),sol.time_s,sol.state_data,pos,load,sol.sample_period_s,"cpu-rk4",{"integrator":sol.integrator,"precision":"float64","workload":"dc_servo_position_speed_current_single","model":"brushed_dc_position_speed_current_cascade","control_loops":["position P","speed PI","armature current PI"],"excitation":m.excitation,"current_limit_a":p.maximum_current_a,"armature_voltage_limit_v":p.maximum_armature_voltage_v,"model_fidelity":"experimental averaged DC drive; no PWM, brush commutation or safety-rated servo model","integration_engine":"core.numerics.ode.solve_rk4"})
+
+__all__ += ["DCServoParameters","DCServoSimulationResult","solve_dc_servo_transient_cpu"]

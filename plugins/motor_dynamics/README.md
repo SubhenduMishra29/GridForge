@@ -427,3 +427,8 @@ This is an averaged control-envelope model, not a validated drive commissioning 
 A distinct CPU/RK4 induction-servo model is available through InductionServoParameters and solve_induction_servo_transient_cpu. It uses a reduced-order rotor-flux-oriented induction-machine envelope with a rotor-flux state, position-P / speed-PI / d-q-current-PI cascade, encoder quantisation, current and voltage limits, conditional anti-windup, mechanical position/speed, torque, copper-loss and lumped winding-temperature outputs. This is not an alias for the PMSM servo solver.
 
 The model is an experimental averaged-control approximation. It does not resolve PWM/inverter switching or dead-time, discrete controller delay, rotor-flux observer error, field weakening, DC-link energy, detailed saturation/cross-saturation, parameter identification, safety-rated STO/brake sequencing or validated drive commissioning. Use measured drive feedback and independently validate controller tuning before engineering decisions. CPU/RK4 only; no GPU/NPU capability is claimed.
+
+
+## Brushed-DC servo cascade (experimental)
+
+DCServoParameters and solve_dc_servo_transient_cpu provide an averaged position-P / speed-PI / armature-current-PI cascade around the existing DC excitation model. Explicit machine excitation configuration remains required. Outputs include position/speed, current and voltage commands, torque, power and winding thermal channels. CPU/RK4 only; PWM/chopper switching, brush commutation, armature reaction, field weakening, discrete timing, brake sequencing and safety-rated commissioning are not modelled. Not validated for drive commissioning; no GPU/NPU capability is claimed.

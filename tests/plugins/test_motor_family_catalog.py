@@ -584,3 +584,13 @@ def test_induction_servo_rejects_invalid_rotor_time_constant():
     machine = MotorParameters(stator_resistance_ohm=.45, rotor_resistance_ohm=.3, stator_leakage_inductance_h=.012, rotor_leakage_inductance_h=.012, magnetizing_inductance_h=.18, pole_pairs=2, inertia_kg_m2=.02)
     with pytest.raises(ValueError, match='rotor_time_constant_s'):
         InductionServoParameters(machine, rotor_time_constant_s=0., rotor_inductance_h=.192, position_kp=1., speed_kp=1., speed_ki=1., current_kp=1., current_ki=1., flux_current_reference_a=1., maximum_speed_rad_s=10., maximum_current_a=10., maximum_voltage_v=100.)
+
+
+def test_dc_servo_cascade_position_and_limits():
+    import numpy as np
+    from plugins.motor_dynamics.transient_solver import DCMotorParameters,DCServoParameters,solve_dc_servo_transient_cpu
+    machine=DCMotorParameters(armature_resistance_ohm=.8,armature_inductance_h=.02,inertia_kg_m2=.03,excitation='permanent_magnet',permanent_magnet_flux_wb=.08)
+    p=DCServoParameters(machine,position_kp=8.,speed_kp=1.5,speed_ki=5.,current_kp=2.,current_ki=30.,maximum_speed_rad_s=60.,maximum_current_a=20.,maximum_armature_voltage_v=120.)
+    r=solve_dc_servo_transient_cpu('dc-servo',p,.02,.0001,position_command_rad=.03,load_torque_nm=.02); ch=r.channels(p)
+    assert r.backend=='cpu-rk4' and np.isfinite(r.state_data).all() and abs(ch['mechanical_position_rad'][-1])>0.
+    assert np.max(np.abs(ch['armature_voltage_command_v']))<=p.maximum_armature_voltage_v
