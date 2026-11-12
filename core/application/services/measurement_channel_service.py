@@ -254,6 +254,12 @@ class MeasurementChannelService:
                         0.0, quality=MeasurementQuality.UNKNOWN, available=False,
                         timestamp=None, sample_sequence=None,
                     )
+                elif channel.signal_type is MeasurementSignalType.TEMPERATURE:
+                    self._validate_temperature_channel_definition(definition, channel)
+                    channel.reset(
+                        0.0, quality=MeasurementQuality.UNKNOWN, available=False,
+                        timestamp=None, sample_sequence=None,
+                    )
                 # Bind immutable producer identity before sealing the channel.
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
                 channel._bind_sample_update_authority(self._sample_update_authority)
@@ -340,6 +346,69 @@ class MeasurementChannelService:
                 metadata={"channel_id": channel.id, "source_id": channel.source_id,
                           "terminal_role": channel.source_terminal.terminal_role},
             )
+
+    def create_temperature_channel(
+        self, *, definition: Mapping[str, Any], transaction: Transaction,
+    ) -> ApplicationResult[str]:
+        """Author a temperature engineering channel from an explicit source terminal."""
+        self._require_transaction(transaction)
+        with self._execution_lock:
+            channel = self._build_temperature_channel(definition)
+            if channel.id in self._channels:
+                raise ValueError(f"Measurement channel already exists: {channel.id}")
+            previous = self._channels
+            next_channels = dict(previous)
+            next_channels[channel.id] = channel
+            transaction.record_undo(lambda previous=previous: self._restore_channels(previous))
+            self._channels = next_channels
+            return ApplicationResult.success_result(
+                value=channel.id,
+                message=f"Temperature measurement channel created: {channel.id}",
+                metadata={"channel_id": channel.id, "source_id": channel.source_id,
+                          "terminal_role": channel.source_terminal.terminal_role},
+            )
+
+    def _build_temperature_channel(self, definition: Mapping[str, Any]) -> MeasurementChannel:
+        if not isinstance(definition, Mapping):
+            raise TypeError("Temperature channel definition must be a mapping.")
+        if self._context is None or self._network is None or self._project_id != self._context.project_id:
+            raise RuntimeError("Temperature channel authoring requires an active project and Network.")
+        channel = self._provision_definition(self._context, self._network, definition)
+        self._validate_temperature_channel_definition(definition, channel)
+        producer_id = self._normalize_optional_id(definition.get("producer_id"))
+        channel.producer_id = producer_id
+        channel.reset(0.0, quality=MeasurementQuality.UNKNOWN, available=False,
+                      timestamp=None, sample_sequence=None)
+        channel._bind_sample_update_authority(self._sample_update_authority)
+        return channel
+
+    def _validate_temperature_channel_definition(
+        self, definition: Mapping[str, Any], channel: MeasurementChannel
+    ) -> None:
+        if channel.signal_type is not MeasurementSignalType.TEMPERATURE:
+            raise ValueError("Temperature measurement channels must expose TEMPERATURE.")
+        if channel.phase is not MeasurementPhase.NONE:
+            raise ValueError("Temperature measurement channels must use phase NONE.")
+        if not channel.unit:
+            raise ValueError("Temperature measurement channels require an explicit engineering unit.")
+        producer_id = self._normalize_optional_id(definition.get("producer_id"))
+        if producer_id is None:
+            raise ValueError("Temperature measurement channels require an explicit producer_id.")
+        timestamp_domain = definition.get("timestamp_domain")
+        if not isinstance(timestamp_domain, str) or not timestamp_domain.strip() or timestamp_domain != timestamp_domain.strip():
+            raise ValueError("Temperature measurement channels require an explicit canonical timestamp_domain.")
+        if self._clock_domain is None or timestamp_domain != self._clock_domain:
+            raise ValueError("Temperature channel timestamp_domain must match the trusted Application clock domain.")
+        if "scale" not in definition or "polarity" not in definition or "stale_after" not in definition:
+            raise ValueError("Temperature channels require explicit scale, polarity and stale_after settings.")
+        if not math.isfinite(float(channel.scale)) or float(channel.scale) <= 0.0:
+            raise ValueError("Temperature channel scale must be finite and positive.")
+        if float(channel.polarity) not in (-1.0, 1.0):
+            raise ValueError("Temperature channel polarity must be +1.0 or -1.0.")
+        if channel.stale_after is None or not math.isfinite(float(channel.stale_after)) or float(channel.stale_after) <= 0.0:
+            raise ValueError("Temperature channel stale_after must be finite and positive.")
+        if not math.isfinite(float(channel.nominal_value)):
+            raise ValueError("Temperature channel nominal_value must be finite.")
 
     def update_channel(
         self, *, channel_id: str, definition: Mapping[str, Any], transaction: Transaction,
