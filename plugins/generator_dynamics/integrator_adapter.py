@@ -40,6 +40,7 @@ class GeneratorAugmentedStepResult:
     state: np.ndarray
     simulation_time_s: float
     final_stage: GeneratorDynamicStageResult
+    derivative_stages: tuple[GeneratorDynamicStageResult, ...] = ()
 
     def __post_init__(self) -> None:
         state = np.asarray(self.state, dtype=float).copy()
@@ -49,6 +50,14 @@ class GeneratorAugmentedStepResult:
             raise GeneratorAugmentedIntegratorError("accepted simulation time must be finite")
         if self.final_stage.component_inputs.simulation_time_s != float(self.simulation_time_s):
             raise GeneratorAugmentedIntegratorError("final stage time must match accepted simulation time")
+        stages = tuple(self.derivative_stages)
+        if any(not isinstance(stage, GeneratorDynamicStageResult) for stage in stages):
+            raise GeneratorAugmentedIntegratorError(
+                "derivative_stages must contain GeneratorDynamicStageResult evidence"
+            )
+        # These are solver trial evaluations (RK4 stages / Newton iterates),
+        # not accepted states or durable checkpoints.
+        object.__setattr__(self, "derivative_stages", stages)
         state.setflags(write=False)
         object.__setattr__(self, "state", state)
         object.__setattr__(self, "simulation_time_s", float(self.simulation_time_s))
@@ -266,8 +275,15 @@ class GeneratorAugmentedDAEAdapter:
         if not np.isfinite(start) or not np.isfinite(interval) or interval <= 0.0:
             raise GeneratorAugmentedIntegratorError("simulation time must be finite and dt must be positive")
 
+        derivative_stages: list[GeneratorDynamicStageResult] = []
+
         def derivative(stage_state: np.ndarray, stage_time: float) -> np.ndarray:
-            return self.derivatives(stage_state, stage_time)
+            # Keep this collector local to one step: it captures every actual
+            # integrator callback without introducing shared mutable adapter
+            # state or treating Newton/RK trial points as accepted checkpoints.
+            stage = self.evaluate_stage(stage_state, stage_time)
+            derivative_stages.append(stage)
+            return stage.derivative_assembly.state_derivatives.copy()
 
         try:
             accepted_state = self.integrator.step(
@@ -290,6 +306,7 @@ class GeneratorAugmentedDAEAdapter:
             state=accepted_state,
             simulation_time_s=final_time,
             final_stage=final_stage,
+            derivative_stages=tuple(derivative_stages),
         )
 
 
