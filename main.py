@@ -1451,6 +1451,9 @@ def _build_application_impl(
         return True
 
     action_router.set_enabled_provider(_action_enabled)
+    # Install editor-owned shortcuts only after the complete canonical action
+    # catalogue and its enabled-state provider are available.
+    canvas_composition.view.bind_action_router(action_router)
 
     # The lifecycle service starts with an internal bootstrap context, but the
     # composition root must not materialize a presentation for that transient
