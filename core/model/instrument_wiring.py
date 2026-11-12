@@ -596,11 +596,13 @@ class InstrumentationWiringInventory:
         terminal_points_by_id = {item.id: item for item in self.terminal_points}
         terminal_numbers: set[tuple[str, str]] = set()
         terminal_designations: set[tuple[str, str]] = set()
+        terminal_point_counts: dict[str, int] = {}
         for point in self.terminal_points:
             block = terminal_blocks_by_id.get(point.terminal_block_id)
             if block is None:
                 raise ValueError(f"Terminal point '{point.id}' references missing terminal block '{point.terminal_block_id}'.")
-            if sum(1 for item in self.terminal_points if item.terminal_block_id == block.id) > block.terminal_count:
+            terminal_point_counts[block.id] = terminal_point_counts.get(block.id, 0) + 1
+            if terminal_point_counts[block.id] > block.terminal_count:
                 raise ValueError(f"Terminal block '{block.id}' has more terminal points than its declared terminal_count.")
             number_key = (point.terminal_block_id, point.terminal_number)
             designation_key = (point.terminal_block_id, point.designation)
