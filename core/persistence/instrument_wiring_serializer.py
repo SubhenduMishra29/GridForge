@@ -76,6 +76,8 @@ def serialize_instrumentation_wiring(
                 "conductor_material": item.conductor_material,
                 "thermocouple_type": item.thermocouple_type,
                 "thermocouple_polarity": item.thermocouple_polarity,
+                "thermocouple_cable_designation": item.thermocouple_cable_designation,
+                "thermocouple_cable_designation": item.thermocouple_cable_designation,
             }
             for item in inventory.cores
         ],
@@ -139,8 +141,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     try:
         _field_contracts = (
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
-            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity"}, "Cable core"),
-            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "conductor_material", "thermocouple_type", "thermocouple_polarity"}, "Panel wire"),
+            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"}, "Cable core"),
+            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"}, "Panel wire"),
             ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
@@ -158,6 +160,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 conductor_material=item.get("conductor_material"),
                 thermocouple_type=item.get("thermocouple_type"),
                 thermocouple_polarity=item.get("thermocouple_polarity"),
+                thermocouple_cable_designation=item.get("thermocouple_cable_designation"),
             )
             for item in data["cores"]
         )
