@@ -181,6 +181,7 @@ class TemperatureInstrument:
     receiver_terminals: tuple[WiringTerminalReference, ...] = ()
     sensor_input_mappings: tuple[TemperatureTerminalMapping, ...] = ()
     receiver_input_id: Optional[str] = None
+    thermocouple_type: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "tag", "asset_id", "location", "sensor_equipment_id"):
@@ -192,8 +193,15 @@ class TemperatureInstrument:
         ):
             if not isinstance(getattr(self, field), enum_type):
                 raise TypeError(f"{field} must be a {enum_type.__name__}.")
-        for field in ("sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "receiver_input_id"):
+        for field in ("sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "receiver_input_id", "thermocouple_type"):
             object.__setattr__(self, field, _optional(getattr(self, field), field))
+        if self.thermocouple_type is not None:
+            object.__setattr__(self, "thermocouple_type", self.thermocouple_type.upper())
+        if self.sensor_technology is TemperatureSensorTechnology.THERMOCOUPLE:
+            if self.thermocouple_type is not None and not re.fullmatch(r"[A-Z][A-Z0-9]{0,3}", self.thermocouple_type):
+                raise ValueError("thermocouple_type must be an explicit compact type designation.")
+        elif self.thermocouple_type is not None:
+            raise ValueError("thermocouple_type is only valid for thermocouple sensors.")
         low = _number(self.range_min, "range_min")
         high = _number(self.range_max, "range_max")
         if (low is None) != (high is None) or (low is not None and high <= low):
