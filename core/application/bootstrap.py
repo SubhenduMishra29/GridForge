@@ -658,7 +658,6 @@ def create_application(
     # No motor handlers are registered until that plugin is explicitly loaded.
     application.motor_dynamics_composition = MotorDynamicsComposition(application)
 
-    application.set_draft_network(DraftNetwork.empty(initial_context.project_id, 1))
     application.protection_configuration_service = protection_configuration_service
     initial_protection_runtime = ProtectionRuntime(
         network, protection_configuration_service.configuration, activation_generation=1
@@ -1067,6 +1066,9 @@ def create_application(
 
     lifecycle.configure_protection_snapshot_provider(protection_snapshot_for_project)
     application.attach_project_lifecycle(lifecycle)
+    # Draft initialization reads Application.presentation, which is lifecycle-owned.
+    # Attach the lifecycle first so initial composition does not access an unconfigured service.
+    application.set_draft_network(DraftNetwork.empty(initial_context.project_id, lifecycle.activation_generation))
     application.revision_service.initialize_from_network(
         topology_revision=network.state.topology_revision,
     )
