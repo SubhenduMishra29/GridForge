@@ -269,44 +269,38 @@ make the complete GGOV1 plant model executable.
 
 ### GGOV1 acceleration, load and temperature paths
 
-The acceleration-control block is implemented with the PSS/E/NERC integral
-structure, not a static proportional clamp. Its two solver-owned states are
-filtered shaft acceleration and the fuel-stroke request FSRA:
+The acceleration controller follows the PSS/E/OpenIPSL block topology. Its
+single solver-owned state filters machine speed deviation with the `Ta`
+derivative filter. The algebraic acceleration request is
+`FSRA = FSR + Ka * DELT * (ASET - d(SPEED)/dt)`. The host supplies the
+currently selected `FSR` command and the model's discrete sample interval
+`DELT`; this feedback is the reference tracking path. `Ta` must be positive.
 
-- `d(a_f)/dt = (shaft_acceleration - a_f) / Ta`
-- `d(FSRA)/dt = Ka * (Aset - a_f)`
+`GGOV1LoadLimiter` follows OpenIPSL `LoadLimiter.mo`:
+`TREF = Wfnl + LDREF / Kturb`, `eT = TREF - TEXM`,
+`d(integral)/dt = Kiload * eT`, and
+`FSRT = min(1.0, Kpload * eT + integral)`. The integral starts from
+`(PELEC + Dm) / Kturb + Wfnl`. The block's upper-only 1.0 pu clamp matches
+that reference component; the common Vmin/Vmax clamp is applied after the
+three-way low-value selector in the outer GGOV1 path.
 
-When `Ta=0`, the measured acceleration is used algebraically. An optional
-selected-command tracking correction is supplied with an explicit positive
-tracking time constant. The host supplies acceleration in pu/s and owns all
-integration history.
+`GGOV1TurbineFuelPath.temperature_proxy_input()` supplies the pre-filter
+temperature proxy: net fuel flow multiplied by the PSS/E `Dm_select(speed)`
+factor. `GGOV1TemperatureMeasurement` then cascades the `(1+s*Tsa)/(1+s*Tsb)`
+temperature-detection lead/lag with the `1/(1+s*Tfload)` lag to produce
+`TEXM`, which feeds the load limiter. This is the model's calculated
+temperature proxy, not a thermocouple measurement or OEM firing-temperature
+map.
 
-`GGOV1LoadLimiter` follows the PSS/E-derived OpenIPSL `LoadLimiter.mo`
-topology. It forms `temperature_reference = Wfnl + LDREF / Kturb`, computes
-`error = temperature_reference - TEXM`, integrates `Kiload * error`, and
-forms `FSRT = min(1.0, Kpload * error + integral)`. Its integral is initialized
-from the electrical-power operating point as `(PELEC + Dm) / Kturb + Wfnl`.
-The block accepts conditioned exhaust temperature `TEXM`; the separate
-`GGOV1TemperatureMeasurement` block implements the `Tfload` sensor lag and
-`Tsa/Tsb` lead-lag chain.
-Optional selected-command tracking is explicit and uses a caller-supplied
-positive time constant. The lower FSR bound is intentionally not invented:
-the reference LoadLimiter applies an upper limit of 1.0 pu only.
+The three candidate requests—governor `FSRN`, acceleration `FSRA`, and
+temperature/load `FSRT`—feed the low-value selector. Its output is clamped
+to `[Vmin, Vmax]`, drives the valve actuator, and is fed back to the
+acceleration limiter. The PID and load PI tracking inputs remain explicit
+host-supplied tracking corrections. `Rup`/`Rdown` are retained as model data
+but are not applied by the OpenIPSL GGOV1 reference implementation used
+here; they must not be confused with actuator `Ropen`/`Rclose`.
 
-`GGOV1TemperatureMeasurement` implements the cascaded exhaust-temperature
-measurement path: the `Tfload` first-order sensor lag followed by the
-`(1+s*Tsa)/(1+s*Tsb)` lead/lag conditioner. Its two states are owned by the
-host integrator; zero-time constants use explicit algebraic bypasses. It deliberately does not invent an exhaust-temperature reference,
-ambient correction, OEM firing-temperature map or limiter threshold. Its
-conditioned measurement must be combined with plant-specific control logic
-before a final temperature-limiter fuel request can be advertised as the
-combined `load_temperature` selector candidate.
-
-The NERC GGOV1 block diagram identifies separate speed, acceleration, load
-and temperature control paths feeding a low-value selector. It also notes
-that the proportional/integral controllers include tracking for smooth
-transfer, and warns that software implementations may differ. The limiter equation is PSS/E-derived from OpenIPSL's published source
-topology, not a claim that all vendor implementations are identical.
-Consequently, these blocks remain local sub-components, not a complete
-integrated GGOV1 model. Plant/OEM parameter provenance and disturbance-based validation are
-required before engineering study use.
+These are reference-derived sub-blocks, not a complete integrated GGOV1
+plant model. Vendor-specific thermal maps, ambient compensation, transport
+delay execution, complete tracking composition, DAE integration and
+disturbance-based validation remain open.
