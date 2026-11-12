@@ -174,12 +174,12 @@ def resolve_signal_endpoint_bindings(
                         diagnostics.append(
                             "Protection binding channel does not match the configured relay input channel."
                         )
-                    elif protection_binding.channel_id not in channel_refs_by_signal.get(binding.signal_id, set()):
+                    if status == "RESOLVED" and protection_binding.channel_id not in channel_refs_by_signal.get(binding.signal_id, set()):
                         status = "UNRESOLVED"
                         diagnostics.append(
                             "Protection input has no matching signal-to-MeasurementChannel binding."
                         )
-                    elif protection_binding.channel_id not in channels:
+                    if status == "RESOLVED" and protection_binding.channel_id not in channels:
                         status = "UNRESOLVED"
                         diagnostics.append(
                             f"Protection MeasurementChannel {protection_binding.channel_id!r} is not active."
