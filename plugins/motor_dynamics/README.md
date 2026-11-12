@@ -439,3 +439,13 @@ DCServoParameters and solve_dc_servo_transient_cpu provide an averaged position-
 StepperParameters and solve_stepper_transient_cpu provide a two-phase averaged current-regulated model for variable-reluctance, permanent-magnet and hybrid stepper families. The solver integrates phase currents, rotor speed/position and lumped winding temperature; channel projections include phase current/voltage and references, following error, electromagnetic/detent torque, copper loss and mechanical output power. It uses the shared Core ODE engine and CPU/RK4 only.
 
 The model uses sinusoidal microstep current references and a reduced-order reluctance/PM torque approximation. It does not resolve PWM/chopper switching, measured nonlinear phase flux-linkage maps, detailed tooth geometry, magnetic saturation, microstep nonlinearity, resonance/pull-out curves, acceleration-profile generation, encoder dynamics, automatic missed-step detection or safety-rated drive behaviour. No GPU/NPU capability is claimed for this solver.
+
+
+## Linear motor transient models (experimental)
+
+Linear induction and linear synchronous families have separate translational models; neither is mapped to a rotary torque/speed solver.
+
+- `LinearInductionParameters` / `solve_linear_induction_transient_cpu`: travelling-field dq equivalent circuit, primary/secondary flux and current, slip relative to translator velocity, electromagnetic thrust, translator position/speed, copper loss and lumped winding temperature.
+- `LinearSynchronousParameters` / `solve_linear_synchronous_transient_cpu`: PM d/q current dynamics, pole-pitch spatial frequency, electromagnetic thrust, translator position/speed, copper loss and lumped winding temperature.
+
+Both use the shared Core ODE engine with CPU/RK4. These are reduced-order engineering study models, not validated commissioning models. Linear induction omits longitudinal/transverse end effects, deep-bar/skin effect, saturation and secondary segmentation. Linear synchronous omits segmented magnet fields, end effects, cogging detail, PWM/dead-time, inverter and DC-link dynamics. Air-gap is provisioned as measured/configured telemetry, not calculated by either solver. No GPU/NPU acceleration is claimed for these solvers.
