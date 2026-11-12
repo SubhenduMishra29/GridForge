@@ -384,3 +384,24 @@ Application composition root still needs to provide that solver capability
 and adapter factory; without them activation fails closed. This branch does
 not claim that a production transient solver or DAE integrator has been wired
 or validated.
+
+### Current host-integration blocker
+
+Source reconciliation of the existing Application composition root and DAE
+solver shows that plugin-side StudyService registration is not sufficient to
+claim a runnable GGOV1 transient study. The current bootstrap creates the
+motor composition adapter but does not yet construct a generator composition
+service. The existing transient-stability runner constructs a
+MultiMachineSystem of classical synchronous machines and supplies a static
+mechanical-power mapping to DAESolver. It has no accepted-step callback for
+the discrete GGOV1 DELT/previous-FSR handoff, nor a registered controller-state
+layout. Calling the sampled adapter from ordinary RK4 derivative stages would
+incorrectly repeat a discrete sample at intermediate stages and could make
+rejected-step rollback non-deterministic.
+
+Therefore this milestone adds the reversible StudyService registration
+contract only. It deliberately does not register GGOV1 into the existing DAE
+runner or invent a second solver. A production integration requires an
+explicit solver-owned dynamic-state extension and accepted-step/rejected-step
+protocol before the Application bootstrap can supply the required composition
+solver and per-study adapter factory.
