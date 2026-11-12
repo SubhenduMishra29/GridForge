@@ -121,9 +121,109 @@ class GGOV1ControlCoordinator:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class GGOV1OperatingPoint:
+    """Calculated initialization targets and residuals for one GGOV1 plant point.
+
+    The host still initializes each solver-owned block with its own
+    initial_state() method. This value object makes shared FSR, valve, fuel
+    and temperature-proxy assumptions explicit and reports mismatches that
+    must be reconciled before a study is considered initialized.
+    """
+
+    electrical_power_pu: float
+    mechanical_power_pu: float
+    shaft_speed_pu: float
+    initial_fuel_stroke_pu: float
+    initial_fuel_flow_pu: float
+    initial_temperature_proxy_input_pu: float
+    pid_integral_target_pu: float
+    load_integral_target_pu: float
+    load_limiter_request_pu: float
+    integral_alignment_error_pu: float
+    load_limiter_balance_error_pu: float
+
+    def require_balanced(self, *, tolerance_pu: float = 1e-8) -> None:
+        """Reject an operating point whose independently initialized paths disagree."""
+        tolerance = _number(tolerance_pu, "tolerance_pu")
+        if tolerance <= 0.0:
+            raise ValueError("tolerance_pu must be greater than zero")
+        if abs(self.integral_alignment_error_pu) > tolerance:
+            raise ValueError(
+                "PID and load-limiter integral targets disagree: "
+                f"{self.integral_alignment_error_pu} pu"
+            )
+        if abs(self.load_limiter_balance_error_pu) > tolerance:
+            raise ValueError(
+                "temperature/load limiter is not balanced at the initial FSR: "
+                f"{self.load_limiter_balance_error_pu} pu"
+            )
+
+
+def calculate_ggov1_operating_point(
+    parameters: GGOV1Parameters,
+    *,
+    electrical_power_pu: float,
+    mechanical_power_pu: float | None = None,
+    speed_deviation_pu: float = 0.0,
+) -> GGOV1OperatingPoint:
+    """Calculate common initial targets without owning or mutating block state."""
+    if not isinstance(parameters, GGOV1Parameters):
+        raise TypeError("parameters must be GGOV1Parameters")
+    p = parameters
+    pelec = _number(electrical_power_pu, "electrical_power_pu")
+    pm = pelec if mechanical_power_pu is None else _number(
+        mechanical_power_pu, "mechanical_power_pu"
+    )
+    speed_deviation = _number(speed_deviation_pu, "speed_deviation_pu")
+    shaft_speed = 1.0 + speed_deviation
+    if shaft_speed <= 0.0:
+        raise ValueError("absolute shaft speed must be greater than zero")
+
+    fsr = (pm + p.mechanical_damping) / p.turbine_gain + p.no_load_fuel_flow_pu
+    if not p.valve_min_pu <= fsr <= p.valve_max_pu:
+        raise ValueError(
+            "calculated initial FSR is outside common valve limits; "
+            "reconcile the operating point before initializing"
+        )
+    if fsr > 1.0:
+        raise ValueError(
+            "calculated initial FSR exceeds the load limiter's 1.0 pu upper bound"
+        )
+
+    fuel_multiplier = shaft_speed if p.flag == 1 else 1.0
+    fuel_flow = fsr * fuel_multiplier
+    speed_factor = shaft_speed if p.mechanical_damping >= 0.0 else shaft_speed ** p.mechanical_damping
+    temperature_proxy = (fuel_flow - p.no_load_fuel_flow_pu) * speed_factor
+
+    pid_integral = (pm + p.mechanical_damping) / p.turbine_gain + p.no_load_fuel_flow_pu
+    load_integral = (pelec + p.mechanical_damping) / p.turbine_gain + p.no_load_fuel_flow_pu
+    temperature_reference = p.no_load_fuel_flow_pu + p.load_limit_reference_pu / p.turbine_gain
+    temperature_error = temperature_reference - temperature_proxy
+    load_request = min(
+        1.0,
+        p.load_proportional_gain * temperature_error + load_integral,
+    )
+    return GGOV1OperatingPoint(
+        electrical_power_pu=pelec,
+        mechanical_power_pu=pm,
+        shaft_speed_pu=shaft_speed,
+        initial_fuel_stroke_pu=fsr,
+        initial_fuel_flow_pu=fuel_flow,
+        initial_temperature_proxy_input_pu=temperature_proxy,
+        pid_integral_target_pu=pid_integral,
+        load_integral_target_pu=load_integral,
+        load_limiter_request_pu=load_request,
+        integral_alignment_error_pu=load_integral - pid_integral,
+        load_limiter_balance_error_pu=load_request - fsr,
+    )
+
+
 __all__ = [
     "GGOV1LowValueSelector",
     "GGOV1Selection",
     "GGOV1ControlCoordinator",
     "GGOV1ControlDecision",
+    "GGOV1OperatingPoint",
+    "calculate_ggov1_operating_point",
 ]
