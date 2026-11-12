@@ -4598,3 +4598,21 @@ PR: #1214
 - Added source-level regression coverage. Not executed.
 
 ======================================================================
+
+GridForge V2 — Receiver capability fail-closed refinement
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Direct RTD receiver input capability must be RTD-only and explicitly list
+  supported sensor configurations. Thermocouple receiver input capability must
+  be thermocouple-only and explicitly list supported configurations.
+- A bound direct sensor instrument must match both the exact receiver technology
+  and a listed sensor configuration; empty/unspecified configuration data is
+  not treated as support.
+- Receiver terminal matching is by exact stable terminal identity, independent
+  of ordering. A range unit without numeric range bounds, or numeric bounds
+  without a range unit, is rejected.
+- Added direct RTD receiver capability regression source. Not executed.
+
+======================================================================
