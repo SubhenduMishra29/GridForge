@@ -4530,3 +4530,18 @@ Remaining:
 - Canvas projections, schedules and full runtime/save-reopen verification.
 
 ======================================================================
+
+GridForge V2 — RTD lead-count and thermocouple pair validation
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- For RTD sensor configurations explicitly identifying 2-wire, 3-wire or
+  4-wire, the declared sensor terminal count must match the stated lead count.
+  No count is inferred when the configuration or terminal map is absent.
+- Thermocouple measurement endpoints, when declared, must contain exactly two
+  measurement terminals. Screen/earth is not accepted as a measurement lead.
+  Positive/negative polarity still requires the explicit terminal mapping.
+- Added source-level regression tests. Not executed.
+
+======================================================================
