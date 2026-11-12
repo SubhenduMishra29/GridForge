@@ -10,7 +10,7 @@ from ui.sld.sld_model import SLDModel, SLDNode
 def _read_model(*, core_path=None, panel_wires=(), extra_binding=True):
     terminal_path = core_path if core_path is not None else (
         {"equipment_id": "CT-1", "terminal_role": "S1", "designation": "X1:1"},
-        {"equipment_id": "TB-1", "terminal_role": "1", "designation": "X2:1"},
+        {"equipment_id": "TB-1", "terminal_role": "1", "designation": "X2:1", "terminal_point_id": "tb-point-1"},
         {"equipment_id": "RELAY-1", "terminal_role": "IA", "designation": "X3:1"},
     )
     return InstrumentationWiringReadModel(
@@ -29,6 +29,14 @@ def _read_model(*, core_path=None, panel_wires=(), extra_binding=True):
             if extra_binding else ()
         ),
         tag_policy=(),
+        terminal_blocks=({
+            "id": "TB-1", "tag": "TB-101", "panel_id": "PANEL-1",
+            "location": "Marshalling", "terminal_count": 2,
+        },),
+        terminal_points=({
+            "id": "tb-point-1", "terminal_block_id": "TB-1",
+            "terminal_number": "1", "designation": "X2:1",
+        },),
     )
 
 
@@ -55,7 +63,9 @@ def test_physical_core_projects_each_terminal_hop_without_mutating_document():
     assert record.segments[0].source.equipment_id == "CT-1"
     assert record.segments[0].source.terminal_role == "S1"
     assert record.segments[0].target.equipment_id == "TB-1"
+    assert record.segments[0].target_terminal_point_id == "tb-point-1"
     assert record.segments[1].source.equipment_id == "TB-1"
+    assert record.segments[1].source_terminal_point_id == "tb-point-1"
     assert record.segments[1].target.equipment_id == "RELAY-1"
     assert record.segments[1].signal_tags == ("IA_A",)
     assert record.segments[0].signal_ids == ("signal-1",)
