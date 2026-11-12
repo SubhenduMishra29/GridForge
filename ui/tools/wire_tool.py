@@ -215,7 +215,15 @@ class WireTool(ToolBase):
         if not callable(snap):
             raise TypeError("SnapSystem must provide snap().")
         intent = SnapIntent.WIRE_TARGET if self._preview.source_endpoint is not None else SnapIntent.WIRE_START
-        result = snap(scene_position, allow_grid=False, allow_object=True, intent=intent)
+        snap_tolerance = getattr(event, "snap_tolerance_scene", None)
+        snap_options = {
+            "allow_grid": False,
+            "allow_object": True,
+            "intent": intent,
+        }
+        if snap_tolerance is not None:
+            snap_options["tolerance"] = snap_tolerance
+        result = snap(scene_position, **snap_options)
         if getattr(result, "position", None) is None:
             return None
         return result
