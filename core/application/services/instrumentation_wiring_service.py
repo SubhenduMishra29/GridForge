@@ -153,11 +153,16 @@ class InstrumentationWiringService:
                 raise ValueError(f"In-service CT '{circuit.ct_id}' has UNKNOWN secondary state; resolve the physical circuit before activation.")
             if circuit.secondary_state is CTSecondaryCircuitState.ISOLATED:
                 raise ValueError(f"In-service CT '{circuit.ct_id}' cannot have an ISOLATED secondary circuit.")
+            shorting = accessories[circuit.shorting_accessory_id]
             if circuit.secondary_state is CTSecondaryCircuitState.OPEN:
-                shorting = accessories[circuit.shorting_accessory_id]
                 if shorting.state is not TerminalAccessoryState.CLOSED:
                     raise ValueError(
                         f"In-service CT '{circuit.ct_id}' secondary is OPEN without a CLOSED, explicitly bridged shorting link."
+                    )
+            elif circuit.secondary_state is CTSecondaryCircuitState.CLOSED:
+                if shorting.state is TerminalAccessoryState.CLOSED:
+                    raise ValueError(
+                        f"In-service CT '{circuit.ct_id}' has its shorting link CLOSED while the secondary is declared in normal CLOSED service; the burden path would be bypassed."
                     )
 
     @staticmethod
