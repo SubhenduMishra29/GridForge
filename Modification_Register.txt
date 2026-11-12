@@ -4437,3 +4437,13 @@ Verification:
 - Static source inspection and fetch-back only. No tests, imports, startup,
   save/reopen or Qt GUI runtime were executed.
 ======================================================================
+
+GridForge V2 — Temperature physical continuity regression coverage
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Added tests/core/application/test_temperature_instrument_wiring_continuity.py covering cable-core plus panel-wire continuity, disconnected endpoints, complete transmitter paths and missing transmitter-output segments.
+- Test source has not been executed.
+
+======================================================================
