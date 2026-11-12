@@ -3810,7 +3810,8 @@ Implemented:
   endpoint candidates take precedence over a nearby Bus/device anchor outside
   the clicked shape, preventing adjacent equipment from stealing the click.
 - Exact midpoint ties between Bus attachment points resolve deterministically
-  by declared attachment order. Ambiguous equal-distance equipment terminals
+  by declared attachment order, including when both attachments are within the
+  normal snap tolerance. Ambiguous equal-distance equipment terminals
   remain rejected rather than silently choosing a terminal.
 - Added focused regression test source for Bus bar hit-testing, equipment-body
   hit-testing, rejection outside the symbol shape, and unchanged non-wire
