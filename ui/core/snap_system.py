@@ -546,6 +546,7 @@ class SnapSystem:
         allow_grid: Optional[bool] = None,
         allow_object: Optional[bool] = None,
         intent: SnapIntent | str | None = None,
+        tolerance: float | None = None,
     ) -> SnapResult:
         """
         Resolve the best snap candidate for a scene position.
@@ -588,6 +589,9 @@ class SnapSystem:
             raise TypeError(
                 "intent must be a SnapIntent, a supported string, or None."
             )
+        snap_tolerance = self.tolerance if tolerance is None else tolerance
+        self._validate_tolerance(snap_tolerance)
+        snap_tolerance = float(snap_tolerance)
         use_grid = self._resolve_bool_override(
             allow_grid,
             self.grid_enabled,
@@ -614,7 +618,7 @@ class SnapSystem:
         if use_object:
             object_result = (
                 self._find_object_snap(
-                    scene_pos
+                    scene_pos, tolerance=snap_tolerance
                 )
             )
 
@@ -633,7 +637,7 @@ class SnapSystem:
         if use_grid:
             grid_result = (
                 self._find_grid_snap(
-                    scene_pos
+                    scene_pos, tolerance=snap_tolerance
                 )
             )
 
@@ -725,6 +729,8 @@ class SnapSystem:
     def _find_grid_snap(
         self,
         scene_pos: Any,
+        *,
+        tolerance: float | None = None,
     ) -> Optional[SnapResult]:
         """
         Resolve the GridSystem candidate.
@@ -762,8 +768,9 @@ class SnapSystem:
             scene_pos,
             result,
         )
+        snap_tolerance = self.tolerance if tolerance is None else float(tolerance)
 
-        if distance > self.tolerance:
+        if distance > snap_tolerance:
             return None
 
         return SnapResult(
@@ -782,6 +789,8 @@ class SnapSystem:
     def _find_object_snap(
         self,
         scene_pos: Any,
+        *,
+        tolerance: float | None = None,
     ) -> Optional[SnapResult]:
         """
         Find the nearest valid object snap candidate.
@@ -793,6 +802,7 @@ class SnapSystem:
         if self.scene is None:
             return None
 
+        snap_tolerance = self.tolerance if tolerance is None else float(tolerance)
         best: Optional[tuple[float, int, SnapResult]] = None
         # Equal-distance candidates with different electrical endpoint
         # identities are ambiguous. Never let discovery order silently pick
@@ -806,21 +816,23 @@ class SnapSystem:
         for item in tuple(self._registered_items.values()):
             if callable(getattr(item, "scene", None)) and item.scene() is not self.scene:
                 continue
-            candidates = (
-                self._get_item_snap_points(
-                    item
-                )
-            )
+            candidate_at = getattr(item, "snap_candidate_at", None)
+            if isinstance(item, BusItem) and callable(candidate_at):
+                resolved_candidate = candidate_at(scene_pos, snap_tolerance)
+                candidates = () if resolved_candidate is None else (resolved_candidate,)
+            else:
+                candidates = self._get_item_snap_points(item)
 
             for candidate in candidates:
                 position, object_id, terminal_id, terminal_name, bus_id, attachment_id, draft_id, draft_terminal_role, draft_equipment_type = self._normalize_candidate(candidate, item)
+                supplied_distance = candidate.get("_snap_distance") if isinstance(candidate, dict) else None
+                if supplied_distance is None:
+                    distance = self._distance(scene_pos, position)
+                else:
+                    self._validate_tolerance(supplied_distance)
+                    distance = float(supplied_distance)
 
-                distance = self._distance(
-                    scene_pos,
-                    position,
-                )
-
-                if distance <= self.tolerance:
+                if distance <= snap_tolerance:
                     result = SnapResult(
                         position=QPointF(
                             float(position.x()),
