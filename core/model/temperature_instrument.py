@@ -114,8 +114,16 @@ class TemperatureReceiverInput:
             raise ValueError("Receiver range bounds must both be supplied with maximum greater than minimum.")
         if low is not None and range_unit is None:
             raise ValueError("range_unit is required when receiver input range is declared.")
+        if low is None and range_unit is not None:
+            raise ValueError("range_unit cannot be declared without a receiver input range.")
         if self.input_kind in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and not technologies:
             raise ValueError("Direct sensor receiver inputs must declare supported sensor technologies.")
+        if self.input_kind is TemperatureReceiverInputKind.RTD and technologies != (TemperatureSensorTechnology.RTD,):
+            raise ValueError("RTD receiver inputs must declare RTD technology only.")
+        if self.input_kind is TemperatureReceiverInputKind.THERMOCOUPLE and technologies != (TemperatureSensorTechnology.THERMOCOUPLE,):
+            raise ValueError("Thermocouple receiver inputs must declare thermocouple technology only.")
+        if self.input_kind in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and not configs:
+            raise ValueError("Direct sensor receiver inputs must declare supported sensor configurations.")
         if self.input_kind not in {TemperatureReceiverInputKind.RTD, TemperatureReceiverInputKind.THERMOCOUPLE} and technologies:
             raise ValueError("Analog/digital receiver inputs must not declare direct sensor technologies.")
         object.__setattr__(self, "terminals", terminals)
@@ -286,6 +294,8 @@ class TemperatureInterfaceDevice:
         output_range_unit = _optional(self.output_range_unit, "output_range_unit")
         if low is not None and output_range_unit is None:
             raise ValueError("output_range_unit is required when interface output range is declared.")
+        if low is None and output_range_unit is not None:
+            raise ValueError("output_range_unit cannot be declared without an interface output range.")
         object.__setattr__(self, "output_range_max", high)
         object.__setattr__(self, "output_range_unit", output_range_unit)
         object.__setattr__(self, "measurement_channel_id", _optional(self.measurement_channel_id, "measurement_channel_id"))
@@ -374,17 +384,19 @@ class TemperatureInstrumentInventory:
                 receiver = receiver_inputs.get(instrument.receiver_input_id)
                 if receiver is None:
                     raise ValueError(f"Temperature instrument '{instrument.id}' references a missing receiver input.")
-                if tuple(t.identity for t in instrument.receiver_terminals) != tuple(t.identity for t in receiver.terminals):
+                if {t.identity for t in instrument.receiver_terminals} != {t.identity for t in receiver.terminals}:
                     raise ValueError(f"Temperature instrument '{instrument.id}' receiver terminals do not match its receiver input.")
                 if receiver.engineering_unit != instrument.unit:
                     raise ValueError(f"Temperature instrument '{instrument.id}' unit does not match receiver input engineering unit.")
                 if instrument.input_mode is TemperatureInputMode.DIRECT_SENSOR:
-                    if receiver.input_kind.value not in {"RTD", "THERMOCOUPLE"}:
-                        raise ValueError(f"Receiver input '{receiver.id}' is not a direct sensor input.")
-                    if instrument.sensor_technology not in receiver.supported_sensor_technologies:
-                        raise ValueError(f"Receiver input '{receiver.id}' does not support the declared sensor technology.")
-                    if instrument.sensor_configuration and receiver.supported_sensor_configurations and instrument.sensor_configuration not in receiver.supported_sensor_configurations:
-                        raise ValueError(f"Receiver input '{receiver.id}' does not support the declared sensor configuration.")
+                    expected_technology = {
+                        "RTD": TemperatureSensorTechnology.RTD,
+                        "THERMOCOUPLE": TemperatureSensorTechnology.THERMOCOUPLE,
+                    }.get(receiver.input_kind.value)
+                    if expected_technology is None or instrument.sensor_technology is not expected_technology:
+                        raise ValueError(f"Receiver input '{receiver.id}' type does not match the declared sensor technology.")
+                    if not instrument.sensor_configuration or instrument.sensor_configuration not in receiver.supported_sensor_configurations:
+                        raise ValueError(f"Receiver input '{receiver.id}' does not explicitly support the declared sensor configuration.")
                 else:
                     interface = interfaces[instrument.interface_equipment_id]
                     signal_kind = interface.output_signal_kind.strip().upper().replace(" ", "").replace("-", "_")
