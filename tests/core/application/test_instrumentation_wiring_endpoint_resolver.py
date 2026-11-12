@@ -446,3 +446,125 @@ def test_control_input_rejects_carrier_direction_opposed_to_binding_direction():
     )
     assert result[1].status == "UNRESOLVED"
     assert "does not permit SOURCE_TO_SINK" in result[1].diagnostics[0]
+
+
+
+def test_residual_three_phase_signal_resolves_independent_channel_carrier_paths():
+    signal = SignalDefinition(
+        id="signal-residual", tag="I0-101", description="Residual current",
+        kind=SignalKind.CURRENT, unit="A",
+    )
+    cable_a = CableAssembly(
+        id="cable-a", tag="C-IA", service="CT phase A", core_count=1,
+    )
+    cable_b = CableAssembly(
+        id="cable-b", tag="C-IB", service="CT phase B", core_count=1,
+    )
+    core_a = CableCore(
+        id="core-a", cable_id=cable_a.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("CT-A", "S1", "S1"),
+            WiringTerminalReference("TB-A", "1", "1"),
+            WiringTerminalReference("IED-101", "IA", "IA"),
+        ),
+    )
+    core_b = CableCore(
+        id="core-b", cable_id=cable_b.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(
+            WiringTerminalReference("CT-B", "S1", "S1"),
+            WiringTerminalReference("TB-B", "1", "1"),
+            WiringTerminalReference("IED-101", "IB", "IB"),
+        ),
+    )
+    channel_a = SimpleNamespace(
+        channel_id="channel-a", signal_type="CURRENT", source_id="CT-A",
+        source_terminal={"kind": "TERMINAL", "equipment_id": "CT-A", "terminal_role": "S1"},
+    )
+    channel_b = SimpleNamespace(
+        channel_id="channel-b", signal_type="CURRENT", source_id="CT-B",
+        source_terminal={"kind": "TERMINAL", "equipment_id": "CT-B", "terminal_role": "S1"},
+    )
+    carrier_bindings = (
+        SignalCarrierBinding(
+            id="carrier-a", signal_id=signal.id, carrier_kind=CarrierKind.CABLE_CORE,
+            carrier_id=core_a.id, source_channel_id=channel_a.channel_id,
+        ),
+        SignalCarrierBinding(
+            id="carrier-b", signal_id=signal.id, carrier_kind=CarrierKind.CABLE_CORE,
+            carrier_id=core_b.id, source_channel_id=channel_b.channel_id,
+        ),
+    )
+    measurement_endpoints = (
+        SignalEndpointBinding(
+            id="channel-endpoint-a", signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+                endpoint_id=channel_a.channel_id,
+            ),
+        ),
+        SignalEndpointBinding(
+            id="channel-endpoint-b", signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+                endpoint_id=channel_b.channel_id,
+            ),
+        ),
+    )
+    protection_endpoints = (
+        SignalEndpointBinding(
+            id="protection-endpoint-a", signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id="binding-a", owner_id="element-1",
+                port="residual_current",
+                physical_terminal=WiringTerminalReference("IED-101", "IA", "IA"),
+            ),
+        ),
+        SignalEndpointBinding(
+            id="protection-endpoint-b", signal_id=signal.id,
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id="binding-b", owner_id="element-1",
+                port="residual_current",
+                physical_terminal=WiringTerminalReference("IED-101", "IB", "IB"),
+            ),
+        ),
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable_a, cable_b), cores=(core_a, core_b),
+        signals=(signal,), signal_bindings=carrier_bindings,
+        endpoint_bindings=measurement_endpoints + protection_endpoints,
+    )
+    protection_bindings = {
+        "binding-a": SimpleNamespace(
+            binding_id="binding-a", protection_element_id="element-1",
+            relay_input_id="residual_current", channel_id="channel-a",
+        ),
+        "binding-b": SimpleNamespace(
+            binding_id="binding-b", protection_element_id="element-1",
+            relay_input_id="residual_current", channel_id="channel-b",
+        ),
+    }
+    element = SimpleNamespace(
+        function_code="51N",
+        residual_current_input=SimpleNamespace(
+            mode="THREE_PHASE_SUM",
+            phase_binding_ids={"A": "binding-a", "B": "binding-b"},
+        ),
+        input_channel_ids={},
+    )
+    configuration = SimpleNamespace(
+        get_measurement_binding=lambda binding_id: protection_bindings[binding_id],
+        get=lambda element_id: element,
+    )
+    result = resolve_signal_endpoint_bindings(
+        inventory,
+        measurement_channels=(channel_a, channel_b),
+        control_signal_mapping=None,
+        protection_configuration=configuration,
+    )
+    assert tuple(item.status for item in result) == (
+        "RESOLVED", "RESOLVED", "RESOLVED", "RESOLVED",
+    )
