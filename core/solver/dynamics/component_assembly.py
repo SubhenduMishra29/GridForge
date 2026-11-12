@@ -60,9 +60,13 @@ class DynamicComponentBatchEvaluation:
             derivatives[component_id] = block
         powers: dict[str, float] = {}
         for machine_id, value in self.mechanical_power_outputs_pu.items():
+            if not isinstance(machine_id, str) or not machine_id.strip():
+                raise DynamicComponentAssemblyError("mechanical power output keys must be stable machine identities")
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise DynamicComponentAssemblyError("mechanical power outputs must be finite numeric values")
             numeric = float(value)
-            if not isinstance(machine_id, str) or not machine_id.strip() or not np.isfinite(numeric):
-                raise DynamicComponentAssemblyError("mechanical power outputs require finite values and machine IDs")
+            if not np.isfinite(numeric):
+                raise DynamicComponentAssemblyError("mechanical power outputs must be finite numeric values")
             powers[machine_id] = numeric
         object.__setattr__(self, "component_derivatives", MappingProxyType(derivatives))
         object.__setattr__(self, "mechanical_power_outputs_pu", MappingProxyType(powers))
