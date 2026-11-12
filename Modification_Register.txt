@@ -4731,3 +4731,54 @@ Date: 2026-11-12
 - No Core/Application domain behavior or project persistence was changed.
 - Runtime Qt focus arbitration and clipboard/edit-history behavior remain
   pending local GUI verification.
+
+
+
+======================================================================
+GridForge V2 — CT Secondary Circuit Identity and Open-Secondary Safety
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added immutable CTSecondaryCircuit and CTSecondaryCircuitState Core
+  contracts. Each phase-specific record identifies the exact owning CT,
+  manufacturer-designated S1/S2 terminals, separate physical carrier chains,
+  explicit shorting-link accessory and the two terminal points that it bridges.
+- Kept CT ratio, rated primary/secondary current, burden, frequency and
+  physical polarity on the authoritative CurrentTransformer model. The
+  wiring profile references the CT identity and does not duplicate or infer
+  nameplate values or MeasurementChannel scaling.
+- Core inventory validation rejects swapped/ambiguous S1/S2 identity,
+  missing or discontinuous carrier chains, shared S1/S2 carriers, missing
+  shorting accessories, non-short-circuit accessory types, absent explicit
+  conductive pairs, and invalid test-disconnect references.
+- Extended the nested instrumentation wiring codec to schema 6. Schema
+  2/3/4/5 payloads remain readable without inferred CT profiles.
+- Added detached Application read-model exposure and generic controlled
+  record mutation support for CT secondary circuit records.
+- Active-project validation resolves each circuit to the exact Core CT.
+  An in-service CT with UNKNOWN or ISOLATED secondary state is rejected;
+  an OPEN secondary is rejected unless its declared shorting accessory is
+  explicitly CLOSED. A closed shorting state is never inferred from tags.
+- Added regression-test source for S1/S2 identity, explicit shorting bridge,
+  schema-6 round trip, schema-5 compatibility and in-service open-secondary
+  rejection.
+
+Boundary:
+- This is the CT secondary foundation slice. It does not yet replace full
+  topology/continuity acceptance for all CT measurement loops, nor implement
+  PT/CVT, RTD/thermocouple, shield/earth or communication-specific rules.
+- CT accuracy/saturation/excitation limits and unspecified burden/cable
+  properties remain unset; no unsupported engineering values are invented.
+- PR #1207 remains draft and unmerged pending main reconciliation and the
+  remaining #1203 scope.
+
+Verification:
+- Source was fetched back after each GitHub update and reviewed for the
+  aggregate, serializer, Application lifecycle/read model and exports.
+- Regression-test source was added but not executed. No CI, import, startup,
+  GUI, save/reopen or runtime electrical test was performed.
+======================================================================
