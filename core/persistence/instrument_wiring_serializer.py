@@ -10,10 +10,11 @@ from core.model.instrument_wiring import (
     PanelWire, SignalCarrierBinding, SignalDefinition, SignalKind,
     SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
     TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint, TerminalAccessory,
+    CTSecondaryCircuitState, CTSecondaryCircuit,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 5
+WIRING_SCHEMA_VERSION = 6
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -122,6 +123,21 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.terminal_accessories
         ],
+        "ct_secondary_circuits": [
+            {
+                "id": item.id, "ct_id": item.ct_id, "phase": item.phase,
+                "s1_terminal": _terminal_to_dict(item.s1_terminal),
+                "s2_terminal": _terminal_to_dict(item.s2_terminal),
+                "s1_carrier_ids": list(item.s1_carrier_ids),
+                "s2_carrier_ids": list(item.s2_carrier_ids),
+                "shorting_accessory_id": item.shorting_accessory_id,
+                "shorting_s1_terminal_point_id": item.shorting_s1_terminal_point_id,
+                "shorting_s2_terminal_point_id": item.shorting_s2_terminal_point_id,
+                "secondary_state": item.secondary_state.value,
+                "test_disconnect_accessory_id": item.test_disconnect_accessory_id,
+            }
+            for item in inventory.ct_secondary_circuits
+        ],
         "signals": [
             {
                 "id": item.id, "tag": item.tag, "description": item.description,
@@ -176,12 +192,13 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     expected_v2 = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
     expected_v3 = expected_v2 | {"endpoint_bindings"}
     expected_v5 = expected_v3 | {"terminal_blocks", "terminal_points", "terminal_accessories"}
+    expected_v6 = expected_v5 | {"ct_secondary_circuits"}
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema not in {2, 3, 4, WIRING_SCHEMA_VERSION}:
+    if isinstance(schema, bool) or schema not in {2, 3, 4, 5, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {schema!r}."
         )
-    expected = expected_v2 if schema == 2 else expected_v5 if schema == 5 else expected_v3
+    expected = expected_v2 if schema == 2 else expected_v3 if schema in {3, 4} else expected_v5 if schema == 5 else expected_v6
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
@@ -238,6 +255,25 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                     for pair in pairs
                 ):
                     raise InstrumentationWiringSerializationError("Terminal accessory conductive_pairs must be an array of two-string arrays.")
+        if schema >= 6:
+            if not isinstance(data.get("ct_secondary_circuits"), list) or any(
+                not isinstance(item, Mapping) for item in data["ct_secondary_circuits"]
+            ):
+                raise InstrumentationWiringSerializationError("Instrumentation wiring ct_secondary_circuits must be an array of objects.")
+            _field_contracts += ((
+                "ct_secondary_circuits",
+                {"id", "ct_id", "phase", "s1_terminal", "s2_terminal",
+                 "s1_carrier_ids", "s2_carrier_ids", "shorting_accessory_id",
+                 "shorting_s1_terminal_point_id", "shorting_s2_terminal_point_id"},
+                {"secondary_state", "test_disconnect_accessory_id"},
+                "CT secondary circuit",
+            ),)
+            for item in data["ct_secondary_circuits"]:
+                for terminal_name in ("s1_terminal", "s2_terminal"):
+                    _terminal_from_dict(item[terminal_name], schema=schema)
+                for carrier_name in ("s1_carrier_ids", "s2_carrier_ids"):
+                    if not isinstance(item[carrier_name], list) or any(not isinstance(value, str) for value in item[carrier_name]):
+                        raise InstrumentationWiringSerializationError(f"CT secondary {carrier_name} must be an array of strings.")
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
@@ -326,6 +362,21 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             )
             for item in data.get("endpoint_bindings", ())
         )
+        ct_secondary_circuits = tuple(
+            CTSecondaryCircuit(
+                id=item["id"], ct_id=item["ct_id"], phase=item["phase"],
+                s1_terminal=_terminal_from_dict(item["s1_terminal"], schema=schema),
+                s2_terminal=_terminal_from_dict(item["s2_terminal"], schema=schema),
+                s1_carrier_ids=tuple(item["s1_carrier_ids"]),
+                s2_carrier_ids=tuple(item["s2_carrier_ids"]),
+                shorting_accessory_id=item["shorting_accessory_id"],
+                shorting_s1_terminal_point_id=item["shorting_s1_terminal_point_id"],
+                shorting_s2_terminal_point_id=item["shorting_s2_terminal_point_id"],
+                secondary_state=CTSecondaryCircuitState(item.get("secondary_state", "CLOSED")),
+                test_disconnect_accessory_id=item.get("test_disconnect_accessory_id"),
+            )
+            for item in data.get("ct_secondary_circuits", ())
+        )
         return InstrumentationWiringInventory(
             cables=cables, cores=cores, panel_wires=panel_wires,
             signals=signals, signal_bindings=bindings, tag_policy=tag_policy,
@@ -333,6 +384,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             terminal_blocks=terminal_blocks,
             terminal_points=terminal_points,
             terminal_accessories=terminal_accessories,
+            ct_secondary_circuits=ct_secondary_circuits,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(
