@@ -517,3 +517,109 @@ class HYGOVReducedHydroGovernor(DynamicPlugin):
             "power_base": "declared_connected_machine_per_unit_base",
         }
 
+
+
+@dataclass(frozen=True, slots=True)
+class GGOV1Parameters:
+    """Validated GGOV1 parameter contract; not an executable controller.
+
+    Power/fuel quantities are on the turbine MW rating base. The turbine
+    rating is deliberately distinct from the connected generator MVA base.
+    Model-specific equations and all limiter/selector paths must be integrated
+    before this contract can be used by a DynamicPlugin implementation.
+    """
+    turbine_rating_mw: float
+    rselect: int
+    flag: int
+    droop_pu: float
+    electrical_power_time_constant_s: float
+    governor_error_max_pu: float
+    governor_error_min_pu: float
+    governor_proportional_gain: float
+    governor_integral_gain_per_s: float
+    governor_derivative_gain: float
+    governor_derivative_time_constant_s: float
+    valve_max_pu: float
+    valve_min_pu: float
+    actuator_time_constant_s: float
+    valve_open_rate_pu_per_s: float
+    valve_close_rate_pu_per_s: float
+    turbine_gain: float
+    no_load_fuel_flow_pu: float
+    turbine_lag_time_constant_s: float
+    turbine_lead_time_constant_s: float
+    engine_transport_time_constant_s: float
+    load_filter_time_constant_s: float
+    load_proportional_gain: float
+    load_integral_gain_per_s: float
+    load_limit_reference_pu: float
+    mechanical_damping: float
+    power_controller_integral_gain_per_s: float
+    acceleration_limit_pu_per_s: float
+    acceleration_limiter_gain: float
+    acceleration_filter_time_constant_s: float
+    speed_deadband_pu: float
+    temperature_lead_time_constant_s: float
+    temperature_lag_time_constant_s: float
+    load_limit_increase_rate_pu_per_s: float
+    load_limit_decrease_rate_pu_per_s: float
+    power_controller_setpoint_mw: float | None = None
+
+    def __post_init__(self) -> None:
+        if isinstance(self.rselect, bool) or self.rselect not in (1, 0, -1, -2):
+            raise ValueError("rselect must be 1 (electrical power), 0 (no feedback), -1 (valve), or -2 (governor output)")
+        if isinstance(self.flag, bool) or self.flag not in (0, 1):
+            raise ValueError("flag must be 0 (fuel flow independent of speed) or 1 (speed dependent)")
+        positive = ("turbine_rating_mw", "droop_pu", "turbine_gain", "actuator_time_constant_s")
+        nonnegative = (
+            "electrical_power_time_constant_s", "governor_proportional_gain",
+            "governor_integral_gain_per_s", "governor_derivative_gain",
+            "governor_derivative_time_constant_s", "turbine_lag_time_constant_s",
+            "turbine_lead_time_constant_s", "engine_transport_time_constant_s",
+            "load_filter_time_constant_s", "load_proportional_gain",
+            "load_integral_gain_per_s", "no_load_fuel_flow_pu",
+            "power_controller_integral_gain_per_s", "acceleration_limiter_gain",
+            "acceleration_filter_time_constant_s", "speed_deadband_pu",
+            "temperature_lead_time_constant_s", "temperature_lag_time_constant_s",
+        )
+        for name in positive:
+            value = _number(getattr(self, name), name)
+            if value <= 0.0:
+                raise ValueError(f"{name} must be greater than zero")
+            object.__setattr__(self, name, value)
+        for name in nonnegative:
+            value = _number(getattr(self, name), name)
+            if value < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+            object.__setattr__(self, name, value)
+        finite_names = (
+            "governor_error_max_pu", "governor_error_min_pu", "valve_max_pu",
+            "valve_min_pu", "valve_open_rate_pu_per_s", "valve_close_rate_pu_per_s",
+            "load_limit_reference_pu", "mechanical_damping", "acceleration_limit_pu_per_s",
+            "load_limit_increase_rate_pu_per_s", "load_limit_decrease_rate_pu_per_s",
+        )
+        for name in finite_names:
+            object.__setattr__(self, name, _number(getattr(self, name), name))
+        if self.governor_error_min_pu >= self.governor_error_max_pu:
+            raise ValueError("governor error limits must be ordered")
+        if self.valve_min_pu >= self.valve_max_pu:
+            raise ValueError("valve limits must satisfy minimum < maximum")
+        if self.valve_open_rate_pu_per_s <= 0.0 or self.valve_close_rate_pu_per_s >= 0.0:
+            raise ValueError("valve opening rate must be positive and closing rate negative")
+        if self.acceleration_limit_pu_per_s < 0.0:
+            raise ValueError("acceleration_limit_pu_per_s must be non-negative")
+        if (self.load_limit_increase_rate_pu_per_s <= 0.0
+                or self.load_limit_decrease_rate_pu_per_s >= 0.0):
+            raise ValueError("load-limit increase rate must be positive and decrease rate negative")
+        if self.power_controller_setpoint_mw is not None:
+            setpoint = _number(self.power_controller_setpoint_mw, "power_controller_setpoint_mw")
+            if setpoint < 0.0:
+                raise ValueError("power_controller_setpoint_mw must be non-negative")
+            object.__setattr__(self, "power_controller_setpoint_mw", setpoint)
+
+    def system_to_turbine_power_base_ratio(self, system_base_mva: float) -> float:
+        """Return S_system / turbine_rating; caller owns MW/MVA convention."""
+        base = _number(system_base_mva, "system_base_mva")
+        if base <= 0.0:
+            raise ValueError("system_base_mva must be greater than zero")
+        return base / self.turbine_rating_mw
