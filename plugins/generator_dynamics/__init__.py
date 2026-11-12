@@ -41,7 +41,7 @@ from .study_handler import (
     GeneratorTransientStudyHandler,
     GeneratorAugmentedTransientStudyHandler,
 )
-from .study_evidence import GeneratorAugmentedStudyEvidence
+from .study_evidence import (\n    GeneratorAugmentedStudyEvidence, GeneratorStudyCheckpointIdentity,\n)
 from .plugin import GENERATOR_TRANSIENT_STUDY_TYPE
 from .excitation_handoff import (
     ExcitationHandoffError,
@@ -87,7 +87,7 @@ __all__ = [
     "GGOV1SampleStates", "GGOV1SampleInputs", "GGOV1SampleDerivatives",
     "GGOV1SampleEvaluation", "GGOV1SampledExecutionAdapter",
     "GeneratorTransientStudyHandler", "GeneratorAugmentedTransientStudyHandler",
-    "GeneratorAugmentedStudyEvidence",
+    "GeneratorAugmentedStudyEvidence", "GeneratorStudyCheckpointIdentity",
     "GENERATOR_TRANSIENT_STUDY_TYPE",
     "GGOV1AcceptedStepCheckpoint", "GGOV1StepAttempt", "begin_ggov1_step_attempt",
     "GGOV1StateSlice", "GGOV1DynamicStateLayout",
