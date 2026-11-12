@@ -64,6 +64,17 @@ class TemperatureInstrumentService:
             expected_terminals = instrument.sensor_terminals
             if instrument.input_mode.value != "DIRECT_SENSOR":
                 interface = interfaces[instrument.interface_equipment_id]
+                if instrument.sensor_input_mappings:
+                    mapped_inputs = {item.interface_terminal.identity for item in instrument.sensor_input_mappings}
+                    declared_inputs = {item.identity for item in interface.input_terminals}
+                    mapped_sensors = {item.sensor_terminal.identity for item in instrument.sensor_input_mappings}
+                    declared_sensors = {item.identity for item in instrument.sensor_terminals}
+                    if mapped_inputs != declared_inputs or mapped_sensors != declared_sensors:
+                        raise ValueError(
+                            f"Temperature instrument '{instrument.id}' terminal map must cover every declared sensor and interface input pin exactly once."
+                        )
+                    if any(item.interface_terminal not in interface.input_terminals for item in instrument.sensor_input_mappings):
+                        raise ValueError(f"Temperature instrument '{instrument.id}' maps to an undeclared interface input pin.")
                 expected_source = interface.id
                 expected_terminals = interface.output_terminals
                 if interface.measurement_channel_id not in (None, channel_id):
