@@ -138,6 +138,7 @@ class InstrumentationWiringService:
             panel_wires=tuple(self._read_value(item) for item in inventory.panel_wires),
             signals=tuple(self._read_value(item) for item in inventory.signals),
             signal_bindings=tuple(self._read_value(item) for item in inventory.signal_bindings),
+            connection_hops=tuple(self._read_value(item) for item in inventory.connection_hops),
             tag_policy=tuple(self._read_value(item) for item in inventory.tag_policy.series),
         )
 
