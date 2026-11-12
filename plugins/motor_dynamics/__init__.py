@@ -32,5 +32,6 @@ __all__ = [
     "PMSMServoParameters", "PMSMServoSimulationResult", "solve_pmsm_servo_transient_cpu",
     "InductionServoParameters", "InductionServoSimulationResult", "solve_induction_servo_transient_cpu",
     "DCServoParameters", "DCServoSimulationResult", "solve_dc_servo_transient_cpu",
+    "StepperParameters", "StepperSimulationResult", "solve_stepper_transient_cpu",
     "solve_transient_cpu", "solve_transient_batch", "cuda_available",
 ]
