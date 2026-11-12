@@ -55,15 +55,15 @@ def test_temperature_route_rejects_disconnected_carriers():
 
 
 def test_transmitter_temperature_loop_requires_both_physical_segments():
-    sensor = terminal("rtd", "A")
-    transmitter_input = terminal("tx", "IN")
+    sensor_a, sensor_b = terminal("rtd", "A"), terminal("rtd", "B")
+    transmitter_input_a, transmitter_input_b = terminal("tx", "IN+"), terminal("tx", "IN-")
     transmitter_output = terminal("tx", "OUT")
     receiver = terminal("plc", "AI+")
     interface = TemperatureInterfaceDevice(
         id="tx", tag="TT-1", equipment_kind=TemperatureInputMode.TRANSMITTER,
         supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
         supported_sensor_configurations=("Pt100 2-wire",),
-        input_terminals=(transmitter_input,), output_terminals=(transmitter_output,),
+        input_terminals=(transmitter_input_a, transmitter_input_b), output_terminals=(transmitter_output,),
         output_signal_kind="4-20mA", output_unit="degC",
     )
     instrument = TemperatureInstrument(
@@ -71,27 +71,32 @@ def test_transmitter_temperature_loop_requires_both_physical_segments():
         asset_id="transformer-1", location="main tank",
         sensor_equipment_id="rtd", sensor_technology=TemperatureSensorTechnology.RTD,
         input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx",
-        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor,),
+        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor_a, sensor_b),
         receiver_terminals=(receiver,),
+        sensor_input_mappings=(
+            TemperatureTerminalMapping(sensor_a, transmitter_input_a),
+            TemperatureTerminalMapping(sensor_b, transmitter_input_b),
+        ),
     )
     inventory = TemperatureInstrumentInventory(instruments=(instrument,), interfaces=(interface,))
     wiring = wiring_inventory(
-        CableCore("sensor-core", "temporary", 1, WiringConductorRole.SIGNAL, (sensor, transmitter_input)),
+        CableCore("sensor-core-a", "temporary", 1, WiringConductorRole.SIGNAL, (sensor_a, transmitter_input_a)),
+        CableCore("sensor-core-b", "temporary", 1, WiringConductorRole.RETURN, (sensor_b, transmitter_input_b)),
         PanelWire("output-wire", "W-OUT", WiringConductorRole.SIGNAL, (transmitter_output, receiver)),
     )
     assert TemperatureInstrumentService._validate_physical_continuity(inventory, wiring) == ()
 
 
 def test_transmitter_temperature_loop_rejects_missing_output_segment():
-    sensor = terminal("rtd", "A")
-    transmitter_input = terminal("tx", "IN")
+    sensor_a, sensor_b = terminal("rtd", "A"), terminal("rtd", "B")
+    transmitter_input_a, transmitter_input_b = terminal("tx", "IN+"), terminal("tx", "IN-")
     transmitter_output = terminal("tx", "OUT")
     receiver = terminal("plc", "AI+")
     interface = TemperatureInterfaceDevice(
         id="tx", tag="TT-1", equipment_kind=TemperatureInputMode.TRANSMITTER,
         supported_sensor_technologies=(TemperatureSensorTechnology.RTD,),
         supported_sensor_configurations=("Pt100 2-wire",),
-        input_terminals=(transmitter_input,), output_terminals=(transmitter_output,),
+        input_terminals=(transmitter_input_a, transmitter_input_b), output_terminals=(transmitter_output,),
         output_signal_kind="4-20mA", output_unit="degC",
     )
     instrument = TemperatureInstrument(
@@ -99,12 +104,17 @@ def test_transmitter_temperature_loop_rejects_missing_output_segment():
         asset_id="transformer-1", location="main tank",
         sensor_equipment_id="rtd", sensor_technology=TemperatureSensorTechnology.RTD,
         input_mode=TemperatureInputMode.TRANSMITTER, interface_equipment_id="tx",
-        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor,),
+        sensor_configuration="Pt100 2-wire", sensor_terminals=(sensor_a, sensor_b),
         receiver_terminals=(receiver,),
+        sensor_input_mappings=(
+            TemperatureTerminalMapping(sensor_a, transmitter_input_a),
+            TemperatureTerminalMapping(sensor_b, transmitter_input_b),
+        ),
     )
     inventory = TemperatureInstrumentInventory(instruments=(instrument,), interfaces=(interface,))
     wiring = wiring_inventory(
-        CableCore("sensor-core", "temporary", 1, WiringConductorRole.SIGNAL, (sensor, transmitter_input)),
+        CableCore("sensor-core-a", "temporary", 1, WiringConductorRole.SIGNAL, (sensor_a, transmitter_input_a)),
+        CableCore("sensor-core-b", "temporary", 1, WiringConductorRole.RETURN, (sensor_b, transmitter_input_b)),
     )
     with pytest.raises(ValueError, match="interface-output-to-receiver"):
         TemperatureInstrumentService._validate_physical_continuity(inventory, wiring)
