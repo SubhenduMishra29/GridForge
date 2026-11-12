@@ -6,6 +6,7 @@ solver; this plugin adapter never creates a second scheduler or integrator.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from core.application.study import (
