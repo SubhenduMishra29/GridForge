@@ -10,6 +10,7 @@ from core.application.services.instrumentation_wiring_service import Instrumenta
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
     SignalCarrierBinding, SignalDefinition, SignalKind, WiringConductorRole,
+    SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
     WiringTagSeries, WiringTagPolicy,
 )
 from core.persistence.instrument_wiring_serializer import (
@@ -287,3 +288,78 @@ def test_tag_counter_and_new_record_are_one_inventory_command():
     _apply_wiring_command(service, network, command)
     assert service.inventory.cables[0].tag == "CAB-001"
     assert service.inventory.tag_policy.series[0].next_number == 2
+
+
+
+def test_signal_endpoint_bindings_round_trip_for_all_endpoint_kinds():
+    inventory = sample_inventory()
+    endpoints = (
+        SignalEndpointBinding(
+            id="channel-binding", signal_id="signal-id",
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+                endpoint_id="channel-1",
+            ),
+        ),
+        SignalEndpointBinding(
+            id="control-binding", signal_id="signal-id",
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.CONTROL_INPUT,
+                endpoint_id="component-1", owner_id="control-1", port="PV",
+            ),
+        ),
+        SignalEndpointBinding(
+            id="protection-binding", signal_id="signal-id",
+            endpoint=SignalEndpointReference(
+                kind=SignalEndpointKind.PROTECTION_INPUT,
+                endpoint_id="protection-measurement-binding",
+                owner_id="protection-element-1", port="IA",
+            ),
+        ),
+    )
+    expected = InstrumentationWiringInventory(
+        cables=inventory.cables, cores=inventory.cores,
+        signals=inventory.signals, signal_bindings=inventory.signal_bindings,
+        endpoint_bindings=endpoints,
+    )
+    payload = serialize_instrumentation_wiring(expected)
+    assert payload["schema"] == 3
+    assert len(payload["endpoint_bindings"]) == 3
+    assert deserialize_instrumentation_wiring(payload) == expected
+
+
+def test_schema_two_wiring_inventory_remains_readable_without_inferred_endpoints():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["schema"] = 2
+    payload.pop("endpoint_bindings")
+    restored = deserialize_instrumentation_wiring(payload)
+    assert restored == sample_inventory()
+    assert restored.endpoint_bindings == ()
+
+
+def test_wiring_service_adds_and_reads_signal_endpoint_binding():
+    service = InstrumentationWiringService()
+    network = FakeNetwork()
+    context = ProjectContext(project_id="project-1", name="Test", path=None)
+    signal = SignalDefinition(
+        id="signal-1", tag="SIG-1", description="Pressure",
+        kind=SignalKind.ANALOG, unit="bar",
+    )
+    service.activate(
+        context,
+        InstrumentationWiringInventory(signals=(signal,)),
+        network=network,
+        generation=2,
+    )
+    binding = SignalEndpointBinding(
+        id="endpoint-binding-1", signal_id=signal.id,
+        endpoint=SignalEndpointReference(
+            kind=SignalEndpointKind.MEASUREMENT_CHANNEL,
+            endpoint_id="channel-1",
+        ),
+    )
+    command = service.create_add_record_command(binding)
+    _apply_wiring_command(service, network, command)
+    read_model = service.read_model()
+    assert read_model.endpoint_bindings[0]["id"] == binding.id
+    assert read_model.endpoint_bindings[0]["endpoint"]["endpoint_id"] == "channel-1"
