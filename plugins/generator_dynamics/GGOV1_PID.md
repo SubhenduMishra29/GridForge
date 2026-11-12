@@ -101,8 +101,8 @@ signal path. It forms `TREF = Wfnl + LDREF / Kturb`, computes
 `eT = TREF - TEXM`, integrates `Kiload * eT`, and produces
 `FSRT = min(1.0, Kpload * eT + integral)`. The integral operating-point
 initialization is `(PELEC + Dm) / Kturb + Wfnl`. `TEXM` is supplied by the
-separate `GGOV1TemperatureMeasurement` conditioner implementing
-`(1+s*Tsa)/(1+s*Tsb)`. The lower fuel-stroke bound is not added because the
+separate `GGOV1TemperatureMeasurement` conditioner implementing the
+`Tfload` sensor lag followed by `(1+s*Tsa)/(1+s*Tsb)`. The lower fuel-stroke bound is not added because the
 referenced LoadLimiter applies only the upper 1.0 pu limit.
 
 This is a PSS/E-derived sub-block topology, not a claim of universal OEM
