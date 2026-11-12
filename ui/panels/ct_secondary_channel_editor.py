@@ -13,7 +13,6 @@ MeasurementChannel objects directly.
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
 from weakref import ref
 
 from core.application.errors import ExecutionError
@@ -185,7 +184,7 @@ class CTSecondaryChannelEditor(QGroupBox):
             attributes = getattr(projection, "attributes", {}) or {}
             equipment_type = str(attributes.get("equipment_type", "")).strip().lower()
             normalized = display_type.replace(" ", "_").replace("-", "_")
-            if normalized in {"current_transformer", "currenttransformer", "ct"} or equipment_type == "current_transformer":
+            if normalized in {"current_transformer", "currenttransformer", "ct"} or equipment_type in {"current_transformer", "ct"}:
                 candidate = str(getattr(projection, "object_id", "")).strip()
                 target_id = candidate or None
         self._target_id = target_id
