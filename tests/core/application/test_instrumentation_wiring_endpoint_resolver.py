@@ -206,7 +206,8 @@ def test_control_core_source_is_checked_through_application_read_service():
         protection_configuration=None,
         read_service=ReadService(),
     )
-    assert result[0].status == "RESOLVED"
+    assert result[0].status == "UNRESOLVED"
+    assert "no explicit physical source-terminal contract" in result[0].diagnostics[0]
 
 
 def test_control_core_source_missing_from_read_service_is_unresolved():
