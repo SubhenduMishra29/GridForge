@@ -440,7 +440,7 @@ def test_sld_physical_route_provenance_label_navigates_to_exact_peer_and_tracks_
         },),
     })
 
-    labels = renderer._items["physical-route"][1:]
+    labels = renderer._provenance_items["physical-route"]
     assert len(labels) == 1
     label = labels[0]
     assert isinstance(label, SignalProvenanceItem)
@@ -460,7 +460,7 @@ def test_sld_physical_route_provenance_label_navigates_to_exact_peer_and_tracks_
             "target_object_id": "component-1",
         },),
     })
-    current_label = renderer._items["physical-route"][1]
+    current_label = renderer._provenance_items["physical-route"][0]
     assert current_label.isVisible()
     assert current_label.opacity() == pytest.approx(0.4)
     renderer.dispose()
