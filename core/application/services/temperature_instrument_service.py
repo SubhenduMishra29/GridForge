@@ -156,6 +156,7 @@ class TemperatureInstrumentService:
     def _has_physical_route(
         wiring_inventory: Any, starts: tuple[Any, ...], ends: tuple[Any, ...], *,
         thermocouple_type: str | None = None, polarity: str | None = None,
+        thermocouple_cable_specs: tuple[Any, ...] = (),
     ) -> bool:
         """Return whether every declared terminal has a path to the opposite endpoint set.
 
@@ -178,6 +179,19 @@ class TemperatureInstrumentService:
                     cable = cable_by_id.get(carrier.cable_id)
                     if cable is None or not cable.cable_type or not cable.conductor_material:
                         continue
+                    designation = cable.cable_type.strip().upper()
+                else:
+                    designation = getattr(carrier, "thermocouple_cable_designation", None)
+                    designation = designation.strip().upper() if designation else None
+                spec = next((item for item in thermocouple_cable_specs
+                             if item.thermocouple_type == thermocouple_type
+                             and item.cable_designation == designation), None)
+                if spec is None:
+                    continue
+                expected_material = (spec.positive_conductor_material if polarity == "POSITIVE"
+                                     else spec.negative_conductor_material)
+                if carrier.conductor_material.casefold() != expected_material.casefold():
+                    continue
             path = tuple(carrier.terminal_path)
             for left, right in zip(path, path[1:]):
                 a, b = left.identity, right.identity
@@ -246,6 +260,7 @@ class TemperatureInstrumentService:
                     if not cls._has_physical_route(
                         wiring_inventory, (mapping.sensor_terminal,), (mapping.interface_terminal,),
                         thermocouple_type=instrument.thermocouple_type, polarity=mapping.polarity,
+                        thermocouple_cable_specs=inventory.thermocouple_cable_specs,
                     ):
                         raise ValueError(
                             f"Temperature instrument '{instrument.id}' thermocouple {mapping.polarity.lower()} "
