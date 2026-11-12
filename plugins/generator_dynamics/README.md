@@ -405,3 +405,21 @@ runner or invent a second solver. A production integration requires an
 explicit solver-owned dynamic-state extension and accepted-step/rejected-step
 protocol before the Application bootstrap can supply the required composition
 solver and per-study adapter factory.
+
+### Accepted-step transaction protocol
+
+`GGOV1AcceptedStepCheckpoint` and `GGOV1StepAttempt` define a detached
+commit/reject protocol for the discrete acceleration feedback boundary.
+The host begins an attempt from its committed sample index, simulation time
+and previous selected FSR. It evaluates continuous solver stages against that
+unchanged checkpoint, then calls `accept()` only after the complete step is
+accepted. A rejected attempt calls `reject()` and receives the exact original
+checkpoint; its candidate FSR and sample index are discarded.
+
+This protocol prevents RK4 intermediate stages or failed Newton iterations
+from advancing the discrete GGOV1 DELT/FSR feedback. It is a value contract,
+not an integrator hook: the host solver remains responsible for step retries,
+adaptive step size, event boundaries, and committing accepted state vectors.
+The current DAE/TransientStability solver has no generalized dynamic-state
+extension or accepted-step participant API, so this plugin contract is not
+yet wired into that solver and does not claim runnable generator DAE support.
