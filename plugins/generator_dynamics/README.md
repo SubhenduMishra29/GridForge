@@ -300,7 +300,25 @@ command to pass to `GGOV1ValveActuator.derivatives()` and back to the
 acceleration limiter. Pass the same command as `selected_fuel_command_pu`
 to PID and load-limiter derivatives when enabling their explicit tracking
 inputs. The decision exposes final-command-minus-request tracking errors for
-each active candidate. The coordinator owns no dynamic state or solver clock. `Rup`/`Rdown` are retained as model data
+each active candidate. The coordinator owns no dynamic state or solver clock.
+ 
+ `calculate_ggov1_operating_point()` provides a pure shared initialization
+ calculation from initial electrical/mechanical power and shaft speed. It
+ derives the common initial FSR, actual valve target, Flag-dependent fuel
+ flow, and modeled temperature-proxy input. It also reports the PID/load-PI
+ integral alignment residual and the load-limiter output residual. Call
+ `require_balanced()` when the load/temperature limiter is active and the
+ study requires all initialized controller paths to agree. The helper rejects
+ an initial FSR outside common valve limits or above the load limiter's
+ 1.0 pu ceiling. The host still calls each block's own `initial_state()`;
+ the helper owns no solver state or lifecycle.
+
+ The acceleration limiter is sampled: calculate FSRA using the previous
+ selected FSR feedback and the host's positive `DELT`, then perform the
+ three-way selection and common clamp. Feed the resulting command to the
+ actuator and use it as the FSR feedback for the next acceleration sample.
+ The host owns sample ordering and the DELT clock; do not evaluate this
+ feedback loop as an instantaneous algebraic cycle. `Rup`/`Rdown` are retained as model data
 but are not applied by the OpenIPSL GGOV1 reference implementation used
 here; they must not be confused with actuator `Ropen`/`Rclose`.
 
