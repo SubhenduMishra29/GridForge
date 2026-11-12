@@ -118,6 +118,8 @@ class GGOV1PIDGovernor(DynamicPlugin):
         supervisory_power_setpoint_pu: float = 0.0,
         valve_stroke_pu: float = 0.0,
         governor_output_pu: float = 0.0,
+        selected_fuel_command_pu: float | None = None,
+        tracking_time_constant_s: float | None = None,
         **_: Any,
     ) -> tuple[float, ...]:
         self.validate_state(state)
@@ -145,6 +147,29 @@ class GGOV1PIDGovernor(DynamicPlugin):
             else (error - derivative_state) / p.governor_derivative_time_constant_s
         )
         d_integral = p.governor_integral_gain_per_s * error
+        if (selected_fuel_command_pu is None) != (tracking_time_constant_s is None):
+            raise ValueError(
+                "selected_fuel_command_pu and tracking_time_constant_s must be supplied together"
+            )
+        if selected_fuel_command_pu is not None:
+            tracking_time = _number(tracking_time_constant_s, "tracking_time_constant_s")
+            if tracking_time <= 0.0:
+                raise ValueError("tracking_time_constant_s must be greater than zero")
+            governor_output = (
+                p.governor_proportional_gain * error
+                + integral
+                + (
+                    0.0 if p.governor_derivative_time_constant_s == 0.0
+                    else p.governor_derivative_gain
+                    * (error - derivative_state)
+                    / p.governor_derivative_time_constant_s
+                )
+            )
+            tracking_error = (
+                _number(selected_fuel_command_pu, "selected_fuel_command_pu")
+                - governor_output
+            )
+            d_integral += tracking_error / tracking_time
 
         reset_limit = 1.1 * p.droop_pu
         measured_power = pelec if p.electrical_power_time_constant_s == 0.0 else pelec_f
