@@ -12,7 +12,7 @@ import math
 from typing import Any
 
 from .grid_scene import GridScene
-from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QPainter, QRectF, QPointF
+from ui.core.qt import QGraphicsLineItem, QGraphicsObject, QGraphicsTextItem, QPainter, QRectF, QPointF
 from ui.control.ladder.ladder_geometry import LadderGeometryPolicy
 from ..items.control_items import ControlPortDirection, ControlPortPresentation
 from ui.styling.presentation_style import VisualState, visual_font, visual_pen
@@ -79,6 +79,7 @@ class ControlCanvas(GridScene):
         self._control_read_model = None
         self._preview_item: ControlLogicItem | None = None
         self._connection_preview: QGraphicsLineItem | None = None
+        self._port_positions: dict[tuple[str, str, str], tuple[float, float]] = {}
 
     @property
     def control_read_model(self):
@@ -92,6 +93,7 @@ class ControlCanvas(GridScene):
         self._control_read_model = read_model
         self._preview_item = None
         self._connection_preview = None
+        self._port_positions = {}
 
         rung_count = len(read_model.rungs)
         max_order = max((int(r.order) for r in read_model.rungs), default=0)
@@ -174,6 +176,8 @@ class ControlCanvas(GridScene):
             for port in item.port_presentations():
                 port_positions[(port.component_id, port.direction.value, port.port_name)] = port.scene_position
 
+        self._port_positions = dict(port_positions)
+
         for connection in read_model.connections:
             source = port_positions.get(
                 (str(connection.source_component), ControlPortDirection.OUTPUT.value, str(connection.source_output))
@@ -195,6 +199,24 @@ class ControlCanvas(GridScene):
             )
             if item is not None:
                 item.setLine(source[0], source[1], target[0], target[1])
+
+    def project_signal_provenance(self, provenance: tuple[Any, ...] = ()) -> None:
+        """Overlay canonical signal/cable identity at matching Control input ports."""
+        if not provenance:
+            return
+        for item in provenance:
+            if item.endpoint_kind != "CONTROL_INPUT":
+                continue
+            position = self._port_positions.get(
+                (str(item.endpoint_id), ControlPortDirection.INPUT.value, str(item.port))
+            )
+            if position is None:
+                continue
+            label = QGraphicsTextItem(item.short_label)
+            label.setPos(float(position[0]) + 7.0, float(position[1]) - 13.0)
+            label.setZValue(20.0)
+            label.setToolTip(item.detail_text)
+            self.addItem(label)
 
     def component_at(self, x: float, y: float) -> ControlLogicItem | None:
         point = QPointF(float(x), float(y))
