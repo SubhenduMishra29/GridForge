@@ -703,3 +703,33 @@ it independently for every actual stage state/time (including RK4 midpoint
 states); the host must pass the returned derivative vector to the integrator
 and retain its accepted/rejected-step policy. Discrete controller feedback,
 event commits and result persistence remain outside this pure stage call.
+
+
+### Opt-in augmented DAE integration adapter
+
+`GeneratorAugmentedDAEAdapter` is the explicit integration bridge for hosts
+that are ready to run the composed state vector. It accepts the canonical
+Core `MultiMachineSystem` and `Integrator`, the frozen
+`DynamicSystemStateLayout`, registered extension components and bindings,
+and the host's network/terminal-projection callbacks. Construction verifies
+that the machine prefix of the composed layout exactly matches the canonical
+machine identities and offsets.
+
+The caller creates the initial augmented vector with
+`DynamicSystemStateLayout.pack(machine_state, component_states)`. The
+adapter's `derivatives(state, time)` is directly compatible with the Core
+Integrator callback. Its `step(state, time, dt)` delegates to that same
+Integrator, so every RK4 intermediate state/time and every trapezoidal
+Newton evaluation gets a fresh generator stage evaluation. After the
+integrator accepts a state, the adapter evaluates the final-time algebraic
+stage and returns it with the accepted augmented state.
+
+The adapter reuses `MultiMachineSystem.electrical_powers()` and
+`MultiMachineSystem.derivatives()`, forwarding the same AVR field-voltage
+map through the canonical `field_voltages` keyword. It samples optional
+machine connection state at each derivative stage. It does not alter
+`DAESolver`, change legacy machine-only study behavior, own Core equipment,
+or commit discrete events/controller feedback. A production study host must
+explicitly select this augmented adapter and provide the authoritative
+terminal projection and network callback; this is not automatic transient
+runner wiring.
