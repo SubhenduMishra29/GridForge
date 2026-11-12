@@ -4714,3 +4714,286 @@ integration; canvas projections/schedules; runtime and save/reopen verification.
 
 
 [2026-11-12] PR #1215 scope reconciliation: retained only the motor-dynamics family catalogue, family-aware measurement templates, explicitly experimental CPU transient models, manifest/exports and focused catalogue/solver coverage for a clean follow-up integration. Rejected generator-dynamics additions because current authoritative main has no generator_dynamics_composition or generator transient host service; rejected generic Core dynamic-component scaffolding because DAESolver/MultiMachineSystem do not consume that contract; rejected unrelated UI/CT editor changes. Transformer dynamics are not implemented by this retained motor-only scope. Original PR #1215 is superseded and must not be merged wholesale.
+
+
+======================================================================
+GridForge V2 — Instrumentation wiring project-wide tag identity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Instrumentation wiring tag uniqueness was enforced separately for cable, panel-wire and signal collections.
+- Cable-core tags were checked in a separate collection.
+- A case-only variation or a duplicate across record kinds could therefore make a visible tag ambiguous when resolving the same engineering designation across SLD, Control, Protection and schedules.
+- Application tag allocation checked only the selected record category and could allocate a value already used by another instrumentation record kind.
+
+Correction:
+- Enforced one case-insensitive project-wide tag namespace across cable tags, optional cable-core tags, panel-wire tags and signal tags.
+- Preserved stable record IDs as canonical identity; visible tags remain engineering designations and are not used as foreign keys.
+- Changed Application tag allocation to avoid collisions with all currently assigned instrumentation tags, not only the selected category.
+- Added model regression-test source for valid cross-category tags, case-insensitive cross-category collisions and cable-core collisions.
+- Kept all tag prefixes and formats project-defined; no IEC/ISA convention or default prefix is assumed.
+
+Verification:
+- Updated source and test files were committed to the fresh branch based on current main.
+- No tests, imports, GUI interaction, schedule rendering/export, or save/reopen were run.
+- This is the first isolated reconciliation slice. It does not implement the remaining endpoint compatibility, stable connection-hop identity, shield/earth continuity, communication/fibre, temperature transmitter/BTD/OTD/WTD, or cross-canvas schedule/provenance requirements.
+
+
+======================================================================
+GridForge V2 — Stable physical instrumentation connection-hop identity
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- CableCore and PanelWire terminal_path values identify an ordered route, but
+  each terminal-to-terminal segment had no independent stable Core identity.
+- A route insertion or reroute could shift segment indices and prevent
+  unaffected physical segments from retaining their own audit identity.
+
+Correction:
+- Added immutable Core PhysicalConnectionHop with its own stable ID, exact
+  endpoint terminal references, carrier kind/ID, revision, lifecycle status,
+  and optional superseded-hop reference.
+- Inventory validation requires each hop to identify an actual adjacent
+  segment of its owning cable core or panel wire, and rejects missing
+  carriers/predecessors and duplicate global record IDs.
+- Added Application service record add/update/remove support and public
+  Core model exports.
+- Added regression-test source for adjacent/non-adjacent paths, missing
+  carrier/predecessor, and stable hop identifiers.
+- Kept route geometry out of Core; this record expresses physical connectivity
+  only. No historical IDs are fabricated for legacy terminal_path routes.
+
+Limitations:
+- Persistence schema/serializer migration and legacy-route reconciliation are
+  not yet implemented. Existing paths must not be assigned synthetic hop IDs.
+- No cable reroute/replacement command, immutable audit event, schedule
+  projection, or cross-canvas selection/highlighting is yet connected.
+- No tests, imports, GUI, or save/reopen checks were run.
+
+
+======================================================================
+GridForge V2 — Controlled instrumentation carrier route revision
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Stable connection-hop records existed, but changing a carrier terminal path
+  could not preserve unchanged hop IDs while retiring removed physical segments.
+- Historical hops would also fail current-path adjacency validation after reroute.
+
+Correction:
+- Added explicit revision counters to CableCore and PanelWire route records.
+- Inventory adjacency validation now requires PLANNED/INSTALLED hops to match
+  current adjacent route segments; RETIRED/REPLACED records remain as history.
+- Added Application create_update_carrier_route_command(). It preserves IDs
+  for unchanged terminal pairs, retires removed active hops with an incremented
+  hop revision, and creates new PLANNED hops only from caller-supplied IDs.
+- Route revision increments the owning carrier revision and is returned as a
+  normal stale-snapshot SetInstrumentationWiringInventoryCommand.
+- Added regression-test source for preservation, retirement, new hop creation,
+  explicit ID requirements and ID reuse rejection.
+
+Limitations:
+- The command still relies on the existing transaction/command execution path;
+  no separate durable event/audit store or persistence migration is included.
+- The caller must supply IDs for new segments; no automatic UUID or tag is
+  fabricated. Historical route endpoint equipment/terminal deletion policy
+  remains a separate lifecycle concern.
+- No tests, imports, GUI, or project save/reopen checks were run.
+
+======================================================================
+GridForge V2 — Durable instrumentation connection-hop persistence
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- The Core inventory and controlled route-revision command now carry stable PhysicalConnectionHop identities, but the wiring JSON codec omitted hop records and omitted CableCore/PanelWire revisions. A save/reopen would therefore lose the physical route history and revision state.
+- Existing schema-7 projects have terminal paths but no authoritative per-segment hop IDs. Assigning generated IDs during migration would fabricate engineering identity.
+
+Correction:
+- Advanced the canonical project schema to 8 and instrumentation wiring schema to 3.
+- Serialized and restored hop IDs, endpoint terminal references, carrier kind/ID, revision, lifecycle status, and superseded-hop reference.
+- Persisted CableCore and PanelWire revision counters.
+- Added the 7-to-8 migration, which preserves historical terminal paths and adds an empty connection_hops collection. No legacy hop IDs are fabricated.
+- Added source regression coverage for hop identity/lifecycle round-trip, conductor revision round-trip, geometry exclusion, and schema-7 migration behavior.
+
+Verification:
+- Updated persistence serializer, project schema declaration, migration pipeline, persistence test source, and this register were committed on the feature branch.
+- No Python syntax/import execution, tests, package save/reopen, GUI, or cross-canvas schedule checks were run.
+
+======================================================================
+GridForge V2 — Canonical instrumentation wiring schedules
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Stable connection-hop identity was persisted, but there was no deterministic Application projection exposing those identities in cable-core, panel-wire, and signal-loop schedules. The wiring read model also omitted connection_hops.
+- Legacy terminal paths migrated without hop IDs must remain visible in schedules without generating artificial identities.
+
+Correction:
+- Added read-only Application schedule projections for cable-core segments, panel-wire segments, and signal loops.
+- Physical schedule rows expose carrier identity/revision, hop identity/revision, lifecycle status, and exact terminal references.
+- Signal-loop rows join canonical SignalDefinition, SignalCarrierBinding, carrier identity, and known hop IDs.
+- Legacy paths with no canonical hop records are shown as UNMAPPED_LEGACY rows with null hop IDs. Logical/fibre bindings are explicitly distinguished from physical cable routes.
+- Exposed connection_hops through InstrumentationWiringReadModel and exported schedule APIs from the Application services package.
+- Added source regression coverage for stable IDs, signal joins, and legacy routes without fabricated IDs.
+
+Limitations:
+- These are Application read-side schedule projections; no SLD/Control/Protection canvas UI, PDF/XLS export, endpoint compatibility validation, or schedule persistence was added.
+- InstrumentationWiringReadModel now includes connection_hops as an optional trailing field to preserve existing construction compatibility.
+
+Verification:
+- Source files and test source were committed and fetched back from the feature branch.
+- No tests, Python imports, GUI interactions, schedule exports, or project save/reopen checks were executed.
+
+======================================================================
+GridForge V2 — Fail-closed instrumentation receiver compatibility
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Canonical SignalDefinition and carrier bindings were not checked against the existing Control destination contract or Protection function/input contract before a signal loop could be considered compatible.
+- SignalKind.ANALOG, TEMPERATURE, COMMUNICATION and CUSTOM do not, by themselves, establish a specific MeasurementSignalType or receiver engineering semantics. Exact unit conversion cannot be inferred.
+
+Correction:
+- Added Application-level validate_control_receiver() using the existing ControlSignalDestination accepted type/phase/unit declarations.
+- Added validate_protection_receiver() using the canonical Protection function catalog and ProtectionInputContract for the exact function/input pair.
+- Only explicitly defensible signal-kind mappings are accepted (CURRENT, VOLTAGE, DIGITAL). Ambiguous/unmapped kinds fail closed.
+- Required phase and unit declarations are checked; units are exact-match only and no scaling/conversion is inferred.
+- Unsupported Protection functions/inputs and unsupported catalog contracts return explicit incompatibility diagnostics.
+- Exported the validators and added source regression coverage for valid matches, unit/phase mismatch, missing metadata, ambiguous signal kinds and unsupported Protection contracts.
+
+Limitations:
+- This batch provides validation functions; it does not persist receiver bindings, alter ControlSignalMapping or ProtectionConfiguration, attach validation to a mutation/activation gate, or create duplicate signal definitions.
+- Temperature, analog generic, communication/fibre protocol, polarity, CT/PT/RTD/thermocouple semantics require explicit engineering contracts before they can be accepted.
+
+Verification:
+- Source and test files were committed and fetched from the feature branch.
+- No tests, Python imports, runtime Control/Protection evaluation, GUI, or project activation checks were executed.
+
+======================================================================
+GridForge V2 — Reject incomplete Control receiver capability contracts
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- ControlSignalDestination permits empty accepted signal type, phase and unit declarations for legacy/backward-compatible mapping construction.
+- The initial instrumentation compatibility validator interpreted empty declarations as unrestricted, which could allow an unproven signal-to-input association.
+
+Correction:
+- Application receiver compatibility now treats each missing Control capability declaration as unresolved and incompatible.
+- Explicit accepted signal types, phases and engineering units are all required before a Control receiver can pass.
+- Added regression source coverage for a legacy destination with all three capability sets empty.
+
+Verification:
+- Updated implementation and regression source fetched back from the feature branch.
+- No tests, imports, runtime mapping resolution or GUI checks were executed.
+
+======================================================================
+GridForge V2 — Persisted Control/Protection receiver binding reconciliation
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Signal compatibility by itself does not prove that the intended persisted receiver actually references the same canonical instrumentation signal.
+- Control owns a persisted ControlSignalMapping; Protection owns ProtectionFunctionConfiguration.input_channel_ids and the canonical MeasurementChannel registry. These are distinct authorities and must not be shadowed by a second receiver registry.
+
+Correction:
+- Added validate_control_mapping_binding(): requires exactly one persisted ControlSignalBinding for the requested destination, requires its source domain/type to be instrumentation/signal, and requires source.object_id to equal SignalDefinition.id before checking declared receiver capabilities.
+- Added validate_protection_configuration_binding(): resolves exactly one configured Protection element, verifies its named input points to the supplied canonical channel ID, resolves that MeasurementChannel, compares signal type/phase/unit against the instrumentation SignalDefinition, then validates the exact Protection function/input contract.
+- Exported both validators through the Application services package.
+- Added regression source coverage for matching, mismatched and missing persisted Control mapping identities.
+
+Architecture:
+- No duplicate SignalDefinition, MeasurementChannel, Control mapping or Protection configuration is created.
+- Existing ControlSignalMapping and ProtectionProjectConfiguration remain authoritative.
+- Validation remains in Application; Core remains independent of Control, Protection and UI types.
+
+Limitations:
+- These functions are explicit validation APIs, not yet wired into the command mutation handlers, project activation transaction, or canvas binding workflow.
+- Protection validation requires the caller to supply the active/candidate channel registry; no channel is inferred or fabricated.
+
+Verification:
+- Updated source, exports, tests and register fetched back from the feature branch.
+- No tests, Python imports, project activation, runtime evaluation, or GUI checks were executed.
+
+======================================================================
+GridForge V2 — Project-wide persisted receiver reconciliation API
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Correction:
+- Added validate_inventory_receiver_bindings() to reconcile the project's canonical InstrumentationWiringInventory against persisted ControlSignalMapping and ProtectionProjectConfiguration.
+- Control instrumentation sources are resolved by stable SignalDefinition.id and validated against the exact persisted destination.
+- Protection signal-to-channel association is accepted only through an explicit Application-supplied signal-ID -> MeasurementChannel-ID mapping; channel identity and the Protection element/input mapping are then checked before function-contract validation.
+- Unknown instrumentation source identities and ambiguous duplicate channel associations produce incompatible diagnostics.
+- Exported the project-level reconciliation API from core.application.services.
+
+Important boundary:
+- This is a reconciliation API, not yet an automatic project activation gate. The repository's current instrumentation inventory has carrier bindings, not a persisted signal-to-receiver relation; the explicit signal_channel_ids map must be supplied by the Application composition/persisted mapping authority.
+- It deliberately skips Protection channels not explicitly mapped to instrumentation signals; it does not guess association by tag or channel name.
+- ProjectLifecycleService and InstrumentationWiringService activation/mutation handlers have not yet been modified to invoke this API.
+
+Verification:
+- Updated module and package export fetched back from the feature branch.
+- No tests, imports, activation transaction, or GUI checks were executed.
+
+
+======================================================================
+GridForge V2 — Persisted instrumentation signal-to-MeasurementChannel identity and receiver activation gate
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- Instrumentation SignalDefinition had no persisted foreign key to the canonical MeasurementChannel registry.
+- The prior project-wide receiver reconciliation accepted an Application-supplied signal-ID -> channel-ID mapping. No persisted authority supplied that relationship, so activation could not safely reconstruct it after save/reopen.
+- InstrumentationWiringService mutations and project activation did not invoke receiver reconciliation.
+
+Correction:
+- Added optional SignalDefinition.measurement_channel_id as the explicit canonical relationship to one MeasurementChannel ID. The field is engineering identity only; Core does not import MeasurementChannel or Application types.
+- Inventory validation rejects two instrumentation signals claiming the same MeasurementChannel ID.
+- Advanced instrumentation wiring serialization schema 3 to 4 and persist/restore the optional relationship.
+- Advanced project schema 8 to 9. The 8-to-9 migration adds an explicitly null association to historical signal records; it never infers channel IDs from tags, descriptions, carrier bindings, source_id, or list order.
+- Receiver reconciliation now derives the signal-to-channel index exclusively from persisted SignalDefinition.measurement_channel_id. The former signal_channel_ids argument is retained only as a consistency assertion and cannot supply or override persisted data.
+- InstrumentationWiringService now supports an injected receiver validator and invokes it before inventory mutation. A rejection leaves the active inventory unchanged.
+- Project activation defers the wiring receiver check until candidate MeasurementChannel, Protection configuration and Control mapping authorities are activated, then validates inside the existing project activation rollback boundary.
+- Added regression-test source for codec round-trip, schema 8-to-9 migration, one-to-one channel ownership, missing channel rejection, rejection of non-persisted external associations, and mutation precondition rollback.
+
+Architecture:
+- SignalDefinition owns only a stable channel ID reference; MeasurementChannel remains owned by the canonical MeasurementChannel service/registry.
+- ControlSignalMapping remains authoritative for Control source-to-destination bindings.
+- Protection configuration remains authoritative for element input-to-channel bindings.
+- Receiver reconciliation is Application-owned. No Core/Application dependency inversion, duplicate receiver registry, inferred identity, or canvas geometry persistence was introduced.
+
+Verification:
+- Source and test changes were committed and fetched back from the feature branch.
+- No Python syntax/import execution, tests, project activation runtime, save/reopen, or Qt GUI checks were executed.
+======================================================================
+
+
+Control runtime reconciliation clarification — same batch:
+- Static inspection of ControlSignalMapping.resolve() showed that runtime
+  resolution supports the "measurement" and "core" source domains, but not an
+  "instrumentation" source domain.
+- Corrected instrumentation-to-Control reconciliation to require the
+  persisted SignalDefinition.measurement_channel_id and a ControlSignalSource
+  referencing that exact ID through domain="measurement",
+  element_type="measurement_channel", signal="value" (or the exact supported
+  engineering-value/type alias).
+- Legacy/unsupported Control source domain="instrumentation" is now rejected
+  by the project-wide reconciliation rather than incorrectly passing a
+  binding that Control runtime cannot resolve.
+- Generic MeasurementChannel sources with no instrumentation SignalDefinition
+  association remain outside this instrumentation-specific validator.
