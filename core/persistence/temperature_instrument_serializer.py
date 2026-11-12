@@ -92,14 +92,17 @@ def serialize_temperature_instruments(inventory: TemperatureInstrumentInventory)
 def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> TemperatureInstrumentInventory:
     if data is None:
         return TemperatureInstrumentInventory()
-    expected = {"schema", "instruments", "interfaces", "receiver_inputs", "alarm_trip_bindings"}
-    if not isinstance(data, Mapping) or set(data) != expected:
+    required = {"schema", "instruments", "interfaces", "alarm_trip_bindings"}
+    optional = {"receiver_inputs"}
+    if not isinstance(data, Mapping) or not required.issubset(data) or set(data) - required - optional:
         raise TemperatureInstrumentSerializationError("Temperature instrument payload has non-canonical top-level fields.")
     if isinstance(data.get("schema"), bool) or data.get("schema") != TEMPERATURE_INSTRUMENT_SCHEMA_VERSION:
         raise TemperatureInstrumentSerializationError(f"Unsupported temperature instrument schema {data.get('schema')!r}.")
-    for key in ("instruments", "interfaces", "receiver_inputs", "alarm_trip_bindings"):
+    for key in ("instruments", "interfaces", "alarm_trip_bindings"):
         if not isinstance(data[key], list):
             raise TemperatureInstrumentSerializationError(f"{key} must be an array.")
+    if "receiver_inputs" in data and not isinstance(data["receiver_inputs"], list):
+        raise TemperatureInstrumentSerializationError("receiver_inputs must be an array.")
     try:
         instruments = []
         for raw in data["instruments"]:
@@ -135,7 +138,7 @@ def deserialize_temperature_instruments(data: Mapping[str, Any] | None) -> Tempe
                 measurement_channel_id=x.get("measurement_channel_id"),
             ))
         receiver_inputs = []
-        for x in data["receiver_inputs"]:
+        for x in data.get("receiver_inputs", []):
             x = _record(x, {"id", "module_equipment_id", "channel_designation", "input_kind", "terminals", "engineering_unit"},
                         {"supported_sensor_technologies", "supported_sensor_configurations", "range_min", "range_max"}, "TemperatureReceiverInput")
             receiver_inputs.append(TemperatureReceiverInput(
