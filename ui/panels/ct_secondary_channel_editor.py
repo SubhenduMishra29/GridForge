@@ -47,6 +47,7 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._target_id: str | None = None
         self._refreshing = False
         self._channels_by_id: dict[str, Any] = {}
+        self._samples_by_id: dict[str, Any] = {}
         self._event_callback: Any | None = None
 
         self._channel_selector = QComboBox(self)
@@ -153,8 +154,8 @@ class CTSecondaryChannelEditor(QGroupBox):
     def bind_application(self, application: Any) -> None:
         if application is None or not callable(getattr(application, "execute", None)):
             raise TypeError("CT channel editor requires the canonical Application.execute() boundary.")
-        if not callable(getattr(application, "read_measurement_channels", None)):
-            raise TypeError("Application must expose read_measurement_channels().")
+        if not callable(getattr(application, "read_measurement_channel_configurations", None)) or not callable(getattr(application, "read_measurement_channels", None)):
+            raise TypeError("Application must expose detached channel configuration and telemetry read APIs.")
         previous_bus = getattr(self._application, "event_bus", None)
         if previous_bus is not None and self._event_callback is not None:
             previous_bus.unsubscribe(MeasurementChannelChanged, self._event_callback)
@@ -215,11 +216,15 @@ class CTSecondaryChannelEditor(QGroupBox):
             return
         try:
             channels = tuple(
-                item for item in self._application.read_measurement_channels()
-                if getattr(item, "source_id", None) == self._target_id
-                and getattr(item, "source_terminal_role", None) in {"S1", "S2"}
-                and getattr(item, "signal_type", None) == "CURRENT"
+                item for item in self._application.read_measurement_channel_configurations()
+                if item.source_id == self._target_id
+                and item.source_terminal_reference.get("terminal_role") in {"S1", "S2"}
+                and item.signal_type == "CURRENT"
             )
+            samples = {
+                item.channel_id: item
+                for item in self._application.read_measurement_channels()
+            }
         except (RuntimeError, TypeError, ValueError) as exc:
             self._channels_by_id = {}
             self._refreshing = True
@@ -232,14 +237,15 @@ class CTSecondaryChannelEditor(QGroupBox):
             return
 
         self._channels_by_id = {item.channel_id: item for item in channels}
+        self._samples_by_id = samples
         self._refreshing = True
         try:
             selected_id = self._channel_selector.currentData()
             self._channel_selector.clear()
             for channel in channels:
                 label = (
-                    f"{channel.channel_id} · {channel.source_terminal_role} · "
-                    f"{channel.phase} · {channel.quality}"
+                    f"{channel.channel_id} · {channel.source_terminal_reference.get('terminal_role')} · "
+                    f"{channel.phase}"
                 )
                 self._channel_selector.addItem(label, channel.channel_id)
             selected_index = self._channel_selector.findData(selected_id)
@@ -278,20 +284,26 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._channel_id.setText(channel.channel_id)
         self._channel_id.setReadOnly(True)
         self._name.setText(channel.name or "")
-        self._terminal.setCurrentIndex(max(0, self._terminal.findData(channel.source_terminal_role)))
+        self._terminal.setCurrentIndex(max(0, self._terminal.findData(channel.source_terminal_reference.get("terminal_role"))))
         self._phase.setCurrentIndex(max(0, self._phase.findData(channel.phase)))
         self._nominal.setValue(float(channel.nominal_value or 5.0))
         self._scale.setValue(float(channel.scale or 1.0))
         self._polarity.setCurrentIndex(max(0, self._polarity.findData(float(channel.polarity or 1.0))))
         self._producer.setText(channel.producer_id or "")
+        self._producer.setReadOnly(True)
         self._timestamp_domain.setText(channel.timestamp_domain or "")
+        self._timestamp_domain.setReadOnly(True)
         self._stale_after.setValue(float(channel.stale_after or 2.0))
         self._update_button.setEnabled(True)
         self._delete_button.setEnabled(True)
+        sample = getattr(self, "_samples_by_id", {}).get(channel.channel_id)
         self._status.setText(
-            f"{channel.channel_id} · {channel.source_terminal_role} · "
-            f"{channel.quality} / {channel.validity} · "
-            + ("live sample available" if channel.available else "awaiting trusted sample")
+            f"{channel.channel_id} · {channel.source_terminal_reference.get('terminal_role')} · "
+            + (
+                f"{sample.quality} / {sample.validity} · "
+                + ("live sample available" if sample.available else "awaiting trusted sample")
+                if sample is not None else "sample telemetry unavailable"
+            )
         )
 
     def _new_channel(self) -> None:
@@ -313,7 +325,11 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._scale.setValue(1.0)
         self._polarity.setCurrentIndex(0)
         self._producer.clear()
-        self._timestamp_domain.clear()
+        self._producer.setReadOnly(False)
+        self._timestamp_domain.setText(
+            str(getattr(self._application, "measurement_clock_domain", None) or "")
+        )
+        self._timestamp_domain.setReadOnly(True)
         self._stale_after.setValue(2.0)
         self._update_button.setEnabled(False)
         self._delete_button.setEnabled(False)
@@ -329,7 +345,9 @@ class CTSecondaryChannelEditor(QGroupBox):
         if not producer_id:
             raise ValueError("Producer identity is required; it is never inferred.")
         if not timestamp_domain:
-            raise ValueError("Timestamp domain is required.")
+            raise ValueError("A trusted Application measurement clock domain must be configured before authoring channels.")
+        if self._application is not None and timestamp_domain != getattr(self._application, "measurement_clock_domain", None):
+            raise ValueError("Channel timestamp domain must match the configured trusted Application clock domain.")
         terminal_role = str(self._terminal.currentData())
         return {
             "channel_id": channel_id,
