@@ -4062,3 +4062,45 @@ Verification:
 - Source-level review of changed contracts and compatibility paths only.
 - No pytest, CI, import, startup, GUI or save/reopen runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Active Signal Endpoint Resolution
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/signal-endpoint-bindings
+Issue: #1203
+PR: #1207 (draft)
+
+Correction:
+- Added a renderer-neutral Application resolver for explicit signal endpoint
+  references against the active MeasurementChannel read models,
+  ControlSignalMapping destinations and ProtectionProjectConfiguration.
+- MeasurementChannel references resolve only by stable channel ID.
+- Control references require an exact Control ID/component ID/input-name
+  destination match. Measurement-domain Control sources additionally require
+  the same signal designation to reference that exact active channel.
+- Protection references require the exact ProtectionMeasurementBinding ID,
+  matching protection element and relay input, configured channel agreement,
+  and a matching signal-to-MeasurementChannel endpoint reference.
+- Explicit residual-current bindings are checked against the configured
+  ANSI 50N/51N residual source membership; unsupported residual endpoint
+  use fails closed.
+- Missing providers, missing targets and inconsistent identities produce
+  detached RESOLVED/UNRESOLVED/AMBIGUOUS read-side diagnostics. No tag,
+  display-name or proximity inference is performed.
+- Exposed the resolver through Application.read_instrumentation_wiring_endpoint_resolution().
+- Added regression-test source for channel, Control and Protection endpoint
+  resolution and missing-target diagnostics.
+
+Boundary:
+- The resolver does not alter ControlSignalMapping, ProtectionMeasurementBinding,
+  MeasurementChannel runtime state or execution semantics.
+- It does not yet validate physical signal-carrier continuity against channel
+  source terminal metadata, nor project provenance into the Control and
+  Protection canvases. Those remain open #1203 work.
+
+Verification:
+- Source-level review only; no tests, CI, imports, startup, GUI or
+  save/reopen runtime was executed.
+======================================================================
