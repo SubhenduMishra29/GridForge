@@ -816,3 +816,23 @@ checkpoint publication failure from solver rejection and reconcile the
 accepted state explicitly. The adapter does not write files, persist results,
 advance a study clock, or own cancellation; `StudyService` remains the sole
 owner of study lifecycle and durable terminal-result archival.
+
+### StudyService-compatible augmented trajectory evidence
+
+A host-owned augmented transient runner can return
+`GeneratorAugmentedStudyEvidence` from `plugins.generator_dynamics.study_evidence`.
+It is an immutable `Mapping` containing only archive-safe primitive payload,
+plus the `provenance` and `time` attributes consumed by the existing
+Application `StudyService` partial-result contract. For cooperative cancellation,
+construct it with `execution_status="cancelled"` and
+`trajectory_status="interrupted"`; only accepted `GeneratorAugmentedStepResult`
+objects belong in its trajectory. For successful completion use
+`execution_status="completed"` and `trajectory_status="complete"`.
+
+This is a result-value contract, not a second study service or a replacement
+handler. The host still checks the canonical cancellation token between calls
+to `GeneratorAugmentedDAEAdapter.step()`, supplies termination/event provenance,
+and returns the evidence to `StudyService`. The Application service remains
+responsible for terminal status, events and durable archive writes. The plugin
+contract does not yet install an augmented runner into the production
+composition root.
