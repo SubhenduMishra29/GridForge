@@ -26,6 +26,7 @@ from core.application.events import (
     ProjectClosed,
     ProtectionChanged,
     MeasurementChannelChanged,
+    InstrumentationWiringChanged,
     SLDPresentationChanged,
     TopologyChanged,
     DraftChanged,
@@ -51,6 +52,7 @@ class SLDUpdateCoordinator:
         NetworkCommitted,
         ProtectionChanged,
         MeasurementChannelChanged,
+        InstrumentationWiringChanged,
         SLDPresentationChanged,
         DraftChanged,
         ProjectLoaded,
@@ -350,7 +352,11 @@ class SLDUpdateCoordinator:
             return
 
         try:
-            if isinstance(event, ProtectionChanged):
+            if isinstance(event, InstrumentationWiringChanged):
+                # CanvasComposition's refresh callback rebuilds the SLD wiring
+                # projection from the current Application read model.
+                pass
+            elif isinstance(event, ProtectionChanged):
                 self._synchronizer.synchronize_protection(
                     document,
                     self._application.read_protection(),

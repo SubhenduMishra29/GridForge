@@ -5070,3 +5070,42 @@ Outcome:
 - Runtime/test/save-reopen verification remains outstanding and was not
   represented as completed by this merge record.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Instrumentation Wiring Semantic Projection Refresh
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: fix/instrumentation-wiring-semantic-refresh-20261112
+Issue: #1203
+
+Correction:
+- Added the headless Application event InstrumentationWiringChanged for
+  committed instrumentation-wiring inventory replacement, undo and redo.
+- The event carries active project identity, activation generation and the
+  exact changed inventory collection names; invalid or empty scope fails
+  closed before publication.
+- Application publishes the event only after the canonical inventory command
+  succeeds. The event remains distinct from TopologyChanged and NetworkChanged:
+  physical wiring metadata does not itself assert electrical connectivity or
+  change network-study topology.
+- SLDUpdateCoordinator now refreshes the active composite SLD snapshot after
+  wiring changes; CanvasComposition re-reads the Application wiring read model
+  and rebuilds the presentation-only physical carrier projection.
+- ControlUpdateCoordinator and ProtectionWorkspace subscribe to the same
+  semantic event and refresh their existing read projections. This establishes
+  the shared invalidation boundary for the still-pending dedicated cross-canvas
+  provenance presentation without introducing duplicate wiring stores.
+
+Architecture:
+- Core remains the owner of physical wiring identities and validation.
+- Application remains the mutation, transaction, undo/redo and event owner.
+- SLD, Control and Protection remain read-only projections. No Qt or QGraphics
+  dependency was added to Core, and no graphical route is treated as electrical
+  connectivity.
+
+Verification boundary:
+- Source and regression-test changes are prepared for review.
+- No tests or CI were run. Python import/runtime and Qt GUI refresh remain
+  unverified; the final PR diff is the acceptance artifact for this batch.
+======================================================================
