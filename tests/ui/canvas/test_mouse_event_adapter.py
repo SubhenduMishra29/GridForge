@@ -72,3 +72,24 @@ def test_integer_semantic_flags_are_preserved():
     assert semantic.button == 1
     assert semantic.buttons == 3
     assert semantic.modifiers == 0x02000000
+
+
+def test_scene_mapping_and_snap_tolerance_follow_viewport_scale():
+    class ZoomedView(_ViewProbe):
+        def viewportTransform(self):
+            transform = QTransform()
+            transform.scale(0.25, 0.25)
+            return transform
+
+    adapter = MouseEventAdapter(view=ZoomedView(), scene=_SceneProbe())
+    event = SimpleNamespace(
+        position=lambda: QPointF(10.5, 20.5),
+        button=lambda: Qt.MouseButton.LeftButton,
+        buttons=lambda: Qt.MouseButton.LeftButton,
+        modifiers=lambda: Qt.KeyboardModifier.NoModifier,
+    )
+
+    semantic = adapter.adapt(event)
+
+    assert semantic.scene_position == QPointF(42.0, 82.0)
+    assert semantic.snap_tolerance_scene == 56.0
