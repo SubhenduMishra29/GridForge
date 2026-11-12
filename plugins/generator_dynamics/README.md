@@ -654,3 +654,23 @@ transient runner still does not invoke this adapter. Full closed-loop
 execution therefore remains blocked on a Core-owned augmented-state
 protocol and a coordinated DAE/network composition path; legacy
 `network_solver(state, time)` callers remain unchanged.
+
+### First-order AVR dynamic-state component
+
+`FirstOrderAVRStateComponent` adapts the existing three-state
+`FirstOrderAVR` to Core's `DynamicStateComponent` protocol. It exposes a
+stable component identity and state dimension, initializes from the bound
+authoritative terminal voltage, and evaluates the AVR derivative from the
+same-stage terminal-voltage input. Its field-voltage output is read from the
+component state for the pre-network excitation snapshot. The adapter returns
+no mechanical-power handoff because an AVR changes excitation, not prime-mover
+mechanical power.
+
+Register the adapter in `DynamicSystemStateLayout` and bind it to the
+canonical machine, bus and terminal using the shared
+`DynamicComponentBinding`. For each integrator stage, unpack the AVR state,
+build the excitation snapshot, solve the algebraic network with that snapshot,
+construct `DynamicComponentInputs` from the resulting terminal voltages,
+then evaluate the composed derivative assembly. This establishes the
+component-level phase order without changing `DAESolver` or implying that
+the production transient runner already performs these steps.
