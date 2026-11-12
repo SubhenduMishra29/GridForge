@@ -4452,3 +4452,22 @@ Limitations:
 Verification:
 - Source and test files were committed and fetched from the feature branch.
 - No tests, Python imports, runtime Control/Protection evaluation, GUI, or project activation checks were executed.
+
+======================================================================
+GridForge V2 — Reject incomplete Control receiver capability contracts
+Date: 2026-11-12
+Repository: SubhenduMishra29/GridForge
+Branch: feature/instrumentation-wiring-reconciliation
+
+Finding:
+- ControlSignalDestination permits empty accepted signal type, phase and unit declarations for legacy/backward-compatible mapping construction.
+- The initial instrumentation compatibility validator interpreted empty declarations as unrestricted, which could allow an unproven signal-to-input association.
+
+Correction:
+- Application receiver compatibility now treats each missing Control capability declaration as unresolved and incompatible.
+- Explicit accepted signal types, phases and engineering units are all required before a Control receiver can pass.
+- Added regression source coverage for a legacy destination with all three capability sets empty.
+
+Verification:
+- Updated implementation and regression source fetched back from the feature branch.
+- No tests, imports, runtime mapping resolution or GUI checks were executed.
