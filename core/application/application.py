@@ -5115,6 +5115,15 @@ class Application:
             read_service=self._read_service,
         )
 
+    def read_instrumentation_wiring_schedules(self):
+        """Return authoritative derived schedules for the active wiring revision."""
+        from .instrumentation_wiring_schedules import build_instrumentation_wiring_schedules
+
+        return build_instrumentation_wiring_schedules(
+            self.read_instrumentation_wiring(),
+            self.read_instrumentation_wiring_endpoint_resolution(),
+        )
+
     def read_measurement_channels(self) -> tuple[MeasurementChannelReadModel, ...]:
         """Return immutable snapshots of the active project's MeasurementChannels."""
         lifecycle = self.project_lifecycle
