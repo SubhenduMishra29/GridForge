@@ -6,12 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from core.model.instrument_wiring import (
-    CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory,
+    CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory, PhysicalConnectionHop,
     PanelWire, SignalCarrierBinding, SignalDefinition, SignalKind,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
 )
 
-WIRING_SCHEMA_VERSION = 3
+WIRING_SCHEMA_VERSION = 4
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -73,6 +73,7 @@ def serialize_instrumentation_wiring(
                 "core_number": item.core_number, "role": item.role.value,
                 "terminal_path": [_terminal_to_dict(ref) for ref in item.terminal_path],
                 "colour": item.colour, "pair_id": item.pair_id, "core_tag": item.core_tag,
+                "revision": item.revision,
                 "conductor_material": item.conductor_material,
                 "thermocouple_type": item.thermocouple_type,
                 "thermocouple_polarity": item.thermocouple_polarity,
@@ -88,6 +89,7 @@ def serialize_instrumentation_wiring(
                 "thermocouple_type": item.thermocouple_type,
                 "thermocouple_polarity": item.thermocouple_polarity,
                 "thermocouple_cable_designation": item.thermocouple_cable_designation,
+                "revision": item.revision,
             }
             for item in inventory.panel_wires
         ],
@@ -95,6 +97,7 @@ def serialize_instrumentation_wiring(
             {
                 "id": item.id, "tag": item.tag, "description": item.description,
                 "kind": item.kind.value, "unit": item.unit, "phase": item.phase,
+                "measurement_channel_id": item.measurement_channel_id,
             }
             for item in inventory.signals
         ],
@@ -114,6 +117,19 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.signal_bindings
         ],
+        "connection_hops": [
+            {
+                "id": item.id,
+                "from_terminal": _terminal_to_dict(item.from_terminal),
+                "to_terminal": _terminal_to_dict(item.to_terminal),
+                "carrier_kind": item.carrier_kind.value,
+                "carrier_id": item.carrier_id,
+                "revision": item.revision,
+                "lifecycle_status": item.lifecycle_status,
+                "supersedes_hop_id": item.supersedes_hop_id,
+            }
+            for item in inventory.connection_hops
+        ],
     }
 
 
@@ -123,27 +139,34 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         return InstrumentationWiringInventory()
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
+    schema = data.get("schema")
+    if isinstance(schema, bool) or schema not in {2, 3, WIRING_SCHEMA_VERSION}:
+        raise InstrumentationWiringSerializationError(
+            f"Unsupported instrumentation wiring schema {schema!r}."
+        )
     expected = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
+    if schema >= 4:
+        expected.add("connection_hops")
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
             + ", ".join(sorted(str(key) for key in set(data) ^ expected))
         )
-    if isinstance(data.get("schema"), bool) or data.get("schema") not in {2, WIRING_SCHEMA_VERSION}:
-        raise InstrumentationWiringSerializationError(
-            f"Unsupported instrumentation wiring schema {data.get('schema')!r}."
-        )
-    for key in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"):
+    collection_keys = ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy")
+    if schema >= 4:
+        collection_keys += ("connection_hops",)
+    for key in collection_keys:
         if not isinstance(data.get(key), list) or any(not isinstance(item, Mapping) for item in data[key]):
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
 
     try:
         _field_contracts = (
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
-            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity"}, "Cable core"),
-            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation"}, "Panel wire"),
-            ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase"}, "Signal definition"),
+            ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity", "revision"}, "Cable core"),
+            ("panel_wires", {"id", "tag", "role", "terminal_path"}, {"cross_section_mm2", "colour", "conductor_material", "thermocouple_type", "thermocouple_polarity", "thermocouple_cable_designation", "revision"}, "Panel wire"),
+            ("signals", {"id", "tag", "description", "kind"}, {"unit", "phase", "measurement_channel_id"}, "Signal definition"),
             ("signal_bindings", {"id", "signal_id", "carrier_kind", "carrier_id"}, {"direction"}, "Signal carrier binding"),
+            ("connection_hops", {"id", "from_terminal", "to_terminal", "carrier_kind", "carrier_id"}, {"revision", "lifecycle_status", "supersedes_hop_id"}, "Physical connection hop"),
             ("tag_policy", {"record_kind", "prefix"}, {"separator", "minimum_digits", "next_number"}, "Wiring tag series"),
         )
         for collection_name, required, optional, label in _field_contracts:
@@ -159,6 +182,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 conductor_material=item.get("conductor_material"),
                 thermocouple_type=item.get("thermocouple_type"),
                 thermocouple_polarity=item.get("thermocouple_polarity"),
+                revision=item.get("revision", 1),
             )
             for item in data["cores"]
         )
@@ -171,6 +195,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 thermocouple_type=item.get("thermocouple_type"),
                 thermocouple_polarity=item.get("thermocouple_polarity"),
                 thermocouple_cable_designation=item.get("thermocouple_cable_designation"),
+                revision=item.get("revision", 1),
             )
             for item in data["panel_wires"]
         )
@@ -178,6 +203,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             SignalDefinition(
                 id=item["id"], tag=item["tag"], description=item["description"],
                 kind=SignalKind(item["kind"]), unit=item.get("unit"), phase=item.get("phase"),
+                measurement_channel_id=item.get("measurement_channel_id"),
             )
             for item in data["signals"]
         )
@@ -192,9 +218,22 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             )
             for item in data["signal_bindings"]
         )
+        hops = tuple(
+            PhysicalConnectionHop(
+                id=item["id"],
+                from_terminal=_terminal_from_dict(item["from_terminal"]),
+                to_terminal=_terminal_from_dict(item["to_terminal"]),
+                carrier_kind=CarrierKind(item["carrier_kind"]),
+                carrier_id=item["carrier_id"],
+                revision=item.get("revision", 1),
+                lifecycle_status=item.get("lifecycle_status", "PLANNED"),
+                supersedes_hop_id=item.get("supersedes_hop_id"),
+            )
+            for item in data.get("connection_hops", ())
+        )
         return InstrumentationWiringInventory(
             cables=cables, cores=cores, panel_wires=panel_wires,
-            signals=signals, signal_bindings=bindings, tag_policy=tag_policy,
+            signals=signals, signal_bindings=bindings, connection_hops=hops, tag_policy=tag_policy,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(
