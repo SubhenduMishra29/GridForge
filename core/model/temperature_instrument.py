@@ -240,6 +240,9 @@ class TemperatureInstrumentInventory:
         tags = [item.tag for item in self.instruments]
         if len(tags) != len(set(tags)):
             raise ValueError("Temperature instrument tags must be unique within this inventory.")
+        interface_tags = [item.tag for item in self.interfaces]
+        if len(interface_tags) != len(set(interface_tags)):
+            raise ValueError("Temperature interface tags must be unique within this inventory.")
         for instrument in self.instruments:
             if instrument.interface_equipment_id:
                 interface = interfaces.get(instrument.interface_equipment_id)
