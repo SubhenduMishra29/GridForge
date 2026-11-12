@@ -164,7 +164,7 @@ def test_protection_input_requires_matching_binding_owner_port_and_channel():
     )
     result = resolve_signal_endpoint_bindings(
         _signal_inventory(channel_ref, protection_ref),
-        measurement_channels=(SimpleNamespace(channel_id="channel-1"),),
+        measurement_channels=(_channel(),),
         control_signal_mapping=None,
         protection_configuration=configuration,
     )
