@@ -138,7 +138,7 @@ def create_application(
 
     control_service = ControlApplicationService(ControlConfiguration.empty(initial_context.project_id))
     instrumentation_wiring_service = InstrumentationWiringService()
-    temperature_instrument_service = TemperatureInstrumentService()
+    temperature_instrument_service = TemperatureInstrumentService(instrumentation_wiring_service)
     application: Application | None = None
     synchronism_guard: Any = None
 
