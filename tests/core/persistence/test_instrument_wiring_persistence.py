@@ -503,19 +503,23 @@ def test_terminal_block_points_and_accessory_state_round_trip_in_schema_five():
 
 def test_inventory_rejects_terminal_block_reference_without_stable_point_identity():
     block = TerminalBlock(
-        id="tb-id", tag="TB-101", panel_id="PANEL-1",
+        id="TB-101", tag="TB-101", panel_id="PANEL-1",
         location="Marshalling", terminal_count=2,
     )
     point = TerminalPoint(
         id="tb-point-1", terminal_block_id=block.id,
         terminal_number="1", designation="1",
     )
+    cable = CableAssembly(id="cable", tag="C-1", service="instrument", core_count=1)
     with pytest.raises(ValueError, match="must include terminal_point_id"):
         InstrumentationWiringInventory(
-            terminal_blocks=(block,), terminal_points=(point,),
+            cables=(cable,), terminal_blocks=(block,), terminal_points=(point,),
             cores=(CableCore(
-                id="core", cable_id="missing-cable", core_number=1,
+                id="core", cable_id=cable.id, core_number=1,
                 role=WiringConductorRole.SIGNAL,
-                terminal_path=(WiringTerminalReference("TB-101", "1", "1"),),
+                terminal_path=(
+                    WiringTerminalReference("TB-101", "1", "1"),
+                    WiringTerminalReference("PLC-101", "AI1", "AI1"),
+                ),
             ),),
         )
