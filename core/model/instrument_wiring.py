@@ -578,6 +578,7 @@ class InstrumentationWiringInventory:
     terminal_blocks: tuple[TerminalBlock, ...] = ()
     terminal_points: tuple[TerminalPoint, ...] = ()
     terminal_accessories: tuple[TerminalAccessory, ...] = ()
+    ct_secondary_circuits: tuple[CTSecondaryCircuit, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
@@ -592,6 +593,7 @@ class InstrumentationWiringInventory:
             ("terminal_blocks", self.terminal_blocks, TerminalBlock),
             ("terminal_points", self.terminal_points, TerminalPoint),
             ("terminal_accessories", self.terminal_accessories, TerminalAccessory),
+            ("ct_secondary_circuits", self.ct_secondary_circuits, CTSecondaryCircuit),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -791,5 +793,7 @@ __all__ = [
     "SignalEndpointBinding",
     "WiringTagSeries",
     "WiringTagPolicy",
+    "CTSecondaryCircuitState",
+    "CTSecondaryCircuit",
     "InstrumentationWiringInventory",
 ]
