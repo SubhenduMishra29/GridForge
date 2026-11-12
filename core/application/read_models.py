@@ -805,6 +805,8 @@ class MeasurementChannelReadModel:
     stale_after: float | None
     producer_id: str | None
     validity: str
+    source_id: str | None = None
+    source_terminal: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.channel_id, str) or not self.channel_id.strip():
@@ -831,6 +833,16 @@ class MeasurementChannelReadModel:
         ):
             raise ValueError("MeasurementChannelReadModel.stale_after must be finite and non-negative.")
         object.__setattr__(self, "channel_id", self.channel_id.strip())
+        if self.source_id is not None and (
+            not isinstance(self.source_id, str) or not self.source_id.strip()
+        ):
+            raise ValueError("MeasurementChannelReadModel.source_id must be a non-empty string or None.")
+        if self.source_terminal is not None and not isinstance(self.source_terminal, Mapping):
+            raise TypeError("MeasurementChannelReadModel.source_terminal must be a mapping or None.")
+        if self.source_id is not None:
+            object.__setattr__(self, "source_id", self.source_id.strip())
+        if self.source_terminal is not None:
+            object.__setattr__(self, "source_terminal", _freeze(self.source_terminal))
         object.__setattr__(self, "value", _freeze(self.value))
 
 
