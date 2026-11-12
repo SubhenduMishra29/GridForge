@@ -116,6 +116,7 @@ class GGOV1SampledExecutionAdapter:
             if block.parameters != parameters:
                 raise ValueError("all GGOV1 blocks must use the same parameter contract")
         self.parameters = parameters
+        self.coordinator = GGOV1ControlCoordinator(parameters)
         self.pid = pid
         self.acceleration = acceleration
         self.temperature = temperature
@@ -158,6 +159,8 @@ class GGOV1SampledExecutionAdapter:
             inputs.previous_selected_fuel_command_pu,
             "previous_selected_fuel_command_pu",
         )
+        if not self.parameters.valve_min_pu <= previous_fsr <= self.parameters.valve_max_pu:
+            raise ValueError("previous selected FSR feedback is outside common valve limits")
         governor_feedback = _number(
             inputs.governor_output_feedback_pu, "governor_output_feedback_pu"
         )
@@ -191,7 +194,7 @@ class GGOV1SampledExecutionAdapter:
             selected_fuel_command_pu=previous_fsr,
             sample_interval_s=sample_interval,
         )
-        decision = GGOV1ControlCoordinator(self.parameters).coordinate({
+        decision = self.coordinator.coordinate({
             "governor": governor_request,
             "acceleration": acceleration_request,
             "load_temperature": load_request,
