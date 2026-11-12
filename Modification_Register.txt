@@ -4579,3 +4579,22 @@ Remaining:
   schedules and runtime/save-reopen verification.
 
 ======================================================================
+
+GridForge V2 — Receiver input range-unit reconciliation
+Date: 2026-11-12
+Issue: #1203
+PR: #1214
+
+- Interface output ranges and receiver input ranges now require explicit range
+  units independently of the engineering process unit. The receiver capability
+  validator compares both numeric bounds and range units, avoiding the
+  conflation of mA/V input range with degC engineering measurement units.
+- An instrument declaring receiver terminals without a receiver_input_id now
+  fails closed. Instruments with no receiver terminal/capability declaration
+  remain unverified; no module/channel is inferred.
+- Receiver terminals are resolved against the active Core Network on project
+  activation. Existing schema-1 payloads without receiver_inputs remain
+  decodable and are treated as unconfigured rather than guessed.
+- Added source-level regression coverage. Not executed.
+
+======================================================================
