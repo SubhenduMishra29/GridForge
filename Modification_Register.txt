@@ -4782,3 +4782,15 @@ Verification:
 - Regression-test source was added but not executed. No CI, import, startup,
   GUI, save/reopen or runtime electrical test was performed.
 ======================================================================
+
+
+Follow-up safety correction — explicit CT shorting-link state
+Date: 2026-11-12
+- Changed CTSecondaryCircuit.secondary_state default to UNKNOWN. Schema 6
+  requires an explicit state; the serializer does not infer CLOSED when the
+  field is absent. In-service UNKNOWN therefore fails closed.
+- For an in-service CT declared OPEN, the exact S1/S2 shorting pair must be
+  explicitly CLOSED. For an in-service CT declared in normal CLOSED service,
+  that shorting link must be explicitly OPEN; CLOSED, REMOVED and UNKNOWN
+  are rejected because they can bypass the burden or leave the state unsafe.
+- Added both unsafe-state regression-test assertions.
