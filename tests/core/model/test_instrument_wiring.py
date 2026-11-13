@@ -229,3 +229,142 @@ def test_physical_connection_hop_rejects_missing_carrier_and_predecessor():
         InstrumentationWiringInventory(
             panel_wires=(wire,), connection_hops=(missing_predecessor,),
         )
+
+
+
+def test_terminal_block_points_and_accessories_have_stable_validated_identity():
+    from core.model.instrument_wiring import (
+        InstrumentationWiringInventory,
+        TerminalAccessory,
+        TerminalAccessoryKind,
+        TerminalAccessoryState,
+        TerminalBlock,
+        TerminalPoint,
+    )
+
+    block = TerminalBlock(
+        id="tb-1", tag="TB-01", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=4,
+    )
+    first = TerminalPoint(
+        id="tp-1", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+    )
+    second = TerminalPoint(
+        id="tp-2", terminal_block_id=block.id,
+        terminal_number="2", designation="X1:2",
+    )
+    link = TerminalAccessory(
+        id="link-1", tag="LINK-01", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(first.id, second.id),
+        conductive_pairs=((first.id, second.id),),
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,),
+        terminal_points=(first, second),
+        terminal_accessories=(link,),
+    )
+
+    assert inventory.terminal_blocks == (block,)
+    assert link.active_conductive_pairs == ((first.id, second.id),)
+    opened = TerminalAccessory(
+        id="link-open", tag="LINK-02", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=TerminalAccessoryState.OPEN,
+        terminal_point_ids=(first.id, second.id),
+        conductive_pairs=((first.id, second.id),),
+    )
+    assert opened.active_conductive_pairs == ()
+
+
+def test_terminal_point_references_require_exact_inventory_identity():
+    from core.model.instrument_wiring import (
+        CableAssembly,
+        CableCore,
+        InstrumentationWiringInventory,
+        TerminalBlock,
+        TerminalPoint,
+        WiringConductorRole,
+        WiringTerminalReference,
+    )
+
+    block = TerminalBlock(
+        id="tb-2", tag="TB-02", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=2,
+    )
+    point = TerminalPoint(
+        id="tp-3", terminal_block_id=block.id,
+        terminal_number="1", designation="X2:1",
+    )
+    terminal = WiringTerminalReference(
+        equipment_id=block.id, terminal_role="1",
+        designation="X2:1", terminal_point_id=point.id,
+    )
+    device = WiringTerminalReference(
+        equipment_id="DEVICE-1", terminal_role="S1", designation="S1",
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(CableAssembly(id="c-1", tag="C-01", service="instrument", core_count=1),),
+        cores=(CableCore(
+            id="core-1", cable_id="c-1", core_number=1,
+            role=WiringConductorRole.SIGNAL,
+            terminal_path=(device, terminal),
+        ),),
+        terminal_blocks=(block,), terminal_points=(point,),
+    )
+    assert inventory.cores[0].terminal_path[1].canonical_identity == (
+        block.id, "1", point.id,
+    )
+
+    with pytest.raises(ValueError, match="terminal_point_id"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,),
+            terminal_points=(point,),
+            cables=(CableAssembly(id="c-2", tag="C-02", service="instrument", core_count=1),),
+            cores=(CableCore(
+                id="core-2", cable_id="c-2", core_number=1,
+                role=WiringConductorRole.SIGNAL,
+                terminal_path=(
+                    device,
+                    WiringTerminalReference(
+                        equipment_id=block.id, terminal_role="1", designation="X2:1",
+                    ),
+                ),
+            ),),
+        )
+
+
+def test_terminal_points_reject_duplicate_designations_and_cross_block_accessories():
+    from core.model.instrument_wiring import (
+        InstrumentationWiringInventory,
+        TerminalAccessory,
+        TerminalAccessoryKind,
+        TerminalAccessoryState,
+        TerminalBlock,
+        TerminalPoint,
+    )
+
+    first = TerminalBlock(id="tb-a", tag="TB-A", panel_id="P", location="L", terminal_count=2)
+    second = TerminalBlock(id="tb-b", tag="TB-B", panel_id="P", location="L", terminal_count=2)
+    point_a = TerminalPoint(id="tp-a", terminal_block_id=first.id, terminal_number="1", designation="X1:1")
+    point_b = TerminalPoint(id="tp-b", terminal_block_id=first.id, terminal_number="2", designation="X1:1")
+    with pytest.raises(ValueError, match="duplicate terminal designation"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(first,), terminal_points=(point_a, point_b),
+        )
+
+    foreign = TerminalPoint(id="tp-c", terminal_block_id=second.id, terminal_number="1", designation="X2:1")
+    accessory = TerminalAccessory(
+        id="acc-1", tag="ACC-1", terminal_block_id=first.id,
+        kind=TerminalAccessoryKind.FIXED_LINK, state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_a.id, foreign.id),
+        conductive_pairs=((point_a.id, foreign.id),),
+    )
+    with pytest.raises(ValueError, match="another block"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(first, second),
+            terminal_points=(point_a, foreign),
+            terminal_accessories=(accessory,),
+        )
