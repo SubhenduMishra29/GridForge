@@ -5114,3 +5114,61 @@ Outcome:
 - Full module imports, Qt GUI refresh, project save/reopen and runtime
   verification remain unperformed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Instrumentation terminal-block identity and persistence
+Date: 2026-11-13
+Repository: SubhenduMishra29/GridForge
+Issue: #1203
+Branch: feat/instrumentation-terminal-block-domain-20261113
+
+Correction:
+- Added immutable Core TerminalBlock, TerminalPoint and TerminalAccessory
+  records with stable IDs independent of human-readable tags.
+- Added explicit terminal_point_id to WiringTerminalReference while retaining
+  the existing equipment_id/terminal_role identity property for compatibility.
+  A separate canonical_identity includes the terminal-point ID.
+- Added aggregate validation for block ownership, terminal capacity, unique
+  terminal numbers/designations, exact terminal-point reference matching,
+  accessory ownership and declared conductive-pair membership.
+- Terminal accessories expose active_conductive_pairs only when their state
+  is explicitly CLOSED. OPEN, REMOVED and UNKNOWN states do not report an
+  active bridge. This inventory metadata does not mutate electrical Network
+  topology.
+- Advanced the nested instrumentation-wiring codec to schema 5. Schemas 2–4
+  remain readable; schema 5 persists terminal blocks, terminal points,
+  accessories and stable terminal-point references.
+- Extended Application read models, controlled record CRUD/tag allocation,
+  active-project terminal validation and semantic projection invalidation for
+  the new collections.
+- Added regression-test source for Core invariants, Application activation and
+  detached reads, and schema-5 round-trip / schema-4 compatibility. Tests were
+  not executed.
+
+Architecture:
+- Core owns terminal-block/point/accessory identity and domain validation.
+- Application owns controlled mutation, project validation and detached reads.
+- No Qt/QGraphics dependency or canvas geometry was added to Core.
+- Terminal accessory conductive pairs remain explicit physical wiring metadata;
+  they do not establish GridForge power-network topology or study connectivity.
+
+Remaining #1203 scope:
+- Canonical SignalEndpointBinding and physical carrier-to-MeasurementChannel
+  ownership are not yet integrated on main.
+- Control/Protection provenance resolution and cross-canvas navigation remain
+  incomplete.
+- Terminal-block SLD symbols, independent selection/highlighting and label
+  density filters remain incomplete.
+- Cable/core/terminal schedule export, revision comparison and sign-off remain
+  incomplete.
+- CT/PT/RTD/thermocouple, shield/earth/drain/armour and communication-specific
+  conductor safety contracts remain incomplete.
+- Save/reopen, GUI and runtime acceptance have not been performed.
+
+Verification boundary:
+- Static source review only; no tests, CI, imports or GUI execution.
+- ui/core/qt.py is unchanged. No __init__.py export mismatch identified.
+- The parent issue remains open because the end-to-end acceptance criteria
+  are not yet complete.
+======================================================================
