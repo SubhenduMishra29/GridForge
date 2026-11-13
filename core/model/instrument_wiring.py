@@ -52,15 +52,23 @@ class WiringTerminalReference:
     equipment_id: str
     terminal_role: str
     designation: str
+    terminal_point_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "equipment_id", _required_text(self.equipment_id, "equipment_id"))
         object.__setattr__(self, "terminal_role", _required_text(self.terminal_role, "terminal_role"))
         object.__setattr__(self, "designation", _required_text(self.designation, "designation"))
+        object.__setattr__(self, "terminal_point_id", _optional_text(self.terminal_point_id, "terminal_point_id"))
 
     @property
     def identity(self) -> tuple[str, str]:
+        """Backward-compatible equipment/role identity for Core terminals."""
         return self.equipment_id, self.terminal_role
+
+    @property
+    def canonical_identity(self) -> tuple[str, str, Optional[str]]:
+        """Stable identity including a panel/junction terminal-point ID."""
+        return self.equipment_id, self.terminal_role, self.terminal_point_id
 
 
 class WiringConductorRole(str, Enum):
@@ -92,6 +100,120 @@ class CarrierKind(str, Enum):
     PANEL_WIRE = "PANEL_WIRE"
     FIBRE = "FIBRE"
     LOGICAL = "LOGICAL"
+
+
+class TerminalAccessoryKind(str, Enum):
+    FIXED_LINK = "FIXED_LINK"
+    TEST_DISCONNECT = "TEST_DISCONNECT"
+    SHORTING_LINK = "SHORTING_LINK"
+    EARTH_LINK = "EARTH_LINK"
+    FUSE_LINK = "FUSE_LINK"
+    ISOLATING_LINK = "ISOLATING_LINK"
+    OTHER = "OTHER"
+
+
+class TerminalAccessoryState(str, Enum):
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    REMOVED = "REMOVED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalBlock:
+    """Stable panel/junction terminal-block identity, independent of its tag."""
+
+    id: str
+    tag: str
+    panel_id: str
+    location: str
+    terminal_count: int
+    terminal_type: Optional[str] = None
+    manufacturer: Optional[str] = None
+    part_number: Optional[str] = None
+    revision: int = 1
+    lifecycle_status: str = "PLANNED"
+
+    def __post_init__(self) -> None:
+        for name in ("id", "tag", "panel_id", "location", "lifecycle_status"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        object.__setattr__(self, "terminal_count", _positive_int(self.terminal_count, "terminal_count"))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
+        for name in ("terminal_type", "manufacturer", "part_number"):
+            object.__setattr__(self, name, _optional_text(getattr(self, name), name))
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalPoint:
+    """One stable terminal position within a terminal block."""
+
+    id: str
+    terminal_block_id: str
+    terminal_number: str
+    designation: str
+    function: str = "FEED_THROUGH"
+    side: Optional[str] = None
+    manufacturer_designation: Optional[str] = None
+    lifecycle_status: str = "PLANNED"
+
+    def __post_init__(self) -> None:
+        for name in ("id", "terminal_block_id", "terminal_number", "designation", "function", "lifecycle_status"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        object.__setattr__(self, "function", self.function.upper())
+        for name in ("side", "manufacturer_designation"):
+            object.__setattr__(self, name, _optional_text(getattr(self, name), name))
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalAccessory:
+    """Explicit terminal accessory and its declared conductive bridge state."""
+
+    id: str
+    tag: str
+    terminal_block_id: str
+    kind: TerminalAccessoryKind
+    state: TerminalAccessoryState
+    terminal_point_ids: tuple[str, ...]
+    conductive_pairs: tuple[tuple[str, str], ...] = ()
+    rated_voltage_v: Optional[float] = None
+    rated_current_a: Optional[float] = None
+    manufacturer: Optional[str] = None
+    part_number: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        for name in ("id", "tag", "terminal_block_id"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        if not isinstance(self.kind, TerminalAccessoryKind):
+            raise TypeError("kind must be a TerminalAccessoryKind.")
+        if not isinstance(self.state, TerminalAccessoryState):
+            raise TypeError("state must be a TerminalAccessoryState.")
+        point_ids = tuple(_required_text(value, "terminal_point_id") for value in self.terminal_point_ids)
+        if not point_ids or len(point_ids) != len(set(point_ids)):
+            raise ValueError("terminal_point_ids must be non-empty and unique.")
+        object.__setattr__(self, "terminal_point_ids", point_ids)
+        pairs = []
+        for pair in self.conductive_pairs:
+            if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                raise TypeError("conductive_pairs must contain two-terminal pairs.")
+            first, second = (_required_text(value, "conductive_pair terminal ID") for value in pair)
+            if first == second or first not in point_ids or second not in point_ids:
+                raise ValueError("conductive pairs must connect two distinct declared accessory terminals.")
+            canonical = tuple(sorted((first, second)))
+            if canonical in pairs:
+                raise ValueError("conductive_pairs cannot contain duplicate terminal pairs.")
+            pairs.append(canonical)
+        object.__setattr__(self, "conductive_pairs", tuple(pairs))
+        for name in ("rated_voltage_v", "rated_current_a"):
+            object.__setattr__(self, name, _non_negative_finite(getattr(self, name), name))
+        for name in ("manufacturer", "part_number"):
+            object.__setattr__(self, name, _optional_text(getattr(self, name), name))
+
+    @property
+    def active_conductive_pairs(self) -> tuple[tuple[str, str], ...]:
+        """Return only explicitly declared bridges whose accessory is CLOSED."""
+        if self.state is not TerminalAccessoryState.CLOSED:
+            return ()
+        return self.conductive_pairs
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +280,7 @@ class CableCore:
             raise TypeError("terminal_path entries must be WiringTerminalReference values.")
         if len(path) == 1:
             raise ValueError("terminal_path must be empty or contain at least two terminals.")
-        if len({item.identity for item in path}) != len(path):
+        if len({item.canonical_identity for item in path}) != len(path):
             raise ValueError("terminal_path must not repeat a terminal.")
         object.__setattr__(self, "terminal_path", path)
         for field in ("colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity"):
@@ -201,7 +323,7 @@ class PanelWire:
         path = tuple(self.terminal_path)
         if len(path) < 2 or any(not isinstance(item, WiringTerminalReference) for item in path):
             raise ValueError("terminal_path must contain at least two terminal references.")
-        if len({item.identity for item in path}) != len(path):
+        if len({item.canonical_identity for item in path}) != len(path):
             raise ValueError("terminal_path must not repeat a terminal.")
         object.__setattr__(self, "terminal_path", path)
         area = _non_negative_finite(self.cross_section_mm2, "cross_section_mm2")
@@ -293,7 +415,7 @@ class PhysicalConnectionHop:
             raise TypeError("from_terminal must be a WiringTerminalReference.")
         if not isinstance(self.to_terminal, WiringTerminalReference):
             raise TypeError("to_terminal must be a WiringTerminalReference.")
-        if self.from_terminal.identity == self.to_terminal.identity:
+        if self.from_terminal.canonical_identity == self.to_terminal.canonical_identity:
             raise ValueError("A physical connection hop requires two distinct terminals.")
         if not isinstance(self.carrier_kind, CarrierKind):
             raise TypeError("carrier_kind must be a CarrierKind.")
@@ -398,6 +520,9 @@ class InstrumentationWiringInventory:
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
     connection_hops: tuple[PhysicalConnectionHop, ...] = ()
     tag_policy: WiringTagPolicy = WiringTagPolicy()
+    terminal_blocks: tuple[TerminalBlock, ...] = ()
+    terminal_points: tuple[TerminalPoint, ...] = ()
+    terminal_accessories: tuple[TerminalAccessory, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
@@ -409,6 +534,9 @@ class InstrumentationWiringInventory:
             ("signals", self.signals, SignalDefinition),
             ("signal_bindings", self.signal_bindings, SignalCarrierBinding),
             ("connection_hops", self.connection_hops, PhysicalConnectionHop),
+            ("terminal_blocks", self.terminal_blocks, TerminalBlock),
+            ("terminal_points", self.terminal_points, TerminalPoint),
+            ("terminal_accessories", self.terminal_accessories, TerminalAccessory),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -432,6 +560,8 @@ class InstrumentationWiringInventory:
             *((item.core_tag, "cable core") for item in self.cores if item.core_tag is not None),
             *((item.tag, "panel wire") for item in self.panel_wires),
             *((item.tag, "signal") for item in self.signals),
+            *((item.tag, "terminal block") for item in self.terminal_blocks),
+            *((item.tag, "terminal accessory") for item in self.terminal_accessories),
         )
         seen_tags: dict[str, tuple[str, str]] = {}
         for tag, label in tagged_records:
@@ -475,9 +605,9 @@ class InstrumentationWiringInventory:
                     f"{hop.carrier_kind.value.lower()} '{hop.carrier_id}'."
                 )
             path = carrier.terminal_path
-            pair = (hop.from_terminal.identity, hop.to_terminal.identity)
+            pair = (hop.from_terminal.canonical_identity, hop.to_terminal.canonical_identity)
             adjacent_pairs = {
-                (path[index].identity, path[index + 1].identity)
+                (path[index].canonical_identity, path[index + 1].canonical_identity)
                 for index in range(len(path) - 1)
             }
             if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in adjacent_pairs and pair[::-1] not in adjacent_pairs:
@@ -509,6 +639,74 @@ class InstrumentationWiringInventory:
                     "for a different carrier kind."
                 )
 
+        terminal_blocks_by_id = {item.id: item for item in self.terminal_blocks}
+        terminal_points_by_id = {item.id: item for item in self.terminal_points}
+        terminal_numbers: set[tuple[str, str]] = set()
+        terminal_designations: set[tuple[str, str]] = set()
+        terminal_point_counts: dict[str, int] = {}
+        for point in self.terminal_points:
+            block = terminal_blocks_by_id.get(point.terminal_block_id)
+            if block is None:
+                raise ValueError(
+                    f"Terminal point '{point.id}' references missing terminal block '{point.terminal_block_id}'."
+                )
+            terminal_point_counts[block.id] = terminal_point_counts.get(block.id, 0) + 1
+            if terminal_point_counts[block.id] > block.terminal_count:
+                raise ValueError(
+                    f"Terminal block '{block.id}' has more terminal points than its declared terminal_count."
+                )
+            number_key = (point.terminal_block_id, point.terminal_number)
+            designation_key = (point.terminal_block_id, point.designation)
+            if number_key in terminal_numbers:
+                raise ValueError(
+                    f"Terminal block '{block.id}' has duplicate terminal number {point.terminal_number!r}."
+                )
+            if designation_key in terminal_designations:
+                raise ValueError(
+                    f"Terminal block '{block.id}' has duplicate terminal designation {point.designation!r}."
+                )
+            terminal_numbers.add(number_key)
+            terminal_designations.add(designation_key)
+
+        references = (
+            [ref for core in self.cores for ref in core.terminal_path]
+            + [ref for wire in self.panel_wires for ref in wire.terminal_path]
+            + [ref for hop in self.connection_hops for ref in (hop.from_terminal, hop.to_terminal)]
+        )
+        for reference in references:
+            if reference.terminal_point_id is None:
+                if reference.equipment_id in terminal_blocks_by_id:
+                    raise ValueError(
+                        f"Terminal reference to terminal block '{reference.equipment_id}' must include terminal_point_id."
+                    )
+                continue
+            point = terminal_points_by_id.get(reference.terminal_point_id)
+            if point is None:
+                raise ValueError(
+                    f"Terminal reference points to missing terminal point '{reference.terminal_point_id}'."
+                )
+            if (
+                point.terminal_block_id != reference.equipment_id
+                or point.terminal_number != reference.terminal_role
+                or point.designation != reference.designation
+            ):
+                raise ValueError(
+                    f"Terminal reference '{reference.terminal_point_id}' does not match its canonical terminal point record."
+                )
+
+        for accessory in self.terminal_accessories:
+            if accessory.terminal_block_id not in terminal_blocks_by_id:
+                raise ValueError(
+                    f"Terminal accessory '{accessory.id}' references missing terminal block '{accessory.terminal_block_id}'."
+                )
+            if any(point_id not in terminal_points_by_id for point_id in accessory.terminal_point_ids):
+                raise ValueError(f"Terminal accessory '{accessory.id}' references a missing terminal point.")
+            if any(
+                terminal_points_by_id[point_id].terminal_block_id != accessory.terminal_block_id
+                for point_id in accessory.terminal_point_ids
+            ):
+                raise ValueError(f"Terminal accessory '{accessory.id}' references a terminal point from another block.")
+
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:
         tags = [record.tag for record in records]
@@ -527,6 +725,11 @@ __all__ = [
     "SignalDefinition",
     "SignalCarrierBinding",
     "PhysicalConnectionHop",
+    "TerminalAccessoryKind",
+    "TerminalAccessoryState",
+    "TerminalBlock",
+    "TerminalPoint",
+    "TerminalAccessory",
     "WiringTagSeries",
     "WiringTagPolicy",
     "InstrumentationWiringInventory",
