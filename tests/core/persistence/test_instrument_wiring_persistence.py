@@ -361,3 +361,78 @@ def test_inventory_rejects_two_signals_claiming_one_measurement_channel():
     )
     with pytest.raises(ValueError, match="only one instrumentation signal"):
         InstrumentationWiringInventory(signals=(first, second))
+
+
+
+def test_terminal_block_inventory_round_trips_schema_five_without_losing_point_identity():
+    from core.model.instrument_wiring import (
+        CableAssembly,
+        CableCore,
+        InstrumentationWiringInventory,
+        TerminalAccessory,
+        TerminalAccessoryKind,
+        TerminalAccessoryState,
+        TerminalBlock,
+        TerminalPoint,
+        WiringConductorRole,
+        WiringTerminalReference,
+    )
+
+    block = TerminalBlock(
+        id="tb-persist", tag="TB-PERSIST", panel_id="PANEL-2",
+        location="MARSHALLING-1", terminal_count=2,
+    )
+    point = TerminalPoint(
+        id="tp-persist", terminal_block_id=block.id,
+        terminal_number="10", designation="X10:10",
+        manufacturer_designation="10",
+    )
+    external = WiringTerminalReference(
+        equipment_id="CT-1", terminal_role="S1", designation="S1",
+    )
+    block_terminal = WiringTerminalReference(
+        equipment_id=block.id, terminal_role=point.terminal_number,
+        designation=point.designation, terminal_point_id=point.id,
+    )
+    cable = CableAssembly(
+        id="c-persist", tag="C-PERSIST", service="CT secondary", core_count=1,
+    )
+    core = CableCore(
+        id="cc-persist", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(external, block_terminal),
+    )
+    accessory = TerminalAccessory(
+        id="acc-persist", tag="ACC-PERSIST", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.TEST_DISCONNECT,
+        state=TerminalAccessoryState.UNKNOWN,
+        terminal_point_ids=(point.id,),
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core,),
+        terminal_blocks=(block,), terminal_points=(point,),
+        terminal_accessories=(accessory,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 5
+    restored = deserialize_instrumentation_wiring(payload)
+    assert restored == inventory
+
+
+def test_schema_four_instrumentation_wiring_remains_readable_after_schema_five_upgrade():
+    payload = serialize_instrumentation_wiring(sample_inventory())
+    payload["schema"] = 4
+    payload.pop("terminal_blocks")
+    payload.pop("terminal_points")
+    payload.pop("terminal_accessories")
+    for core in payload["cores"]:
+        for terminal in core.get("terminal_path", []):
+            terminal.pop("terminal_point_id", None)
+    for wire in payload["panel_wires"]:
+        for terminal in wire.get("terminal_path", []):
+            terminal.pop("terminal_point_id", None)
+    for hop in payload["connection_hops"]:
+        hop["from_terminal"].pop("terminal_point_id", None)
+        hop["to_terminal"].pop("terminal_point_id", None)
+
+    assert deserialize_instrumentation_wiring(payload) == sample_inventory()

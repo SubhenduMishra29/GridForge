@@ -9,25 +9,30 @@ from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory, PhysicalConnectionHop,
     PanelWire, SignalCarrierBinding, SignalDefinition, SignalKind,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
+    TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint, TerminalAccessory,
 )
 
-WIRING_SCHEMA_VERSION = 4
+WIRING_SCHEMA_VERSION = 5
 
 
 class InstrumentationWiringSerializationError(ValueError):
     """Raised when a wiring inventory cannot be serialized without loss."""
 
 
-def _terminal_to_dict(item: WiringTerminalReference) -> dict[str, str]:
+def _terminal_to_dict(item: WiringTerminalReference) -> dict[str, Any]:
     return {
         "equipment_id": item.equipment_id,
         "terminal_role": item.terminal_role,
         "designation": item.designation,
+        "terminal_point_id": item.terminal_point_id,
     }
 
 
-def _terminal_from_dict(data: Mapping[str, Any]) -> WiringTerminalReference:
-    if not isinstance(data, Mapping) or set(data) != {"equipment_id", "terminal_role", "designation"}:
+def _terminal_from_dict(data: Mapping[str, Any], *, schema: int) -> WiringTerminalReference:
+    expected = {"equipment_id", "terminal_role", "designation"}
+    if schema >= 5:
+        expected.add("terminal_point_id")
+    if not isinstance(data, Mapping) or set(data) != expected:
         raise InstrumentationWiringSerializationError("Malformed wiring terminal reference.")
     return WiringTerminalReference(**dict(data))
 
@@ -117,6 +122,37 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.signal_bindings
         ],
+        "terminal_blocks": [
+            {
+                "id": item.id, "tag": item.tag, "panel_id": item.panel_id,
+                "location": item.location, "terminal_count": item.terminal_count,
+                "terminal_type": item.terminal_type, "manufacturer": item.manufacturer,
+                "part_number": item.part_number, "revision": item.revision,
+                "lifecycle_status": item.lifecycle_status,
+            }
+            for item in inventory.terminal_blocks
+        ],
+        "terminal_points": [
+            {
+                "id": item.id, "terminal_block_id": item.terminal_block_id,
+                "terminal_number": item.terminal_number, "designation": item.designation,
+                "function": item.function, "side": item.side,
+                "manufacturer_designation": item.manufacturer_designation,
+                "lifecycle_status": item.lifecycle_status,
+            }
+            for item in inventory.terminal_points
+        ],
+        "terminal_accessories": [
+            {
+                "id": item.id, "tag": item.tag, "terminal_block_id": item.terminal_block_id,
+                "kind": item.kind.value, "state": item.state.value,
+                "terminal_point_ids": list(item.terminal_point_ids),
+                "conductive_pairs": [list(pair) for pair in item.conductive_pairs],
+                "rated_voltage_v": item.rated_voltage_v, "rated_current_a": item.rated_current_a,
+                "manufacturer": item.manufacturer, "part_number": item.part_number,
+            }
+            for item in inventory.terminal_accessories
+        ],
         "connection_hops": [
             {
                 "id": item.id,
@@ -140,13 +176,15 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema not in {2, 3, WIRING_SCHEMA_VERSION}:
+    if isinstance(schema, bool) or schema not in {2, 3, 4, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {schema!r}."
         )
     expected = {"schema", "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy"}
     if schema >= 4:
         expected.add("connection_hops")
+    if schema >= 5:
+        expected.update({"terminal_blocks", "terminal_points", "terminal_accessories"})
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
@@ -155,6 +193,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     collection_keys = ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy")
     if schema >= 4:
         collection_keys += ("connection_hops",)
+    if schema >= 5:
+        collection_keys += ("terminal_blocks", "terminal_points", "terminal_accessories")
     for key in collection_keys:
         if not isinstance(data.get(key), list) or any(not isinstance(item, Mapping) for item in data[key]):
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
@@ -172,6 +212,24 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         )
         if schema < 4:
             _field_contracts = tuple(item for item in _field_contracts if item[0] != "connection_hops")
+        if schema >= 5:
+            _field_contracts += (
+                ("terminal_blocks", {"id", "tag", "panel_id", "location", "terminal_count"},
+                 {"terminal_type", "manufacturer", "part_number", "revision", "lifecycle_status"}, "Terminal block"),
+                ("terminal_points", {"id", "terminal_block_id", "terminal_number", "designation"},
+                 {"function", "side", "manufacturer_designation", "lifecycle_status"}, "Terminal point"),
+                ("terminal_accessories", {"id", "tag", "terminal_block_id", "kind", "state", "terminal_point_ids"},
+                 {"conductive_pairs", "rated_voltage_v", "rated_current_a", "manufacturer", "part_number"}, "Terminal accessory"),
+            )
+            for item in data["terminal_accessories"]:
+                if not isinstance(item["terminal_point_ids"], list) or any(not isinstance(value, str) for value in item["terminal_point_ids"]):
+                    raise InstrumentationWiringSerializationError("Terminal accessory terminal_point_ids must be an array of strings.")
+                pairs = item.get("conductive_pairs", [])
+                if not isinstance(pairs, list) or any(
+                    not isinstance(pair, list) or len(pair) != 2 or any(not isinstance(value, str) for value in pair)
+                    for pair in pairs
+                ):
+                    raise InstrumentationWiringSerializationError("Terminal accessory conductive_pairs must be an array of two-string arrays.")
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
@@ -180,7 +238,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             CableCore(
                 id=item["id"], cable_id=item["cable_id"], core_number=item["core_number"],
                 role=WiringConductorRole(item["role"]),
-                terminal_path=tuple(_terminal_from_dict(ref) for ref in item.get("terminal_path", ())),
+                terminal_path=tuple(_terminal_from_dict(ref, schema=schema) for ref in item.get("terminal_path", ())),
                 colour=item.get("colour"), pair_id=item.get("pair_id"), core_tag=item.get("core_tag"),
                 conductor_material=item.get("conductor_material"),
                 thermocouple_type=item.get("thermocouple_type"),
@@ -192,7 +250,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         panel_wires = tuple(
             PanelWire(
                 id=item["id"], tag=item["tag"], role=WiringConductorRole(item["role"]),
-                terminal_path=tuple(_terminal_from_dict(ref) for ref in item["terminal_path"]),
+                terminal_path=tuple(_terminal_from_dict(ref, schema=schema) for ref in item["terminal_path"]),
                 cross_section_mm2=item.get("cross_section_mm2"), colour=item.get("colour"),
                 conductor_material=item.get("conductor_material"),
                 thermocouple_type=item.get("thermocouple_type"),
@@ -213,6 +271,25 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         tag_policy = WiringTagPolicy(series=tuple(
             WiringTagSeries(**dict(item)) for item in data["tag_policy"]
         ))
+        terminal_blocks = tuple(
+            TerminalBlock(**dict(item)) for item in data.get("terminal_blocks", ())
+        )
+        terminal_points = tuple(
+            TerminalPoint(**dict(item)) for item in data.get("terminal_points", ())
+        )
+        terminal_accessories = tuple(
+            TerminalAccessory(
+                id=item["id"], tag=item["tag"], terminal_block_id=item["terminal_block_id"],
+                kind=TerminalAccessoryKind(item["kind"]),
+                state=TerminalAccessoryState(item["state"]),
+                terminal_point_ids=tuple(item["terminal_point_ids"]),
+                conductive_pairs=tuple(tuple(pair) for pair in item.get("conductive_pairs", ())),
+                rated_voltage_v=item.get("rated_voltage_v"),
+                rated_current_a=item.get("rated_current_a"),
+                manufacturer=item.get("manufacturer"), part_number=item.get("part_number"),
+            )
+            for item in data.get("terminal_accessories", ())
+        )
         bindings = tuple(
             SignalCarrierBinding(
                 id=item["id"], signal_id=item["signal_id"],
@@ -224,8 +301,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         hops = tuple(
             PhysicalConnectionHop(
                 id=item["id"],
-                from_terminal=_terminal_from_dict(item["from_terminal"]),
-                to_terminal=_terminal_from_dict(item["to_terminal"]),
+                from_terminal=_terminal_from_dict(item["from_terminal"], schema=schema),
+                to_terminal=_terminal_from_dict(item["to_terminal"], schema=schema),
                 carrier_kind=CarrierKind(item["carrier_kind"]),
                 carrier_id=item["carrier_id"],
                 revision=item.get("revision", 1),
@@ -237,6 +314,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         return InstrumentationWiringInventory(
             cables=cables, cores=cores, panel_wires=panel_wires,
             signals=signals, signal_bindings=bindings, connection_hops=hops, tag_policy=tag_policy,
+            terminal_blocks=terminal_blocks, terminal_points=terminal_points,
+            terminal_accessories=terminal_accessories,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(

@@ -17,6 +17,7 @@ from core.application.transaction import Transaction
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
     SignalCarrierBinding, SignalDefinition, PhysicalConnectionHop,
+    TerminalBlock, TerminalPoint, TerminalAccessory,
 )
 
 
@@ -121,11 +122,36 @@ class InstrumentationWiringService:
             references.extend(core.terminal_path)
         for wire in inventory.panel_wires:
             references.extend(wire.terminal_path)
-        seen: set[tuple[str, str]] = set()
+        for hop in inventory.connection_hops:
+            references.extend((hop.from_terminal, hop.to_terminal))
+        terminal_points = {item.id: item for item in inventory.terminal_points}
+        terminal_block_ids = {item.id for item in inventory.terminal_blocks}
+        seen: set[tuple[str, str, str | None]] = set()
         for reference in references:
-            if reference.identity in seen:
+            identity = reference.canonical_identity
+            if identity in seen:
                 continue
-            seen.add(reference.identity)
+            seen.add(identity)
+            if reference.terminal_point_id is not None:
+                point = terminal_points.get(reference.terminal_point_id)
+                if point is None:
+                    raise ValueError(
+                        f"Terminal point '{reference.terminal_point_id}' is not registered in the active wiring inventory."
+                    )
+                if (
+                    point.terminal_block_id != reference.equipment_id
+                    or point.terminal_number != reference.terminal_role
+                    or point.designation != reference.designation
+                ):
+                    raise ValueError(
+                        f"Terminal point '{reference.terminal_point_id}' does not match its wiring terminal reference."
+                    )
+                continue
+            if reference.equipment_id in terminal_block_ids:
+                raise ValueError(
+                    f"Terminal block reference '{reference.equipment_id}:{reference.terminal_role}' "
+                    "must carry a stable terminal_point_id."
+                )
             cls._validate_terminal_reference(network, reference)
 
     @staticmethod
@@ -163,6 +189,9 @@ class InstrumentationWiringService:
             signal_bindings=tuple(self._read_value(item) for item in inventory.signal_bindings),
             tag_policy=tuple(self._read_value(item) for item in inventory.tag_policy.series),
             connection_hops=tuple(self._read_value(item) for item in inventory.connection_hops),
+            terminal_blocks=tuple(self._read_value(item) for item in inventory.terminal_blocks),
+            terminal_points=tuple(self._read_value(item) for item in inventory.terminal_points),
+            terminal_accessories=tuple(self._read_value(item) for item in inventory.terminal_accessories),
         )
 
     def allocate_tag(
@@ -179,6 +208,8 @@ class InstrumentationWiringService:
             "CORE": tuple(item.core_tag for item in self._inventory.cores if item.core_tag is not None),
             "PANEL_WIRE": tuple(item.tag for item in self._inventory.panel_wires),
             "SIGNAL": tuple(item.tag for item in self._inventory.signals),
+            "TERMINAL_BLOCK": tuple(item.tag for item in self._inventory.terminal_blocks),
+            "TERMINAL_ACCESSORY": tuple(item.tag for item in self._inventory.terminal_accessories),
         }
         if kind not in used_by_kind:
             raise ValueError(f"Unsupported instrumentation wiring tag category: {kind!r}.")
@@ -198,6 +229,9 @@ class InstrumentationWiringService:
             SignalDefinition: "signals",
             SignalCarrierBinding: "signal_bindings",
             PhysicalConnectionHop: "connection_hops",
+            TerminalBlock: "terminal_blocks",
+            TerminalPoint: "terminal_points",
+            TerminalAccessory: "terminal_accessories",
         }
         try:
             return collections[record_type]
@@ -209,7 +243,10 @@ class InstrumentationWiringService:
             return self._inventory
         if not isinstance(candidate, InstrumentationWiringInventory):
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
-        for field in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "connection_hops"):
+        for field in (
+            "cables", "cores", "panel_wires", "signals", "signal_bindings", "connection_hops",
+            "terminal_blocks", "terminal_points", "terminal_accessories",
+        ):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
         return candidate
@@ -410,6 +447,9 @@ class InstrumentationWiringService:
                 "cores": len(replacement.cores),
                 "panel_wires": len(replacement.panel_wires),
                 "signals": len(replacement.signals),
+                "terminal_blocks": len(replacement.terminal_blocks),
+                "terminal_points": len(replacement.terminal_points),
+                "terminal_accessories": len(replacement.terminal_accessories),
             },
         )
 

@@ -137,13 +137,19 @@ class InstrumentationWiringReadModel:
     signal_bindings: tuple[Mapping[str, Any], ...]
     tag_policy: tuple[Mapping[str, Any], ...]
     connection_hops: tuple[Mapping[str, Any], ...] = ()
+    terminal_blocks: tuple[Mapping[str, Any], ...] = ()
+    terminal_points: tuple[Mapping[str, Any], ...] = ()
+    terminal_accessories: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
             raise ValueError("InstrumentationWiringReadModel.project_id must be non-empty")
         if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
             raise ValueError("InstrumentationWiringReadModel.activation_generation must be positive")
-        for name in ("cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy", "connection_hops"):
+        for name in (
+            "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy",
+            "connection_hops", "terminal_blocks", "terminal_points", "terminal_accessories",
+        ):
             values = tuple(getattr(self, name))
             if any(not isinstance(item, Mapping) for item in values):
                 raise TypeError(f"InstrumentationWiringReadModel.{name} must contain mappings")

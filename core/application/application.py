@@ -5406,6 +5406,7 @@ class Application:
             collection_names = (
                 "cables", "cores", "panel_wires", "signals",
                 "signal_bindings", "connection_hops", "tag_policy",
+                "terminal_blocks", "terminal_points", "terminal_accessories",
             )
             changed_collections = tuple(
                 name for name in collection_names
