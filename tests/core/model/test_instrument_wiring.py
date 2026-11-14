@@ -368,3 +368,49 @@ def test_terminal_points_reject_duplicate_designations_and_cross_block_accessori
             terminal_points=(point_a, foreign),
             terminal_accessories=(accessory,),
         )
+
+
+
+def test_typed_terminal_accessories_require_explicit_conductive_pairs():
+    from core.model.instrument_wiring import (
+        InstrumentationWiringInventory,
+        TerminalAccessory,
+        TerminalAccessoryKind,
+        TerminalAccessoryState,
+        TerminalBlock,
+        TerminalPoint,
+    )
+
+    block = TerminalBlock(
+        id="tb-pair-contract", tag="TB-PAIR", panel_id="PANEL-PAIR",
+        location="MARSHALLING-PAIR", terminal_count=2,
+    )
+    first = TerminalPoint(
+        id="tp-pair-1", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+    )
+    second = TerminalPoint(
+        id="tp-pair-2", terminal_block_id=block.id,
+        terminal_number="2", designation="X1:2",
+    )
+
+    with pytest.raises(ValueError, match="require explicit conductive_pairs"):
+        TerminalAccessory(
+            id="accessory-no-pair", tag="ACC-NO-PAIR", terminal_block_id=block.id,
+            kind=TerminalAccessoryKind.TEST_DISCONNECT,
+            state=TerminalAccessoryState.UNKNOWN,
+            terminal_point_ids=(first.id, second.id),
+        )
+
+    marker = TerminalAccessory(
+        id="accessory-other", tag="ACC-OTHER", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.OTHER,
+        state=TerminalAccessoryState.UNKNOWN,
+        terminal_point_ids=(first.id,),
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(first, second),
+        terminal_accessories=(marker,),
+    )
+    assert inventory.terminal_accessories == (marker,)
+    assert marker.active_conductive_pairs == ()

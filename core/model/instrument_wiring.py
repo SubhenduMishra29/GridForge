@@ -203,6 +203,10 @@ class TerminalAccessory:
                 raise ValueError("conductive_pairs cannot contain duplicate terminal pairs.")
             pairs.append(canonical)
         object.__setattr__(self, "conductive_pairs", tuple(pairs))
+        if self.kind is not TerminalAccessoryKind.OTHER and not pairs:
+            raise ValueError(
+                "Terminal accessories other than OTHER require explicit conductive_pairs."
+            )
         for name in ("rated_voltage_v", "rated_current_a"):
             object.__setattr__(self, name, _non_negative_finite(getattr(self, name), name))
         for name in ("manufacturer", "part_number"):

@@ -5172,3 +5172,29 @@ Verification boundary:
 - The parent issue remains open because the end-to-end acceptance criteria
   are not yet complete.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Fail-closed terminal accessory bridge declaration
+Date: 2026-11-14
+Repository: SubhenduMishra29/GridForge
+PR: #1221
+
+Correction:
+- Typed terminal accessories (fixed links, test-disconnects, shorting links,
+  earth links, fuse links and isolating links) must declare at least one
+  explicit conductive terminal pair. Accessory kind alone never creates a
+  bridge, and an absent pair declaration cannot be interpreted as a closed
+  connection.
+- OTHER remains available for non-conductive/unspecified accessory records;
+  it does not expose active conductive pairs unless an explicit pair is
+  declared and the state is CLOSED.
+- The active_conductive_pairs projection remains CLOSED-only. OPEN, REMOVED and
+  UNKNOWN states remain non-conductive in the read contract.
+
+Verification:
+- Added regression-test source for missing typed-accessory pair declarations
+  and non-conductive OTHER accessories. Tests/CI were not run.
+- Core/Application ownership and the separation from power-network topology
+  are unchanged. No Qt/UI dependency was introduced.
+======================================================================
