@@ -5198,3 +5198,35 @@ Verification:
 - Core/Application ownership and the separation from power-network topology
   are unchanged. No Qt/UI dependency was introduced.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Terminal-block identity and persistence merged to main
+Date: 2026-11-14
+Repository: SubhenduMishra29/GridForge
+Pull Request: #1221
+Merge commit: b05898c6ef8dfbfc74f0b34bab4265b71c3de46c
+
+Outcome:
+- PR #1221 merged into authoritative main after a current-main comparison
+  confirmed 11 commits ahead and 0 behind, GitHub reported mergeable=true,
+  and the final head SHA was verified before merge.
+- Core terminal-block, terminal-point and terminal-accessory identities are
+  integrated with schema-5 instrumentation-wiring persistence and Application
+  controlled mutation/read models.
+- Typed terminal accessories other than OTHER require explicit conductive
+  terminal pairs. Only CLOSED accessories expose their explicitly declared
+  pairs; OPEN, REMOVED and UNKNOWN remain non-conductive.
+- Regression-test source was added; tests/CI were not run.
+- No Qt/QGraphics dependency or power-network topology mutation was introduced.
+
+Remaining #1203 scope:
+- Canonical signal endpoint bindings and physical carrier-to-MeasurementChannel
+  ownership are not yet integrated on main.
+- Control/Protection provenance resolution and cross-canvas navigation,
+  terminal-block SLD symbols/selection, schedules/export/sign-off, and remaining
+  conductor-specific safety contracts remain incomplete.
+- GUI, full imports and project save/reopen acceptance remain unverified.
+- Issue #1203 remains open; this merge completes only the terminal-block
+  identity/persistence foundation.
+======================================================================
