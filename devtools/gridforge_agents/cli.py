@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from .config import Settings
+from .agent import AgentExecutionError
 from .ollama import OllamaClient, OllamaError
 from .workflow import (
     WorkflowError,
@@ -56,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
             result = run_issue(root, args.issue, settings, client)
             print(json.dumps(result, indent=2, ensure_ascii=False))
             return 0 if result.get("status") == "committed_local" else 1
-    except (WorkflowError, OllamaError) as exc:
+    except (WorkflowError, OllamaError, AgentExecutionError) as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1
     except KeyboardInterrupt:
