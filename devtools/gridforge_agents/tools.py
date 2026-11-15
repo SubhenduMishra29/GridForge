@@ -252,10 +252,15 @@ class ToolRunner:
             ["git", "diff", "--name-only", "--diff-filter=ACMR"],
             cwd=str(self.root), capture_output=True, text=True, timeout=30,
         )
-        if changed.returncode:
-            raise ToolError(changed.stderr.strip() or "Could not list changed files.")
+        untracked = subprocess.run(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            cwd=str(self.root), capture_output=True, text=True, timeout=30,
+        )
+        if changed.returncode or untracked.returncode:
+            raise ToolError((changed.stderr + untracked.stderr).strip() or "Could not list changed files.")
+        names = set(changed.stdout.splitlines()) | set(untracked.stdout.splitlines())
         python_files = [
-            name for name in changed.stdout.splitlines()
+            name for name in sorted(names)
             if name.lower().endswith(".py") and (self.root / name).is_file()
         ]
         if not python_files:
