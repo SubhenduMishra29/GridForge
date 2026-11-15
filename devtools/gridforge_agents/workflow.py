@@ -335,7 +335,8 @@ def run_issue(
             writable=False,
         )
         result["plan"] = plan
-        client.unload(settings.planner_model)
+        if settings.planner_model != settings.implementer_model:
+            client.unload(settings.planner_model)
 
         implementation_prompt = (
             "Implement GitHub issue #%d in this isolated worktree.\n\nISSUE:\n%s\n\nDESCRIPTION:\n%s\n\n"
@@ -357,7 +358,8 @@ def run_issue(
             temperature=0.05,
         )
         result["implementation"] = implementation
-        client.unload(settings.implementer_model)
+        if settings.implementer_model != settings.reviewer_model:
+            client.unload(settings.implementer_model)
 
         check = _static_check(worktree)
         result["static_check"] = check
@@ -383,7 +385,8 @@ def run_issue(
         )
         review = _parse_review(review_text)
         result["review"] = review
-        client.unload(settings.reviewer_model)
+        if review["verdict"] == "REQUEST_CHANGES" and settings.reviewer_model != settings.implementer_model:
+            client.unload(settings.reviewer_model)
 
         if review["verdict"] == "REQUEST_CHANGES":
             print("[CORRECT] One bounded correction pass from reviewer findings...", flush=True)
@@ -402,7 +405,8 @@ def run_issue(
                 temperature=0.05,
             )
             result["correction"] = correction
-            client.unload(settings.implementer_model)
+            if settings.implementer_model != settings.reviewer_model:
+                client.unload(settings.implementer_model)
             result["static_check"] = _static_check(worktree)
             if "FAILED" not in result["static_check"]:
                 review_text = run_agent(
@@ -422,8 +426,8 @@ def run_issue(
                 )
                 review = _parse_review(review_text)
                 result["review"] = review
-                client.unload(settings.reviewer_model)
 
+        client.unload(settings.reviewer_model)
         if review["verdict"] != "APPROVE":
             result["status"] = "review_blocked"
             return result
