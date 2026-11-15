@@ -395,6 +395,74 @@ class SignalCarrierBinding:
         object.__setattr__(self, "direction", direction)
 
 
+class SignalEndpointKind(str, Enum):
+    """Logical consumer endpoint kind; the source MeasurementChannel remains on SignalDefinition."""
+
+    CONTROL_INPUT = "CONTROL_INPUT"
+    PROTECTION_INPUT = "PROTECTION_INPUT"
+
+
+@dataclass(frozen=True, slots=True)
+class SignalEndpointReference:
+    """Exact logical input and its independently identified physical sink terminal.
+
+    CONTROL_INPUT uses owner_id=Control ID, endpoint_id=component ID and
+    port=input name. PROTECTION_INPUT uses owner_id=protection element ID,
+    endpoint_id=ProtectionMeasurementBinding ID and port=relay-input ID.
+    """
+
+    kind: SignalEndpointKind
+    endpoint_id: str
+    owner_id: str
+    port: str
+    physical_terminal: WiringTerminalReference
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.kind, SignalEndpointKind):
+            raise TypeError("kind must be a SignalEndpointKind.")
+        for name in ("endpoint_id", "owner_id", "port"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        if not isinstance(self.physical_terminal, WiringTerminalReference):
+            raise TypeError("physical_terminal must be a WiringTerminalReference.")
+
+    @property
+    def identity(self) -> tuple:
+        """Exact endpoint reference including its physical terminal identity."""
+        return (
+            self.kind.value,
+            self.endpoint_id,
+            self.owner_id,
+            self.port,
+            self.physical_terminal.canonical_identity,
+        )
+
+    @property
+    def logical_identity(self) -> tuple[str, ...]:
+        """Consumer identity independent of mutable display labels and binding IDs."""
+        if self.kind is SignalEndpointKind.CONTROL_INPUT:
+            return self.kind.value, self.owner_id, self.endpoint_id, self.port
+        return self.kind.value, self.owner_id, self.port
+
+
+@dataclass(frozen=True, slots=True)
+class SignalEndpointBinding:
+    """Binds a signal definition to one existing Control or Protection input."""
+
+    id: str
+    signal_id: str
+    endpoint: SignalEndpointReference
+    direction: str = "SOURCE_TO_SINK"
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "id", _required_text(self.id, "id"))
+        object.__setattr__(self, "signal_id", _required_text(self.signal_id, "signal_id"))
+        if not isinstance(self.endpoint, SignalEndpointReference):
+            raise TypeError("endpoint must be a SignalEndpointReference.")
+        direction = _required_text(self.direction, "direction").upper()
+        if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
+            raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
+        object.__setattr__(self, "direction", direction)
+
 
 @dataclass(frozen=True, slots=True)
 class PhysicalConnectionHop:
@@ -522,6 +590,7 @@ class InstrumentationWiringInventory:
     panel_wires: tuple[PanelWire, ...] = ()
     signals: tuple[SignalDefinition, ...] = ()
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
+    endpoint_bindings: tuple[SignalEndpointBinding, ...] = ()
     connection_hops: tuple[PhysicalConnectionHop, ...] = ()
     tag_policy: WiringTagPolicy = WiringTagPolicy()
     terminal_blocks: tuple[TerminalBlock, ...] = ()
@@ -537,6 +606,7 @@ class InstrumentationWiringInventory:
             ("panel_wires", self.panel_wires, PanelWire),
             ("signals", self.signals, SignalDefinition),
             ("signal_bindings", self.signal_bindings, SignalCarrierBinding),
+            ("endpoint_bindings", self.endpoint_bindings, SignalEndpointBinding),
             ("connection_hops", self.connection_hops, PhysicalConnectionHop),
             ("terminal_blocks", self.terminal_blocks, TerminalBlock),
             ("terminal_points", self.terminal_points, TerminalPoint),
@@ -643,6 +713,19 @@ class InstrumentationWiringInventory:
                     "for a different carrier kind."
                 )
 
+        endpoint_identities: set[tuple[str, ...]] = set()
+        for binding in self.endpoint_bindings:
+            if binding.signal_id not in signal_ids:
+                raise ValueError(
+                    f"Signal endpoint binding '{binding.id}' references missing signal '{binding.signal_id}'."
+                )
+            identity = binding.endpoint.logical_identity
+            if identity in endpoint_identities:
+                raise ValueError(
+                    f"Logical signal endpoint {identity!r} is bound more than once."
+                )
+            endpoint_identities.add(identity)
+
         terminal_blocks_by_id = {item.id: item for item in self.terminal_blocks}
         terminal_points_by_id = {item.id: item for item in self.terminal_points}
         terminal_numbers: set[tuple[str, str]] = set()
@@ -676,6 +759,7 @@ class InstrumentationWiringInventory:
             [ref for core in self.cores for ref in core.terminal_path]
             + [ref for wire in self.panel_wires for ref in wire.terminal_path]
             + [ref for hop in self.connection_hops for ref in (hop.from_terminal, hop.to_terminal)]
+            + [binding.endpoint.physical_terminal for binding in self.endpoint_bindings]
         )
         for reference in references:
             if reference.terminal_point_id is None:
@@ -728,6 +812,9 @@ __all__ = [
     "PanelWire",
     "SignalDefinition",
     "SignalCarrierBinding",
+    "SignalEndpointKind",
+    "SignalEndpointReference",
+    "SignalEndpointBinding",
     "PhysicalConnectionHop",
     "TerminalAccessoryKind",
     "TerminalAccessoryState",
