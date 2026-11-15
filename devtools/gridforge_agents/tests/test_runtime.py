@@ -24,7 +24,7 @@ class ToolRunnerTests(unittest.TestCase):
         self.assertIn("value = 42", result)
 
     def test_tail_reads_append_only_registers(self) -> None:
-        self.runner.write_file("Modification_Register.txt", "first\\nsecond\\nthird\\n")
+        self.runner.write_file("Modification_Register.txt", "first\nsecond\nthird\n")
         result = self.runner.read_file("Modification_Register.txt", tail_lines=2)
         self.assertIn("2: second", result)
         self.assertIn("3: third", result)
