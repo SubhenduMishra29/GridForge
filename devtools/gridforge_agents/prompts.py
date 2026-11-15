@@ -38,7 +38,7 @@ def classify_issue(title: str, body: str) -> str:
     text = (title + " " + body).casefold()
 
     # Explicit issue ownership tags take precedence over incidental words in the body.
-    if "[control" in title_text or "[dynamic control" in title_text:
+    if "[control" in title_text or "[dynamic control" in title_text or "[ui/control" in title_text:
         return "control-simulation"
     if "[protection" in title_text or "[ui/protection" in title_text:
         return "protection"
