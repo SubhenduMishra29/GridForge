@@ -143,21 +143,39 @@ class ToolRunner:
                 break
         return "\n".join(matches) if matches else "(no matching files)"
 
-    def read_file(self, path: str, start_line: int = 1, end_line: int | None = None) -> str:
+    def read_file(
+        self, path: str, start_line: int = 1, end_line: int | None = None,
+        tail_lines: int | None = None,
+    ) -> str:
         target = self._path(path)
         if not target.is_file():
             raise ToolError("File does not exist: %s" % path)
-        if target.stat().st_size > 180_000:
-            raise ToolError("File exceeds the 180 KB read limit; request a narrower source file.")
+        if target.stat().st_size > 1_000_000 and tail_lines is None and end_line is None:
+            raise ToolError("File exceeds the 1 MB read limit; request a bounded line range or tail_lines.")
         try:
-            lines = target.read_text(encoding="utf-8").splitlines()
+            if tail_lines is not None:
+                count = max(1, min(int(tail_lines), 500))
+                recent: deque[tuple[int, str]] = deque(maxlen=count)
+                with target.open("r", encoding="utf-8") as stream:
+                    for number, line in enumerate(stream, 1):
+                        recent.append((number, line.rstrip("\\r\\n")))
+                return "\\n".join("%d: %s" % item for item in recent)
+
+            if target.stat().st_size > 180_000 and end_line is None:
+                raise ToolError("Large file reads require end_line or tail_lines.")
+            start = max(1, int(start_line))
+            end = None if end_line is None else max(start, int(end_line))
+            selected: list[str] = []
+            with target.open("r", encoding="utf-8") as stream:
+                for number, line in enumerate(stream, 1):
+                    if number < start:
+                        continue
+                    if end is not None and number > end:
+                        break
+                    selected.append("%d: %s" % (number, line.rstrip("\\r\\n")))
+            return "\\n".join(selected)
         except UnicodeDecodeError as exc:
             raise ToolError("File is not UTF-8 text: %s" % path) from exc
-        start = max(1, int(start_line))
-        end = len(lines) if end_line is None else min(len(lines), int(end_line))
-        if end < start:
-            raise ToolError("end_line must be greater than or equal to start_line.")
-        return "\n".join("%d: %s" % (i, lines[i - 1]) for i in range(start, end + 1))
 
     def search_text(self, query: str, pattern: str = "**/*", limit: int = 60) -> str:
         if not query.strip():
