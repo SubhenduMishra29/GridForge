@@ -29,6 +29,15 @@ class ToolRunnerTests(unittest.TestCase):
         self.assertIn("2: second", result)
         self.assertIn("3: third", result)
 
+    def test_register_is_append_only(self) -> None:
+        self.runner.write_file("Modification_Register.txt", "historical entry\\n")
+        with self.assertRaises(ToolError):
+            self.runner.write_file("Modification_Register.txt", "replacement\\n")
+        self.runner.append_modification_register("new entry\\n")
+        result = (self.root / "Modification_Register.txt").read_text(encoding="utf-8")
+        self.assertTrue(result.startswith("historical entry\\n"))
+        self.assertIn("new entry", result)
+
     def test_replace_requires_one_exact_match(self) -> None:
         self.runner.write_file("sample.txt", "before\n")
         self.runner.replace_text("sample.txt", "before", "after")
