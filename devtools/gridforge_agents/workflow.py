@@ -207,7 +207,7 @@ def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tu
         writable=False,
         temperature=0.1,
     )
-    stamp = datetime.now(timezone.utc).strftime("audit-%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("audit-%Y%m%d-%H%M%S-%f")
     path = _save_report(stamp, {
         "kind": "repository_audit",
         "repository": str(root),
@@ -293,7 +293,7 @@ def run_issue(
     print("[GIT] Fetching origin/main; active working tree will not be modified.", flush=True)
     run_git(root, ["fetch", "origin", "main"], timeout=180)
     base_sha = run_git(root, ["rev-parse", "origin/main"])
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
     branch = "agents/ollama/issue-%d-%s" % (issue_number, stamp)
     worktree = application_data_dir() / "worktrees" / ("issue-%d-%s" % (issue_number, stamp))
     worktree.parent.mkdir(parents=True, exist_ok=True)
