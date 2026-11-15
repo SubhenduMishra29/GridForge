@@ -164,8 +164,12 @@ class ToolRunner:
             if target.stat().st_size > 180_000 and end_line is None:
                 raise ToolError("Large file reads require end_line or tail_lines.")
             start = max(1, int(start_line))
-            end = None if end_line is None else max(start, int(end_line))
-            selected: list[str] = []
+            end = None if end_line is None else int(end_line)
+            if end is not None and end < start:
+                raise ToolError("end_line must be greater than or equal to start_line.")
+            if end is not None and end - start > 2000:
+                raise ToolError("A bounded read is limited to 2,001 lines; request smaller ranges.")
+            selected: list[str] =
             with target.open("r", encoding="utf-8") as stream:
                 for number, line in enumerate(stream, 1):
                     if number < start:
@@ -201,9 +205,10 @@ class ToolRunner:
             if any(part.casefold() in {"secrets", "credentials"} for part in relative.parts):
                 continue
             try:
-                if path.stat().st_size > 1_000_000:
+                safe_path = self._path(relative.as_posix())
+                if safe_path.stat().st_size > 1_000_000:
                     continue
-                lines = path.read_text(encoding="utf-8").splitlines()
+                lines = safe_path.read_text(encoding="utf-8").splitlines()
             except (OSError, UnicodeDecodeError):
                 continue
             for number, line in enumerate(lines, 1):
