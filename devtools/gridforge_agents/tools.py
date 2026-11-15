@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +43,7 @@ READ_TOOLS = [
         "path": {"type": "string"},
         "start_line": {"type": "integer"},
         "end_line": {"type": "integer"},
+        "tail_lines": {"type": "integer", "description": "Return only the last N lines; useful for append-only registers."},
     }, ["path"]),
     _tool("search_text", "Search text files for a literal, case-insensitive phrase.", {
         "query": {"type": "string"},
@@ -103,6 +106,10 @@ class ToolRunner:
             raise ToolError("Access to protected runtime, cache or Git directories is denied.")
         if relative.name.lower() == ".env" or relative.name.lower().startswith(".env."):
             raise ToolError("Environment and secret files are not accessible to agents.")
+        if relative.suffix.lower() in {".pem", ".key", ".p12", ".pfx", ".p8", ".keystore"}:
+            raise ToolError("Private key and certificate files are not accessible to agents.")
+        if any(part.casefold() in {"secrets", "credentials"} for part in relative.parts):
+            raise ToolError("Secret and credential directories are not accessible to agents.")
         if relative.parts and relative.parts[0] == ".vscode":
             raise ToolError("VS Code workspace configuration is protected from agent edits.")
         return target
@@ -169,8 +176,14 @@ class ToolRunner:
                 continue
             if relative.parts and relative.parts[0] == ".vscode":
                 continue
+            if relative.name.lower() == ".env" or relative.name.lower().startswith(".env."):
+                continue
+            if relative.suffix.lower() in {".pem", ".key", ".p12", ".pfx", ".p8", ".keystore"}:
+                continue
+            if any(part.casefold() in {"secrets", "credentials"} for part in relative.parts):
+                continue
             try:
-                if path.stat().st_size > 180_000:
+                if path.stat().st_size > 1_000_000:
                     continue
                 lines = path.read_text(encoding="utf-8").splitlines()
             except (OSError, UnicodeDecodeError):
@@ -207,13 +220,14 @@ class ToolRunner:
         if len(encoded) > 500_000:
             raise ToolError("A single agent write is limited to 500 KB.")
         target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_name(target.name + ".agent-tmp")
+        descriptor, temporary_name = tempfile.mkstemp(prefix="." + target.name + ".", suffix=".agent-tmp", dir=str(target.parent))
+        temporary = Path(temporary_name)
         try:
-            with temporary.open("wb") as stream:
+            with os.fdopen(descriptor, "wb") as stream:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
-            temporary.replace(target)
+            os.replace(str(temporary), str(target))
         finally:
             if temporary.exists():
                 temporary.unlink()
