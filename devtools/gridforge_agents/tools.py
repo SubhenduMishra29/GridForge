@@ -172,8 +172,8 @@ class ToolRunner:
                         continue
                     if end is not None and number > end:
                         break
-                    selected.append("%d: %s" % (number, line.rstrip("\\r\\n")))
-            return "\\n".join(selected)
+                    selected.append("%d: %s" % (number, line.rstrip("\r\n")))
+            return "\n".join(selected)
         except UnicodeDecodeError as exc:
             raise ToolError("File is not UTF-8 text: %s" % path) from exc
 
