@@ -9,7 +9,7 @@ from pathlib import Path
 class Settings:
     ollama_url: str = "http://127.0.0.1:11434"
     planner_model: str = "qwen3:8b"
-    implementer_model: str = "qwen2.5-coder:7b"
+    implementer_model: str = "qwen3:8b"
     reviewer_model: str = "qwen3:8b"
     context_size: int = 8192
     max_tool_rounds: int = 24
