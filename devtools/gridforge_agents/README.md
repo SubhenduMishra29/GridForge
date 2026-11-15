@@ -32,7 +32,7 @@ No pip packages are required. The setup script creates `.venv-gridforge-agents` 
 ## VS Code tasks
 
 - **GridForge Agents: Doctor** — verifies Python/Git/Ollama/models/tool calling.
-- **GridForge Agents: Read-only repository audit** — uses the coordinator to inspect current source and write a report under the user profile.
+- **GridForge Agents: Read-only repository audit** — fetches the current open GitHub issue/PR index, inspects source and writes a prioritized evidence report under the user profile.
 - **GridForge Agents: Implement GitHub issue** — prompts for an open issue number and runs the autonomous workflow.
 
 CLI equivalents from the repository root:
