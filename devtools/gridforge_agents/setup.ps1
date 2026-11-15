@@ -30,6 +30,11 @@ if (-not (Test-Path $pythonPath)) {
     throw "The agent Python environment was not created at $pythonPath"
 }
 
+& $pythonPath -c "import sys; assert sys.version_info[:2] == (3, 10), sys.version"
+if ($LASTEXITCODE -ne 0) {
+    throw "The existing agent virtual environment is not Python 3.10. Remove .venv-gridforge-agents and rerun Setup."
+}
+
 $env:PYTHONPATH = Join-Path $repoRoot "devtools"
 & $pythonPath -m gridforge_agents --help
 if ($LASTEXITCODE -ne 0) { throw "GridForge agent package could not be imported." }
