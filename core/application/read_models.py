@@ -136,11 +136,11 @@ class InstrumentationWiringReadModel:
     signals: tuple[Mapping[str, Any], ...]
     signal_bindings: tuple[Mapping[str, Any], ...]
     tag_policy: tuple[Mapping[str, Any], ...]
-    endpoint_bindings: tuple[Mapping[str, Any], ...] = ()
     connection_hops: tuple[Mapping[str, Any], ...] = ()
     terminal_blocks: tuple[Mapping[str, Any], ...] = ()
     terminal_points: tuple[Mapping[str, Any], ...] = ()
     terminal_accessories: tuple[Mapping[str, Any], ...] = ()
+    endpoint_bindings: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
