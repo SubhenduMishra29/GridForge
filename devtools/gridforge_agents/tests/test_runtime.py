@@ -30,7 +30,7 @@ class ToolRunnerTests(unittest.TestCase):
         self.assertIn("3: third", result)
 
     def test_register_is_append_only(self) -> None:
-        self.runner.write_file("Modification_Register.txt", "historical entry\\n")
+        (self.root / "Modification_Register.txt").write_text("historical entry\\n", encoding="utf-8")
         with self.assertRaises(ToolError):
             self.runner.write_file("Modification_Register.txt", "replacement\\n")
         self.runner.append_modification_register("new entry\\n")
