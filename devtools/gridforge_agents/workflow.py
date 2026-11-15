@@ -123,10 +123,61 @@ def _save_report(name: str, payload: dict[str, Any]) -> Path:
     return path
 
 
+def _github_json(url: str) -> Any:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "GridForge-Local-Agent-Workbench",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise WorkflowError("GitHub API lookup failed (HTTP %s): %s" % (exc.code, detail)) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise WorkflowError("Could not reach GitHub API: %s" % exc) from exc
+
+
+def fetch_open_issues(repo: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for page in range(1, 6):
+        url = "https://api.github.com/repos/%s/issues?state=open&sort=updated&direction=desc&per_page=100&page=%d" % (repo, page)
+        batch = _github_json(url)
+        if not isinstance(batch, list):
+            raise WorkflowError("GitHub returned an unexpected open-issues response.")
+        items.extend(item for item in batch if "pull_request" not in item)
+        if len(batch) < 100:
+            break
+    return items
+
+
+def fetch_open_pull_requests(repo: str) -> list[dict[str, Any]]:
+    url = "https://api.github.com/repos/%s/pulls?state=open&per_page=100" % repo
+    items = _github_json(url)
+    if not isinstance(items, list):
+        raise WorkflowError("GitHub returned an unexpected open-PR response.")
+    return items
+
+
 def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tuple[str, Path]:
     check_models(client, settings)
     ensure_tool_runtime(client, settings)
-    print("[AUDIT] Read-only repository inspection with %s" % settings.planner_model, flush=True)
+    open_issues = fetch_open_issues(settings.github_repo)
+    open_prs = fetch_open_pull_requests(settings.github_repo)
+    issue_index = "\\n".join(
+        "- #%s %s [%s]" % (item.get("number"), item.get("title", ""), ", ".join(label.get("name", "") for label in item.get("labels", [])))
+        for item in open_issues
+    )
+    pr_index = "\\n".join(
+        "- PR #%s %s (%s -> %s)" % (item.get("number"), item.get("title", ""), item.get("head", {}).get("ref", ""), item.get("base", {}).get("ref", ""))
+        for item in open_prs
+    )
+    print("[AUDIT] Read-only source and GitHub backlog inspection with %s" % settings.planner_model, flush=True)
     prompt = (
         "Audit this current GridForge repository against the frozen V2 architecture. "
         "Start by inspecting git status, root file layout, README.md, pyproject.toml, Modification_Register.txt, "
@@ -135,7 +186,8 @@ def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tu
         "Prioritize persistence/project activation, instrumentation/MeasurementChannel, protection/control integration, "
         "SLD/UI interaction and numerical correctness. Distinguish verified code defects from incomplete evidence and stale backlog. "
         "Return a prioritized report with exact repository-relative paths and symbols, dependencies, likely specialist ownership, "
-        "and the next three bounded issue investigations. Do not claim you queried GitHub issues unless you actually did."
+        "and the next three bounded issue investigations. Identify duplicate/overlapping issue clusters and PRs that may already address them."
+        % (issue_index, pr_index)
     )
     report = run_agent(
         client=client,
@@ -153,6 +205,8 @@ def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tu
         "repository": str(root),
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model": settings.planner_model,
+        "open_issue_count": len(open_issues),
+        "open_pr_count": len(open_prs),
         "report": report,
     })
     client.unload(settings.planner_model)
