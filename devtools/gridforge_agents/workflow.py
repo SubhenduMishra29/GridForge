@@ -188,13 +188,13 @@ def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tu
         "Audit this current GridForge repository against the frozen V2 architecture. "
         "Start by inspecting git status, root file layout, README.md, pyproject.toml, Modification_Register.txt, "
         "and relevant docs. Then trace the current implementation for the highest-impact open engineering gaps you can substantiate. "
-        "Do not assume issue descriptions are current. Do not edit files.\\n\\n"
+        "Do not assume issue descriptions are current. Do not edit files.\n\n"
         "Prioritize persistence/project activation, instrumentation/MeasurementChannel, protection/control integration, "
         "SLD/UI interaction and numerical correctness. Distinguish verified code defects from incomplete evidence and stale backlog. "
         "Return a prioritized report with exact repository-relative paths and symbols, dependencies, likely specialist ownership, "
-        "and the next three bounded issue investigations. Identify duplicate/overlapping issue clusters and PRs that may already address them.\\n\\n"
-        "Current open GitHub issues (number, title, labels):\\n%s\\n\\n"
-        "Current open pull requests (number, title, branch direction):\\n%s"
+        "and the next three bounded issue investigations. Identify duplicate/overlapping issue clusters and PRs that may already address them.\n\n"
+        "Current open GitHub issues (number, title, labels):\n%s\n\n"
+        "Current open pull requests (number, title, branch direction):\n%s"
         % (issue_index, pr_index)
     )
     report = run_agent(
