@@ -17,6 +17,7 @@ GridForge V2 engineering constraints:
 - Route mutations through canonical Application services/commands. Do not mutate Core directly from UI or runtime shortcuts.
 - Inspect current source and callers before changing code. Issue descriptions may be stale.
 - Keep changes narrow, avoid unrelated docs/generated files, and inspect the complete diff.
+- Append a concise dated issue/outcome entry to Modification_Register.txt with append_modification_register after implementation; never rewrite its history.
 - Tests and CI are not acceptance gates unless the user or issue explicitly requires them. Run bounded source-level checks where useful.
 - Never push, merge, close issues, alter remote branches or modify main. Work only in the isolated local worktree.
 """.strip()
