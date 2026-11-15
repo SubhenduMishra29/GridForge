@@ -23,7 +23,7 @@ The implementation model can be changed with `GRIDFORGE_CODER_MODEL` after its s
 
 3. Open the GridForge repository folder in VS Code.
 4. Run **Terminal → Run Task → GridForge Agents: Setup (Python 3.10)**.
-5. Run **GridForge Agents: Doctor** and confirm `"status": "ready"`.
+5. Run **GridForge Agents: Doctor** and confirm `"status": "ready"`. If your earlier Ollama 0.21.0 installation is still present, update the Windows Ollama application to 0.3.0 or newer and restart it before proceeding.
 
 The runtime requires Ollama **0.3.0 or newer** for native tool calling. Doctor also sends a harmless structured-tool probe to each configured model; merely having a model installed is not enough.
 
@@ -61,7 +61,7 @@ It does not run the test suite or CI by default. It never pushes, creates a PR, 
 
 - Each issue gets a separate worktree under `%LOCALAPPDATA%\GridForgeAgent\worktrees`.
 - Run reports are saved under `%LOCALAPPDATA%\GridForgeAgent\runs`.
-- Model tools can list/search/read files, inspect Git status/diffs, and (for the implementation role only) write or replace text inside that worktree.
+- Model tools can list/search/read files, inspect Git status/diffs, and (for the implementation role only) write or replace text inside that worktree. The modification register has a dedicated append-only tool; replacement and truncation are blocked.
 - Absolute paths, path traversal, Git metadata, virtual environments, secret files, caches and VS Code workspace settings are blocked.
 - There is no arbitrary shell/PowerShell tool exposed to the model.
 - A failed or interrupted run leaves the worktree and report available for manual inspection. It does not auto-delete partial work.
@@ -86,3 +86,12 @@ Environment overrides:
 - The workbench has not been executed against the user's Windows/Ollama installation from GitHub; the first local Doctor run is required.
 - GitHub issue retrieval requires network access. Public issue retrieval works without a token; a token is optional for private/rate-limited access.
 - A successful local commit is not proof of engineering correctness. Inspect the report and diff, then push/create a PR manually when satisfied.
+
+## Optional local unit checks
+
+The workbench includes standard-library unit tests. They are not an automatic issue acceptance gate:
+
+```powershell
+$env:PYTHONPATH = "$PWD\devtools"
+.\.venv-gridforge-agents\Scripts\python.exe -m unittest discover -s devtools\gridforge_agents\tests
+```
