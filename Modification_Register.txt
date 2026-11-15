@@ -5230,3 +5230,30 @@ Remaining #1203 scope:
 - Issue #1203 remains open; this merge completes only the terminal-block
   identity/persistence foundation.
 ======================================================================
+
+======================================================================
+GridForge V2 — Local Ollama VS Code agent workbench
+Date: 2026-11-15
+Repository: SubhenduMishra29/GridForge
+Branch: agents/local-ollama-vscode-workbench
+
+Outcome:
+- Added a Python 3.10-compatible, standard-library-only local agent runtime
+  under devtools/gridforge_agents; GridForge application dependencies and
+  its Python 3.12 project requirement remain unchanged.
+- Added coordinator/planner, domain-specialist implementation and independent
+  reviewer roles using the local Ollama /api/chat tool-calling interface.
+- Added VS Code tasks for setup, runtime diagnosis, read-only repository audit
+  and autonomous single-issue implementation.
+- Issue execution uses a separate Git worktree based on origin/main, bounded
+  repository tools, path/secret restrictions, one reviewer correction pass,
+  diff/compile checks and a local commit only after APPROVE.
+- No push, PR creation, merge, issue closure or modification of main is done
+  by the runtime. Reports and worktrees remain in the user profile.
+
+Not yet verified:
+- Local Windows setup, Python 3.10 virtual environment and VS Code tasks.
+- Ollama version/model tool-calling compatibility; Doctor must pass before use.
+- End-to-end issue execution, local commit and engineering correctness.
+- Unit-test source added; tests and CI were not run in this remote authoring step.
+======================================================================
