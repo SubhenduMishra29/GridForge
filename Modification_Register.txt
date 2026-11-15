@@ -5230,3 +5230,42 @@ Remaining #1203 scope:
 - Issue #1203 remains open; this merge completes only the terminal-block
   identity/persistence foundation.
 ======================================================================
+
+
+
+======================================================================
+GridForge V2 — Canonical instrumentation signal endpoint domain foundation
+Date: 2026-11-15
+Repository: SubhenduMishra29/GridForge
+Branch: feat/instrumentation-signal-endpoint-domain-20261115
+Issue: #1203
+
+Correction:
+- Added immutable Core SignalEndpointReference and SignalEndpointBinding
+  records for explicit Control-input and Protection-input consumers.
+- Consumer identity is independent of tags and display labels. Every consumer
+  binding carries an exact physical sink WiringTerminalReference; terminal
+  block references continue to require the stable terminal_point_id.
+- Preserved SignalDefinition.measurement_channel_id as the single canonical
+  MeasurementChannel source association. No per-carrier duplicate channel
+  registry was introduced; physical SignalCarrierBinding remains separate.
+- Inventory validation rejects dangling signal references and duplicate
+  logical consumer endpoints.
+- Instrumentation-wiring persistence advanced from schema 5 to schema 6.
+  Schemas 2–5 remain readable; schema 6 strictly validates endpoint records
+  and their physical terminal references.
+- Application controlled record CRUD, terminal-owner validation and detached
+  InstrumentationWiringReadModel projection include endpoint bindings.
+- No Qt/QGraphics dependency, canvas geometry, or power-network topology
+  mutation was introduced.
+
+Verification boundary:
+- Regression-test source is included in the focused PR.
+- Tests/CI, full imports, GUI/runtime, cross-canvas resolution and project
+  save/reopen acceptance have not been executed.
+- This is a domain/persistence/Application projection foundation only.
+  Control/Protection endpoint resolution, provenance overlays, navigation,
+  schedules/export/sign-off and instrument-specific safety acceptance remain
+  open. Issue #1203 must remain open until its complete acceptance criteria
+  are implemented and verified.
+======================================================================
