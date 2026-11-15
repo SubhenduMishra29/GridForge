@@ -590,12 +590,12 @@ class InstrumentationWiringInventory:
     panel_wires: tuple[PanelWire, ...] = ()
     signals: tuple[SignalDefinition, ...] = ()
     signal_bindings: tuple[SignalCarrierBinding, ...] = ()
-    endpoint_bindings: tuple[SignalEndpointBinding, ...] = ()
     connection_hops: tuple[PhysicalConnectionHop, ...] = ()
     tag_policy: WiringTagPolicy = WiringTagPolicy()
     terminal_blocks: tuple[TerminalBlock, ...] = ()
     terminal_points: tuple[TerminalPoint, ...] = ()
     terminal_accessories: tuple[TerminalAccessory, ...] = ()
+    endpoint_bindings: tuple[SignalEndpointBinding, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
