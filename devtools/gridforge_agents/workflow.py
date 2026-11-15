@@ -366,11 +366,15 @@ def run_issue(
             result["status"] = "review_blocked"
             return result
 
-        diff = run_git(worktree, ["diff", "--stat"])
-        if not diff:
+        pending = run_git(worktree, ["status", "--porcelain"])
+        if not pending:
             result["status"] = "no_changes"
             return result
         run_git(worktree, ["add", "-A"])
+        diff = run_git(worktree, ["diff", "--cached", "--stat"])
+        if not diff:
+            result["status"] = "no_changes"
+            return result
         run_git(worktree, ["commit", "-m", "fix(issue #%d): %s" % (issue_number, _slug(title))], timeout=180)
         result["commit"] = run_git(worktree, ["rev-parse", "HEAD"])
         result["diff_stat"] = diff
