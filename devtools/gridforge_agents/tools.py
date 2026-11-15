@@ -158,8 +158,8 @@ class ToolRunner:
                 recent: deque[tuple[int, str]] = deque(maxlen=count)
                 with target.open("r", encoding="utf-8") as stream:
                     for number, line in enumerate(stream, 1):
-                        recent.append((number, line.rstrip("\\r\\n")))
-                return "\\n".join("%d: %s" % item for item in recent)
+                        recent.append((number, line.rstrip("\r\n")))
+                return "\n".join("%d: %s" % item for item in recent)
 
             if target.stat().st_size > 180_000 and end_line is None:
                 raise ToolError("Large file reads require end_line or tail_lines.")
