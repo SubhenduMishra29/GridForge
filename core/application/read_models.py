@@ -136,6 +136,7 @@ class InstrumentationWiringReadModel:
     signals: tuple[Mapping[str, Any], ...]
     signal_bindings: tuple[Mapping[str, Any], ...]
     tag_policy: tuple[Mapping[str, Any], ...]
+    endpoint_bindings: tuple[Mapping[str, Any], ...] = ()
     connection_hops: tuple[Mapping[str, Any], ...] = ()
     terminal_blocks: tuple[Mapping[str, Any], ...] = ()
     terminal_points: tuple[Mapping[str, Any], ...] = ()
@@ -147,7 +148,7 @@ class InstrumentationWiringReadModel:
         if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
             raise ValueError("InstrumentationWiringReadModel.activation_generation must be positive")
         for name in (
-            "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy",
+            "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy", "endpoint_bindings",
             "connection_hops", "terminal_blocks", "terminal_points", "terminal_accessories",
         ):
             values = tuple(getattr(self, name))
