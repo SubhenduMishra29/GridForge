@@ -8,11 +8,12 @@ from typing import Any
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, CarrierKind, InstrumentationWiringInventory, PhysicalConnectionHop,
     PanelWire, SignalCarrierBinding, SignalDefinition, SignalKind,
+    SignalEndpointBinding, SignalEndpointKind, SignalEndpointReference,
     WiringConductorRole, WiringTerminalReference, WiringTagSeries, WiringTagPolicy,
     TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint, TerminalAccessory,
 )
 
-WIRING_SCHEMA_VERSION = 5
+WIRING_SCHEMA_VERSION = 6
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -166,6 +167,21 @@ def serialize_instrumentation_wiring(
             }
             for item in inventory.connection_hops
         ],
+        "endpoint_bindings": [
+            {
+                "id": item.id,
+                "signal_id": item.signal_id,
+                "endpoint": {
+                    "kind": item.endpoint.kind.value,
+                    "endpoint_id": item.endpoint.endpoint_id,
+                    "owner_id": item.endpoint.owner_id,
+                    "port": item.endpoint.port,
+                    "physical_terminal": _terminal_to_dict(item.endpoint.physical_terminal),
+                },
+                "direction": item.direction,
+            }
+            for item in inventory.endpoint_bindings
+        ],
     }
 
 
@@ -176,7 +192,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema not in {2, 3, 4, WIRING_SCHEMA_VERSION}:
+    if isinstance(schema, bool) or schema not in {2, 3, 4, 5, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {schema!r}."
         )
@@ -185,6 +201,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         expected.add("connection_hops")
     if schema >= 5:
         expected.update({"terminal_blocks", "terminal_points", "terminal_accessories"})
+    if schema >= 6:
+        expected.add("endpoint_bindings")
     if set(data) != expected:
         raise InstrumentationWiringSerializationError(
             "Instrumentation wiring payload fields are not canonical: "
@@ -195,6 +213,8 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         collection_keys += ("connection_hops",)
     if schema >= 5:
         collection_keys += ("terminal_blocks", "terminal_points", "terminal_accessories")
+    if schema >= 6:
+        collection_keys += ("endpoint_bindings",)
     for key in collection_keys:
         if not isinstance(data.get(key), list) or any(not isinstance(item, Mapping) for item in data[key]):
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
@@ -212,6 +232,10 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
         )
         if schema < 4:
             _field_contracts = tuple(item for item in _field_contracts if item[0] != "connection_hops")
+        if schema >= 6:
+            _field_contracts += ((
+                "endpoint_bindings", {"id", "signal_id", "endpoint"}, {"direction"}, "Signal endpoint binding",
+            ),)
         if schema >= 5:
             _field_contracts += (
                 ("terminal_blocks", {"id", "tag", "panel_id", "location", "terminal_count"},
@@ -230,6 +254,18 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                     for pair in pairs
                 ):
                     raise InstrumentationWiringSerializationError("Terminal accessory conductive_pairs must be an array of two-string arrays.")
+        if schema >= 6:
+            for item in data["endpoint_bindings"]:
+                endpoint = item.get("endpoint")
+                if not isinstance(endpoint, Mapping):
+                    raise InstrumentationWiringSerializationError("Signal endpoint reference must be an object.")
+                _check_record_fields(
+                    endpoint,
+                    required={"kind", "endpoint_id", "owner_id", "port", "physical_terminal"},
+                    optional=set(),
+                    label="Signal endpoint reference",
+                )
+                _terminal_from_dict(endpoint["physical_terminal"], schema=schema)
         for collection_name, required, optional, label in _field_contracts:
             for item in data[collection_name]:
                 _check_record_fields(item, required=required, optional=optional, label=label)
@@ -311,11 +347,27 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             )
             for item in data.get("connection_hops", ())
         )
+        endpoint_bindings = tuple(
+            SignalEndpointBinding(
+                id=item["id"],
+                signal_id=item["signal_id"],
+                endpoint=SignalEndpointReference(
+                    kind=SignalEndpointKind(item["endpoint"]["kind"]),
+                    endpoint_id=item["endpoint"]["endpoint_id"],
+                    owner_id=item["endpoint"]["owner_id"],
+                    port=item["endpoint"]["port"],
+                    physical_terminal=_terminal_from_dict(item["endpoint"]["physical_terminal"], schema=schema),
+                ),
+                direction=item.get("direction", "SOURCE_TO_SINK"),
+            )
+            for item in data.get("endpoint_bindings", ())
+        )
         return InstrumentationWiringInventory(
             cables=cables, cores=cores, panel_wires=panel_wires,
             signals=signals, signal_bindings=bindings, connection_hops=hops, tag_policy=tag_policy,
             terminal_blocks=terminal_blocks, terminal_points=terminal_points,
             terminal_accessories=terminal_accessories,
+            endpoint_bindings=endpoint_bindings,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise InstrumentationWiringSerializationError(
