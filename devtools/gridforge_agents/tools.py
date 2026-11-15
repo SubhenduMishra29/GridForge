@@ -57,6 +57,9 @@ READ_TOOLS = [
 ]
 
 WRITE_TOOLS = [
+    _tool("append_modification_register", "Append a new entry to Modification_Register.txt without replacing or truncating its history.", {
+        "content": {"type": "string", "description": "A complete dated entry to append, including issue number and outcome."},
+    }, ["content"]),
     _tool("write_file", "Create or replace one UTF-8 repository file. The path must remain inside the isolated agent worktree.", {
         "path": {"type": "string"},
         "content": {"type": "string"},
@@ -90,6 +93,7 @@ class ToolRunner:
             self._handlers.update({
                 "write_file": self.write_file,
                 "replace_text": self.replace_text,
+                "append_modification_register": self.append_modification_register,
                 "static_check": self.static_check,
             })
 
@@ -259,7 +263,10 @@ class ToolRunner:
     def write_file(self, path: str, content: str) -> str:
         if not self.writable:
             raise ToolError("This agent is read-only.")
-        return self._atomic_write(self._path(path), content)
+        target = self._path(path)
+        if target.name == "Modification_Register.txt":
+            raise ToolError("Modification_Register.txt is append-only. Use append_modification_register.")
+        return self._atomic_write(target, content)
 
     def replace_text(self, path: str, old_text: str, new_text: str) -> str:
         if not self.writable:
@@ -267,6 +274,8 @@ class ToolRunner:
         if not old_text:
             raise ToolError("old_text cannot be empty.")
         target = self._path(path)
+        if target.name == "Modification_Register.txt":
+            raise ToolError("Modification_Register.txt is append-only and cannot be text-replaced.")
         if not target.is_file():
             raise ToolError("File does not exist: %s" % path)
         original = target.read_text(encoding="utf-8")
@@ -274,6 +283,41 @@ class ToolRunner:
         if count != 1:
             raise ToolError("Expected exactly one old_text match; found %d. No change made." % count)
         return self._atomic_write(target, original.replace(old_text, new_text, 1))
+
+    def append_modification_register(self, content: str) -> str:
+        if not self.writable:
+            raise ToolError("This agent is read-only.")
+        if not content.strip():
+            raise ToolError("Register entry cannot be empty.")
+        encoded = content.encode("utf-8")
+        if len(encoded) > 20_000:
+            raise ToolError("A register append is limited to 20 KB.")
+        target = self._path("Modification_Register.txt")
+        if not target.is_file():
+            raise ToolError("Modification_Register.txt is missing; refusing to create a replacement register.")
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".Modification_Register.", suffix=".append-tmp", dir=str(target.parent)
+        )
+        temporary = Path(temporary_name)
+        try:
+            with os.fdopen(descriptor, "wb") as output:
+                with target.open("rb") as source:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        output.write(chunk)
+                output.write(b"\n" if not content.startswith("\n") else b"")
+                output.write(encoded)
+                if not encoded.endswith(b"\n"):
+                    output.write(b"\n")
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(str(temporary), str(target))
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        return "Appended %d bytes to Modification_Register.txt; existing content was preserved." % len(encoded)
 
     def static_check(self) -> str:
         if not self.writable:
