@@ -448,6 +448,8 @@ def run_issue(
         print("[DONE] Local commit created on %s. No push, PR, merge or issue closure was performed." % branch, flush=True)
         return result
     finally:
+        for model in set([settings.planner_model, settings.implementer_model, settings.reviewer_model]):
+            client.unload(model)
         report_name = "issue-%d-%s" % (issue_number, stamp)
         result_path = _save_report(report_name, result)
         print("[REPORT] %s" % result_path, flush=True)
