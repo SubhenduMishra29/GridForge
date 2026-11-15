@@ -209,7 +209,7 @@ class ToolRunner:
                 if safe_path.stat().st_size > 1_000_000:
                     continue
                 lines = safe_path.read_text(encoding="utf-8").splitlines()
-            except (OSError, UnicodeDecodeError):
+            except (OSError, UnicodeDecodeError, ToolError):
                 continue
             for number, line in enumerate(lines, 1):
                 if needle in line.casefold():
