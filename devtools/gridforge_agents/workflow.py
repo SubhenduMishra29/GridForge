@@ -59,12 +59,47 @@ def check_models(client: OllamaClient, settings: Settings) -> list[str]:
     return installed
 
 
+def _version_tuple(value: str) -> tuple[int, int, int] | None:
+    match = re.search(r"(\\d+)\\.(\\d+)\\.(\\d+)", value)
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def ensure_tool_runtime(client: OllamaClient, settings: Settings) -> str:
+    version = client.version()
+    parsed = _version_tuple(version)
+    if parsed is None or parsed < (0, 3, 0):
+        raise WorkflowError(
+            "Ollama %s is too old or unrecognized for native tool calling. Upgrade Ollama to 0.3.0 or newer, "
+            "restart Ollama, then run the VS Code Doctor task again." % version
+        )
+    for model in sorted(set([settings.planner_model, settings.implementer_model, settings.reviewer_model])):
+        if not client.probe_tool_calling(model):
+            client.unload(model)
+            raise WorkflowError(
+                "Model %s did not return a structured tool call. Select a tool-capable model or update its Ollama template. "
+                "Qwen3 8B is the recommended local default." % model
+            )
+        client.unload(model)
+    return version
+
+
 def doctor(root: Path, settings: Settings, client: OllamaClient) -> dict[str, Any]:
     models = check_models(client, settings)
+    version = client.version()
+    parsed = _version_tuple(version)
+    tool_probe: dict[str, bool] = {}
+    if parsed is not None and parsed >= (0, 3, 0):
+        for model in sorted(set([settings.planner_model, settings.implementer_model, settings.reviewer_model])):
+            tool_probe[model] = client.probe_tool_calling(model)
+            client.unload(model)
     branch = run_git(root, ["branch", "--show-current"])
     remote = run_git(root, ["remote", "get-url", "origin"])
+    ready = parsed is not None and parsed >= (0, 3, 0) and all(tool_probe.values())
     return {
-        "status": "ready",
+        "status": "ready" if ready else "needs_attention",
+        "ollama_version": version,
+        "tool_calling": tool_probe,
+        "setup_note": "" if ready else "Upgrade Ollama to 0.3.0+ and confirm each selected model returns structured tool_calls.",
         "python": os.sys.version.split()[0],
         "repository": str(root),
         "branch": branch,
@@ -90,6 +125,7 @@ def _save_report(name: str, payload: dict[str, Any]) -> Path:
 
 def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tuple[str, Path]:
     check_models(client, settings)
+    ensure_tool_runtime(client, settings)
     print("[AUDIT] Read-only repository inspection with %s" % settings.planner_model, flush=True)
     prompt = (
         "Audit this current GridForge repository against the frozen V2 architecture. "
@@ -182,6 +218,7 @@ def run_issue(
     client: OllamaClient,
 ) -> dict[str, Any]:
     check_models(client, settings)
+    ensure_tool_runtime(client, settings)
     issue = fetch_issue(settings.github_repo, issue_number)
     if issue.get("state") != "open":
         raise WorkflowError("Issue #%d is not open (state: %s)." % (issue_number, issue.get("state")))
