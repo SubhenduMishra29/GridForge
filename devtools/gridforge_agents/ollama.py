@@ -38,6 +38,35 @@ class OllamaClient:
         except json.JSONDecodeError as exc:
             raise OllamaError("Ollama returned invalid JSON from %s." % path) from exc
 
+    def version(self) -> str:
+        result = self._request("/api/version")
+        return str(result.get("version", "unknown"))
+
+    def probe_tool_calling(self, model: str) -> bool:
+        probe_tool = [{
+            "type": "function",
+            "function": {
+                "name": "gridforge_probe",
+                "description": "Return the supplied probe value.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                    "required": ["value"],
+                },
+            },
+        }]
+        response = self.chat(
+            model=model,
+            messages=[{"role": "user", "content": "Call gridforge_probe exactly once with value set to probe."}],
+            tools=probe_tool,
+            temperature=0.0,
+        )
+        message = response.get("message") or {}
+        return any(
+            (call.get("function") or {}).get("name") == "gridforge_probe"
+            for call in (message.get("tool_calls") or [])
+        )
+
     def installed_models(self) -> list[str]:
         result = self._request("/api/tags")
         return [item.get("name", "") for item in result.get("models", []) if item.get("name")]
