@@ -41,7 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = repository_root(Path.cwd())
         if args.command == "doctor":
-            print(json.dumps(doctor(root, settings, client), indent=2))
+            status = doctor(root, settings, client)
+            print(json.dumps(status, indent=2))
+            if status.get("status") != "ready":
+                return 1
             print("\nReady. The local agent runtime is independent of GridForge's application dependencies.")
             return 0
         if args.command == "audit":
