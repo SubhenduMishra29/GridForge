@@ -16,7 +16,7 @@ from core.application.read_models import InstrumentationWiringReadModel
 from core.application.transaction import Transaction
 from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
-    SignalCarrierBinding, SignalDefinition, PhysicalConnectionHop,
+    SignalCarrierBinding, SignalDefinition, SignalEndpointBinding, PhysicalConnectionHop,
     TerminalBlock, TerminalPoint, TerminalAccessory,
 )
 
@@ -124,6 +124,7 @@ class InstrumentationWiringService:
             references.extend(wire.terminal_path)
         for hop in inventory.connection_hops:
             references.extend((hop.from_terminal, hop.to_terminal))
+        references.extend(binding.endpoint.physical_terminal for binding in inventory.endpoint_bindings)
         terminal_points = {item.id: item for item in inventory.terminal_points}
         terminal_block_ids = {item.id for item in inventory.terminal_blocks}
         seen: set[tuple[str, str, str | None]] = set()
@@ -187,6 +188,7 @@ class InstrumentationWiringService:
             panel_wires=tuple(self._read_value(item) for item in inventory.panel_wires),
             signals=tuple(self._read_value(item) for item in inventory.signals),
             signal_bindings=tuple(self._read_value(item) for item in inventory.signal_bindings),
+            endpoint_bindings=tuple(self._read_value(item) for item in inventory.endpoint_bindings),
             tag_policy=tuple(self._read_value(item) for item in inventory.tag_policy.series),
             connection_hops=tuple(self._read_value(item) for item in inventory.connection_hops),
             terminal_blocks=tuple(self._read_value(item) for item in inventory.terminal_blocks),
@@ -228,6 +230,7 @@ class InstrumentationWiringService:
             PanelWire: "panel_wires",
             SignalDefinition: "signals",
             SignalCarrierBinding: "signal_bindings",
+            SignalEndpointBinding: "endpoint_bindings",
             PhysicalConnectionHop: "connection_hops",
             TerminalBlock: "terminal_blocks",
             TerminalPoint: "terminal_points",
@@ -244,7 +247,7 @@ class InstrumentationWiringService:
         if not isinstance(candidate, InstrumentationWiringInventory):
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
         for field in (
-            "cables", "cores", "panel_wires", "signals", "signal_bindings", "connection_hops",
+            "cables", "cores", "panel_wires", "signals", "signal_bindings", "endpoint_bindings", "connection_hops",
             "terminal_blocks", "terminal_points", "terminal_accessories",
         ):
             if getattr(candidate, field) != getattr(self._inventory, field):
@@ -450,6 +453,7 @@ class InstrumentationWiringService:
                 "terminal_blocks": len(replacement.terminal_blocks),
                 "terminal_points": len(replacement.terminal_points),
                 "terminal_accessories": len(replacement.terminal_accessories),
+                "endpoint_bindings": len(replacement.endpoint_bindings),
             },
         )
 
