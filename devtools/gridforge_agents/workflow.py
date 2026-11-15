@@ -60,7 +60,7 @@ def check_models(client: OllamaClient, settings: Settings) -> list[str]:
 
 
 def _version_tuple(value: str) -> tuple[int, int, int] | None:
-    match = re.search(r"(\\d+)\\.(\\d+)\\.(\\d+)", value)
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", value)
     return tuple(int(part) for part in match.groups()) if match else None
 
 
