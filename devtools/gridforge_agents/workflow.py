@@ -1,0 +1,347 @@
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .agent import run_agent
+from .config import Settings, application_data_dir
+from .ollama import OllamaClient
+from .prompts import DOMAIN_GUIDANCE, classify_issue, system_prompt
+from .tools import ToolRunner
+
+
+class WorkflowError(RuntimeError):
+    """Raised when a local agent workflow cannot safely continue."""
+
+
+def run_git(root: Path, arguments: list[str], timeout: int = 120) -> str:
+    result = subprocess.run(
+        ["git"] + arguments,
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode:
+        raise WorkflowError(
+            "git %s failed:\n%s" % (" ".join(arguments), (result.stdout + result.stderr).strip())
+        )
+    return result.stdout.strip()
+
+
+def repository_root(start: Path | None = None) -> Path:
+    cwd = start or Path.cwd()
+    try:
+        value = run_git(cwd, ["rev-parse", "--show-toplevel"])
+    except WorkflowError as exc:
+        raise WorkflowError("Open the GridForge repository folder in VS Code before running agents.") from exc
+    return Path(value).resolve()
+
+
+def check_models(client: OllamaClient, settings: Settings) -> list[str]:
+    installed = client.installed_models()
+    required = [settings.planner_model, settings.implementer_model, settings.reviewer_model]
+    missing = [model for model in required if model not in installed]
+    if missing:
+        commands = "\n".join("  ollama pull %s" % model for model in sorted(set(missing)))
+        raise WorkflowError(
+            "Required Ollama model(s) are not installed: %s\nInstall with:\n%s\n"
+            "Or override GRIDFORGE_PLANNER_MODEL / GRIDFORGE_CODER_MODEL / GRIDFORGE_REVIEWER_MODEL."
+            % (", ".join(sorted(set(missing))), commands)
+        )
+    return installed
+
+
+def doctor(root: Path, settings: Settings, client: OllamaClient) -> dict[str, Any]:
+    models = check_models(client, settings)
+    branch = run_git(root, ["branch", "--show-current"])
+    remote = run_git(root, ["remote", "get-url", "origin"])
+    return {
+        "status": "ready",
+        "python": os.sys.version.split()[0],
+        "repository": str(root),
+        "branch": branch,
+        "origin": remote,
+        "ollama_url": settings.ollama_url,
+        "models": models,
+        "planner": settings.planner_model,
+        "implementer": settings.implementer_model,
+        "reviewer": settings.reviewer_model,
+        "context_size": settings.context_size,
+    }
+
+
+def _save_report(name: str, payload: dict[str, Any]) -> Path:
+    directory = application_data_dir() / "runs"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / (name + ".json")
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+    return path
+
+
+def audit_repository(root: Path, settings: Settings, client: OllamaClient) -> tuple[str, Path]:
+    check_models(client, settings)
+    print("[AUDIT] Read-only repository inspection with %s" % settings.planner_model, flush=True)
+    prompt = (
+        "Audit this current GridForge repository against the frozen V2 architecture. "
+        "Start by inspecting git status, root file layout, README.md, pyproject.toml, Modification_Register.txt, "
+        "and relevant docs. Then trace the current implementation for the highest-impact open engineering gaps you can substantiate. "
+        "Do not assume issue descriptions are current. Do not edit files.\n\n"
+        "Prioritize persistence/project activation, instrumentation/MeasurementChannel, protection/control integration, "
+        "SLD/UI interaction and numerical correctness. Distinguish verified code defects from incomplete evidence and stale backlog. "
+        "Return a prioritized report with exact repository-relative paths and symbols, dependencies, likely specialist ownership, "
+        "and the next three bounded issue investigations. Do not claim you queried GitHub issues unless you actually did."
+    )
+    report = run_agent(
+        client=client,
+        settings=settings,
+        model=settings.planner_model,
+        system_prompt=system_prompt(root, "coordinator"),
+        user_prompt=prompt,
+        root=root,
+        writable=False,
+        temperature=0.1,
+    )
+    stamp = datetime.now(timezone.utc).strftime("audit-%Y%m%d-%H%M%S")
+    path = _save_report(stamp, {
+        "kind": "repository_audit",
+        "repository": str(root),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "model": settings.planner_model,
+        "report": report,
+    })
+    client.unload(settings.planner_model)
+    return report, path
+
+
+def fetch_issue(repo: str, issue_number: int) -> dict[str, Any]:
+    url = "https://api.github.com/repos/%s/issues/%d" % (repo, issue_number)
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "GridForge-Local-Agent-Workbench",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.getenv("GH_TOKEN") or os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    request = urllib.request.Request(url, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise WorkflowError("GitHub issue lookup failed (HTTP %s): %s" % (exc.code, detail)) from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise WorkflowError("Could not reach GitHub to fetch issue #%d: %s" % (issue_number, exc)) from exc
+    if "pull_request" in data:
+        raise WorkflowError("#%d is a pull request, not an issue." % issue_number)
+    return data
+
+
+def _slug(value: str) -> str:
+    result = re.sub(r"[^a-z0-9]+", "-", value.casefold()).strip("-")
+    return result[:36] or "task"
+
+
+def _parse_review(text: str) -> dict[str, Any]:
+    candidate = text.strip()
+    if candidate.startswith("```"):
+        candidate = re.sub(r"^\`\`\`(?:json)?\s*", "", candidate)
+        candidate = re.sub(r"\s*\`\`\`$", "", candidate)
+    start = candidate.find("{")
+    end = candidate.rfind("}")
+    if start < 0 or end <= start:
+        raise WorkflowError("Reviewer did not return the required JSON verdict. Changes were not committed.")
+    try:
+        result = json.loads(candidate[start:end + 1])
+    except json.JSONDecodeError as exc:
+        raise WorkflowError("Reviewer returned malformed JSON. Changes were not committed.") from exc
+    if result.get("verdict") not in {"APPROVE", "REQUEST_CHANGES", "BLOCKED"}:
+        raise WorkflowError("Reviewer verdict is missing or invalid. Changes were not committed.")
+    return result
+
+
+def _static_check(root: Path) -> str:
+    runner = ToolRunner(root, writable=True)
+    return runner.static_check()
+
+
+def run_issue(
+    root: Path,
+    issue_number: int,
+    settings: Settings,
+    client: OllamaClient,
+) -> dict[str, Any]:
+    check_models(client, settings)
+    issue = fetch_issue(settings.github_repo, issue_number)
+    if issue.get("state") != "open":
+        raise WorkflowError("Issue #%d is not open (state: %s)." % (issue_number, issue.get("state")))
+    title = issue.get("title", "GridForge issue %d" % issue_number)
+    body = issue.get("body") or "(No issue description supplied.)"
+    domain = classify_issue(title, body)
+    print("[ISSUE] #%d %s" % (issue_number, title), flush=True)
+    print("[OWNER] %s" % domain, flush=True)
+
+    print("[GIT] Fetching origin/main; active working tree will not be modified.", flush=True)
+    run_git(root, ["fetch", "origin", "main"], timeout=180)
+    base_sha = run_git(root, ["rev-parse", "origin/main"])
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    branch = "agents/ollama/issue-%d-%s" % (issue_number, stamp)
+    worktree = application_data_dir() / "worktrees" / ("issue-%d-%s" % (issue_number, stamp))
+    worktree.parent.mkdir(parents=True, exist_ok=True)
+    run_git(root, ["worktree", "add", "-b", branch, str(worktree), "origin/main"], timeout=180)
+
+    result: dict[str, Any] = {
+        "kind": "issue_implementation",
+        "issue": issue_number,
+        "title": title,
+        "issue_url": issue.get("html_url"),
+        "domain_agent": domain,
+        "base_sha": base_sha,
+        "branch": branch,
+        "worktree": str(worktree),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "started",
+    }
+
+    try:
+        issue_context = (
+            "GitHub issue #%d: %s\nURL: %s\nLabels: %s\n\nIssue description:\n%s\n\n"
+            "Current base commit: %s\nAssigned domain specialist: %s\n\n"
+            "First inspect current source, related docs and callers. Identify already-implemented parts and exact gaps. "
+            "Produce a concrete plan with acceptance criteria and expected touched files. Do not edit."
+            % (
+                issue_number, title, issue.get("html_url", ""),
+                ", ".join(label.get("name", "") for label in issue.get("labels", [])),
+                body, base_sha, DOMAIN_GUIDANCE.get(domain, DOMAIN_GUIDANCE["general"]),
+            )
+        )
+        print("[PLAN] Read-only issue analysis...", flush=True)
+        plan = run_agent(
+            client=client,
+            settings=settings,
+            model=settings.planner_model,
+            system_prompt=system_prompt(worktree, "coordinator"),
+            user_prompt=issue_context,
+            root=worktree,
+            writable=False,
+        )
+        result["plan"] = plan
+        client.unload(settings.planner_model)
+
+        implementation_prompt = (
+            "Implement GitHub issue #%d in this isolated worktree.\n\nISSUE:\n%s\n\nDESCRIPTION:\n%s\n\n"
+            "APPROVED EXECUTION PLAN:\n%s\n\nDOMAIN OWNERSHIP:\n%s\n\n"
+            "You are authorized to edit files in this worktree without asking for confirmation. "
+            "Do not modify .vscode settings, secrets, Git metadata, or files outside the issue scope. "
+            "Do not push or merge. Inspect git status before editing and inspect the complete diff before finishing."
+            % (issue_number, title, body, plan, DOMAIN_GUIDANCE.get(domain, DOMAIN_GUIDANCE["general"]))
+        )
+        print("[IMPLEMENT] %s using %s..." % (domain, settings.implementer_model), flush=True)
+        implementation = run_agent(
+            client=client,
+            settings=settings,
+            model=settings.implementer_model,
+            system_prompt=system_prompt(worktree, "implementer") + "\n\nDomain owner: " + DOMAIN_GUIDANCE.get(domain, ""),
+            user_prompt=implementation_prompt,
+            root=worktree,
+            writable=True,
+            temperature=0.05,
+        )
+        result["implementation"] = implementation
+        client.unload(settings.implementer_model)
+
+        check = _static_check(worktree)
+        result["static_check"] = check
+        if "FAILED" in check:
+            result["status"] = "static_check_failed"
+            return result
+
+        print("[REVIEW] Independent read-only review...", flush=True)
+        review_text = run_agent(
+            client=client,
+            settings=settings,
+            model=settings.reviewer_model,
+            system_prompt=system_prompt(worktree, "reviewer"),
+            user_prompt=(
+                "Review the actual working tree for issue #%d.\nISSUE:\n%s\n\n"
+                "Approved plan:\n%s\n\nImplementation summary (untrusted; verify against files):\n%s\n\n"
+                "Static check result:\n%s\n\nInspect git status, git diff and affected files. Return the required JSON verdict only."
+                % (issue_number, body, plan, implementation, check)
+            ),
+            root=worktree,
+            writable=False,
+            temperature=0.0,
+        )
+        review = _parse_review(review_text)
+        result["review"] = review
+        client.unload(settings.reviewer_model)
+
+        if review["verdict"] == "REQUEST_CHANGES":
+            print("[CORRECT] One bounded correction pass from reviewer findings...", flush=True)
+            correction = run_agent(
+                client=client,
+                settings=settings,
+                model=settings.implementer_model,
+                system_prompt=system_prompt(worktree, "implementer") + "\n\nDomain owner: " + DOMAIN_GUIDANCE.get(domain, ""),
+                user_prompt=(
+                    "Address only the valid findings below for issue #%d. Re-read the affected source and verify each finding before editing. "
+                    "Do not broaden scope.\n\nReviewer findings:\n%s\n\nAfter corrections inspect the full diff and run static_check."
+                    % (issue_number, json.dumps(review.get("findings", []), indent=2))
+                ),
+                root=worktree,
+                writable=True,
+                temperature=0.05,
+            )
+            result["correction"] = correction
+            client.unload(settings.implementer_model)
+            result["static_check"] = _static_check(worktree)
+            if "FAILED" not in result["static_check"]:
+                review_text = run_agent(
+                    client=client,
+                    settings=settings,
+                    model=settings.reviewer_model,
+                    system_prompt=system_prompt(worktree, "reviewer"),
+                    user_prompt=(
+                        "Re-review issue #%d after one correction pass. Inspect the actual complete diff and files. "
+                        "Previous findings:\n%s\nCorrection summary:\n%s\nStatic check:\n%s\n"
+                        "Return the required JSON verdict only."
+                        % (issue_number, json.dumps(review.get("findings", []), indent=2), correction, result["static_check"])
+                    ),
+                    root=worktree,
+                    writable=False,
+                    temperature=0.0,
+                )
+                review = _parse_review(review_text)
+                result["review"] = review
+                client.unload(settings.reviewer_model)
+
+        if review["verdict"] != "APPROVE":
+            result["status"] = "review_blocked"
+            return result
+
+        diff = run_git(worktree, ["diff", "--stat"])
+        if not diff:
+            result["status"] = "no_changes"
+            return result
+        run_git(worktree, ["add", "-A"])
+        run_git(worktree, ["commit", "-m", "fix(issue #%d): %s" % (issue_number, _slug(title))], timeout=180)
+        result["commit"] = run_git(worktree, ["rev-parse", "HEAD"])
+        result["diff_stat"] = diff
+        result["status"] = "committed_local"
+        print("[DONE] Local commit created on %s. No push, PR, merge or issue closure was performed." % branch, flush=True)
+        return result
+    finally:
+        report_name = "issue-%d-%s" % (issue_number, stamp)
+        result_path = _save_report(report_name, result)
+        print("[REPORT] %s" % result_path, flush=True)
+        print("[WORKTREE] %s" % worktree, flush=True)
