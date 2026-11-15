@@ -191,8 +191,8 @@ def _slug(value: str) -> str:
 def _parse_review(text: str) -> dict[str, Any]:
     candidate = text.strip()
     if candidate.startswith("```"):
-        candidate = re.sub(r"^\`\`\`(?:json)?\s*", "", candidate)
-        candidate = re.sub(r"\s*\`\`\`$", "", candidate)
+        candidate = re.sub(r"^```(?:json)?\s*", "", candidate)
+        candidate = re.sub(r"\s*```$", "", candidate)
     start = candidate.find("{")
     end = candidate.rfind("}")
     if start < 0 or end <= start:
@@ -201,7 +201,7 @@ def _parse_review(text: str) -> dict[str, Any]:
         result = json.loads(candidate[start:end + 1])
     except json.JSONDecodeError as exc:
         raise WorkflowError("Reviewer returned malformed JSON. Changes were not committed.") from exc
-    if result.get("verdict") not in {"APPROVE", "REQUEST_CHANGES", "BLOCKED"}:
+    if not isinstance(result, dict) or result.get("verdict") not in {"APPROVE", "REQUEST_CHANGES", "BLOCKED"}:
         raise WorkflowError("Reviewer verdict is missing or invalid. Changes were not committed.")
     return result
 
