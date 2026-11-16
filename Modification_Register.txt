@@ -5302,16 +5302,18 @@ Correction:
   carriers, unsupported untyped FIBRE/LOGICAL routes and multiple directed
   physical paths produce unresolved/ambiguous diagnostics. No join by tag,
   label, list position, canvas geometry or proximity is used.
-- Added Application project/generation checks before resolving against active
-  wiring, MeasurementChannel, Control and Protection authorities.
+- Added Application project/generation checks under the Application execution
+  lock before resolving against active wiring, MeasurementChannel, Control and
+  Protection authorities.
 - Exported the detached resolution read model and resolver through
   core.application. No Qt/QGraphics or power-network topology dependency was
   introduced.
 
 Verification:
 - Added regression-test source for exact Control mapping/channel identity,
-  source-to-sink direction, sink mismatch, ambiguous parallel routes, and
-  CLOSED versus OPEN terminal accessory continuity.
+  source-to-sink direction, sink mismatch, incompatible channel type/phase/unit,
+  missing channel configuration, ambiguous parallel routes, and CLOSED versus
+  OPEN terminal accessory continuity.
 - Tests and CI were not run, as required. Full module imports, GUI/runtime,
   project save/reopen and cross-canvas interaction were not executed.
 - Static source review only. ui/core/qt.py is unchanged; no UI files or
