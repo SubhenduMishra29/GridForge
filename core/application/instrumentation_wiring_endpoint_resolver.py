@@ -63,6 +63,14 @@ def _source_terminal_identity(channel_configuration: Any) -> tuple[tuple[str, st
         return None, ("MeasurementChannel source-terminal identity is incomplete.",)
     if equipment_id != source_id:
         return None, ("MeasurementChannel source equipment and source-terminal owner identities disagree.",)
+    declared_equipment_type = getattr(channel_configuration, "source_equipment_type", None)
+    referenced_equipment_type = reference.get("equipment_type")
+    if (
+        declared_equipment_type is not None
+        and referenced_equipment_type is not None
+        and declared_equipment_type != referenced_equipment_type
+    ):
+        return None, ("MeasurementChannel source equipment type and terminal reference disagree.",)
     return (equipment_id, terminal_role, None), ()
 
 
@@ -137,10 +145,8 @@ def _resolve_physical_path(
     source, source_diagnostics = _source_terminal_identity(channel_configuration)
     if source_diagnostics:
         return "UNRESOLVED", source_diagnostics, ()
-    if sink_terminal is None or not callable(getattr(sink_terminal, "canonical_identity", None)):
-        # canonical_identity is a property on the Core reference, not a method.
-        if sink_terminal is None or not hasattr(sink_terminal, "canonical_identity"):
-            return "UNRESOLVED", ("Endpoint has no canonical physical sink-terminal identity.",), ()
+    if sink_terminal is None or not hasattr(sink_terminal, "canonical_identity"):
+        return "UNRESOLVED", ("Endpoint has no canonical physical sink-terminal identity.",), ()
     sink = sink_terminal.canonical_identity
 
     cores = {item.id: item for item in inventory.cores}
@@ -385,6 +391,7 @@ def resolve_signal_endpoint_bindings(
                     elif endpoint.port == "residual_current":
                         residual = getattr(element_configuration, "residual_current_input", None)
                         mode = getattr(residual, "mode", None) if residual is not None else None
+                        mode = getattr(mode, "value", mode)
                         if element_configuration.function_code not in {"50N", "51N"} or residual is None:
                             status = "UNRESOLVED"
                             diagnostics.append("Residual-current endpoint lacks its canonical 50N/51N source configuration.")
