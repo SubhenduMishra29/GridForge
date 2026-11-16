@@ -11,10 +11,6 @@ from collections import deque
 from typing import Any, Iterable, Mapping
 
 from core.application.read_models import SignalEndpointResolutionReadModel
-from core.application.services.instrumentation_receiver_compatibility import (
-    validate_control_mapping_binding,
-    validate_protection_receiver,
-)
 from core.model.instrument_wiring import (
     CarrierKind,
     InstrumentationWiringInventory,
@@ -290,6 +286,11 @@ def resolve_signal_endpoint_bindings(
     """
     if not isinstance(inventory, InstrumentationWiringInventory):
         raise TypeError("inventory must be an InstrumentationWiringInventory.")
+    from core.application.services.instrumentation_receiver_compatibility import (
+        validate_control_mapping_binding,
+        validate_protection_receiver,
+    )
+
     if not isinstance(project_id, str) or not project_id.strip():
         raise ValueError("project_id must be a non-empty string.")
     if isinstance(activation_generation, bool) or not isinstance(activation_generation, int) or activation_generation < 1:
@@ -336,7 +337,10 @@ def resolve_signal_endpoint_bindings(
             status = "UNRESOLVED"
             diagnostics.append(f"MeasurementChannel {channel_id!r} is not active in the project registry.")
         else:
-            diagnostics.extend(_channel_signal_diagnostics(signal, channel_configuration))
+            channel_diagnostics = _channel_signal_diagnostics(signal, channel_configuration)
+            if channel_diagnostics:
+                status = "UNRESOLVED"
+                diagnostics.extend(channel_diagnostics)
 
         if status == "RESOLVED" and endpoint.kind is SignalEndpointKind.CONTROL_INPUT:
             if control_signal_mapping is None:
