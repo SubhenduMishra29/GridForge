@@ -158,6 +158,54 @@ class InstrumentationWiringReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class SignalEndpointResolutionReadModel:
+    """Detached resolution status for one canonical signal-consumer endpoint."""
+
+    project_id: str
+    activation_generation: int
+    binding_id: str
+    signal_id: str
+    endpoint_kind: str
+    endpoint_id: str
+    owner_id: str
+    port: str
+    channel_id: str | None
+    status: str
+    diagnostics: tuple[str, ...] = ()
+    direction: str = "SOURCE_TO_SINK"
+    carrier_ids: tuple[str, ...] = ()
+    physical_sink_terminal: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("project_id", "binding_id", "signal_id", "endpoint_kind", "endpoint_id", "owner_id", "port"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if self.channel_id is not None and (not isinstance(self.channel_id, str) or not self.channel_id.strip()):
+            raise ValueError("channel_id must be a non-empty string or None.")
+        if self.status not in {"RESOLVED", "UNRESOLVED", "AMBIGUOUS"}:
+            raise ValueError("status must be RESOLVED, UNRESOLVED or AMBIGUOUS.")
+        direction = str(self.direction).strip().upper()
+        if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
+            raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
+        object.__setattr__(self, "direction", direction)
+        carrier_ids = tuple(self.carrier_ids)
+        if any(not isinstance(item, str) or not item.strip() for item in carrier_ids):
+            raise ValueError("carrier_ids must contain non-empty strings.")
+        if len(carrier_ids) != len(set(carrier_ids)):
+            raise ValueError("carrier_ids must be unique.")
+        object.__setattr__(self, "carrier_ids", carrier_ids)
+        object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+        if self.physical_sink_terminal is not None:
+            if not isinstance(self.physical_sink_terminal, Mapping):
+                raise TypeError("physical_sink_terminal must be a mapping or None.")
+            object.__setattr__(self, "physical_sink_terminal", _freeze(self.physical_sink_terminal))
+
+
+@dataclass(frozen=True, slots=True)
 class SimpleWireReadModel:
     """Immutable Application snapshot of one authoritative Simple Wire relationship."""
 
