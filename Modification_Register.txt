@@ -5269,3 +5269,59 @@ Verification boundary:
   open. Issue #1203 must remain open until its complete acceptance criteria
   are implemented and verified.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Active instrumentation signal endpoint resolution
+Date: 2026-11-16
+Repository: SubhenduMishra29/GridForge
+Branch: feat/instrumentation-signal-endpoint-domain-20261115
+Issue: #1203
+
+Correction:
+- Added a detached SignalEndpointResolutionReadModel scoped by project ID
+  and activation generation; it reports RESOLVED, UNRESOLVED or AMBIGUOUS
+  without exposing Core records or mutable project configuration.
+- Added a read-only Application resolver that uses the persisted
+  SignalDefinition.measurement_channel_id as the only MeasurementChannel
+  source association. MeasurementChannel configuration and live registry
+  reads remain separate authorities; no duplicate carrier/channel registry
+  was introduced.
+- Control endpoints require one exact active ControlSignalMapping destination,
+  the same persisted MeasurementChannel ID, the canonical measurement source
+  domain and compatible declared signal/phase/unit contracts.
+- Protection endpoints require the exact persisted ProtectionMeasurementBinding
+  ID, element identity, relay input and channel association. Residual-current
+  resolution fails closed for a three-phase composite because the current
+  one-signal/one-channel contract cannot represent its multiple phase sources.
+- Physical continuity is resolved from explicit cable-core and panel-wire
+  terminal paths using WiringTerminalReference.canonical_identity, including
+  terminal_point_id. Only explicitly declared CLOSED terminal-accessory pairs
+  bridge terminal points. OPEN, REMOVED and UNKNOWN accessories do not bridge.
+- Carrier direction is enforced. Missing source/sink terminals, disconnected
+  carriers, unsupported untyped FIBRE/LOGICAL routes and multiple directed
+  physical paths produce unresolved/ambiguous diagnostics. No join by tag,
+  label, list position, canvas geometry or proximity is used.
+- Added Application project/generation checks before resolving against active
+  wiring, MeasurementChannel, Control and Protection authorities.
+- Exported the detached resolution read model and resolver through
+  core.application. No Qt/QGraphics or power-network topology dependency was
+  introduced.
+
+Verification:
+- Added regression-test source for exact Control mapping/channel identity,
+  source-to-sink direction, sink mismatch, ambiguous parallel routes, and
+  CLOSED versus OPEN terminal accessory continuity.
+- Tests and CI were not run, as required. Full module imports, GUI/runtime,
+  project save/reopen and cross-canvas interaction were not executed.
+- Static source review only. ui/core/qt.py is unchanged; no UI files or
+  Core package exports were modified in this slice.
+
+Remaining issue #1203 scope:
+- SLD/Control/Protection provenance overlays, cross-canvas navigation and
+  highlighting, terminal-block SLD symbols/selection, schedules/export/sign-off,
+  CT/PT/RTD/thermocouple and shield/drain/armour/PE/communication safety
+  contracts, and full project save/reopen/GUI acceptance remain incomplete.
+- Keep #1203 open until the full parent acceptance criteria are implemented
+  and verified.
+======================================================================
