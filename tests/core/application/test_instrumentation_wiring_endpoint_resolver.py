@@ -286,3 +286,29 @@ def test_open_terminal_accessory_does_not_complete_physical_signal_path():
     result = _resolve(_split_route_inventory(TerminalAccessoryState.OPEN))
     assert result[0].status == "UNRESOLVED"
     assert any("discontinuous" in item for item in result[0].diagnostics)
+
+
+def test_control_endpoint_requires_active_measurement_channel_configuration():
+    result = _resolve(_base_inventory(), configurations=())
+    assert result[0].status == "UNRESOLVED"
+    assert any("not configured" in item for item in result[0].diagnostics)
+
+
+def test_signal_channel_type_phase_and_unit_contract_mismatch_fails_closed():
+    mismatched = SimpleNamespace(
+        channel_id="channel-1",
+        source_id="CT-101",
+        source_equipment_type="current_transformer",
+        source_terminal_reference={
+            "kind": "terminal",
+            "object_id": "CT-101",
+            "equipment_type": "current_transformer",
+            "terminal_role": "S1",
+        },
+        signal_type="VOLTAGE",
+        phase="B",
+        unit="kV",
+    )
+    result = _resolve(_base_inventory(), configurations=(mismatched,))
+    assert result[0].status == "UNRESOLVED"
+    assert len(result[0].diagnostics) >= 3
