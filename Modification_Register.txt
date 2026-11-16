@@ -5304,7 +5304,9 @@ Correction:
   label, list position, canvas geometry or proximity is used.
 - Added Application project/generation checks under the Application execution
   lock before resolving against active wiring, MeasurementChannel, Control and
-  Protection authorities.
+  Protection authorities. Control resolution is limited to the exact mapping
+  currently held by ControlCycleService; Protection resolution requires the
+  exact active runtime/configuration/network/generation composition.
 - Exported the detached resolution read model and resolver through
   core.application. No Qt/QGraphics or power-network topology dependency was
   introduced.
