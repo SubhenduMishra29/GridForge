@@ -5143,15 +5143,33 @@ class Application:
                 getattr(protection_service, "configuration", None)
                 if protection_service is not None else None
             )
-            if (
-                protection_configuration is not None
-                and getattr(protection_configuration, "project_id", None) != project_id
-            ):
-                raise RuntimeError("Protection configuration belongs to a different project.")
+            if protection_configuration is not None:
+                if getattr(protection_configuration, "project_id", None) != project_id:
+                    raise RuntimeError("Protection configuration belongs to a different project.")
+                protection_runtime = getattr(self, "protection_runtime", None)
+                if (
+                    protection_runtime is None
+                    or protection_runtime.configuration is not protection_configuration
+                    or protection_runtime.project_id != project_id
+                    or protection_runtime.activation_generation != generation
+                    or protection_runtime.network is not lifecycle.network
+                    or not protection_runtime.configuration_matches_composition
+                    or not protection_runtime.equipment_state_matches_composition
+                ):
+                    # A stale or uncomposed Protection runtime must not make
+                    # an endpoint appear active merely because its config ID matches.
+                    protection_configuration = None
 
             control_mapping = self.control_signal_mapping
-            if control_mapping is not None and self._control_service is not None:
-                if getattr(self._control_service.configuration, "project_id", None) != project_id:
+            if control_mapping is not None:
+                control_cycle = self._control_cycle
+                if (
+                    self._control_service is None
+                    or control_cycle is None
+                    or control_cycle.signal_mapping is not control_mapping
+                ):
+                    control_mapping = None
+                elif getattr(self._control_service.configuration, "project_id", None) != project_id:
                     raise RuntimeError("Control configuration belongs to a different project.")
 
             return resolve_signal_endpoint_bindings(
