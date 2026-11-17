@@ -1,3 +1,4 @@
+from dataclasses import replace
 from types import SimpleNamespace
 
 from core.application.control_signal_mapping import (
@@ -312,3 +313,82 @@ def test_signal_channel_type_phase_and_unit_contract_mismatch_fails_closed():
     result = _resolve(_base_inventory(), configurations=(mismatched,))
     assert result[0].status == "UNRESOLVED"
     assert len(result[0].diagnostics) >= 3
+
+
+def test_protective_earth_conductor_cannot_resolve_a_logical_signal():
+    base = _base_inventory()
+    earth_core = replace(base.cores[0], role=WiringConductorRole.PROTECTIVE_EARTH)
+    inventory = replace(base, cores=(earth_core,))
+
+    result = _resolve(inventory)
+
+    assert result[0].status == "UNRESOLVED"
+    assert any("not permitted to carry a logical signal" in item for item in result[0].diagnostics)
+
+
+def test_earth_link_accessory_does_not_complete_a_signal_path():
+    base = _split_route_inventory(TerminalAccessoryState.CLOSED)
+    earth_link = replace(base.terminal_accessories[0], kind=TerminalAccessoryKind.EARTH_LINK)
+    inventory = replace(base, terminal_accessories=(earth_link,))
+
+    result = _resolve(inventory)
+
+    assert result[0].status == "UNRESOLVED"
+    assert any("discontinuous" in item for item in result[0].diagnostics)
+
+
+def test_temperature_signal_uses_canonical_temperature_channel_type():
+    base = _base_inventory()
+    original_core = base.cores[0]
+    temperature_core = replace(
+        original_core,
+        terminal_path=(
+            WiringTerminalReference("RTD-101", "A", "A"),
+            *original_core.terminal_path[1:],
+        ),
+    )
+    temperature_signal = replace(
+        base.signals[0],
+        kind=SignalKind.TEMPERATURE,
+        unit="degC",
+        phase="NONE",
+    )
+    inventory = replace(base, cores=(temperature_core,), signals=(temperature_signal,))
+    configuration = SimpleNamespace(
+        channel_id="channel-1",
+        source_id="RTD-101",
+        source_equipment_type="rtd",
+        source_terminal_reference={
+            "kind": "terminal",
+            "object_id": "RTD-101",
+            "equipment_type": "rtd",
+            "terminal_role": "A",
+        },
+        signal_type="TEMPERATURE",
+        phase="NONE",
+        unit="degC",
+    )
+    mapping = ControlSignalMapping(bindings=(
+        ControlSignalBinding(
+            source=ControlSignalSource(
+                domain="measurement",
+                element_type="measurement_channel",
+                object_id="channel-1",
+                signal="value",
+            ),
+            destination=ControlSignalDestination(
+                control_id="control-1",
+                component_id="component-1",
+                input_name="PV",
+                expected_signal_types=("TEMPERATURE",),
+                expected_phases=("NONE",),
+                accepted_units=("degC",),
+            ),
+        ),
+    ))
+
+    result = _resolve(inventory, mapping=mapping, configurations=(configuration,))
+
+    assert result[0].status == "RESOLVED"
+    assert result[0].channel_id == "channel-1"
+    assert result[0].carrier_ids == ("core-1",)
