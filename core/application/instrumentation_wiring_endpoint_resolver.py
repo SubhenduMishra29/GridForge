@@ -16,7 +16,9 @@ from core.model.instrument_wiring import (
     InstrumentationWiringInventory,
     SignalEndpointKind,
     SignalKind,
+    TerminalAccessoryKind,
     TerminalAccessoryState,
+    WiringConductorRole,
 )
 
 
@@ -24,7 +26,16 @@ _SIGNAL_TO_MEASUREMENT_TYPE = {
     SignalKind.CURRENT: "CURRENT",
     SignalKind.VOLTAGE: "VOLTAGE",
     SignalKind.DIGITAL: "DIGITAL",
+    SignalKind.TEMPERATURE: "TEMPERATURE",
 }
+
+_SIGNAL_CONTINUITY_ACCESSORY_KINDS = frozenset({
+    TerminalAccessoryKind.FIXED_LINK,
+    TerminalAccessoryKind.TEST_DISCONNECT,
+    TerminalAccessoryKind.SHORTING_LINK,
+    TerminalAccessoryKind.FUSE_LINK,
+    TerminalAccessoryKind.ISOLATING_LINK,
+})
 
 
 def _index_by_channel_id(values: Iterable[Any] | None, label: str) -> dict[str, Any] | None:
@@ -182,6 +193,17 @@ def _resolve_physical_path(
         if carrier is None:
             diagnostics.append(f"Bound physical carrier {binding.carrier_id!r} is missing.")
             continue
+        role = getattr(getattr(carrier, "role", None), "value", getattr(carrier, "role", None))
+        if role not in {
+            WiringConductorRole.SIGNAL.value,
+            WiringConductorRole.RETURN.value,
+            WiringConductorRole.COMMUNICATION.value,
+        }:
+            diagnostics.append(
+                f"Bound carrier {carrier.id!r} has conductor role {role!r}, "
+                "which is not permitted to carry a logical signal."
+            )
+            continue
         path = tuple(item.canonical_identity for item in carrier.terminal_path)
         if len(path) < 2:
             diagnostics.append(f"Physical carrier {carrier.id!r} has no complete terminal-to-terminal path.")
@@ -203,7 +225,12 @@ def _resolve_physical_path(
 
     terminal_points = {item.id: item for item in inventory.terminal_points}
     for accessory in inventory.terminal_accessories:
-        if accessory.state is not TerminalAccessoryState.CLOSED:
+        if (
+            accessory.state is not TerminalAccessoryState.CLOSED
+            or accessory.kind not in _SIGNAL_CONTINUITY_ACCESSORY_KINDS
+        ):
+            # Earth links and unclassified accessories are not series signal
+            # continuity. Only declared, closed, signal-path link types bridge.
             continue
         for first_id, second_id in accessory.active_conductive_pairs:
             first_point = terminal_points.get(first_id)
