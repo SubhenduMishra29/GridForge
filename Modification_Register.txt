@@ -5329,3 +5329,46 @@ Remaining issue #1203 scope:
 - Keep #1203 open until the full parent acceptance criteria are implemented
   and verified.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Signal endpoint continuity role and accessory safety guard
+Date: 2026-11-17
+Repository: SubhenduMishra29/GridForge
+PR: #1225
+Issue: #1203
+
+Audit finding:
+- The first endpoint resolver version accepted any bound CableCore/PanelWire
+  role as a logical signal path. This could incorrectly treat PE, screen,
+  drain, armour, spare, reserved or supply conductors as signal continuity.
+- It also treated every CLOSED terminal accessory bridge as signal continuity,
+  including EARTH_LINK and unclassified OTHER accessories.
+- The temperature MeasurementSignalType already exists in Core, but the
+  instrumentation receiver compatibility map did not map SignalKind.TEMPERATURE.
+
+Correction:
+- Restrict logical signal carrier continuity to SIGNAL, RETURN and
+  COMMUNICATION conductor roles, consistent with the existing
+  TemperatureInstrument physical-continuity contract.
+- Only explicitly declared CLOSED FIXED_LINK, TEST_DISCONNECT, SHORTING_LINK,
+  FUSE_LINK and ISOLATING_LINK accessory pairs may bridge a signal path.
+  EARTH_LINK and OTHER do not establish series signal continuity.
+- Map SignalKind.TEMPERATURE to the existing MeasurementSignalType.TEMPERATURE
+  in both endpoint resolution and Control/Protection receiver compatibility.
+- Added regression-test source for PE rejection, earth-link rejection and an
+  explicitly phased temperature MeasurementChannel-to-Control route.
+
+Architecture:
+- Core remains the authority for conductor/accessory identity.
+- Application owns endpoint resolution and receiver compatibility.
+- No Qt/QGraphics dependency, duplicate MeasurementChannel registry or
+  power-network topology mutation was introduced.
+- No inferred conductor or accessory properties were added.
+
+Verification boundary:
+- Source and regression-test changes are committed in PR #1225.
+- Tests/CI, full imports, GUI/runtime and project save/reopen were not run.
+- Issue #1203 remains open because cross-canvas provenance, schedules,
+  remaining instrument safety contracts and end-to-end acceptance are pending.
+======================================================================
