@@ -5511,3 +5511,24 @@ Verification boundary:
 - Issue #880 remains open for atomic multi-draft/mixed-owner lifecycle support
   and manual GUI acceptance.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Atomic Mixed-Owner SLD Selection Movement
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #880
+Branch: fix/issue-880-atomic-mixed-move
+
+Correction:
+- Added MoveSelectionBatchCommand as one document-scoped Application command.
+- Application composition preflights every Core SLD node and DraftNetwork equipment identity, validates document ownership and finite draft placements, then executes child commands under one shared transaction.
+- SelectTool now submits Core node positions and all selected DraftNetwork placement updates in one aggregate command whenever a selection contains draft equipment.
+- Core-only group movement retains SetSLDNodePositionsCommand.
+- Failed identity/placement preflight occurs before child mutation; child undo operations share the outer transaction journal.
+
+Verification boundary:
+- Source and command composition were statically inspected after edits.
+- No tests, CI, imports, syntax execution, Qt GUI interaction, undo/redo, or save/reopen checks were run.
+- Issue #880 remains open pending runtime acceptance and any additional selection lifecycle findings.
+======================================================================
