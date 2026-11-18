@@ -54,7 +54,7 @@ class ProtectionElementCycleStatus(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ProtectionElementCycleOutcome:
-    """Immutable pre-evaluation status for one enabled Protection element."""
+    """Immutable per-element outcome across validation, evaluation and dispatch."""
 
     element_id: str
     relay_id: str | None
