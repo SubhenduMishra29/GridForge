@@ -46,6 +46,19 @@ class ToolSettingDefinition:
             raise ValueError("step must be finite and positive.")
         self.validate(self.default)
 
+        for name in ("minimum", "maximum", "step"):
+            bound = getattr(self, name)
+            if bound is not None:
+                if self.value_type not in {"int", "float"}:
+                    raise ValueError(f"{name} is valid only for numeric settings.")
+                if isinstance(bound, bool) or not isinstance(bound, (int, float)) or not math.isfinite(float(bound)):
+                    raise ValueError(f"{name} must be a finite number.")
+        if self.value_type == "int" and any(
+            isinstance(getattr(self, name), float) and not float(getattr(self, name)).is_integer()
+            for name in ("minimum", "maximum", "step") if getattr(self, name) is not None
+        ):
+            raise ValueError("integer setting bounds and step must be whole numbers.")
+
     def validate(self, value: Any) -> Any:
         """Return a normalized value or raise a precise validation error."""
         if self.value_type == "bool":
@@ -74,6 +87,18 @@ class ToolSettingDefinition:
             raise ValueError(f"{self.label} must be at most {self.maximum}.")
         return normalized
 
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "value_type": self.value_type,
+            "default": self.default,
+            "editable": self.editable,
+            "unit": self.unit,
+            "choices": self.choices,
+            "minimum": self.minimum,
+            "maximum": self.maximum,
+            "step": self.step,
+        }
 
 @dataclass(frozen=True, slots=True)
 class ToolSettings:
