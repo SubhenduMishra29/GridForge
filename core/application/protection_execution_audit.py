@@ -486,7 +486,7 @@ class ProtectionExecutionAuditStore:
                 relay_id=getattr(element_outcome, "relay_id", None),
                 element_id=element_id,
                 function_code=getattr(element_outcome, "function_code", None),
-                status=self._identity(getattr(element_outcome, "status", None)),
+                status=self._identity(getattr(getattr(element_outcome, "status", None), "value", getattr(element_outcome, "status", None))),
             ))
         for outcome in outcomes:
             payload = self._outcome_payload(outcome)
