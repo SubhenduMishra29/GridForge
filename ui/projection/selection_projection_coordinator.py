@@ -243,6 +243,45 @@ class SelectionProjectionCoordinator:
             self._set_panel_target(state)
             return
 
+        draft_connection = self._read_selected_draft_connection(object_id)
+        if draft_connection is not None:
+            route_data = draft_connection.get("route", {})
+            if isinstance(route_data, Mapping):
+                route_points = tuple(route_data.get("points", ()))
+                route_ownership = route_data.get("ownership")
+            elif isinstance(route_data, (tuple, list)):
+                route_points = tuple(route_data)
+                route_ownership = None
+            else:
+                route_points = ()
+                route_ownership = None
+            connection_id = str(draft_connection["connection_id"])
+            self._set_panel_target(
+                ProjectionState(
+                    object_id=connection_id,
+                    display_type=str(
+                        draft_connection.get("connection_kind", "simple_wire")
+                    ).upper(),
+                    labels=(connection_id, "Draft connection"),
+                    status="draft",
+                    identity_kind="draft_connection",
+                    presentation_id=connection_id,
+                    connection_kind=str(
+                        draft_connection.get("connection_kind", "simple_wire")
+                    ),
+                    route_ownership=route_ownership,
+                    route_points=route_points,
+                    endpoint_references={
+                        "source": dict(draft_connection.get("source", {})),
+                        "target": dict(draft_connection.get("target", {})),
+                    },
+                    validation_state=dict(
+                        draft_connection.get("validation_state", {})
+                    ),
+                )
+            )
+            return
+
         element = self._read_selected_element(object_id)
         if element is None:
             # A committed Core object can disappear during undo. Do not leave
@@ -459,6 +498,24 @@ class SelectionProjectionCoordinator:
             endpoint_references=dict(item.get("endpoints", {})),
             validation_state=dict(item.get("validation_state", {})),
         )
+
+    def _read_selected_draft_connection(self, object_id: Any) -> Mapping[str, Any] | None:
+        """Resolve a selected DraftNetwork connection without inventing Core identity."""
+        if self.application is None or not isinstance(object_id, str):
+            return None
+        try:
+            snapshot = self.application.read_draft_network()
+        except (RuntimeError, TypeError, ValueError):
+            return None
+        if not isinstance(snapshot, Mapping):
+            return None
+        matches = tuple(
+            item
+            for item in snapshot.get("connections", ())
+            if isinstance(item, Mapping)
+            and str(item.get("connection_id", "")) == object_id
+        )
+        return matches[0] if len(matches) == 1 else None
 
     def _read_selected_simple_wire(self, object_id: Any) -> Any | None:
         if self.application is None or not isinstance(object_id, str):

@@ -5410,3 +5410,46 @@ Verification boundary:
   settings dataclasses; full UI mapping runtime coverage remains pending.
 - Issue #1196 remains open pending PR review and verification.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Draft SLD connection selection and inspector projection
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #880
+
+Correction:
+- SelectTool now selects a DraftNetwork Simple Wire by its explicit
+  draft_connection_id, while committed Simple Wires continue to use their
+  Core connection identity. No Core ID is fabricated for draft connections.
+- SelectionProjectionCoordinator resolves a selected draft connection from
+  the Application DraftNetwork read model and projects a typed
+  draft_connection Inspector state with its endpoints, route and validation
+  metadata. It no longer treats the draft wire as an unknown object and clear
+  the selection.
+- SLDCanvasRenderSystem restores the canonical CONNECTION-domain selection
+  after a draft connection is re-realized, preserving selection through
+  incremental snapshot refreshes.
+- Existing SLDController.delete_selection() already dispatches selected draft
+  connection identities to RemoveDraftConnectionCommand in the active document
+  transaction; this correction activates that existing path from canvas input.
+- Draft/Core identities and ownership remain separate. Mixed node/wire batch
+  movement is not claimed by this slice and remains open under #880.
+
+Verification boundary:
+- Static source review and fetch-back only. No tests, CI, imports, syntax
+  execution or Qt GUI interaction was run. Manual acceptance still needs to
+  select, inspect, edit route, delete and undo a draft wire, then confirm that
+  committed Core wire selection and deletion are unchanged.
+- Issue #880 remains open pending the remaining mixed-selection movement
+  correction and GUI acceptance.
+======================================================================
+
+
+Supplemental correction for the Draft SLD connection selection slice:
+- SelectionManager now refreshes custom connection pens immediately after
+  projecting the selected flag, so a selected wire receives visible feedback.
+- SLDConnectionItem preserves its draft-preview visual state while idle but
+  promotes it to selected styling when the canonical SelectionManager selects
+  that draft connection. This also refreshes committed connection selection
+  styling consistently.

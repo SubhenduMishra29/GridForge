@@ -98,10 +98,12 @@ class SelectTool(ToolBase):
             return True
 
         if self._pressed_hit.kind == CanvasHitKind.SIMPLE_WIRE_SEGMENT:
-            core_connection_id = self._pressed_hit.core_connection_id
-            if core_connection_id is not None:
-                self._handle_connection_click(core_connection_id, modifiers)
-            if core_connection_id is not None or self._pressed_hit.draft_connection_id is not None:
+            connection_selection_id = (
+                self._pressed_hit.core_connection_id
+                or self._pressed_hit.draft_connection_id
+            )
+            if connection_selection_id is not None:
+                self._handle_connection_click(connection_selection_id, modifiers)
                 self._capture_route_edit_target(self._pressed_hit)
             return True
 
@@ -790,7 +792,7 @@ class SelectTool(ToolBase):
     @staticmethod
     def _selection_object_id(hit: CanvasHitTarget, event: Any) -> Any:
         if hit.kind in {CanvasHitKind.CONNECTION, CanvasHitKind.SIMPLE_WIRE_SEGMENT}:
-            return hit.core_connection_id
+            return hit.core_connection_id or hit.draft_connection_id
         if hit.kind == CanvasHitKind.NODE:
             return hit.object_id
         return SelectTool._event_object_id(event)

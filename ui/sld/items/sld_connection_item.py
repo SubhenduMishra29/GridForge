@@ -132,6 +132,10 @@ class SLDConnectionItem(QGraphicsPathItem):
         state = self._visual_state
         if state in {VisualState.NORMAL, VisualState.HOVER}:
             state = VisualState.SELECTED if self.isSelected() else (VisualState.HOVER if self.isUnderMouse() else VisualState.NORMAL)
+        elif state == VisualState.PREVIEW and self.isSelected():
+            # Draft wires retain their preview identity when idle, but explicit
+            # selection must remain visible in the canvas.
+            state = VisualState.SELECTED
         self.setPen(visual_pen(role, state, width=2.0))
 
     def hoverEnterEvent(self, event) -> None:
