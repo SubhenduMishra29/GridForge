@@ -1830,6 +1830,15 @@ class Application:
                     configuration_revision=int(runtime.configuration.revision),
                     evaluation_time=float(evaluation_time),
                     timestamp_domain=str(evaluation_time_domain),
+                    failure_category=(
+                        "directional_coherence"
+                        if any(
+                            token in message.lower()
+                            for message in element_diagnostics
+                            for token in ("phase", "timestamps differ", "phasor", "directional snapshot", "zero-magnitude")
+                        )
+                        else "measurement_input" if element_diagnostics else "cycle_integrity"
+                    ),
                 ))
             return ProtectionExecutionResult(
                 diagnostics=tuple(diagnostics),
@@ -2328,6 +2337,7 @@ class Application:
                 configuration_revision=int(runtime.configuration.revision),
                 evaluation_time=float(evaluation_time),
                 timestamp_domain=str(evaluation_time_domain),
+                failure_category=("dispatch" if status in {ProtectionElementCycleStatus.DISPATCH_BLOCKED, ProtectionElementCycleStatus.DISPATCH_FAILED} else "none"),
             ))
         return replace(
             execution_result,
