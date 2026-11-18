@@ -28,7 +28,7 @@ class Controller(QObject):
     reset_requested = Signal()
 
     _SIGNAL_NAMES = frozenset(
-        {"tool_changed", "state_changed", "project_changed", "reset_requested"}
+        {"tool_changed", "tool_settings_changed", "state_changed", "project_changed", "reset_requested"}
     )
 
     def __init__(
