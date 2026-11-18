@@ -5532,3 +5532,30 @@ Verification boundary:
 - No tests, CI, imports, syntax execution, Qt GUI interaction, undo/redo, or save/reopen checks were run.
 - Issue #880 remains open pending runtime acceptance and any additional selection lifecycle findings.
 ======================================================================
+
+======================================================================
+GridForge V2 — Canonical multi-terminal read-model connectivity ordering
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #809
+Branch: fix/issue-809-canonical-terminal-order-20261118
+
+Correction:
+- NetworkReadService._connectivity() now sorts and de-duplicates terminal
+  identity references for equipment with a terminal collection.
+- Terminal connectivity records are sorted by stable terminal role and
+  endpoint identity while preserving duplicate records/multiplicity.
+- Legacy branch endpoint ordering (from -> to) remains unchanged because
+  that ordering is semantically directional.
+- Added a regression case that permutes a four-terminal equipment collection
+  and verifies identical read-model connectivity and structural fingerprints.
+
+Verification boundary:
+- Source changes and regression coverage are committed on the correction
+  branch. Static review/fetch-back and PR review remain pending.
+- No tests, CI, imports, syntax execution, application startup, GUI, or
+  runtime hash experiment were run.
+- Issue #809 remains open pending merge and equivalent-snapshot/runtime
+  verification of the canonical fingerprint behavior.
+======================================================================
+

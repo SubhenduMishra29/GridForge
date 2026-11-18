@@ -505,16 +505,44 @@ class NetworkReadService(ReadService):
 
     @staticmethod
     def _connectivity(model: Any) -> tuple[tuple[str, ...], tuple[tuple[str, str | None], ...]]:
-        refs: list[str] = []; terminal_connectivity: list[tuple[str, str | None]] = []; terminals = getattr(model, "terminals", None)
+        refs: list[str] = []
+        terminal_connectivity: list[tuple[str, str | None]] = []
+        terminals = getattr(model, "terminals", None)
         if terminals is not None:
             for terminal in terminals:
-                role = getattr(terminal, "role", None); terminal_id = getattr(terminal, "id", None); endpoint = getattr(terminal, "endpoint", None); endpoint_id = getattr(endpoint, "id", None)
-                if terminal_id is not None: refs.append(str(terminal_id))
-                if role is not None: terminal_connectivity.append((str(role), None if endpoint_id is None else str(endpoint_id)))
-            return tuple(dict.fromkeys(refs)), tuple(terminal_connectivity)
+                role = getattr(terminal, "role", None)
+                terminal_id = getattr(terminal, "id", None)
+                endpoint = getattr(terminal, "endpoint", None)
+                endpoint_id = getattr(endpoint, "id", None)
+                if terminal_id is not None:
+                    refs.append(str(terminal_id))
+                if role is not None:
+                    terminal_connectivity.append(
+                        (str(role), None if endpoint_id is None else str(endpoint_id))
+                    )
+            # Collection order is not electrical identity. Canonicalize both
+            # projections so equivalent multi-terminal equipment yields the
+            # same read model and structural fingerprint regardless of the
+            # Core terminal container's iteration order. Keep duplicate
+            # role/endpoint records: multiplicity can itself be meaningful.
+            canonical_refs = tuple(sorted(set(refs)))
+            canonical_terminal_connectivity = tuple(
+                sorted(
+                    terminal_connectivity,
+                    key=lambda item: (
+                        item[0],
+                        item[1] is not None,
+                        item[1] or "",
+                    ),
+                )
+            )
+            return canonical_refs, canonical_terminal_connectivity
         for attribute in ("from_terminal", "to_terminal", "terminal"):
-            value = getattr(model, attribute, None); value_id = getattr(value, "id", None) if value is not None else None
-            if value_id is not None: refs.append(str(value_id))
+            value = getattr(model, attribute, None)
+            value_id = getattr(value, "id", None) if value is not None else None
+            if value_id is not None:
+                refs.append(str(value_id))
+        # Branch endpoint order is semantic (from -> to), so retain it.
         return tuple(dict.fromkeys(refs)), ()
     @staticmethod
     def _branch_endpoint_ids(model: Any) -> tuple[str | None, str | None]:
