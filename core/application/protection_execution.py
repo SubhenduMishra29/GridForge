@@ -42,6 +42,47 @@ class PostconditionStatus(str, Enum):
     UNAVAILABLE_UNSUPPORTED = "unavailable/unsupported"
 
 
+class ProtectionElementCycleStatus(str, Enum):
+    INPUT_INVALID = "input_invalid"
+    READY_NOT_EVALUATED_CYCLE_ABORTED = "ready_not_evaluated_cycle_aborted"
+
+
+@dataclass(frozen=True, slots=True)
+class ProtectionElementCycleOutcome:
+    """Immutable pre-evaluation status for one enabled Protection element."""
+
+    element_id: str
+    relay_id: str | None
+    function_code: str
+    status: ProtectionElementCycleStatus
+    diagnostics: tuple[str, ...]
+    cycle_abort_reason: str
+    project_id: str
+    activation_generation: int
+    configuration_revision: int
+    evaluation_time: float
+    timestamp_domain: str
+
+    def __post_init__(self) -> None:
+        for name in ("element_id", "function_code", "cycle_abort_reason", "project_id", "timestamp_domain"):
+            if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+        if self.relay_id is not None and (not isinstance(self.relay_id, str) or not self.relay_id.strip()):
+            raise ValueError("relay_id must be a non-empty string or None.")
+        if not isinstance(self.status, ProtectionElementCycleStatus):
+            object.__setattr__(self, "status", ProtectionElementCycleStatus(self.status))
+        values = tuple(self.diagnostics)
+        if any(not isinstance(value, str) or not value for value in values):
+            raise ValueError("diagnostics must contain non-empty strings.")
+        object.__setattr__(self, "diagnostics", values)
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if isinstance(self.configuration_revision, bool) or not isinstance(self.configuration_revision, int) or self.configuration_revision < 0:
+            raise ValueError("configuration_revision must be a non-negative integer.")
+        if isinstance(self.evaluation_time, bool) or not isinstance(self.evaluation_time, (int, float)) or not math.isfinite(self.evaluation_time):
+            raise ValueError("evaluation_time must be finite.")
+
+
 @dataclass(frozen=True, slots=True)
 class ProtectionPostconditionVerification:
     """Typed Core-state postcondition correlated to one dispatched command.
@@ -121,6 +162,7 @@ class ProtectionExecutionResult:
     application_results: tuple[ApplicationResult, ...] = ()
     diagnostics: tuple[str, ...] = ()
     outcomes: tuple[ProtectionActionOutcome, ...] = ()
+    element_cycle_outcomes: tuple[ProtectionElementCycleOutcome, ...] = ()
     cycle_id: str | None = None
     audit_persistence_status: str = "not_configured"
 
@@ -131,6 +173,7 @@ class ProtectionExecutionResult:
             ("commands", Command),
             ("application_results", ApplicationResult),
             ("outcomes", ProtectionActionOutcome),
+            ("element_cycle_outcomes", ProtectionElementCycleOutcome),
         )
         for name, expected_type in sequence_fields:
             values = getattr(self, name)
