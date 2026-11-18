@@ -120,7 +120,10 @@ class ToolDefinition:
             "supported_modes": self.supported_modes,
             "default_mode": self.default_mode,
             "shortcuts": self.shortcuts,
-            "settings": dict(self.settings),
+            "settings": {
+                key: definition.to_dict()
+                for key, definition in self.settings.items()
+            },
             "applicability": dict(self.applicability),
             "category": self.category,
             "metadata": dict(self.metadata),
