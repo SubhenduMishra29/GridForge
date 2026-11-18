@@ -2100,8 +2100,40 @@ class Application:
         for element in runtime.configuration.elements:
             if element.enabled and str(element.function_code).strip().upper() == "67":
                 if element.element_id not in directional_snapshots:
+                    diagnostic = (
+                        f"project={project.project_id!r}, element={element.element_id!r}: "
+                        "authoritative directional phasor snapshot is unavailable."
+                    )
+                    cycle_abort_reason = "Protection cycle rejected because a required directional snapshot is unavailable."
+                    outcomes = tuple(
+                        ProtectionElementCycleOutcome(
+                            element_id=str(candidate.element_id),
+                            relay_id=str(candidate.relay_id) if getattr(candidate, "relay_id", None) is not None else None,
+                            function_code=str(candidate.function_code),
+                            status=(
+                                ProtectionElementCycleStatus.INPUT_INVALID
+                                if str(candidate.element_id) == str(element.element_id)
+                                else ProtectionElementCycleStatus.READY_NOT_EVALUATED_CYCLE_ABORTED
+                            ),
+                            diagnostics=(diagnostic,) if str(candidate.element_id) == str(element.element_id) else (),
+                            cycle_abort_reason=cycle_abort_reason,
+                            project_id=str(project.project_id),
+                            activation_generation=int(lifecycle.activation_generation),
+                            configuration_revision=int(runtime.configuration.revision),
+                            evaluation_time=float(evaluation_time),
+                            timestamp_domain=str(evaluation_time_domain),
+                            failure_category=(
+                                "directional_coherence"
+                                if str(candidate.element_id) == str(element.element_id)
+                                else "cycle_integrity"
+                            ),
+                        )
+                        for candidate in runtime.configuration.elements if candidate.enabled
+                    )
                     return ProtectionExecutionResult(
-                        diagnostics=(f"project={project.project_id!r}, element={element.element_id!r}: authoritative directional phasor snapshot is unavailable.",)
+                        diagnostics=(diagnostic,),
+                        element_cycle_outcomes=outcomes,
+                        cycle_id=audit_cycle_id,
                     )
         if directional_snapshots:
             context_metadata["directional_measurement_snapshots_by_element"] = directional_snapshots
