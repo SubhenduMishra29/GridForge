@@ -1427,11 +1427,32 @@ class Application:
                 "Protection runtime configuration is not the exact active Application configuration."
             )
         if not runtime.configuration_matches_composition or not runtime.equipment_state_matches_composition:
-            return ProtectionExecutionResult(
-                diagnostics=(
-                    f"project={project.project_id!r}: protection configuration or CT/CVT/PT/Relay equipment state changed after runtime "
-                    "composition; runtime is stale and evaluation was refused.",
+            diagnostic = (
+                f"project={project.project_id!r}: protection configuration or CT/CVT/PT/Relay equipment state changed after runtime "
+                "composition; runtime is stale and evaluation was refused."
+            )
+            cycle_abort_reason = "Protection runtime composition is stale; no element was evaluated."
+            stale_outcomes = tuple(
+                ProtectionElementCycleOutcome(
+                    element_id=str(element.element_id),
+                    relay_id=str(element.relay_id) if getattr(element, "relay_id", None) is not None else None,
+                    function_code=str(element.function_code),
+                    status=ProtectionElementCycleStatus.READY_NOT_EVALUATED_CYCLE_ABORTED,
+                    diagnostics=(),
+                    cycle_abort_reason=cycle_abort_reason,
+                    project_id=str(project.project_id),
+                    activation_generation=int(lifecycle.activation_generation),
+                    configuration_revision=int(runtime.configuration.revision),
+                    evaluation_time=float(evaluation_time),
+                    timestamp_domain=str(evaluation_time_domain),
+                    failure_category="cycle_integrity",
                 )
+                for element in runtime.configuration.elements if element.enabled
+            )
+            return ProtectionExecutionResult(
+                diagnostics=(diagnostic,),
+                element_cycle_outcomes=stale_outcomes,
+                cycle_id=audit_cycle_id,
             )
         if runtime.configuration.project_id != project.project_id:
             raise RuntimeError("Protection runtime project identity does not match the active project.")
@@ -1738,7 +1759,9 @@ class Application:
             any(element.enabled and str(element.function_code).strip().upper() == "67" for element in runtime.configuration.elements)
             and getattr(self, "protection_runtime", None) is not runtime
         ):
-            return ProtectionExecutionResult(diagnostics=("Directional snapshot issuance refused: ProtectionRuntime is not the active Application runtime.",))
+            diagnostics.append(
+                f"project={project.project_id!r}: directional snapshot issuance refused because ProtectionRuntime is not the active Application runtime."
+            )
         directional_snapshots: dict[str, Any] = {}
         for element in runtime.configuration.elements:
             if not element.enabled or str(element.function_code).strip().upper() != "67":
