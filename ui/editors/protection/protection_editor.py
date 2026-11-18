@@ -144,6 +144,12 @@ class ProtectionEditor(QWidget):
         if bottom.height() > 0 and diagnostics_height is not None and status_height is not None:
             bottom.setSizes([diagnostics_height, status_height])
 
+    def set_tool_settings_update_handler(self, handler) -> None:
+        """Bind the canonical UI/controller update route for contextual settings."""
+        setter = getattr(self._tool_settings, "set_update_handler", None)
+        if callable(setter):
+            setter(handler)
+
     def set_editor_context(self, context: object | None) -> None:
         self._editor_context = context
         self._tool_shelf.refresh_runtime_state()
