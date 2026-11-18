@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Mapping
+
+from ui.tools.tool_settings import ToolSettingDefinition
 
 
 # Explicit, Qt-independent icon policy for tools that use interaction glyphs
@@ -95,6 +98,12 @@ class ToolDefinition:
             if not isinstance(value, Mapping):
                 raise TypeError(f"{name} must be a mapping.")
             object.__setattr__(self, name, dict(value))
+        if any(
+            not isinstance(key, str) or not key.strip() or not isinstance(definition, ToolSettingDefinition)
+            for key, definition in self.settings.items()
+        ):
+            raise TypeError("settings must map setting IDs to ToolSettingDefinition values.")
+        object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
 
     def supports_editor(self, editor_type: str) -> bool:
         return not self.editor_types or editor_type in self.editor_types
@@ -113,7 +122,10 @@ class ToolDefinition:
             "supported_modes": self.supported_modes,
             "default_mode": self.default_mode,
             "shortcuts": self.shortcuts,
-            "settings": dict(self.settings),
+            "settings": {
+                key: definition.to_dict()
+                for key, definition in self.settings.items()
+            },
             "applicability": dict(self.applicability),
             "category": self.category,
             "metadata": dict(self.metadata),

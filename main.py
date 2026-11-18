@@ -309,6 +309,10 @@ def _build_application_impl(
         tool_manager.get_tool_ids(),
         editor_type="sld",
     )
+    for tool_definition in sld_tool_definitions:
+        tool_manager.register_tool_settings(
+            ToolSettings(tool_definition.tool_id, definitions=tool_definition.settings)
+        )
     control_tool_definitions = control_workspace.tool_definitions
     protection_tool_definitions = ProtectionInteractionController.TOOL_DEFINITIONS
     study_tool_runtime = StudyToolRuntime(application=gridforge_application)
@@ -347,6 +351,12 @@ def _build_application_impl(
             "control": lambda: control_workspace.active_tool_id,
             "protection": lambda: protection_workspace.active_tool_id,
             "study": lambda: study_tool_runtime.active_tool_id,
+        },
+        tool_settings_updaters={
+            "sld": controller.update_tool_settings,
+        },
+        tool_settings_providers={
+            "sld": lambda tool_id: tool_manager.get_tool_settings(tool_id),
         },
         icon_provider=_tool_icon,
         study_runtime=study_tool_runtime,
@@ -414,7 +424,14 @@ def _build_application_impl(
                     mode = ToolMode(definition.default_mode)
                 except ValueError:
                     mode = ToolMode.IDLE
-            settings = ToolSettings(definition.tool_id, values=definition.settings)
+            settings = (
+                tool_manager.get_tool_settings(definition.tool_id)
+                if editor_type == "sld"
+                else None
+            ) or ToolSettings(
+                definition.tool_id,
+                definitions=definition.settings,
+            )
         from ui.workspace.engineering_context import EditorContext
         region = next((item for item in getattr(editor, "regions", ()) if item.region_id == region_id), None)
         return EditorContext(
@@ -1868,6 +1885,7 @@ def _build_application_impl(
         # change overwrite the active Control/Protection/Study tool context.
         if engineering_context.current.discipline == "sld":
             engineering_context.update(active_tool=current)
+            workspace_realizer.refresh_active_context()
         workspace_surface_host.refresh_tool_shelves()
 
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):

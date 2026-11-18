@@ -43,6 +43,8 @@ class ControlSurfaceHost(QWidget):
         action_router: UIActionRouter | None = None,
         tool_activators: Mapping[str, Any] | None = None,
         tool_active_providers: Mapping[str, Any] | None = None,
+        tool_settings_updaters: Mapping[str, Any] | None = None,
+        tool_settings_providers: Mapping[str, Any] | None = None,
         icon_provider: Any | None = None,
         study_runtime: Any | None = None,
         parent: QWidget | None = None,
@@ -64,6 +66,7 @@ class ControlSurfaceHost(QWidget):
         if tool_activator is not None:
             activators.setdefault("sld", tool_activator)
         providers = dict(tool_active_providers or {})
+        self._tool_settings_providers = dict(tool_settings_providers or {})
         self._application = application
         self._study_runtime = study_runtime
         self._study_reports_view: ReportsWorkspaceView | None = None
@@ -147,6 +150,17 @@ class ControlSurfaceHost(QWidget):
                 parent=self._host,
             ),
         )
+
+        editor_ids = {
+            "sld": "sld-editor", "control": "control-editor",
+            "protection": "protection-editor", "study": "study-editor",
+        }
+        for editor_type, handler in dict(tool_settings_updaters or {}).items():
+            editor = self._host.widget(editor_ids.get(editor_type, editor_type))
+            binder = getattr(editor, "set_tool_settings_update_handler", None)
+            if not callable(binder):
+                raise TypeError(f"Editor {editor_type!r} does not expose tool settings update binding.")
+            binder(handler)
 
         # Secondary historical views remain compatibility-only aliases; they
         # do not define WorkspaceDefinition/EditorDefinition policy.
@@ -285,6 +299,10 @@ class ControlSurfaceHost(QWidget):
 
     def set_editor_context(self, context: object | None) -> None:
         self._host.set_editor_context(context)
+        editor = self._host.widget(self._host.active_editor_id) if self._host.active_editor_id else None
+        apply_context = getattr(editor, "set_editor_context", None)
+        if callable(apply_context):
+            apply_context(context)
 
     def set_region_visible(self, editor_type: str, region_id: str, visible: bool) -> None:
         editor_id = {
@@ -348,7 +366,7 @@ class ControlSurfaceHost(QWidget):
             return
         values = tuple(str(value) for value in (selected_ids or ()))
         engineering = context.engineering.with_updates(selected_ids=values)
-        self._host.set_editor_context(
+        self.set_editor_context(
             context.with_updates(
                 selection_context={"selected_ids": values},
                 engineering=engineering,
@@ -377,11 +395,14 @@ class ControlSurfaceHost(QWidget):
                     mode = ToolMode(definition.default_mode)
                 except ValueError:
                     mode = ToolMode.IDLE
-            settings = ToolSettings(definition.tool_id, values=definition.settings)
+            provider = self._tool_settings_providers.get(editor_type)
+            settings = provider(active_tool) if callable(provider) else None
+            if settings is None:
+                settings = ToolSettings(definition.tool_id, definitions=definition.settings)
         engineering = getattr(context, "engineering", None)
         if engineering is not None:
             engineering = engineering.with_updates(active_tool=active_tool)
-        self._host.set_editor_context(
+        self.set_editor_context(
             context.with_updates(
                 active_tool=active_tool,
                 tool_mode=mode,

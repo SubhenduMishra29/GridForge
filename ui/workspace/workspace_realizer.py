@@ -222,6 +222,36 @@ class WorkspaceRealizer:
         if callable(restore):
             restore(self._focused_area_id, False)
 
+    def refresh_active_context(self) -> None:
+        """Rebuild the active immutable context after tool identity/settings changes."""
+        if self._realized_layout is None or self._focused_area_id is None:
+            return
+        area = self._realized_layout.get_area(self._focused_area_id)
+        if area is None:
+            return
+        editor = area.editor
+        region_id = next(
+            (region.region_id for region in editor.regions if region.visible and region.region_id == "canvas"),
+            None,
+        )
+        if region_id is None:
+            return
+        context = (
+            self._context_factory(self._realized_workspace_id or "", area, editor, region_id)
+            if self._context_factory is not None
+            else EditorContext(
+                workspace=self._realized_workspace_id,
+                area=area,
+                editor=editor,
+                region=next(region for region in editor.regions if region.region_id == region_id),
+                engineering=EngineeringContext(discipline=editor.editor_type),
+            )
+        )
+        activate = getattr(self._editor_host, "activate", None)
+        if not callable(activate):
+            raise WorkspaceRealizationError("Editor host does not expose activate().")
+        activate(editor.editor_id, area=area, region_id=region_id, context=context)
+
     def clear_realization(self) -> None:
         deactivate = getattr(self._editor_host, "deactivate", None)
         if callable(deactivate):

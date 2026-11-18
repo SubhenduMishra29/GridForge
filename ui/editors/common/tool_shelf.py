@@ -10,9 +10,10 @@ from collections.abc import Callable, Iterable
 from typing import Any
 import logging
 
-from ui.core.qt import QFormLayout, QFrame, QIcon, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget, Qt, QSize
+from ui.core.qt import QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QIcon, QLabel, QLineEdit, QScrollArea, QToolButton, QVBoxLayout, QWidget, Qt, QSize
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
+from ui.tools.tool_settings import ToolSettingDefinition, ToolSettings
 
 _LOG = logging.getLogger(__name__)
 
@@ -240,28 +241,122 @@ class ToolShelf(QWidget):
 
 
 class ToolSettingsPanel(QWidget):
-    """Presentation-only contextual settings for the active ToolDefinition."""
+    """Typed presentation controls over the active tool's immutable settings schema."""
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._context: object | None = None
+        self._update_handler: Callable[..., ToolSettings] | None = None
         self._title = QLabel("No active tool", self)
         self._form = QFormLayout()
+        self._controls: dict[str, QWidget] = {}
         layout = QVBoxLayout(self)
         layout.addWidget(self._title)
         layout.addLayout(self._form)
         self.setObjectName("GridForgeToolSettings")
+        self.setVisible(False)
+
+    def set_update_handler(self, handler: Callable[..., ToolSettings] | None) -> None:
+        """Bind the UI/controller-owned update route; never store it in EditorContext."""
+        if handler is not None and not callable(handler):
+            raise TypeError("handler must be callable or None.")
+        self._update_handler = handler
+        self.set_context(self._context)
 
     def set_context(self, context: object | None) -> None:
+        self._context = context
         while self._form.rowCount():
             self._form.removeRow(0)
+        self._controls.clear()
         tool_id = getattr(context, "active_tool", None) if context is not None else None
         settings = getattr(context, "tool_settings", None) if context is not None else None
         self._title.setText(f"Tool: {tool_id or 'None'}")
-        self.setVisible(bool(tool_id))
-        if settings is None:
+        definitions = dict(getattr(settings, "definitions", {}) or {}) if settings is not None else {}
+        values = dict(getattr(settings, "values", {}) or {}) if settings is not None else {}
+        self.setVisible(bool(tool_id and definitions))
+        if settings is None or not definitions:
             return
-        for key, value in sorted(dict(getattr(settings, "values", {}) or {}).items()):
-            self._form.addRow(QLabel(str(key), self), QLabel(str(value), self))
+        for key, definition in sorted(definitions.items()):
+            if not isinstance(definition, ToolSettingDefinition):
+                continue
+            value = values.get(key, definition.default)
+            label = definition.label + (f" ({definition.unit})" if definition.unit else "")
+            control = self._make_control(key, definition, value, settings)
+            self._controls[key] = control
+            self._form.addRow(QLabel(label, self), control)
+
+    def _make_control(
+        self, key: str, definition: ToolSettingDefinition, value: object, settings: ToolSettings
+    ) -> QWidget:
+        editable = bool(definition.editable and self._update_handler is not None)
+        if definition.value_type == "bool":
+            control = QCheckBox(self)
+            control.setChecked(bool(value))
+            control.setEnabled(editable)
+            control.toggled.connect(
+                lambda changed, k=key, s=settings: self._apply_change(k, changed, s)
+            )
+        elif definition.value_type == "choice":
+            control = QComboBox(self)
+            for choice in definition.choices:
+                control.addItem(str(choice), choice)
+            control.setCurrentIndex(max(0, control.findData(value)))
+            control.setEnabled(editable)
+            control.currentIndexChanged.connect(
+                lambda index, widget=control, k=key, s=settings:
+                    self._apply_change(k, widget.itemData(index), s) if index >= 0 else None
+            )
+        elif definition.value_type in {"int", "float"}:
+            control = QDoubleSpinBox(self)
+            control.setDecimals(0 if definition.value_type == "int" else 4)
+            lower = definition.minimum if definition.minimum is not None else (-1_000_000_000 if definition.value_type == "int" else -1_000_000_000.0)
+            upper = definition.maximum if definition.maximum is not None else (1_000_000_000 if definition.value_type == "int" else 1_000_000_000.0)
+            control.setRange(float(lower), float(upper))
+            if definition.step is not None:
+                control.setSingleStep(float(definition.step))
+            control.setValue(float(value))
+            control.setEnabled(editable)
+            control.valueChanged.connect(
+                lambda changed, k=key, d=definition, s=settings:
+                    self._apply_change(k, int(changed) if d.value_type == "int" else float(changed), s)
+            )
+        else:
+            control = QLineEdit(self)
+            control.setText(str(value))
+            control.setReadOnly(not editable)
+            control.editingFinished.connect(
+                lambda widget=control, k=key, s=settings: self._apply_change(k, widget.text(), s)
+            )
+        control.setToolTip(
+            "Editable tool interaction setting." if editable
+            else "Read-only setting; no active update route is available."
+        )
+        if not definition.editable:
+            control.setEnabled(False)
+        return control
+
+    def _apply_change(self, key: str, value: object, settings: ToolSettings) -> None:
+        handler = self._update_handler
+        if handler is None:
+            self.set_context(self._context)
+            return
+        try:
+            updated = handler(
+                tool_id=settings.tool_id,
+                expected_revision=settings.revision,
+                changes={key: value},
+            )
+            if not isinstance(updated, ToolSettings):
+                raise TypeError("Tool settings update route did not return ToolSettings.")
+            context = self._context
+            updater = getattr(context, "with_updates", None)
+            self._context = updater(tool_settings=updated) if callable(updater) else context
+            self.set_context(self._context)
+        except Exception as exc:
+            self._title.setToolTip(f"Setting was not applied: {type(exc).__name__}: {exc}")
+            self.set_context(self._context)
+
+
 
 
 __all__ = ["ToolShelf", "ToolSettingsPanel"]

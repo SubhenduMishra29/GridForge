@@ -22,12 +22,13 @@ class Controller(QObject):
     """Coordinate UI state while delegating mutation/history actions to Application."""
 
     tool_changed = Signal(object, object)
+    tool_settings_changed = Signal(object, object)
     state_changed = Signal()
     project_changed = Signal(object)
     reset_requested = Signal()
 
     _SIGNAL_NAMES = frozenset(
-        {"tool_changed", "state_changed", "project_changed", "reset_requested"}
+        {"tool_changed", "tool_settings_changed", "state_changed", "project_changed", "reset_requested"}
     )
 
     def __init__(
@@ -139,6 +140,24 @@ class Controller(QObject):
 
     def get_current_tool_id(self) -> str | None:
         return self.tool_id
+
+    def update_tool_settings(
+        self, *, tool_id: str, expected_revision: int, changes: dict[str, Any]
+    ) -> Any:
+        """Update the active tool through ToolManager without reactivation."""
+        self._ensure_active()
+        manager = self._tool_manager
+        if manager is None:
+            raise RuntimeError("Controller requires the canonical ToolManager for tool settings.")
+        return manager.update_active_tool_settings(
+            tool_id=tool_id, expected_revision=expected_revision, changes=changes
+        )
+
+    def _on_tool_settings_changed(self, tool_id: str, settings: Any) -> None:
+        """Publish an accepted immutable settings revision to presentation observers."""
+        self._ensure_active()
+        self.tool_settings_changed.emit(tool_id, settings)
+        self.state_changed.emit()
 
     def set_tool(
         self,

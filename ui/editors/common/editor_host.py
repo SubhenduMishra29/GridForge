@@ -111,6 +111,9 @@ class EngineeringEditorHost(QWidget):
             deactivate = getattr(previous_widget, "deactivate_workspace", None)
             if callable(deactivate):
                 deactivate()
+            clear_context = getattr(previous_widget, "set_editor_context", None)
+            if callable(clear_context):
+                clear_context(None)
         if context is not None and getattr(context, "editor", None) is not None:
             canonical_editor_id = getattr(context.editor, "editor_id", editor_id)
             if canonical_editor_id != editor_id:
@@ -177,6 +180,9 @@ class EngineeringEditorHost(QWidget):
         try:
             if callable(deactivate):
                 deactivate()
+            clear_context = getattr(widget, "set_editor_context", None)
+            if callable(clear_context):
+                clear_context(None)
         finally:
             self._active_editor_id = None
         self._active_area = None
