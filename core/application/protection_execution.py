@@ -49,6 +49,7 @@ class ProtectionElementCycleStatus(str, Enum):
     DECISION_PENDING_DISPATCH = "decision_pending_dispatch"
     DISPATCH_BLOCKED = "dispatch_blocked"
     DISPATCHED = "dispatched"
+    APPLICATION_COMMAND_FAILED = "application_command_failed"
     DISPATCH_FAILED = "dispatch_failed"
 
 
@@ -87,7 +88,7 @@ class ProtectionElementCycleOutcome:
             raise ValueError("configuration_revision must be a non-negative integer.")
         if isinstance(self.evaluation_time, bool) or not isinstance(self.evaluation_time, (int, float)) or not math.isfinite(self.evaluation_time):
             raise ValueError("evaluation_time must be finite.")
-        if self.failure_category not in {"none", "measurement_input", "directional_coherence", "cycle_integrity", "dispatch"}:
+        if self.failure_category not in {"none", "measurement_input", "directional_coherence", "cycle_integrity", "dispatch", "application_command"}:
             raise ValueError("failure_category is not a supported Protection cycle failure category.")
 
 
