@@ -5414,3 +5414,32 @@ Verification boundary:
 - Review required for element relay identity shape and global diagnostics
   classification before merge. Do not close #1007 until this is verified.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Protection per-element cycle outcome lifecycle
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #1007
+PR: #1227
+
+Continuation:
+- Extended the typed per-element status contract to include evaluated/no
+  operation, decision pending dispatch, dispatched, and dispatch failed.
+- The live Application path now emits an outcome for every enabled element
+  after a completed evaluation, correlating decisions and action outcomes by
+  element identity. A function with no decision is explicitly evaluated with
+  no operation; a produced decision remains distinct from dispatch.
+- Retained the atomic fail-closed validation policy and its explicit
+  INPUT_INVALID / READY_NOT_EVALUATED_CYCLE_ABORTED classifications.
+- Updated the Protection canvas Diagnostics action to read the latest
+  durable cycle records through Application and display per-element status.
+  This remains read-only and does not imply field-device acknowledgement.
+
+Verification boundary:
+- Static source edits only; tests, CI, import checks, Qt GUI interaction,
+  mixed-validity cycle execution and SQLite audit round-trip were not run.
+- Final review must confirm that dispatch-attempt statuses are classified
+  accurately and that the diagnostics projection handles audit ordering.
+- Issue #1007 remains open pending that review and verification.
+======================================================================
