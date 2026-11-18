@@ -40,6 +40,37 @@ class DeleteSelectionBatchCommand(Command):
 
 
 
+MOVE_SELECTION_BATCH = "sld.move_selection_batch"
+
+
+class MoveSelectionBatchCommand(Command):
+    """Move Core SLD nodes and DraftNetwork equipment in one document transaction."""
+
+    def __init__(
+        self,
+        *,
+        commands: Sequence[Command],
+        document_id: str,
+        command_id: UUID | None = None,
+        correlation_id: UUID | None = None,
+        causation_id: UUID | None = None,
+    ) -> None:
+        children = tuple(commands)
+        if not children:
+            raise ValueError("A selection move batch requires at least one child command.")
+        if any(not isinstance(child, Command) for child in children):
+            raise TypeError("Selection move batch children must be immutable Application commands.")
+        if not isinstance(document_id, str) or not document_id.strip():
+            raise ValueError("Selection move batch requires the active SLD document identity.")
+        super().__init__(
+            command_type=MOVE_SELECTION_BATCH,
+            payload={"commands": children, "document_id": document_id.strip()},
+            command_id=command_id or uuid4(),
+            correlation_id=correlation_id,
+            causation_id=causation_id,
+        )
+
+
 ENGINEERING_UPDATE_BATCH = "model.update_batch"
 
 
@@ -68,4 +99,4 @@ class EngineeringUpdateBatchCommand(Command):
         )
 
 
-__all__ = ["DELETE_SELECTION_BATCH", "DeleteSelectionBatchCommand", "ENGINEERING_UPDATE_BATCH", "EngineeringUpdateBatchCommand"]
+__all__ = ["DELETE_SELECTION_BATCH", "DeleteSelectionBatchCommand", "MOVE_SELECTION_BATCH", "MoveSelectionBatchCommand", "ENGINEERING_UPDATE_BATCH", "EngineeringUpdateBatchCommand"]
