@@ -43,6 +43,7 @@ class ControlSurfaceHost(QWidget):
         action_router: UIActionRouter | None = None,
         tool_activators: Mapping[str, Any] | None = None,
         tool_active_providers: Mapping[str, Any] | None = None,
+        tool_settings_updaters: Mapping[str, Any] | None = None,
         icon_provider: Any | None = None,
         study_runtime: Any | None = None,
         parent: QWidget | None = None,
@@ -147,6 +148,17 @@ class ControlSurfaceHost(QWidget):
                 parent=self._host,
             ),
         )
+
+        editor_ids = {
+            "sld": "sld-editor", "control": "control-editor",
+            "protection": "protection-editor", "study": "study-editor",
+        }
+        for editor_type, handler in dict(tool_settings_updaters or {}).items():
+            editor = self._host.widget(editor_ids.get(editor_type, editor_type))
+            binder = getattr(editor, "set_tool_settings_update_handler", None)
+            if not callable(binder):
+                raise TypeError(f"Editor {editor_type!r} does not expose tool settings update binding.")
+            binder(handler)
 
         # Secondary historical views remain compatibility-only aliases; they
         # do not define WorkspaceDefinition/EditorDefinition policy.
