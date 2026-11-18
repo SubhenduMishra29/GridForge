@@ -2093,7 +2093,9 @@ class Application:
             supervision=supervision if supervision is not None else {},
             metadata=context_metadata,
         )
-        decisions = runtime.system.evaluate(context)
+        # Materialize once: the same immutable decision batch is consumed by
+        # audit, dispatch and per-element outcome correlation.
+        decisions = tuple(runtime.system.evaluate(context))
         audit_store = self._protection_execution_audit_store
         if audit_store is not None and audit_cycle_id is not None and audit_error_sink is not None:
             try:
@@ -2310,14 +2312,13 @@ class Application:
                 status = ProtectionElementCycleStatus.DECISION_PENDING_DISPATCH
             elif action_outcome.status in {
                 "application_command_succeeded",
-                "application_command_failed",
                 "command_accepted",
                 "core_postcondition_matched",
                 "core_postcondition_mismatched",
                 "postcondition_unavailable_unsupported",
             }:
                 status = ProtectionElementCycleStatus.DISPATCHED
-            elif action_outcome.status in {"dispatch_failed_or_indeterminate", "invalid_application_result"}:
+            elif action_outcome.status in {"application_command_failed", "dispatch_failed_or_indeterminate", "invalid_application_result"}:
                 status = ProtectionElementCycleStatus.DISPATCH_FAILED
                 element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
             else:
