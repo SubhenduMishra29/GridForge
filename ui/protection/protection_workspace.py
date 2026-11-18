@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from core.protection import get_protection_function
@@ -21,7 +22,7 @@ from ui.canvas.engineering_canvas_contract import CanvasFeedback, CanvasInteract
 from ui.core.qt import (
     QAction, QGraphicsLineItem, QGraphicsRectItem, QGraphicsScene, QGraphicsTextItem,
     QGraphicsView, QGroupBox, QLabel, QListWidget, QPen, QSplitter, QTabWidget, QToolBar,
-    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox,
+    QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox, QDoubleValidator,
 )
 from ui.core.selection_manager import SelectionManager
 from .protection_presentation import ProtectionPresentationDocument
@@ -396,6 +397,8 @@ class ProtectionInspector(QGroupBox):
         self._editor_form = QFormLayout(self._editor_host)
         self._apply_button = QPushButton("Apply Function Settings", self)
         self._apply_button.setEnabled(False)
+        self._discard_button = QPushButton("Discard Changes", self)
+        self._discard_button.setEnabled(False)
         self._editor_status = QLabel("", self)
         self._setting_controls: dict[str, Any] = {}
         self._active_element_id: str | None = None
@@ -406,8 +409,10 @@ class ProtectionInspector(QGroupBox):
         layout.addWidget(self._label)
         layout.addWidget(self._editor_host)
         layout.addWidget(self._apply_button)
+        layout.addWidget(self._discard_button)
         layout.addWidget(self._editor_status)
         self._apply_button.clicked.connect(self._apply_settings)
+        self._discard_button.clicked.connect(self._discard_changes)
         selection_manager.selection_changed.connect(self._on_selection_changed)
         self.refresh()
 
@@ -432,7 +437,13 @@ class ProtectionInspector(QGroupBox):
         self._active_setting_snapshot = ()
         self._relay_setting_snapshot = {}
         self._apply_button.setEnabled(False)
+        self._discard_button.setEnabled(False)
         self._editor_status.setText("")
+
+    def _discard_changes(self) -> None:
+        """Abandon staged edits and reload the latest Application read model."""
+        self.refresh()
+        self._editor_status.setText("Staged changes discarded; latest Protection configuration reloaded.")
 
     def _build_settings_editor(self, configuration: Any) -> None:
         self._clear_editor()
@@ -460,7 +471,11 @@ class ProtectionInspector(QGroupBox):
                     "" if setting.value is None else str(setting.value),
                     self._editor_host,
                 )
-                control.setPlaceholderText("Enter engineering value")
+                if setting.datatype == "number":
+                    control.setValidator(QDoubleValidator(self._editor_host))
+                    control.setPlaceholderText("Enter a finite numeric value")
+                else:
+                    control.setPlaceholderText("Enter text")
                 self._setting_controls[setting.key] = control
             self._editor_form.addRow(label, control)
 
@@ -496,6 +511,7 @@ class ProtectionInspector(QGroupBox):
 
         self._apply_button.setText("Apply Function Settings")
         self._apply_button.setEnabled(bool(self._setting_controls))
+        self._discard_button.setEnabled(bool(self._setting_controls))
 
     def _build_physical_relay_editor(self, configuration: Any) -> None:
         self._clear_editor()
@@ -516,6 +532,7 @@ class ProtectionInspector(QGroupBox):
             self._editor_form.addRow(label, control)
         self._apply_button.setText("Apply Physical Relay Configuration")
         self._apply_button.setEnabled(True)
+        self._discard_button.setEnabled(True)
         self._editor_status.setText(
             "Only Relay identity and lifecycle flags are editable here. "
             "Plugin-specific settings remain read-only without a typed plugin schema."
@@ -575,7 +592,18 @@ class ProtectionInspector(QGroupBox):
                     )
                     return
                 continue
-            updates[setting.key] = value
+            if setting.datatype == "number" and not setting.choices and not setting.choices_by_value:
+                try:
+                    numeric_value = float(value)
+                except (TypeError, ValueError):
+                    self._editor_status.setText(f"{setting.label} must be a valid number.")
+                    return
+                if not math.isfinite(numeric_value):
+                    self._editor_status.setText(f"{setting.label} must be finite.")
+                    return
+                updates[setting.key] = numeric_value
+            else:
+                updates[setting.key] = value
 
         try:
             result = self._application.update_protection_function_settings(
