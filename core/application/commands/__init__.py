@@ -104,6 +104,7 @@ from .control_commands import *
 
 from .selection_commands import (
     DELETE_SELECTION_BATCH, DeleteSelectionBatchCommand,
+    MOVE_SELECTION_BATCH, MoveSelectionBatchCommand,
     ENGINEERING_UPDATE_BATCH, EngineeringUpdateBatchCommand,
 )
 
