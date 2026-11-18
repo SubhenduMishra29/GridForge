@@ -5372,3 +5372,16 @@ Verification boundary:
 - Issue #1203 remains open because cross-canvas provenance, schedules,
   remaining instrument safety contracts and end-to-end acceptance are pending.
 ======================================================================
+
+GF-AGENTS-001 — Claude Code remediation-agent configuration merged into root main.
+
+- Merged PR #1223 (Claude Code project-scoped GridForge remediation agents).
+- Added the Core, UI, persistence, measurement, protection, Control/simulation,
+  reviewer and coordinator agent role definitions with architecture-boundary
+  instructions and issue-remediation workflow guidance.
+- Source/tooling contribution only; no production application behavior changed.
+- PR #1223 merge commit: 0e4f375b28308a906268a9d034e23f6c9ae24b05.
+- Audit status: agents are configured in the repository; actual local execution,
+  Ollama/Claude provider availability and agent-generated corrections are separate
+  work and are not implied by this merge.
+======================================================================
