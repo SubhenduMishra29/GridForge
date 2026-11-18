@@ -291,7 +291,46 @@ class ProtectionGraphicsSurface(QGraphicsView):
             self.fitInView(items.adjusted(-30, -30, 30, 30))
 
     def show_diagnostics(self) -> None:
-        self._adapter.feedback(CanvasFeedback.NONE, "Protection diagnostics are read-side only.")
+        """Project the latest durable per-element cycle outcomes without mutation."""
+        try:
+            lifecycle = self._application.project_lifecycle
+            project = lifecycle.context
+            if project is None or not lifecycle.has_project:
+                self._adapter.feedback(CanvasFeedback.NONE, "Protection diagnostics unavailable: no active project.")
+                return
+            recent = self._application.read_protection_execution_audit(
+                project_id=str(project.project_id), limit=500
+            )
+            if not recent:
+                self._adapter.feedback(CanvasFeedback.NONE, "No durable Protection execution cycle has been recorded for this project.")
+                return
+            latest_cycle_id = recent[0].cycle_id
+            cycle_records = self._application.read_protection_execution_audit_cycle(
+                project_id=str(project.project_id), cycle_id=latest_cycle_id
+            )
+            element_records = tuple(
+                record for record in cycle_records
+                if record.record_type == "ELEMENT_CYCLE_OUTCOME"
+            )
+            if not element_records:
+                self._adapter.feedback(
+                    CanvasFeedback.NONE,
+                    f"Latest Protection cycle {latest_cycle_id}: no per-element outcome records are available.",
+                )
+                return
+            lines = [
+                f"{record.element_id or record.record_key}: {record.status or 'unknown'}"
+                for record in element_records
+            ]
+            self._adapter.feedback(
+                CanvasFeedback.NONE,
+                f"Protection cycle {latest_cycle_id} — per-element outcomes (read-only): " + " | ".join(lines),
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            self._adapter.feedback(
+                CanvasFeedback.NONE,
+                f"Protection diagnostics unavailable: {type(exc).__name__}: {exc}",
+            )
 
     def mousePressEvent(self, event: Any) -> None:
         item = self.itemAt(event.position().toPoint())
