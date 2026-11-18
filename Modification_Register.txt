@@ -5446,7 +5446,7 @@ Verification boundary:
 
 Correction follow-up — 2026-11-18:
 - Materialized the Protection evaluation decision iterable exactly once so audit, dispatch and per-element correlation consume the same decision batch.
-- Classified an unsuccessful ApplicationResult as DISPATCH_FAILED rather than DISPATCHED; successful command acceptance and Core postcondition outcomes remain distinct from physical acknowledgement.
+- Added APPLICATION_COMMAND_FAILED as a distinct outcome and failure category. DISPATCH_FAILED is reserved for invalid/indeterminate dispatch results; successful command acceptance and Core postcondition outcomes remain distinct from physical acknowledgement.
 - Added durable per-element cycle-abort outcomes for stale runtime composition and defensive missing directional-snapshot rejection. A directional runtime identity failure now enters the common fail-closed diagnostic classification path instead of returning without element outcomes.
 - Updated the cycle outcome record documentation to cover validation, evaluation and dispatch lifecycle stages.
 - Verification remains source review only; no tests, CI, import/runtime or SQLite round-trip checks have been run.
