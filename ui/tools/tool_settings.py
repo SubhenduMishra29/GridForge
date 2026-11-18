@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
+from types import MappingProxyType
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,8 @@ class ToolSettingDefinition:
         if self.unit is not None and (not isinstance(self.unit, str) or not self.unit.strip()):
             raise ValueError("unit must be None or a non-empty string.")
         choices = tuple(self.choices)
+        if any(not isinstance(choice, (str, int, float, bool)) for choice in choices):
+            raise TypeError("choice values must be immutable scalar values.")
         object.__setattr__(self, "choices", choices)
         if self.value_type == "choice" and not choices:
             raise ValueError("choice settings require at least one choice.")
@@ -129,8 +132,8 @@ class ToolSettings:
                 values[key] = definition.default
             values[key] = definition.validate(values[key])
         object.__setattr__(self, "tool_id", self.tool_id.strip())
-        object.__setattr__(self, "values", values)
-        object.__setattr__(self, "definitions", definitions)
+        object.__setattr__(self, "values", MappingProxyType(values))
+        object.__setattr__(self, "definitions", MappingProxyType(definitions))
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
