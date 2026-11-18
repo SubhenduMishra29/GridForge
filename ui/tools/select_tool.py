@@ -549,6 +549,8 @@ class SelectTool(ToolBase):
             selected_ids = (object_id,)
 
         positions = []
+        unresolved_ids = []
+        seen_node_ids: set[str] = set()
         getter = getattr(model, "get_node_by_equipment_id_optional", None)
         node_getter = getattr(model, "get_node_optional", None)
         for selected_id in selected_ids:
@@ -556,13 +558,30 @@ class SelectTool(ToolBase):
             if node is None and callable(node_getter):
                 node = node_getter(str(selected_id))
             if node is None:
+                unresolved_ids.append(str(selected_id))
                 continue
+            node_id = str(node.node_id)
+            if node_id in seen_node_ids:
+                continue
+            seen_node_ids.add(node_id)
             positions.append({
-                "node_id": str(node.node_id),
+                "node_id": node_id,
                 "x": float(node.x) + delta_x,
                 "y": float(node.y) + delta_y,
             })
 
+        # Preflight the complete semantic selection before issuing any command.
+        # DraftNetwork equipment has a different owner and command lifecycle;
+        # silently skipping it would partially move a mixed selection.
+        if unresolved_ids:
+            show_status = getattr(self.controller, "show_status_message", None)
+            if callable(show_status):
+                identities = ", ".join(unresolved_ids)
+                show_status(
+                    "Move cancelled: the selection contains DraftNetwork or "
+                    f"unresolved SLD item(s) ({identities}). No objects were moved."
+                )
+            return
         if not positions:
             return
         result = application.execute(SetSLDNodePositionsCommand(positions=positions))

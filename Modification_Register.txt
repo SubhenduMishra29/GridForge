@@ -5453,3 +5453,28 @@ Supplemental correction for the Draft SLD connection selection slice:
   promotes it to selected styling when the canonical SelectionManager selects
   that draft connection. This also refreshes committed connection selection
   styling consistently.
+
+
+======================================================================
+GridForge V2 — Fail-closed SLD mixed/draft node drag movement
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #880
+
+Correction:
+- SelectTool now preflights every selected NODE identity against the active
+  persistent SLD model before dispatching SetSLDNodePositionsCommand.
+- If any selected identity is unresolved (including DraftNetwork equipment),
+  the entire drag is cancelled with explicit status feedback. No persistent
+  subset is moved; this removes the previous silent skip/partial-move behavior.
+- Duplicate selection aliases resolving to the same SLD node are de-duplicated
+  before building the immutable group-position command.
+- This is a fail-closed safety correction, not a claim that DraftNetwork
+  equipment drag movement is implemented. A future atomic mixed-owner move
+  command remains outside this slice.
+
+Verification boundary:
+- Static source review only. No tests, CI, imports, syntax execution or Qt GUI
+  interaction was run. Issue #880 remains open for complete draft-only/mixed
+  movement support and manual GUI acceptance.
+======================================================================
