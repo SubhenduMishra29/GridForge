@@ -2299,10 +2299,20 @@ class Application:
                 status = ProtectionElementCycleStatus.EVALUATED_NO_OPERATION
             elif action_outcome is None:
                 status = ProtectionElementCycleStatus.DECISION_PENDING_DISPATCH
-            elif action_outcome.command is not None:
+            elif action_outcome.status in {
+                "application_command_succeeded",
+                "application_command_failed",
+                "command_accepted",
+                "core_postcondition_matched",
+                "core_postcondition_mismatched",
+                "postcondition_unavailable_unsupported",
+            }:
                 status = ProtectionElementCycleStatus.DISPATCHED
-            else:
+            elif action_outcome.status == "dispatch_failed_or_indeterminate":
                 status = ProtectionElementCycleStatus.DISPATCH_FAILED
+                element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
+            else:
+                status = ProtectionElementCycleStatus.DISPATCH_BLOCKED
                 element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
             if action_outcome is not None and action_outcome.diagnostic and not element_diagnostics:
                 element_diagnostics = (action_outcome.diagnostic,)
@@ -2312,7 +2322,7 @@ class Application:
                 function_code=str(element.function_code),
                 status=status,
                 diagnostics=element_diagnostics,
-                cycle_abort_reason="",
+                cycle_abort_reason="not_applicable",
                 project_id=str(project.project_id),
                 activation_generation=int(lifecycle.activation_generation),
                 configuration_revision=int(runtime.configuration.revision),
