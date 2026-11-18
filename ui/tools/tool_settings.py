@@ -40,12 +40,6 @@ class ToolSettingDefinition:
             raise ValueError("choice settings require at least one choice.")
         if self.value_type != "choice" and choices:
             raise ValueError("choices are supported only for choice settings.")
-        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
-            raise ValueError("minimum cannot exceed maximum.")
-        if self.step is not None and (not math.isfinite(float(self.step)) or self.step <= 0):
-            raise ValueError("step must be finite and positive.")
-        self.validate(self.default)
-
         for name in ("minimum", "maximum", "step"):
             bound = getattr(self, name)
             if bound is not None:
@@ -58,6 +52,11 @@ class ToolSettingDefinition:
             for name in ("minimum", "maximum", "step") if getattr(self, name) is not None
         ):
             raise ValueError("integer setting bounds and step must be whole numbers.")
+        if self.minimum is not None and self.maximum is not None and self.minimum > self.maximum:
+            raise ValueError("minimum cannot exceed maximum.")
+        if self.step is not None and self.step <= 0:
+            raise ValueError("step must be positive.")
+        self.validate(self.default)
 
     def validate(self, value: Any) -> Any:
         """Return a normalized value or raise a precise validation error."""
