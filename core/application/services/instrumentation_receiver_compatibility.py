@@ -26,6 +26,7 @@ _SIGNAL_TYPE_MAP = {
     SignalKind.CURRENT: MeasurementSignalType.CURRENT,
     SignalKind.VOLTAGE: MeasurementSignalType.VOLTAGE,
     SignalKind.DIGITAL: MeasurementSignalType.DIGITAL,
+    SignalKind.TEMPERATURE: MeasurementSignalType.TEMPERATURE,
 }
 
 

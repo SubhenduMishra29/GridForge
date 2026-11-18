@@ -67,7 +67,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -77,6 +77,7 @@ from .sld_command_handlers import SLDCommandHandlers
 from .services.sld_service import SLDService
 from .services.measurement_channel_service import MeasurementChannelService
 from .services.instrumentation_wiring_service import InstrumentationWiringService
+from .instrumentation_wiring_endpoint_resolver import resolve_signal_endpoint_bindings
 from .services.temperature_instrument_service import TemperatureInstrumentService
 from .protection_dependency import build_protection_dependency_registry
 from .protection_execution import (
@@ -5094,6 +5095,92 @@ class Application:
         if service is None:
             raise RuntimeError("Application instrumentation wiring service is not configured.")
         return service.read_model()
+
+    def resolve_instrumentation_signal_endpoints(self) -> tuple[SignalEndpointResolutionReadModel, ...]:
+        """Resolve persisted wiring endpoints against one active project snapshot.
+
+        This read-side operation does not mutate wiring, Control or Protection
+        configuration. The Application execution lock prevents project or
+        configuration replacement while the authorities are captured.
+        Missing authorities produce unresolved endpoint diagnostics;
+        project-generation mismatches are rejected.
+        """
+        with self._execution_lock:
+            lifecycle = self.project_lifecycle
+            if (
+                not lifecycle.has_project
+                or lifecycle.state != "ACTIVE"
+                or lifecycle.context is None
+            ):
+                raise RuntimeError("Signal endpoint resolution requires an active project.")
+            project_id = lifecycle.context.project_id
+            generation = lifecycle.activation_generation
+
+            wiring_service = self._instrumentation_wiring_service
+            if wiring_service is None:
+                raise RuntimeError("Application instrumentation wiring service is not configured.")
+            if (
+                wiring_service.project_id != project_id
+                or wiring_service.activation_generation != generation
+            ):
+                raise RuntimeError("Instrumentation wiring inventory is stale for the active project generation.")
+
+            channel_configurations = None
+            channel_samples = None
+            if self._measurement_channel_read_service is not None:
+                channel_service = self._measurement_channel_service
+                if (
+                    channel_service is None
+                    or channel_service.project_id != project_id
+                    or channel_service.activation_generation != generation
+                ):
+                    raise RuntimeError("MeasurementChannel registry is stale for the active project generation.")
+                channel_configurations = self.read_measurement_channel_configurations()
+                channel_samples = self.read_measurement_channels()
+
+            protection_service = getattr(self, "protection_configuration_service", None)
+            protection_configuration = (
+                getattr(protection_service, "configuration", None)
+                if protection_service is not None else None
+            )
+            if protection_configuration is not None:
+                if getattr(protection_configuration, "project_id", None) != project_id:
+                    raise RuntimeError("Protection configuration belongs to a different project.")
+                protection_runtime = getattr(self, "protection_runtime", None)
+                if (
+                    protection_runtime is None
+                    or protection_runtime.configuration is not protection_configuration
+                    or protection_runtime.project_id != project_id
+                    or protection_runtime.activation_generation != generation
+                    or protection_runtime.network is not lifecycle.network
+                    or not protection_runtime.configuration_matches_composition
+                    or not protection_runtime.equipment_state_matches_composition
+                ):
+                    # A stale or uncomposed Protection runtime must not make
+                    # an endpoint appear active merely because its config ID matches.
+                    protection_configuration = None
+
+            control_mapping = self.control_signal_mapping
+            if control_mapping is not None:
+                control_cycle = self._control_cycle
+                if (
+                    self._control_service is None
+                    or control_cycle is None
+                    or control_cycle.signal_mapping is not control_mapping
+                ):
+                    control_mapping = None
+                elif getattr(self._control_service.configuration, "project_id", None) != project_id:
+                    raise RuntimeError("Control configuration belongs to a different project.")
+
+            return resolve_signal_endpoint_bindings(
+                wiring_service.inventory,
+                project_id=project_id,
+                activation_generation=generation,
+                measurement_channel_configurations=channel_configurations,
+                measurement_channels=channel_samples,
+                control_signal_mapping=control_mapping,
+                protection_configuration=protection_configuration,
+            )
 
     def read_temperature_instruments(self):
         """Return the immutable BTD/OTD/WTD inventory for the active project."""

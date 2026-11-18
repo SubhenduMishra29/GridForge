@@ -140,6 +140,7 @@ class InstrumentationWiringReadModel:
     terminal_blocks: tuple[Mapping[str, Any], ...] = ()
     terminal_points: tuple[Mapping[str, Any], ...] = ()
     terminal_accessories: tuple[Mapping[str, Any], ...] = ()
+    endpoint_bindings: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.project_id, str) or not self.project_id.strip():
@@ -147,13 +148,61 @@ class InstrumentationWiringReadModel:
         if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
             raise ValueError("InstrumentationWiringReadModel.activation_generation must be positive")
         for name in (
-            "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy",
+            "cables", "cores", "panel_wires", "signals", "signal_bindings", "tag_policy", "endpoint_bindings",
             "connection_hops", "terminal_blocks", "terminal_points", "terminal_accessories",
         ):
             values = tuple(getattr(self, name))
             if any(not isinstance(item, Mapping) for item in values):
                 raise TypeError(f"InstrumentationWiringReadModel.{name} must contain mappings")
             object.__setattr__(self, name, tuple(_freeze(item) for item in values))
+
+
+@dataclass(frozen=True, slots=True)
+class SignalEndpointResolutionReadModel:
+    """Detached resolution status for one canonical signal-consumer endpoint."""
+
+    project_id: str
+    activation_generation: int
+    binding_id: str
+    signal_id: str
+    endpoint_kind: str
+    endpoint_id: str
+    owner_id: str
+    port: str
+    channel_id: str | None
+    status: str
+    diagnostics: tuple[str, ...] = ()
+    direction: str = "SOURCE_TO_SINK"
+    carrier_ids: tuple[str, ...] = ()
+    physical_sink_terminal: Mapping[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("project_id", "binding_id", "signal_id", "endpoint_kind", "endpoint_id", "owner_id", "port"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        if self.channel_id is not None and (not isinstance(self.channel_id, str) or not self.channel_id.strip()):
+            raise ValueError("channel_id must be a non-empty string or None.")
+        if self.status not in {"RESOLVED", "UNRESOLVED", "AMBIGUOUS"}:
+            raise ValueError("status must be RESOLVED, UNRESOLVED or AMBIGUOUS.")
+        direction = str(self.direction).strip().upper()
+        if direction not in {"SOURCE_TO_SINK", "SINK_TO_SOURCE", "BIDIRECTIONAL"}:
+            raise ValueError("direction must be SOURCE_TO_SINK, SINK_TO_SOURCE or BIDIRECTIONAL.")
+        object.__setattr__(self, "direction", direction)
+        carrier_ids = tuple(self.carrier_ids)
+        if any(not isinstance(item, str) or not item.strip() for item in carrier_ids):
+            raise ValueError("carrier_ids must contain non-empty strings.")
+        if len(carrier_ids) != len(set(carrier_ids)):
+            raise ValueError("carrier_ids must be unique.")
+        object.__setattr__(self, "carrier_ids", carrier_ids)
+        object.__setattr__(self, "diagnostics", tuple(str(item) for item in self.diagnostics))
+        if self.physical_sink_terminal is not None:
+            if not isinstance(self.physical_sink_terminal, Mapping):
+                raise TypeError("physical_sink_terminal must be a mapping or None.")
+            object.__setattr__(self, "physical_sink_terminal", _freeze(self.physical_sink_terminal))
 
 
 @dataclass(frozen=True, slots=True)

@@ -5230,3 +5230,145 @@ Remaining #1203 scope:
 - Issue #1203 remains open; this merge completes only the terminal-block
   identity/persistence foundation.
 ======================================================================
+
+
+
+======================================================================
+GridForge V2 — Canonical instrumentation signal endpoint domain foundation
+Date: 2026-11-15
+Repository: SubhenduMishra29/GridForge
+Branch: feat/instrumentation-signal-endpoint-domain-20261115
+Issue: #1203
+
+Correction:
+- Added immutable Core SignalEndpointReference and SignalEndpointBinding
+  records for explicit Control-input and Protection-input consumers.
+- Consumer identity is independent of tags and display labels. Every consumer
+  binding carries an exact physical sink WiringTerminalReference; terminal
+  block references continue to require the stable terminal_point_id.
+- Preserved SignalDefinition.measurement_channel_id as the single canonical
+  MeasurementChannel source association. No per-carrier duplicate channel
+  registry was introduced; physical SignalCarrierBinding remains separate.
+- Inventory validation rejects dangling signal references and duplicate
+  logical consumer endpoints.
+- Instrumentation-wiring persistence advanced from schema 5 to schema 6.
+  Schemas 2–5 remain readable; schema 6 strictly validates endpoint records
+  and their physical terminal references.
+- Application controlled record CRUD, terminal-owner validation and detached
+  InstrumentationWiringReadModel projection include endpoint bindings.
+- No Qt/QGraphics dependency, canvas geometry, or power-network topology
+  mutation was introduced.
+
+Verification boundary:
+- Regression-test source is included in the focused PR.
+- Tests/CI, full imports, GUI/runtime, cross-canvas resolution and project
+  save/reopen acceptance have not been executed.
+- This is a domain/persistence/Application projection foundation only.
+  Control/Protection endpoint resolution, provenance overlays, navigation,
+  schedules/export/sign-off and instrument-specific safety acceptance remain
+  open. Issue #1203 must remain open until its complete acceptance criteria
+  are implemented and verified.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Active instrumentation signal endpoint resolution
+Date: 2026-11-16
+Repository: SubhenduMishra29/GridForge
+Branch: feat/instrumentation-signal-endpoint-domain-20261115
+Issue: #1203
+
+Correction:
+- Added a detached SignalEndpointResolutionReadModel scoped by project ID
+  and activation generation; it reports RESOLVED, UNRESOLVED or AMBIGUOUS
+  without exposing Core records or mutable project configuration.
+- Added a read-only Application resolver that uses the persisted
+  SignalDefinition.measurement_channel_id as the only MeasurementChannel
+  source association. MeasurementChannel configuration and live registry
+  reads remain separate authorities; no duplicate carrier/channel registry
+  was introduced.
+- Control endpoints require one exact active ControlSignalMapping destination,
+  the same persisted MeasurementChannel ID, the canonical measurement source
+  domain and compatible declared signal/phase/unit contracts.
+- Protection endpoints require the exact persisted ProtectionMeasurementBinding
+  ID, element identity, relay input and channel association. Residual-current
+  resolution fails closed for a three-phase composite because the current
+  one-signal/one-channel contract cannot represent its multiple phase sources.
+- Physical continuity is resolved from explicit cable-core and panel-wire
+  terminal paths using WiringTerminalReference.canonical_identity, including
+  terminal_point_id. Only explicitly declared CLOSED terminal-accessory pairs
+  bridge terminal points. OPEN, REMOVED and UNKNOWN accessories do not bridge.
+- Carrier direction is enforced. Missing source/sink terminals, disconnected
+  carriers, unsupported untyped FIBRE/LOGICAL routes and multiple directed
+  physical paths produce unresolved/ambiguous diagnostics. No join by tag,
+  label, list position, canvas geometry or proximity is used.
+- Added Application project/generation checks under the Application execution
+  lock before resolving against active wiring, MeasurementChannel, Control and
+  Protection authorities. Control resolution is limited to the exact mapping
+  currently held by ControlCycleService; Protection resolution requires the
+  exact active runtime/configuration/network/generation composition.
+- Exported the detached resolution read model and resolver through
+  core.application. No Qt/QGraphics or power-network topology dependency was
+  introduced.
+
+Verification:
+- Added regression-test source for exact Control mapping/channel identity,
+  source-to-sink direction, sink mismatch, incompatible channel type/phase/unit,
+  missing channel configuration, ambiguous parallel routes, and CLOSED versus
+  OPEN terminal accessory continuity.
+- Tests and CI were not run, as required. Full module imports, GUI/runtime,
+  project save/reopen and cross-canvas interaction were not executed.
+- Static source review only. ui/core/qt.py is unchanged; no UI files or
+  Core package exports were modified in this slice.
+
+Remaining issue #1203 scope:
+- SLD/Control/Protection provenance overlays, cross-canvas navigation and
+  highlighting, terminal-block SLD symbols/selection, schedules/export/sign-off,
+  CT/PT/RTD/thermocouple and shield/drain/armour/PE/communication safety
+  contracts, and full project save/reopen/GUI acceptance remain incomplete.
+- Keep #1203 open until the full parent acceptance criteria are implemented
+  and verified.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Signal endpoint continuity role and accessory safety guard
+Date: 2026-11-17
+Repository: SubhenduMishra29/GridForge
+PR: #1225
+Issue: #1203
+
+Audit finding:
+- The first endpoint resolver version accepted any bound CableCore/PanelWire
+  role as a logical signal path. This could incorrectly treat PE, screen,
+  drain, armour, spare, reserved or supply conductors as signal continuity.
+- It also treated every CLOSED terminal accessory bridge as signal continuity,
+  including EARTH_LINK and unclassified OTHER accessories.
+- The temperature MeasurementSignalType already exists in Core, but the
+  instrumentation receiver compatibility map did not map SignalKind.TEMPERATURE.
+
+Correction:
+- Restrict logical signal carrier continuity to SIGNAL, RETURN and
+  COMMUNICATION conductor roles, consistent with the existing
+  TemperatureInstrument physical-continuity contract.
+- Only explicitly declared CLOSED FIXED_LINK, TEST_DISCONNECT, SHORTING_LINK,
+  FUSE_LINK and ISOLATING_LINK accessory pairs may bridge a signal path.
+  EARTH_LINK and OTHER do not establish series signal continuity.
+- Map SignalKind.TEMPERATURE to the existing MeasurementSignalType.TEMPERATURE
+  in both endpoint resolution and Control/Protection receiver compatibility.
+- Added regression-test source for PE rejection, earth-link rejection and an
+  explicitly phased temperature MeasurementChannel-to-Control route.
+
+Architecture:
+- Core remains the authority for conductor/accessory identity.
+- Application owns endpoint resolution and receiver compatibility.
+- No Qt/QGraphics dependency, duplicate MeasurementChannel registry or
+  power-network topology mutation was introduced.
+- No inferred conductor or accessory properties were added.
+
+Verification boundary:
+- Source and regression-test changes are committed in PR #1225.
+- Tests/CI, full imports, GUI/runtime and project save/reopen were not run.
+- Issue #1203 remains open because cross-canvas provenance, schedules,
+  remaining instrument safety contracts and end-to-end acceptance are pending.
+======================================================================
