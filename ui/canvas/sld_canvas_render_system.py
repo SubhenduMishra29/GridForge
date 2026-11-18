@@ -257,6 +257,24 @@ class SLDCanvasRenderSystem:
         if callable(setter):
             setter(selected)
 
+    def _restore_draft_connection_selection(self, connection: Any, item: Any) -> None:
+        """Restore transient draft-wire selection after incremental realization."""
+        if self._selection_manager is None:
+            return
+        domain = getattr(self._selection_manager, "CONNECTION", "connection")
+        selected = bool(
+            self._selection_manager.is_selected(
+                str(connection.connection_id),
+                domain=domain,
+            )
+        )
+        setter = getattr(item, "setSelected", None)
+        if callable(setter):
+            setter(selected)
+            refresh = getattr(item, "_refresh_pen", None)
+            if callable(refresh):
+                refresh()
+
     def bind_route_edit_controller(self, controller: Any) -> None:
         """Bind the existing route-edit controller to realized connection items."""
         if controller is None or not callable(getattr(controller, "handle_route_edit_request", None)):
@@ -755,6 +773,9 @@ class SLDCanvasRenderSystem:
                     self._render_signatures.get(render_id) == signature
                     and render_id in self._items
                 ):
+                    self._restore_draft_connection_selection(
+                        connection, self._items[render_id][0]
+                    )
                     continue
                 if render_id in self._items:
                     self._remove_realized(render_id)
@@ -773,6 +794,7 @@ class SLDCanvasRenderSystem:
                     # connectivity. Keep them visibly distinct until commit.
                     item.set_visual_state(VisualState.PREVIEW)
                 self._scene.addItem(item)
+                self._restore_draft_connection_selection(connection, item)
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
                 self._clear_reported_diagnostic(render_id)
