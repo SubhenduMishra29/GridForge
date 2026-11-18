@@ -2373,7 +2373,10 @@ class Application:
                 "postcondition_unavailable_unsupported",
             }:
                 status = ProtectionElementCycleStatus.DISPATCHED
-            elif action_outcome.status in {"application_command_failed", "dispatch_failed_or_indeterminate", "invalid_application_result"}:
+            elif action_outcome.status == "application_command_failed":
+                status = ProtectionElementCycleStatus.APPLICATION_COMMAND_FAILED
+                element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
+            elif action_outcome.status in {"dispatch_failed_or_indeterminate", "invalid_application_result"}:
                 status = ProtectionElementCycleStatus.DISPATCH_FAILED
                 element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
             else:
@@ -2393,7 +2396,11 @@ class Application:
                 configuration_revision=int(runtime.configuration.revision),
                 evaluation_time=float(evaluation_time),
                 timestamp_domain=str(evaluation_time_domain),
-                failure_category=("dispatch" if status in {ProtectionElementCycleStatus.DISPATCH_BLOCKED, ProtectionElementCycleStatus.DISPATCH_FAILED} else "none"),
+                failure_category=(
+                    "application_command" if status is ProtectionElementCycleStatus.APPLICATION_COMMAND_FAILED
+                    else "dispatch" if status in {ProtectionElementCycleStatus.DISPATCH_BLOCKED, ProtectionElementCycleStatus.DISPATCH_FAILED}
+                    else "none"
+                ),
             ))
         return replace(
             execution_result,
