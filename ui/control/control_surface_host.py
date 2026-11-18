@@ -366,7 +366,7 @@ class ControlSurfaceHost(QWidget):
             return
         values = tuple(str(value) for value in (selected_ids or ()))
         engineering = context.engineering.with_updates(selected_ids=values)
-        self._host.set_editor_context(
+        self.set_editor_context(
             context.with_updates(
                 selection_context={"selected_ids": values},
                 engineering=engineering,
