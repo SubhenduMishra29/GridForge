@@ -402,7 +402,7 @@ class ControlSurfaceHost(QWidget):
         engineering = getattr(context, "engineering", None)
         if engineering is not None:
             engineering = engineering.with_updates(active_tool=active_tool)
-        self._host.set_editor_context(
+        self.set_editor_context(
             context.with_updates(
                 active_tool=active_tool,
                 tool_mode=mode,
