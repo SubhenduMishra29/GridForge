@@ -164,6 +164,9 @@ class SelectionManager(QObject):
                 continue
             object_id = getattr(item, "object_id", None)
             set_selected(object_id is not None and any(selected_id == object_id for selected_id in selected_ids))
+            refresh_pen = getattr(item, "_refresh_pen", None)
+            if callable(refresh_pen):
+                refresh_pen()
 
     def reconcile(self, scene: Optional[QGraphicsScene] = None) -> None:
         self.sync_graphics(scene=scene)
