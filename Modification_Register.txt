@@ -5559,3 +5559,98 @@ Verification boundary:
   verification of the canonical fingerprint behavior.
 ======================================================================
 
+======================================================================
+GridForge V2 — Protection per-element cycle outcome classification
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #1007
+
+Correction:
+- Added immutable ProtectionElementCycleOutcome records and typed statuses
+  INPUT_INVALID and READY_NOT_EVALUATED_CYCLE_ABORTED.
+- Preserved the existing atomic cycle-wide fail-closed policy. A function with
+  its own element-scoped validation/coherence diagnostic is classified as
+  INPUT_INVALID; otherwise-valid enabled elements are explicitly classified
+  READY_NOT_EVALUATED_CYCLE_ABORTED.
+- Each record carries project ID, activation generation, configuration
+  revision, trusted evaluation time/domain, function/relay identity, element
+  diagnostics and the cycle-abort reason.
+- Persisted these pre-evaluation outcomes as append-only, idempotently keyed
+  ELEMENT_CYCLE_OUTCOME audit records through the existing cycle audit append.
+- Decision, dispatch, Core postcondition and physical acknowledgement remain
+  separate; no partial evaluation or dispatch was introduced.
+
+Verification boundary:
+- Static source edits only. Tests, CI, imports, mixed-validity cycle execution,
+  SQLite audit round-trip, GUI and runtime checks have not been run.
+- Review required for element relay identity shape and global diagnostics
+  classification before merge. Do not close #1007 until this is verified.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Protection per-element cycle outcome lifecycle
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #1007
+PR: #1227
+
+Continuation:
+- Extended the typed per-element status contract to include evaluated/no
+  operation, decision pending dispatch, dispatched, and dispatch failed.
+- The live Application path now emits an outcome for every enabled element
+  after a completed evaluation, correlating decisions and action outcomes by
+  element identity. A function with no decision is explicitly evaluated with
+  no operation; a produced decision remains distinct from dispatch.
+- Retained the atomic fail-closed validation policy and its explicit
+  INPUT_INVALID / READY_NOT_EVALUATED_CYCLE_ABORTED classifications.
+- Updated the Protection canvas Diagnostics action to read the latest
+  durable cycle records through Application and display per-element status.
+  This remains read-only and does not imply field-device acknowledgement.
+
+Verification boundary:
+- Static source edits only; tests, CI, import checks, Qt GUI interaction,
+  mixed-validity cycle execution and SQLite audit round-trip were not run.
+- Static source review confirmed dispatch-attempt statuses remain distinct from Application command failure, Core postcondition and physical-device acknowledgement; latest-cycle audit records are read in descending sequence order.
+- Issue #1007 is resolved by this focused correction and is linked for closure when PR #1227 is merged.
+======================================================================
+
+Correction follow-up — 2026-11-18:
+- Materialized the Protection evaluation decision iterable exactly once so audit, dispatch and per-element correlation consume the same decision batch.
+- Added APPLICATION_COMMAND_FAILED as a distinct outcome and failure category. DISPATCH_FAILED is reserved for invalid/indeterminate dispatch results; successful command acceptance and Core postcondition outcomes remain distinct from physical acknowledgement.
+- Added durable per-element cycle-abort outcomes for stale runtime composition and defensive missing directional-snapshot rejection. A directional runtime identity failure now enters the common fail-closed diagnostic classification path instead of returning without element outcomes.
+- Updated the cycle outcome record documentation to cover validation, evaluation and dispatch lifecycle stages.
+- Verification remains source review only; no tests, CI, import/runtime or SQLite round-trip checks have been run.
+
+
+======================================================================
+GridForge V2 — Protection per-element cycle outcome reconciliation
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+PR: #1227
+Issue: #1007
+
+Additional correction:
+- Stale runtime, configuration, project/generation, measurement-registry and
+  runtime-channel-object preflight failures now return an explicit
+  READY_NOT_EVALUATED_CYCLE_ABORTED outcome for every known enabled element.
+- Cycle-wide diagnostics are copied into each affected outcome without
+  incorrectly reclassifying unaffected elements as INPUT_INVALID.
+- ANSI 67 voltage/current identity mismatch is classified as directional
+  coherence failure; ordinary missing/stale sample diagnostics remain
+  measurement-input failures.
+- Exported ProtectionElementCycleOutcome and ProtectionElementCycleStatus
+  from the protection_execution module as well as the Application package.
+- Protection Diagnostics now displays function code, per-element status,
+  failure category, diagnostic detail, project identity and activation
+  generation. It remains read-only.
+
+Architecture and verification:
+- Core remains free of Qt/QGraphics dependencies; changes are confined to
+  Application contracts/orchestration/audit and UI projection.
+- UI Qt symbols remain imported through ui/core/qt.py; that file is unchanged.
+- No tests or CI were run. No GUI, mixed-validity cycle, SQLite round-trip or
+  field-device acknowledgement was simulated. Physical acknowledgement stays
+  explicitly unknown/unavailable.
+- Static source review only; issue closure follows successful PR merge.
+======================================================================

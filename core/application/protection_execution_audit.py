@@ -463,6 +463,32 @@ class ProtectionExecutionAuditStore:
                 function_code=getattr(decision, "function_code", None),
                 status="actionable" if getattr(decision, "actionable", False) else "non_actionable",
             ))
+        for element_outcome in tuple(getattr(result, "element_cycle_outcomes", ())):
+            element_id = self._identity(getattr(element_outcome, "element_id", None)) or "unknown"
+            payload = {
+                "element_id": element_id,
+                "relay_id": getattr(element_outcome, "relay_id", None),
+                "function_code": getattr(element_outcome, "function_code", None),
+                "status": self._json_value(getattr(element_outcome, "status", None)),
+                "diagnostics": tuple(getattr(element_outcome, "diagnostics", ())),
+                "cycle_abort_reason": getattr(element_outcome, "cycle_abort_reason", ""),
+                "project_id": getattr(element_outcome, "project_id", None),
+                "activation_generation": getattr(element_outcome, "activation_generation", None),
+                "configuration_revision": getattr(element_outcome, "configuration_revision", None),
+                "evaluation_time": getattr(element_outcome, "evaluation_time", None),
+                "timestamp_domain": getattr(element_outcome, "timestamp_domain", None),
+                "failure_category": getattr(element_outcome, "failure_category", "none"),
+                "physical_acknowledgement": "unknown/unavailable",
+            }
+            rows.append(self._row(
+                project_id=project_id, activation_generation=activation_generation,
+                cycle_id=cycle_id, record_type="ELEMENT_CYCLE_OUTCOME", record_key=element_id,
+                occurred_at=occurred_at, payload=payload,
+                relay_id=getattr(element_outcome, "relay_id", None),
+                element_id=element_id,
+                function_code=getattr(element_outcome, "function_code", None),
+                status=self._identity(getattr(getattr(element_outcome, "status", None), "value", getattr(element_outcome, "status", None))),
+            ))
         for outcome in outcomes:
             payload = self._outcome_payload(outcome)
             decision = getattr(outcome, "protection_decision", None)

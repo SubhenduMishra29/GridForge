@@ -30,6 +30,8 @@ from .control_signal_mapping import (
 from .protection_execution_audit import ProtectionExecutionAuditRecord, ProtectionExecutionAuditStore
 from .protection_execution import (
     PostconditionStatus,
+    ProtectionElementCycleOutcome,
+    ProtectionElementCycleStatus,
     ProtectionActionOutcome,
     ProtectionExecutionResult,
     ProtectionExecutionService,
@@ -119,6 +121,8 @@ __all__ = [
     "StaleProtectionDecisionError",
     "ProtectionTargetUnavailableError",
     "PostconditionStatus",
+    "ProtectionElementCycleOutcome",
+    "ProtectionElementCycleStatus",
     "ProtectionPostconditionVerification",
     "ProtectionActionOutcome",
     "ProtectionExecutionResult",
