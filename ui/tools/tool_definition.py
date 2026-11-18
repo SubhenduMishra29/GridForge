@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Mapping
 
 from ui.tools.tool_settings import ToolSettingDefinition
@@ -102,6 +103,7 @@ class ToolDefinition:
             for key, definition in self.settings.items()
         ):
             raise TypeError("settings must map setting IDs to ToolSettingDefinition values.")
+        object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
 
     def supports_editor(self, editor_type: str) -> bool:
         return not self.editor_types or editor_type in self.editor_types
