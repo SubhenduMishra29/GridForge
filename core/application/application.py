@@ -82,6 +82,8 @@ from .services.temperature_instrument_service import TemperatureInstrumentServic
 from .protection_dependency import build_protection_dependency_registry
 from .protection_execution import (
     ProtectionExecutionResult,
+    ProtectionElementCycleOutcome,
+    ProtectionElementCycleStatus,
     ProtectionExecutionService,
     ProtectionTargetUnavailableError,
     PostconditionStatus,
@@ -1409,36 +1411,83 @@ class Application:
             )
         runtime = getattr(self, "protection_runtime", None)
         configuration = getattr(self, "protection_configuration_service", None)
-        if runtime is None or configuration is None:
-            raise RuntimeError("Active project protection runtime/configuration is not available.")
-        if runtime.network is not lifecycle.network:
-            raise RuntimeError("Protection runtime network is stale for the active project.")
-        if runtime.project_id != project.project_id:
-            raise RuntimeError("Protection runtime project identity is stale for the active project.")
-        if runtime.activation_generation != lifecycle.activation_generation:
-            raise RuntimeError("Protection runtime activation generation is stale for the active project.")
-        active_configuration = configuration.configuration
+        active_configuration = getattr(configuration, "configuration", None)
+
+        def cycle_abort_result(reason: str) -> ProtectionExecutionResult:
+            """Return a fail-closed result with one outcome for each known enabled element."""
+            candidate_configuration = active_configuration
+            if candidate_configuration is None and runtime is not None:
+                candidate_configuration = getattr(runtime, "configuration", None)
+            revision_value = getattr(candidate_configuration, "revision", 0)
+            try:
+                configuration_revision = int(revision_value)
+            except (TypeError, ValueError, OverflowError):
+                configuration_revision = 0
+            if configuration_revision < 0:
+                configuration_revision = 0
+            diagnostics = [reason]
+            outcomes = []
+            for element in tuple(getattr(candidate_configuration, "elements", ())):
+                if not getattr(element, "enabled", False):
+                    continue
+                element_id = str(getattr(element, "element_id", "")).strip()
+                if not element_id:
+                    diagnostics.append(
+                        "An enabled Protection element has no stable element identity; "
+                        "a per-element outcome cannot be assigned."
+                    )
+                    continue
+                function_code = str(getattr(element, "function_code", "unknown")).strip() or "unknown"
+                relay_value = getattr(element, "relay_id", None)
+                outcomes.append(ProtectionElementCycleOutcome(
+                    element_id=element_id,
+                    relay_id=str(relay_value) if relay_value is not None else None,
+                    function_code=function_code,
+                    status=ProtectionElementCycleStatus.READY_NOT_EVALUATED_CYCLE_ABORTED,
+                    diagnostics=(reason,),
+                    cycle_abort_reason=reason,
+                    project_id=str(project.project_id),
+                    activation_generation=int(lifecycle.activation_generation),
+                    configuration_revision=configuration_revision,
+                    evaluation_time=float(evaluation_time),
+                    timestamp_domain=str(evaluation_time_domain),
+                    failure_category="cycle_integrity",
+                ))
+            return ProtectionExecutionResult(
+                diagnostics=tuple(diagnostics),
+                element_cycle_outcomes=tuple(outcomes),
+                cycle_id=audit_cycle_id,
+            )
+
+        if configuration is None:
+            return cycle_abort_result("Active project Protection configuration service is unavailable.")
         if active_configuration is None:
-            raise RuntimeError("Active project protection configuration is unavailable.")
+            return cycle_abort_result("Active project Protection configuration is unavailable.")
+        if runtime is None:
+            return cycle_abort_result("Active project Protection runtime is unavailable.")
+        if runtime.network is not lifecycle.network:
+            return cycle_abort_result("Protection runtime network is stale for the active project.")
+        if runtime.project_id != project.project_id:
+            return cycle_abort_result("Protection runtime project identity is stale for the active project.")
+        if runtime.activation_generation != lifecycle.activation_generation:
+            return cycle_abort_result("Protection runtime activation generation is stale for the active project.")
         if runtime.configuration is not active_configuration:
-            raise RuntimeError(
+            return cycle_abort_result(
                 "Protection runtime configuration is not the exact active Application configuration."
             )
         if not runtime.configuration_matches_composition or not runtime.equipment_state_matches_composition:
-            return ProtectionExecutionResult(
-                diagnostics=(
-                    f"project={project.project_id!r}: protection configuration or CT/CVT/PT/Relay equipment state changed after runtime "
-                    "composition; runtime is stale and evaluation was refused.",
-                )
+            return cycle_abort_result(
+                f"project={project.project_id!r}: protection configuration or CT/CVT/PT/Relay equipment "
+                "state changed after runtime composition; runtime is stale and evaluation was refused."
             )
         if runtime.configuration.project_id != project.project_id:
-            raise RuntimeError("Protection runtime project identity does not match the active project.")
+            return cycle_abort_result("Protection runtime configuration project identity is stale.")
         if service.project_id != project.project_id:
-            raise RuntimeError("Measurement channel registry belongs to a different project.")
+            return cycle_abort_result("Measurement channel registry belongs to a different project.")
         if service.activation_generation != lifecycle.activation_generation:
-            raise RuntimeError("Measurement channel registry activation generation is stale.")
+            return cycle_abort_result("Measurement channel registry activation generation is stale.")
         if service.network is not lifecycle.network:
-            raise RuntimeError("Measurement channel registry is provisioned against a stale network.")
+            return cycle_abort_result("Measurement channel registry is provisioned against a stale network.")
 
         channels = service.channels
 
@@ -1450,7 +1499,7 @@ class Application:
             )
 
         if not runtime_uses_active_channel_objects(runtime, channels):
-            raise RuntimeError(
+            return cycle_abort_result(
                 "Protection runtime channel objects are stale for the active measurement-channel registry."
             )
 
@@ -1736,7 +1785,9 @@ class Application:
             any(element.enabled and str(element.function_code).strip().upper() == "67" for element in runtime.configuration.elements)
             and getattr(self, "protection_runtime", None) is not runtime
         ):
-            return ProtectionExecutionResult(diagnostics=("Directional snapshot issuance refused: ProtectionRuntime is not the active Application runtime.",))
+            diagnostics.append(
+                f"project={project.project_id!r}: directional snapshot issuance refused because ProtectionRuntime is not the active Application runtime."
+            )
         directional_snapshots: dict[str, Any] = {}
         for element in runtime.configuration.elements:
             if not element.enabled or str(element.function_code).strip().upper() != "67":
@@ -1802,7 +1853,65 @@ class Application:
                 diagnostics.append(f"{prefix}: authoritative directional snapshot issuance refused: {exc}")
 
         if diagnostics:
-            return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+            # Keep the established atomic fail-closed policy. Classify each
+            # enabled element explicitly; never imply that a healthy sibling
+            # was evaluated when the cycle was rejected.
+            global_diagnostics = tuple(
+                message for message in diagnostics if "element=" not in message
+            )
+            element_outcomes = []
+            for element in runtime.configuration.elements:
+                if not element.enabled:
+                    continue
+                marker = f"element={element.element_id!r}"
+                element_specific_diagnostics = tuple(
+                    message for message in diagnostics if marker in message
+                )
+                element_diagnostics = element_specific_diagnostics + global_diagnostics
+                status = (
+                    ProtectionElementCycleStatus.INPUT_INVALID
+                    if element_specific_diagnostics
+                    else ProtectionElementCycleStatus.READY_NOT_EVALUATED_CYCLE_ABORTED
+                )
+                directional_markers = (
+                    "phase",
+                    "timestamps differ",
+                    "phasor",
+                    "directional snapshot",
+                    "zero-magnitude",
+                    "voltage and current must be distinct",
+                )
+                is_directional_coherence_failure = (
+                    str(element.function_code).strip().upper() == "67"
+                    and any(
+                        token in message.lower()
+                        for message in element_specific_diagnostics
+                        for token in directional_markers
+                    )
+                )
+                element_outcomes.append(ProtectionElementCycleOutcome(
+                    element_id=str(element.element_id),
+                    relay_id=str(element.relay_id) if getattr(element, "relay_id", None) is not None else None,
+                    function_code=str(element.function_code),
+                    status=status,
+                    diagnostics=element_diagnostics,
+                    cycle_abort_reason="Protection cycle rejected before evaluation because one or more input or cycle-integrity diagnostics were present.",
+                    project_id=str(project.project_id),
+                    activation_generation=int(lifecycle.activation_generation),
+                    configuration_revision=int(runtime.configuration.revision),
+                    evaluation_time=float(evaluation_time),
+                    timestamp_domain=str(evaluation_time_domain),
+                    failure_category=(
+                        "directional_coherence"
+                        if is_directional_coherence_failure
+                        else "measurement_input" if element_specific_diagnostics else "cycle_integrity"
+                    ),
+                ))
+            return ProtectionExecutionResult(
+                diagnostics=tuple(diagnostics),
+                element_cycle_outcomes=tuple(element_outcomes),
+                cycle_id=audit_cycle_id,
+            )
 
         # Capture the exact dependency identities that produced this cycle.
         # Incomplete element descriptors remain non-dispatchable; they do not
@@ -2035,8 +2144,40 @@ class Application:
         for element in runtime.configuration.elements:
             if element.enabled and str(element.function_code).strip().upper() == "67":
                 if element.element_id not in directional_snapshots:
+                    diagnostic = (
+                        f"project={project.project_id!r}, element={element.element_id!r}: "
+                        "authoritative directional phasor snapshot is unavailable."
+                    )
+                    cycle_abort_reason = "Protection cycle rejected because a required directional snapshot is unavailable."
+                    outcomes = tuple(
+                        ProtectionElementCycleOutcome(
+                            element_id=str(candidate.element_id),
+                            relay_id=str(candidate.relay_id) if getattr(candidate, "relay_id", None) is not None else None,
+                            function_code=str(candidate.function_code),
+                            status=(
+                                ProtectionElementCycleStatus.INPUT_INVALID
+                                if str(candidate.element_id) == str(element.element_id)
+                                else ProtectionElementCycleStatus.READY_NOT_EVALUATED_CYCLE_ABORTED
+                            ),
+                            diagnostics=(diagnostic,) if str(candidate.element_id) == str(element.element_id) else (),
+                            cycle_abort_reason=cycle_abort_reason,
+                            project_id=str(project.project_id),
+                            activation_generation=int(lifecycle.activation_generation),
+                            configuration_revision=int(runtime.configuration.revision),
+                            evaluation_time=float(evaluation_time),
+                            timestamp_domain=str(evaluation_time_domain),
+                            failure_category=(
+                                "directional_coherence"
+                                if str(candidate.element_id) == str(element.element_id)
+                                else "cycle_integrity"
+                            ),
+                        )
+                        for candidate in runtime.configuration.elements if candidate.enabled
+                    )
                     return ProtectionExecutionResult(
-                        diagnostics=(f"project={project.project_id!r}, element={element.element_id!r}: authoritative directional phasor snapshot is unavailable.",)
+                        diagnostics=(diagnostic,),
+                        element_cycle_outcomes=outcomes,
+                        cycle_id=audit_cycle_id,
                     )
         if directional_snapshots:
             context_metadata["directional_measurement_snapshots_by_element"] = directional_snapshots
@@ -2051,7 +2192,9 @@ class Application:
             supervision=supervision if supervision is not None else {},
             metadata=context_metadata,
         )
-        decisions = runtime.system.evaluate(context)
+        # Materialize once: the same immutable decision batch is consumed by
+        # audit, dispatch and per-element outcome correlation.
+        decisions = tuple(runtime.system.evaluate(context))
         audit_store = self._protection_execution_audit_store
         if audit_store is not None and audit_cycle_id is not None and audit_error_sink is not None:
             try:
@@ -2246,7 +2389,68 @@ class Application:
             state_observer=observe_protection_command_state,
             dispatch_observer=persist_protection_dispatch_intent,
         )
-        return execution.execute(decisions)
+        execution_result = execution.execute(decisions)
+        decisions_by_element = {str(decision.element_id): decision for decision in decisions}
+        action_outcomes_by_element = {
+            str(outcome.protection_decision.element_id): outcome
+            for outcome in execution_result.outcomes
+        }
+        element_cycle_outcomes = []
+        for element in runtime.configuration.elements:
+            if not element.enabled:
+                continue
+            element_id = str(element.element_id)
+            decision = decisions_by_element.get(element_id)
+            action_outcome = action_outcomes_by_element.get(element_id)
+            element_diagnostics: tuple[str, ...] = ()
+            if decision is None:
+                status = ProtectionElementCycleStatus.EVALUATED_NO_OPERATION
+            elif not decision.actionable:
+                status = ProtectionElementCycleStatus.EVALUATED_NO_OPERATION
+            elif action_outcome is None:
+                status = ProtectionElementCycleStatus.DECISION_PENDING_DISPATCH
+            elif action_outcome.status in {
+                "application_command_succeeded",
+                "command_accepted",
+                "core_postcondition_matched",
+                "core_postcondition_mismatched",
+                "postcondition_unavailable_unsupported",
+            }:
+                status = ProtectionElementCycleStatus.DISPATCHED
+            elif action_outcome.status == "application_command_failed":
+                status = ProtectionElementCycleStatus.APPLICATION_COMMAND_FAILED
+                element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
+            elif action_outcome.status in {"dispatch_failed_or_indeterminate", "invalid_application_result"}:
+                status = ProtectionElementCycleStatus.DISPATCH_FAILED
+                element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
+            else:
+                status = ProtectionElementCycleStatus.DISPATCH_BLOCKED
+                element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
+            if action_outcome is not None and action_outcome.diagnostic and not element_diagnostics:
+                element_diagnostics = (action_outcome.diagnostic,)
+            element_cycle_outcomes.append(ProtectionElementCycleOutcome(
+                element_id=element_id,
+                relay_id=str(getattr(element, "relay_id")) if getattr(element, "relay_id", None) is not None else None,
+                function_code=str(element.function_code),
+                status=status,
+                diagnostics=element_diagnostics,
+                cycle_abort_reason="not_applicable",
+                project_id=str(project.project_id),
+                activation_generation=int(lifecycle.activation_generation),
+                configuration_revision=int(runtime.configuration.revision),
+                evaluation_time=float(evaluation_time),
+                timestamp_domain=str(evaluation_time_domain),
+                failure_category=(
+                    "application_command" if status is ProtectionElementCycleStatus.APPLICATION_COMMAND_FAILED
+                    else "dispatch" if status in {ProtectionElementCycleStatus.DISPATCH_BLOCKED, ProtectionElementCycleStatus.DISPATCH_FAILED}
+                    else "none"
+                ),
+            ))
+        return replace(
+            execution_result,
+            element_cycle_outcomes=tuple(element_cycle_outcomes),
+            cycle_id=audit_cycle_id,
+        )
 
 
     def _evaluate_protection_scenario(

@@ -292,7 +292,65 @@ class ProtectionGraphicsSurface(QGraphicsView):
             self.fitInView(items.adjusted(-30, -30, 30, 30))
 
     def show_diagnostics(self) -> None:
-        self._adapter.feedback(CanvasFeedback.NONE, "Protection diagnostics are read-side only.")
+        """Project the latest durable per-element cycle outcomes without mutation."""
+        try:
+            lifecycle = self._application.project_lifecycle
+            project = lifecycle.context
+            if project is None or not lifecycle.has_project:
+                self._adapter.feedback(CanvasFeedback.NONE, "Protection diagnostics unavailable: no active project.")
+                return
+            recent = self._application.read_protection_execution_audit(
+                project_id=str(project.project_id), limit=500
+            )
+            if not recent:
+                self._adapter.feedback(CanvasFeedback.NONE, "No durable Protection execution cycle has been recorded for this project.")
+                return
+            latest_cycle_id = recent[0].cycle_id
+            cycle_records = self._application.read_protection_execution_audit_cycle(
+                project_id=str(project.project_id), cycle_id=latest_cycle_id
+            )
+            element_records = tuple(
+                record for record in cycle_records
+                if record.record_type == "ELEMENT_CYCLE_OUTCOME"
+            )
+            if not element_records:
+                self._adapter.feedback(
+                    CanvasFeedback.NONE,
+                    f"Latest Protection cycle {latest_cycle_id}: no per-element outcome records are available.",
+                )
+                return
+            first_record = element_records[0]
+            generation = getattr(first_record, "activation_generation", None)
+            lines = []
+            for record in element_records:
+                payload = record.payload or {}
+                element_id = record.element_id or record.record_key
+                function_code = payload.get("function_code") or record.function_code or "unknown"
+                status = record.status or "unknown"
+                category = payload.get("failure_category", "none")
+                details = tuple(payload.get("diagnostics", ()))
+                if not details:
+                    abort_reason = payload.get("cycle_abort_reason")
+                    if abort_reason and abort_reason != "not_applicable":
+                        details = (str(abort_reason),)
+                detail_text = "; ".join(str(item) for item in details if item)[:500]
+                line = f"{element_id} / ANSI {function_code}: {status} [{category}]"
+                if detail_text:
+                    line += f" — {detail_text}"
+                lines.append(line)
+            provenance = f"project {project.project_id}"
+            if generation is not None:
+                provenance += f", activation {generation}"
+            self._adapter.feedback(
+                CanvasFeedback.NONE,
+                f"Protection cycle {latest_cycle_id} — {provenance}; per-element outcomes (read-only): "
+                + " | ".join(lines),
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            self._adapter.feedback(
+                CanvasFeedback.NONE,
+                f"Protection diagnostics unavailable: {type(exc).__name__}: {exc}",
+            )
 
     def mousePressEvent(self, event: Any) -> None:
         item = self.itemAt(event.position().toPoint())
