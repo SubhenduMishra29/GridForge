@@ -73,7 +73,6 @@ from ui.tools.default_tool_registry import create_default_tool_factories
 from ui.tools.tool_definition import contextual_tool_definitions
 from ui.tools.tool_mode import ToolMode
 from ui.tools.tool_settings import ToolSettings
-from ui.tools.tool_settings import ToolSettings
 from ui.editors.study.study_tool_runtime import StudyToolRuntime
 from ui.editors.common.tool_icon_adapter import ToolIconAdapter
 from ui.protection.protection_tools import ProtectionInteractionController
