@@ -1882,6 +1882,7 @@ def _build_application_impl(
         # change overwrite the active Control/Protection/Study tool context.
         if engineering_context.current.discipline == "sld":
             engineering_context.update(active_tool=current)
+            workspace_realizer.refresh_active_context()
         workspace_surface_host.refresh_tool_shelves()
 
     if callable(getattr(controller, "tool_changed", None).connect if getattr(controller, "tool_changed", None) is not None else None):
