@@ -2317,7 +2317,7 @@ class Application:
                 "postcondition_unavailable_unsupported",
             }:
                 status = ProtectionElementCycleStatus.DISPATCHED
-            elif action_outcome.status == "dispatch_failed_or_indeterminate":
+            elif action_outcome.status in {"dispatch_failed_or_indeterminate", "invalid_application_result"}:
                 status = ProtectionElementCycleStatus.DISPATCH_FAILED
                 element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
             else:
