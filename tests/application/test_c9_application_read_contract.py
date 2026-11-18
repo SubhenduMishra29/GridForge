@@ -8,7 +8,7 @@ from types import MappingProxyType, SimpleNamespace
 
 import pytest
 
-from core.application.read_models import ElementReadModel
+from core.application.read_models import ElementReadModel, NetworkReadModel
 from core.application.read_service import NetworkReadService
 
 
@@ -78,3 +78,51 @@ def test_read_model_is_immutable_and_does_not_leak_core_mapping():
     assert isinstance(nested, MappingProxyType)
     with pytest.raises(TypeError):
         nested["value"] = 2
+
+def test_multi_terminal_connectivity_and_fingerprint_ignore_terminal_collection_order():
+    forward = model(
+        terminals=[
+            Terminal("T-S2", "S2", "B-S2"),
+            Terminal("T-P1", "P1", "B-P1"),
+            Terminal("T-S1", "S1", "B-S1"),
+            Terminal("T-P2", "P2", "B-P2"),
+        ]
+    )
+    reverse = model(
+        terminals=[
+            Terminal("T-P2", "P2", "B-P2"),
+            Terminal("T-S1", "S1", "B-S1"),
+            Terminal("T-P1", "P1", "B-P1"),
+            Terminal("T-S2", "S2", "B-S2"),
+        ]
+    )
+
+    forward_refs, forward_terminal_connectivity = NetworkReadService._connectivity(forward)
+    reverse_refs, reverse_terminal_connectivity = NetworkReadService._connectivity(reverse)
+
+    assert forward_refs == reverse_refs == ("T-P1", "T-P2", "T-S1", "T-S2")
+    assert forward_terminal_connectivity == reverse_terminal_connectivity == (
+        ("P1", "B-P1"),
+        ("P2", "B-P2"),
+        ("S1", "B-S1"),
+        ("S2", "B-S2"),
+    )
+
+    forward_element = ElementReadModel(
+        "TX-1",
+        "TRANSFORMER",
+        {},
+        forward_refs,
+        {"terminal_connectivity": forward_terminal_connectivity},
+    )
+    reverse_element = ElementReadModel(
+        "TX-1",
+        "TRANSFORMER",
+        {},
+        reverse_refs,
+        {"terminal_connectivity": reverse_terminal_connectivity},
+    )
+    assert NetworkReadModel(elements=(forward_element,)).structural_fingerprint == (
+        NetworkReadModel(elements=(reverse_element,)).structural_fingerprint
+    )
+
