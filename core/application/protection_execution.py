@@ -67,6 +67,7 @@ class ProtectionElementCycleOutcome:
     configuration_revision: int
     evaluation_time: float
     timestamp_domain: str
+    failure_category: str = "none"
 
     def __post_init__(self) -> None:
         for name in ("element_id", "function_code", "cycle_abort_reason", "project_id", "timestamp_domain"):
@@ -86,6 +87,8 @@ class ProtectionElementCycleOutcome:
             raise ValueError("configuration_revision must be a non-negative integer.")
         if isinstance(self.evaluation_time, bool) or not isinstance(self.evaluation_time, (int, float)) or not math.isfinite(self.evaluation_time):
             raise ValueError("evaluation_time must be finite.")
+        if self.failure_category not in {"none", "measurement_input", "directional_coherence", "cycle_integrity", "dispatch"}:
+            raise ValueError("failure_category is not a supported Protection cycle failure category.")
 
 
 @dataclass(frozen=True, slots=True)
