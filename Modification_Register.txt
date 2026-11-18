@@ -5478,3 +5478,20 @@ Verification boundary:
   interaction was run. Issue #880 remains open for complete draft-only/mixed
   movement support and manual GUI acceptance.
 ======================================================================
+
+
+GridForge V2 — SLD Draft Equipment Drag-Move Ownership Safety
+Date: 2026-11-18
+Issue: #880
+Branch: fix/issue-880-draft-selection-move
+
+Correction:
+- SelectTool resolves the complete selected NODE identity set against both the active persistent SLD model and the active document's DraftNetwork snapshot before dispatching a move.
+- A single DraftNetwork equipment item can now be moved through UpdateDraftEquipmentCommand, updating canonical placement under the captured document_id and the existing Application transaction/undo boundary.
+- Unresolved selections, mixed Core/Draft selections, and multi-item DraftNetwork selections fail closed with explicit status feedback; no subset is moved.
+- Persistent Core-only movement retains SetSLDNodePositionsCommand and duplicate-node de-duplication.
+
+Remaining:
+- Atomic batch movement for multiple DraftNetwork equipment items and mixed Core/Draft selections is not implemented; the UI explicitly rejects these selections until one Application transaction can own the complete operation.
+- Multi-layer deletion transaction reconciliation remains a separate unresolved part of issue #880.
+- GUI drag/undo/save-reopen acceptance and runtime/import checks were not performed.
