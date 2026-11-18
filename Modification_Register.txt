@@ -5385,3 +5385,32 @@ GF-AGENTS-001 — Claude Code remediation-agent configuration merged into root m
   Ollama/Claude provider availability and agent-generated corrections are separate
   work and are not implied by this merge.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Protection per-element cycle outcome classification
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #1007
+
+Correction:
+- Added immutable ProtectionElementCycleOutcome records and typed statuses
+  INPUT_INVALID and READY_NOT_EVALUATED_CYCLE_ABORTED.
+- Preserved the existing atomic cycle-wide fail-closed policy. A function with
+  its own element-scoped validation/coherence diagnostic is classified as
+  INPUT_INVALID; otherwise-valid enabled elements are explicitly classified
+  READY_NOT_EVALUATED_CYCLE_ABORTED.
+- Each record carries project ID, activation generation, configuration
+  revision, trusted evaluation time/domain, function/relay identity, element
+  diagnostics and the cycle-abort reason.
+- Persisted these pre-evaluation outcomes as append-only, idempotently keyed
+  ELEMENT_CYCLE_OUTCOME audit records through the existing cycle audit append.
+- Decision, dispatch, Core postcondition and physical acknowledgement remain
+  separate; no partial evaluation or dispatch was introduced.
+
+Verification boundary:
+- Static source edits only. Tests, CI, imports, mixed-validity cycle execution,
+  SQLite audit round-trip, GUI and runtime checks have not been run.
+- Review required for element relay identity shape and global diagnostics
+  classification before merge. Do not close #1007 until this is verified.
+======================================================================
