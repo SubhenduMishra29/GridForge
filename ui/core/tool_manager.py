@@ -291,10 +291,14 @@ class ToolManager:
             tool = self._create_tool(tool_id)
             settings = self._tool_settings.get(tool_id)
             if settings is not None:
-                apply_settings = getattr(tool, "apply_settings", None)
-                if not callable(apply_settings):
-                    raise RuntimeError(f"Tool {tool_id!r} declares settings but does not implement apply_settings().")
-                apply_settings(settings)
+                try:
+                    apply_settings = getattr(tool, "apply_settings", None)
+                    if not callable(apply_settings):
+                        raise RuntimeError(f"Tool {tool_id!r} declares settings but does not implement apply_settings().")
+                    apply_settings(settings)
+                except Exception:
+                    self._dispose_tool(tool)
+                    raise
             self._tool_instances[tool_id] = tool
         return self._tool_instances[tool_id]
 
