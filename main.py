@@ -355,6 +355,9 @@ def _build_application_impl(
         tool_settings_updaters={
             "sld": controller.update_tool_settings,
         },
+        tool_settings_providers={
+            "sld": lambda tool_id: tool_manager.get_tool_settings(tool_id),
+        },
         icon_provider=_tool_icon,
         study_runtime=study_tool_runtime,
         parent=None,
