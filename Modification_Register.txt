@@ -5478,3 +5478,36 @@ Verification boundary:
   interaction was run. Issue #880 remains open for complete draft-only/mixed
   movement support and manual GUI acceptance.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Draft SLD equipment drag movement (single-item, fail-closed)
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #880
+Branch: fix/issue-880-draft-node-drag-20261118
+
+Correction:
+- SelectTool now resolves selected NODE identities against both the active
+  persistent SLD model and the active document's Application DraftNetwork
+  snapshot before dispatch.
+- A single DraftNetwork equipment item can be moved through
+  UpdateDraftEquipmentCommand by updating its canonical placement. The
+  command carries the active document_id and uses the existing Application
+  transaction/undo path.
+- Mixed Core/DraftNetwork selections are rejected before mutation. Multiple
+  DraftNetwork items are also rejected because the current command contract
+  has no atomic batch update; no sequence of independent commands is issued.
+- Persistent Core-only group movement retains the existing single
+  SetSLDNodePositionsCommand path. Unresolved identities fail closed.
+- Draft/Core ownership remains separate; no scene-item position is treated
+  as authoritative state.
+
+Verification boundary:
+- Source was statically inspected and edited on the issue branch. The
+  changed source and register have not yet been fetched back for final review.
+- No tests, CI, imports, syntax execution, Qt GUI interaction, undo/redo or
+  project save/reopen checks were run.
+- Issue #880 remains open for atomic multi-draft/mixed-owner lifecycle support
+  and manual GUI acceptance.
+======================================================================
