@@ -49,7 +49,7 @@ from .application import Application
 from .command import Command
 from .protection_execution_audit import ProtectionExecutionAuditStore
 from .control_dispatch import ControlTripBatchCommand
-from .commands.selection_commands import DELETE_SELECTION_BATCH, ENGINEERING_UPDATE_BATCH
+from .commands.selection_commands import DELETE_SELECTION_BATCH, MOVE_SELECTION_BATCH, ENGINEERING_UPDATE_BATCH
 from .control_command_handlers import ControlCommandHandlers
 from .command_handlers import build_model_command_handlers
 from .services.electrical_connection_service import ElectricalConnectionCommandHandlers
@@ -560,6 +560,81 @@ def create_application(
                     "atomic": True,
                 },
             )
+
+        def execute_selection_move_batch(command: Any, _context: Any, transaction: Any) -> Any:
+            """Execute Core SLD and DraftNetwork placements in one undoable transaction."""
+            children = tuple(command.payload.get("commands", ()))
+            document_id = str(command.payload.get("document_id", "")).strip()
+            if not children or not document_id:
+                raise ValueError("Selection move batch requires child commands and an active SLD document.")
+            active_presentation = getattr(application, "presentation", None)
+            if active_presentation is None or getattr(active_presentation, "document_id", None) != document_id:
+                raise ValueError("Selection move batch does not target the active SLD document.")
+            document = application.sld_service.document
+            draft_snapshot = application.read_draft_network(document_id)
+            draft_snapshot = draft_snapshot if isinstance(draft_snapshot, Mapping) else {}
+            draft_by_id = {
+                str(item.get("draft_id", "")): item
+                for item in draft_snapshot.get("equipment", ())
+                if isinstance(item, Mapping)
+            }
+            seen: set[tuple[str, str]] = set()
+            has_draft = False
+            for child in children:
+                if not isinstance(child, Command):
+                    raise TypeError("Selection move batch contains a non-command child.")
+                if child.command_type == "sld.set_node_positions":
+                    positions = child.payload.get("positions", ())
+                    if not isinstance(positions, (tuple, list)) or not positions:
+                        raise ValueError("Core SLD move child requires at least one position.")
+                    for position in positions:
+                        if not isinstance(position, Mapping):
+                            raise TypeError("Core SLD move position must be a mapping.")
+                        identity = str(position.get("node_id", "")).strip()
+                        node = document.model.get_node_optional(identity) if identity else None
+                        if node is None:
+                            raise ValueError(f"Selection move preflight could not resolve SLD node {identity!r}.")
+                        key = (child.command_type, identity)
+                        if key in seen:
+                            raise ValueError(f"Selection move batch contains duplicate SLD node {identity!r}.")
+                        seen.add(key)
+                elif child.command_type == "draft.update_equipment":
+                    has_draft = True
+                    if str(child.payload.get("document_id", "")).strip() != document_id:
+                        raise ValueError("Draft move child does not belong to the active SLD document.")
+                    identity = str(child.payload.get("draft_id", "")).strip()
+                    item = draft_by_id.get(identity)
+                    changes = child.payload.get("changes", {})
+                    placement = changes.get("placement") if isinstance(changes, Mapping) else None
+                    if item is None:
+                        raise ValueError(f"Selection move preflight could not resolve DraftNetwork equipment {identity!r}.")
+                    if (
+                        not isinstance(placement, (tuple, list))
+                        or len(placement) != 2
+                        or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)) for value in placement)
+                    ):
+                        raise ValueError(f"Draft move for {identity!r} requires a finite two-dimensional placement.")
+                    key = (child.command_type, identity)
+                    if key in seen:
+                        raise ValueError(f"Selection move batch contains duplicate DraftNetwork equipment {identity!r}.")
+                    seen.add(key)
+                else:
+                    raise ValueError(f"Selection move batch does not support child command {child.command_type!r}.")
+            if not has_draft:
+                raise ValueError("Selection move batch is reserved for moves containing DraftNetwork equipment.")
+            # All selected owners are resolved before the first mutation. Child
+            # handlers register their inverse operations in this same transaction.
+            for child in children:
+                command_manager.execute_in_transaction(child, transaction)
+            return ApplicationResult.success_result(
+                message=f"Atomically moved {len(seen)} selected SLD objects.",
+                metadata={"document_id": document_id, "atomic": True},
+            )
+
+        command_manager.register_handler(
+            MOVE_SELECTION_BATCH,
+            execute_selection_move_batch,
+        )
 
         command_manager.register_handler(
             DELETE_SELECTION_BATCH,
