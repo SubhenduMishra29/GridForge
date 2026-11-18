@@ -82,6 +82,8 @@ from .services.temperature_instrument_service import TemperatureInstrumentServic
 from .protection_dependency import build_protection_dependency_registry
 from .protection_execution import (
     ProtectionExecutionResult,
+    ProtectionElementCycleOutcome,
+    ProtectionElementCycleStatus,
     ProtectionExecutionService,
     ProtectionTargetUnavailableError,
     PostconditionStatus,
@@ -1802,7 +1804,38 @@ class Application:
                 diagnostics.append(f"{prefix}: authoritative directional snapshot issuance refused: {exc}")
 
         if diagnostics:
-            return ProtectionExecutionResult(diagnostics=tuple(diagnostics))
+            # Keep the established atomic fail-closed policy. Classify each
+            # enabled element explicitly; never imply that a healthy sibling
+            # was evaluated when the cycle was rejected.
+            element_outcomes = []
+            for element in runtime.configuration.elements:
+                if not element.enabled:
+                    continue
+                marker = f"element={element.element_id!r}"
+                element_diagnostics = tuple(message for message in diagnostics if marker in message)
+                status = (
+                    ProtectionElementCycleStatus.INPUT_INVALID
+                    if element_diagnostics
+                    else ProtectionElementCycleStatus.READY_NOT_EVALUATED_CYCLE_ABORTED
+                )
+                element_outcomes.append(ProtectionElementCycleOutcome(
+                    element_id=str(element.element_id),
+                    relay_id=str(element.relay_id) if getattr(element, "relay_id", None) is not None else None,
+                    function_code=str(element.function_code),
+                    status=status,
+                    diagnostics=element_diagnostics,
+                    cycle_abort_reason="Protection cycle rejected before evaluation because one or more input or cycle-integrity diagnostics were present.",
+                    project_id=str(project.project_id),
+                    activation_generation=int(lifecycle.activation_generation),
+                    configuration_revision=int(runtime.configuration.revision),
+                    evaluation_time=float(evaluation_time),
+                    timestamp_domain=str(evaluation_time_domain),
+                ))
+            return ProtectionExecutionResult(
+                diagnostics=tuple(diagnostics),
+                element_cycle_outcomes=tuple(element_outcomes),
+                cycle_id=audit_cycle_id,
+            )
 
         # Capture the exact dependency identities that produced this cycle.
         # Incomplete element descriptors remain non-dispatchable; they do not
