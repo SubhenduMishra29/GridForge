@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 from typing import Any, Optional, Tuple
-from math import cos, radians, sin
+from math import cos, isfinite, radians, sin
 
 from core.application.commands.sld_commands import SetSLDNodePositionsCommand, SetSLDNodeTransformsCommand
 from core.application.commands.draft_commands import UpdateDraftEquipmentCommand
+from core.application.commands.selection_commands import MoveSelectionBatchCommand
 from ui.equipment.symbol.symbol_base import SymbolBase
 from core.application.services.insertion_contract import INSERTION_CONTRACTS
 from .electrical_insertion_tool import ElectricalInsertionTool
@@ -522,15 +523,14 @@ class SelectTool(ToolBase):
     def _commit_drag_move(self, object_id: Any, end: Tuple[float, float]) -> None:
         application = self.application
         presentation = getattr(application, "presentation", None)
+        document_id = getattr(presentation, "document_id", None)
         model = getattr(presentation, "model", None)
-        if model is None or presentation is None:
+        if presentation is None or model is None:
             return
 
         start = self._pressed_scene_position
         if start is None:
             return
-        # Snap one shared translation vector so every selected object preserves
-        # its relative geometry and engineering-grid alignment.
         delta_x = end[0] - start[0]
         delta_y = end[1] - start[1]
         snap_grid_point = getattr(self.get_snap_system(), "snap_grid_point", None)
@@ -544,109 +544,94 @@ class SelectTool(ToolBase):
         selected_ids = tuple(manager.get_selected_ids(domain=manager.NODE))
         if object_id not in selected_ids:
             selected_ids = (object_id,)
+        selected_ids = tuple(dict.fromkeys(str(value) for value in selected_ids))
 
-        document_id = getattr(presentation, "document_id", None)
-        try:
-            draft_snapshot = application.read_draft_network(document_id=document_id)
-        except (RuntimeError, TypeError, ValueError) as exc:
-            self.controller.show_status_message(f"Move cancelled: DraftNetwork scope is stale ({exc}).")
-            return
-        draft_equipment = (
-            tuple(draft_snapshot.get("equipment", ()))
-            if isinstance(draft_snapshot, dict)
-            else ()
-        )
-        draft_by_id = {
+        draft_snapshot = None
+        if isinstance(document_id, str) and document_id.strip():
+            reader = getattr(application, "read_draft_network", None)
+            if callable(reader):
+                draft_snapshot = reader(document_id=document_id)
+        draft_equipment = {
             str(item.get("draft_id")): item
-            for item in draft_equipment
+            for item in (draft_snapshot.get("equipment", ()) if isinstance(draft_snapshot, dict) else ())
             if isinstance(item, dict) and item.get("draft_id") is not None
         }
 
-        persistent_nodes = []
-        draft_nodes = []
-        unresolved_ids = []
+        core_positions: list[dict[str, Any]] = []
+        draft_commands: list[Any] = []
+        unresolved_ids: list[str] = []
         seen_node_ids: set[str] = set()
+        seen_draft_ids: set[str] = set()
         getter = getattr(model, "get_node_by_equipment_id_optional", None)
         node_getter = getattr(model, "get_node_optional", None)
         for selected_id in selected_ids:
-            selected_key = str(selected_id)
-            draft_item = draft_by_id.get(selected_key)
-            if draft_item is not None:
-                draft_nodes.append((selected_key, draft_item))
-                continue
-            node = getter(selected_key) if callable(getter) else None
+            node = getter(selected_id) if callable(getter) else None
             if node is None and callable(node_getter):
-                node = node_getter(selected_key)
-            if node is None:
-                unresolved_ids.append(selected_key)
+                node = node_getter(selected_id)
+            if node is not None:
+                node_id = str(node.node_id)
+                if node_id not in seen_node_ids:
+                    seen_node_ids.add(node_id)
+                    core_positions.append({
+                        "node_id": node_id,
+                        "x": float(node.x) + delta_x,
+                        "y": float(node.y) + delta_y,
+                    })
                 continue
-            node_id = str(node.node_id)
-            if node_id in seen_node_ids:
+            draft_item = draft_equipment.get(selected_id)
+            if draft_item is None:
+                unresolved_ids.append(selected_id)
                 continue
-            seen_node_ids.add(node_id)
-            persistent_nodes.append(node)
-
-        # A Core + DraftNetwork selection has two transaction owners. Do not
-        # split it into independent commands: that would permit partial moves.
-        if unresolved_ids or (draft_nodes and persistent_nodes):
-            identities = ", ".join(unresolved_ids or [item[0] for item in draft_nodes] + [str(node.node_id) for node in persistent_nodes])
-            self.controller.show_status_message(
-                "Move cancelled: the selection contains mixed-owner or unresolved "
-                f"SLD item(s) ({identities}). No objects were moved."
-            )
-            return
-
-        if draft_nodes:
-            # DraftNetwork currently exposes a single-equipment update command,
-            # not an atomic batch command. Permit one draft item only; reject
-            # multi-draft moves rather than issuing a sequence without rollback.
-            if len(draft_nodes) != 1:
-                self.controller.show_status_message(
-                    "Move cancelled: multiple DraftNetwork items require an atomic batch-move command."
-                )
-                return
-            draft_id, draft_item = draft_nodes[0]
+            draft_id = str(draft_item.get("draft_id", ""))
             placement = draft_item.get("placement")
             if (
-                not isinstance(placement, (tuple, list))
+                not draft_id
+                or draft_id in seen_draft_ids
+                or not isinstance(placement, (tuple, list))
                 or len(placement) != 2
-                or any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in placement)
+                or any(isinstance(value, bool) or not isinstance(value, (int, float)) or not isfinite(float(value)) for value in placement)
             ):
-                self.controller.show_status_message(
-                    "Move cancelled: the selected draft item has no valid canonical placement."
-                )
-                return
-            if not isinstance(document_id, str) or not document_id.strip():
-                self.controller.show_status_message(
-                    "Move cancelled: the active SLD document identity is unavailable."
-                )
-                return
-            command = UpdateDraftEquipmentCommand(
+                unresolved_ids.append(selected_id)
+                continue
+            seen_draft_ids.add(draft_id)
+            draft_commands.append(UpdateDraftEquipmentCommand(
                 draft_id=draft_id,
-                changes={
-                    "placement": [
-                        float(placement[0]) + delta_x,
-                        float(placement[1]) + delta_y,
-                    ]
-                },
-                document_id=document_id,
-            )
-            result = application.execute(command)
-            if not getattr(result, "success", False):
-                raise RuntimeError(getattr(result, "message", "Failed to move draft SLD equipment."))
+                changes={"placement": [
+                    float(placement[0]) + delta_x,
+                    float(placement[1]) + delta_y,
+                ]},
+                document_id=str(document_id) if document_id else None,
+            ))
+
+        show_status = getattr(self.controller, "show_status_message", None)
+        if unresolved_ids:
+            if callable(show_status):
+                show_status(
+                    "Move cancelled: selected item(s) could not be resolved in the active "
+                    f"Core/DraftNetwork scope ({', '.join(unresolved_ids)}). No objects were moved."
+                )
             return
 
-        if not persistent_nodes:
+        if draft_commands:
+            if not isinstance(document_id, str) or not document_id.strip():
+                if callable(show_status):
+                    show_status("Move cancelled: the active SLD document identity is unavailable.")
+                return
+            children: list[Any] = []
+            if core_positions:
+                children.append(SetSLDNodePositionsCommand(positions=core_positions))
+            children.extend(draft_commands)
+            result = application.execute(MoveSelectionBatchCommand(
+                commands=tuple(children),
+                document_id=document_id,
+            ))
+            if not getattr(result, "success", False):
+                raise RuntimeError(getattr(result, "message", "Failed to atomically move the selected SLD objects."))
             return
-        positions = [
-            {
-                "node_id": str(node.node_id),
-                "x": float(node.x) + delta_x,
-                "y": float(node.y) + delta_y,
-            }
-            for node in persistent_nodes
-        ]
-        result = application.execute(SetSLDNodePositionsCommand(positions=positions))
+
+        if not core_positions:
+            return
+        result = application.execute(SetSLDNodePositionsCommand(positions=core_positions))
         if not getattr(result, "success", False):
             raise RuntimeError(getattr(result, "message", "Failed to move selected SLD nodes."))
 
