@@ -5385,3 +5385,28 @@ GF-AGENTS-001 — Claude Code remediation-agent configuration merged into root m
   Ollama/Claude provider availability and agent-generated corrections are separate
   work and are not implied by this merge.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Protection Inspector typed numeric input and staged discard
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #1196
+
+Correction:
+- Numeric Protection settings use the Qt numeric validator and are converted
+  to finite floating-point values before the Application update command.
+  String, flat-choice and dependent-choice semantics remain unchanged.
+- No engineering bounds or decimal precision are invented; Application/Core
+  remain authoritative for domain validation and command acceptance.
+- Added Discard Changes for function and physical relay editors. It invokes
+  the normal refresh path and reloads the latest Application read models.
+- Rejected Apply retains staged controls; accepted Apply refreshes from the
+  authoritative read model. Plugin settings and runtime state remain read-only.
+
+Verification boundary:
+- Static source edit only; no tests, CI, imports, syntax execution or Qt GUI
+  interaction was run. Catalogue metadata is cross-checked against implemented
+  settings dataclasses; full UI mapping runtime coverage remains pending.
+- Issue #1196 remains open pending PR review and verification.
+======================================================================
