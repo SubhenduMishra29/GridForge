@@ -19,6 +19,7 @@ from typing import Any, Callable
 _LOGGER = logging.getLogger(__name__)
 
 from ui.creation.creation_context import CreationContext
+from ui.tools.tool_settings import ToolSettings
 from ui.core.qt import QPointF
 
 
@@ -197,6 +198,7 @@ class ToolManager:
         self.creation_context = creation_context or CreationContext()
         self._tool_registry: dict[str, ToolFactory] = {}
         self._tool_instances: dict[str, Any] = {}
+        self._tool_settings: dict[str, ToolSettings] = {}
         self._active_tool_id: str | None = None
         self._active_tool: Any | None = None
         self._interaction_tool: Any | None = None
@@ -298,6 +300,49 @@ class ToolManager:
     def get_current_tool(self) -> Any | None:
         self._ensure_active()
         return self._active_tool
+
+    def register_tool_settings(self, settings: ToolSettings) -> None:
+        """Register the immutable schema/default snapshot for a tool."""
+        self._ensure_active()
+        if not isinstance(settings, ToolSettings):
+            raise TypeError("settings must be ToolSettings.")
+        if settings.tool_id not in self._tool_registry:
+            raise KeyError(f"Tool settings refer to an unregistered tool: {settings.tool_id!r}")
+        if settings.tool_id in self._tool_settings:
+            raise ValueError(f"Tool settings are already registered: {settings.tool_id!r}")
+        self._tool_settings[settings.tool_id] = settings
+
+    def get_tool_settings(self, tool_id: str) -> ToolSettings | None:
+        """Return the current immutable settings snapshot for a registered tool."""
+        self._ensure_active()
+        self._validate_tool_id(tool_id)
+        return self._tool_settings.get(tool_id)
+
+    def update_active_tool_settings(
+        self, *, tool_id: str, expected_revision: int, changes: dict[str, Any]
+    ) -> ToolSettings:
+        """Apply validated settings to the existing active tool instance atomically."""
+        self._ensure_active()
+        if tool_id != self._active_tool_id or self._active_tool is None:
+            raise RuntimeError("Tool settings can be changed only for the currently active tool.")
+        current = self._tool_settings.get(tool_id)
+        if current is None:
+            raise RuntimeError(f"No typed settings schema is registered for active tool {tool_id!r}.")
+        if isinstance(expected_revision, bool) or expected_revision != current.revision:
+            raise RuntimeError("Tool settings changed since this editor snapshot; refresh before applying.")
+        if not isinstance(changes, dict) or not changes:
+            raise ValueError("changes must be a non-empty dictionary.")
+        updated = current.with_updates(**changes)
+        apply_settings = getattr(self._active_tool, "apply_settings", None)
+        if not callable(apply_settings):
+            raise RuntimeError(f"Active tool {tool_id!r} does not implement apply_settings().")
+        # Commit the new manager snapshot only after the existing instance accepts it.
+        apply_settings(updated)
+        self._tool_settings[tool_id] = updated
+        callback = getattr(self.controller, "_on_tool_settings_changed", None)
+        if callable(callback):
+            callback(tool_id, updated)
+        return updated
 
     def get_current_tool_id(self) -> str | None:
         self._ensure_active()
@@ -660,6 +705,7 @@ class ToolManager:
             "active_tool_id": self._active_tool_id,
             "active": self._active_tool is not None,
             "instance_count": len(self._tool_instances),
+            "tool_settings_count": len(self._tool_settings),
             "interaction_tool_id": getattr(self._interaction_tool, "tool_id", None),
         }
 
@@ -678,6 +724,7 @@ class ToolManager:
             del self._tool_instances[tool_id]
         self.creation_context.discard()
         self._tool_registry.clear()
+        self._tool_settings.clear()
         self._disposed = True
 
     def _definition_for_tool(self, tool_id: str) -> Any | None:
