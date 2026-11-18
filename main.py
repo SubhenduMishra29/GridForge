@@ -353,6 +353,9 @@ def _build_application_impl(
             "protection": lambda: protection_workspace.active_tool_id,
             "study": lambda: study_tool_runtime.active_tool_id,
         },
+        tool_settings_updaters={
+            "sld": controller.update_tool_settings,
+        },
         icon_provider=_tool_icon,
         study_runtime=study_tool_runtime,
         parent=None,
