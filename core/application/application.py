@@ -2279,7 +2279,51 @@ class Application:
             state_observer=observe_protection_command_state,
             dispatch_observer=persist_protection_dispatch_intent,
         )
-        return execution.execute(decisions)
+        execution_result = execution.execute(decisions)
+        decisions_by_element = {str(decision.element_id): decision for decision in decisions}
+        action_outcomes_by_element = {
+            str(outcome.protection_decision.element_id): outcome
+            for outcome in execution_result.outcomes
+        }
+        element_cycle_outcomes = []
+        for element in runtime.configuration.elements:
+            if not element.enabled:
+                continue
+            element_id = str(element.element_id)
+            decision = decisions_by_element.get(element_id)
+            action_outcome = action_outcomes_by_element.get(element_id)
+            element_diagnostics: tuple[str, ...] = ()
+            if decision is None:
+                status = ProtectionElementCycleStatus.EVALUATED_NO_OPERATION
+            elif not decision.actionable:
+                status = ProtectionElementCycleStatus.EVALUATED_NO_OPERATION
+            elif action_outcome is None:
+                status = ProtectionElementCycleStatus.DECISION_PENDING_DISPATCH
+            elif action_outcome.command is not None:
+                status = ProtectionElementCycleStatus.DISPATCHED
+            else:
+                status = ProtectionElementCycleStatus.DISPATCH_FAILED
+                element_diagnostics = (action_outcome.diagnostic or action_outcome.status,)
+            if action_outcome is not None and action_outcome.diagnostic and not element_diagnostics:
+                element_diagnostics = (action_outcome.diagnostic,)
+            element_cycle_outcomes.append(ProtectionElementCycleOutcome(
+                element_id=element_id,
+                relay_id=str(getattr(element, "relay_id")) if getattr(element, "relay_id", None) is not None else None,
+                function_code=str(element.function_code),
+                status=status,
+                diagnostics=element_diagnostics,
+                cycle_abort_reason="",
+                project_id=str(project.project_id),
+                activation_generation=int(lifecycle.activation_generation),
+                configuration_revision=int(runtime.configuration.revision),
+                evaluation_time=float(evaluation_time),
+                timestamp_domain=str(evaluation_time_domain),
+            ))
+        return replace(
+            execution_result,
+            element_cycle_outcomes=tuple(element_cycle_outcomes),
+            cycle_id=audit_cycle_id,
+        )
 
 
     def _evaluate_protection_scenario(
