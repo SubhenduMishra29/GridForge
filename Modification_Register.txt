@@ -5385,3 +5385,43 @@ GF-AGENTS-001 — Claude Code remediation-agent configuration merged into root m
   Ollama/Claude provider availability and agent-generated corrections are separate
   work and are not implied by this merge.
 ======================================================================
+
+======================================================================
+GridForge V2 — Typed editable active Tool Settings
+Date: 2026-11-18
+Repository: SubhenduMishra29/GridForge
+Issue: #1195
+
+Correction:
+- Added the Qt-independent ToolSettingDefinition schema for bool, integer,
+  numeric, text and enumerated-choice interaction settings, including labels,
+  defaults, editability, units, choices, bounds and step metadata.
+- ToolDefinition now accepts typed setting definitions; ToolSettings validates
+  defaults and updates and advances an immutable revision.
+- ToolManager now registers per-tool settings snapshots, applies initial
+  settings to the existing tool instance, and performs revision-checked
+  active-tool updates without reactivation or instance recreation.
+- Controller exposes the canonical update route and settings-change signal.
+  ToolBase accepts the immutable settings snapshot; concrete tools can consume
+  their declared interaction preferences without introducing a second state
+  authority.
+- ToolSettingsPanel renders typed controls and read-only settings. The panel
+  submits changes through the Controller callback and refreshes its immutable
+  snapshot only after acceptance.
+- Editor surfaces expose explicit handler binding; ControlSurfaceHost wires
+  the SLD panel to Controller. The main composition root registers SLD setting
+  schemas and supplies the active settings snapshot.
+- WorkspaceRealizer refreshes active EditorContext on SLD tool changes, while
+  EngineeringEditorHost clears stale editor context on switch/deactivation.
+- Equipment engineering parameters remain outside Tool Settings and continue
+  through the Properties/Creation workflow. Empty schemas keep the region hidden.
+
+Verification boundary:
+- Static source review only. No tests, CI, Python import/syntax execution or
+  Qt GUI interaction was run. Current built-in tool definitions do not yet
+  declare editable interaction settings, so production controls remain hidden
+  until a tool explicitly declares a typed schema. Control/Protection/Study
+  handlers must be supplied by their owning runtime before their settings can
+  be editable; absent handlers are presented read-only.
+- Issue #1195 remains open pending further integration and verification.
+======================================================================
