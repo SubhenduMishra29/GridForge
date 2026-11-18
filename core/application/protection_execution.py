@@ -47,6 +47,7 @@ class ProtectionElementCycleStatus(str, Enum):
     READY_NOT_EVALUATED_CYCLE_ABORTED = "ready_not_evaluated_cycle_aborted"
     EVALUATED_NO_OPERATION = "evaluated_no_operation"
     DECISION_PENDING_DISPATCH = "decision_pending_dispatch"
+    DISPATCH_BLOCKED = "dispatch_blocked"
     DISPATCHED = "dispatched"
     DISPATCH_FAILED = "dispatch_failed"
 
