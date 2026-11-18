@@ -477,6 +477,7 @@ class ProtectionExecutionAuditStore:
                 "configuration_revision": getattr(element_outcome, "configuration_revision", None),
                 "evaluation_time": getattr(element_outcome, "evaluation_time", None),
                 "timestamp_domain": getattr(element_outcome, "timestamp_domain", None),
+                "failure_category": getattr(element_outcome, "failure_category", "none"),
                 "physical_acknowledgement": "unknown/unavailable",
             }
             rows.append(self._row(
