@@ -319,7 +319,7 @@ class ProtectionGraphicsSurface(QGraphicsView):
                 )
                 return
             lines = [
-                f"{record.element_id or record.record_key}: {record.status or 'unknown'}"
+                f"{record.element_id or record.record_key}: {record.status or 'unknown'} [{record.payload.get('failure_category', 'none')}]"
                 for record in element_records
             ]
             self._adapter.feedback(
