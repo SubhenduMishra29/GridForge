@@ -574,6 +574,12 @@ class SLDEditor(QWidget):
         if callable(self._maximize_callback):
             self._maximize_callback(maximized)
 
+    def set_tool_settings_update_handler(self, handler) -> None:
+        """Bind the canonical UI/controller update route for contextual settings."""
+        setter = getattr(self._tool_settings, "set_update_handler", None)
+        if callable(setter):
+            setter(handler)
+
     def set_editor_context(self, context: object | None) -> None:
         self._editor_context = context
         setter = getattr(self._tool_shelf, "refresh_runtime_state", None)
