@@ -5444,3 +5444,12 @@ Verification boundary:
 - Issue #880 remains open pending the remaining mixed-selection movement
   correction and GUI acceptance.
 ======================================================================
+
+
+Supplemental correction for the Draft SLD connection selection slice:
+- SelectionManager now refreshes custom connection pens immediately after
+  projecting the selected flag, so a selected wire receives visible feedback.
+- SLDConnectionItem preserves its draft-preview visual state while idle but
+  promotes it to selected styling when the canonical SelectionManager selects
+  that draft connection. This also refreshes committed connection selection
+  styling consistently.
