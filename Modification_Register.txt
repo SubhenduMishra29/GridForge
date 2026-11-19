@@ -5654,3 +5654,49 @@ Architecture and verification:
   explicitly unknown/unavailable.
 - Static source review only; issue closure follows successful PR merge.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Draft-wire visual-state issue closure reconciliation
+Date: 2026-11-19
+Repository: SubhenduMishra29/GridForge
+Issue: #872
+Implementation PR: #909
+Implementation merge commit: 16248d1d2fed823aec6796a58a4fc173e0df1c19
+
+Correction already integrated on authoritative main:
+- Committed SLD connections are projected with VisualState.NORMAL.
+- Application-owned DraftNetwork connections are projected with
+  VisualState.PREVIEW, using the existing dashed preview presentation.
+- Draft connection projection remains presentation-only and does not create
+  Core topology. The explicit CommitNetworkCommand remains the only
+  DraftNetwork-to-Core commit boundary.
+- Canonical endpoint identity and Application-owned draft connection records
+  are unchanged by the visual-state distinction.
+
+Current-main reconciliation:
+- PR #909 is confirmed merged.
+- ui/canvas/sld_canvas_render_system.py on current main retains NORMAL for
+  committed connections and PREVIEW for draft connections.
+- The merged Modification_Register history for the implementation is not
+  present in the current register snapshot; this append-only entry restores
+  the authoritative closure trace without rewriting historical content.
+
+Verification boundary:
+- GitHub merge metadata and current-main source were inspected.
+- No tests, CI, Python imports, GUI interaction, or commit-transition runtime
+  verification were run. The dashed-preview behavior is source-verified only.
+
+Architecture:
+- Core remains the authority for electrical topology.
+- Application owns DraftNetwork and CommitNetworkCommand.
+- UI remains a projection; graphical appearance does not establish electrical
+  connectivity. No Qt/QGraphics dependency was added to Core.
+
+Disposition:
+- Issue #872 is closed as completed on the authoritative audit repository
+  based on the merged source correction.
+- Related issue #874 remains separate and open pending a reproducible GUI
+  trace of SnapResult identity, resolved anchors, committed Core endpoints,
+  resulting Core connection and ConnectivityResolver output.
+======================================================================
