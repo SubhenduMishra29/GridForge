@@ -625,10 +625,11 @@ class StudyService:
                     StudyFailed(metadata=self._event_metadata(request, status="failed", error=failure.message))
                 )
                 raise StudyResultPersistenceError(failure.message) from persistence_exc
+            finally:
+                if execution_context.draft_revision is not None:
+                    execution_context.draft_publication_lock.release()
             with self._lock:
                 self._results[key] = result
-            if execution_context.draft_revision is not None:
-                execution_context.draft_publication_lock.release()
             terminal_result_committed = True
             if cancelled:
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
