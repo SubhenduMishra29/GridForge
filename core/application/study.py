@@ -86,7 +86,7 @@ class StudyExecutionContext:
             or any(character not in "0123456789abcdef" for character in self.draft_revision)
             or not isinstance(self.draft_topology_revision, int)
             or isinstance(self.draft_topology_revision, bool)
-            or self.draft_topology_revision < 1
+            or self.draft_topology_revision < 0
             or not callable(self.draft_is_current)
             or not callable(getattr(self.draft_publication_lock, "acquire", None))
             or not callable(getattr(self.draft_publication_lock, "release", None))
@@ -142,7 +142,7 @@ class StudyRequest:
             or any(character not in "0123456789abcdef" for character in self.draft_revision)
             or not isinstance(self.draft_topology_revision, int)
             or isinstance(self.draft_topology_revision, bool)
-            or self.draft_topology_revision < 1
+            or self.draft_topology_revision < 0
         ):
             raise ValueError("Draft study request provenance is incomplete or invalid.")
         object.__setattr__(self, "project_id", self.project_id.strip())
