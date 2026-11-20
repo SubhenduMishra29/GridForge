@@ -37,6 +37,7 @@ class StudyExecutionContext:
     draft_revision: str | None = None
     draft_topology_revision: int | None = None
     draft_is_current: Callable[[], bool] | None = field(default=None, compare=False, repr=False)
+    draft_publication_lock: Any = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_revision, ProjectRevision):
@@ -70,6 +71,7 @@ class StudyExecutionContext:
                 self.draft_document_id,
                 self.draft_topology_revision,
                 self.draft_is_current,
+                self.draft_publication_lock,
             )):
                 raise ValueError("Draft study provenance fields must be supplied together.")
             if self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
@@ -86,6 +88,8 @@ class StudyExecutionContext:
             or isinstance(self.draft_topology_revision, bool)
             or self.draft_topology_revision < 1
             or not callable(self.draft_is_current)
+            or not callable(getattr(self.draft_publication_lock, "acquire", None))
+            or not callable(getattr(self.draft_publication_lock, "release", None))
         ):
             raise ValueError("Draft study execution context has incomplete or invalid provenance.")
         candidate_state = getattr(getattr(self.project_snapshot, "network", None), "state", None)
@@ -557,6 +561,20 @@ class StudyService:
                     if cancelled else self._draft_result_metadata(request)
                 ),
             )
+            if execution_context.draft_revision is not None:
+                # Hold the Application mutation boundary from the final
+                # freshness check through durable result installation. A
+                # concurrent draft edit cannot slip between validation and
+                # archive commit; later edits are reflected by read freshness.
+                execution_context.draft_publication_lock.acquire()
+                try:
+                    self._assert_draft_current(
+                        execution_context,
+                        stage="while committing the result",
+                    )
+                except BaseException:
+                    execution_context.draft_publication_lock.release()
+                    raise
             try:
                 self._persist_result(result)
             except Exception as persistence_exc:
@@ -609,6 +627,8 @@ class StudyService:
                 raise StudyResultPersistenceError(failure.message) from persistence_exc
             with self._lock:
                 self._results[key] = result
+            if execution_context.draft_revision is not None:
+                execution_context.draft_publication_lock.release()
             terminal_result_committed = True
             if cancelled:
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
