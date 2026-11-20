@@ -369,6 +369,9 @@ class StudyProjection:
             self._results.clear()
             self._cases = ()
             self._selected_study_id = None
+            set_draft_available = getattr(self._panel, "set_draft_available", None)
+            if callable(set_draft_available):
+                set_draft_available(False)
             self._panel.set_cases(())
             self._show_empty_result()
             return
@@ -495,6 +498,14 @@ class StudyProjection:
                 if callable(read_draft_bus_ids):
                     bus_ids.update(str(value) for value in read_draft_bus_ids() if str(value).strip())
                 set_available_buses(tuple(sorted(bus_ids)))
+                read_draft_network = getattr(self._application, "read_draft_network", None)
+                set_draft_available = getattr(self._panel, "set_draft_available", None)
+                if callable(read_draft_network) and callable(set_draft_available):
+                    draft = read_draft_network()
+                    set_draft_available(
+                        isinstance(draft, Mapping)
+                        and bool(draft.get("equipment") or draft.get("connections"))
+                    )
             except Exception:
                 _LOGGER.exception("Study Case Bus choices could not be refreshed")
 
