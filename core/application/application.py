@@ -276,11 +276,7 @@ class Application:
             collection = self._draft_network_collection
             if collection is None:
                 return None
-            return DraftNetworkCollection.from_dict(
-                collection.to_dict(),
-                project_id=collection.project_id,
-                activation_generation=collection.activation_generation,
-            )
+            return collection.detached_copy()
 
     def set_draft_network_collection(self, collection: DraftNetworkCollection | None) -> None:
         """Replace the complete document-scoped draft collection atomically."""
@@ -292,11 +288,7 @@ class Application:
                 self._draft_network_collection = None
                 self._draft_network = None
                 return
-            self._draft_network_collection = DraftNetworkCollection.from_dict(
-                collection.to_dict(),
-                project_id=collection.project_id,
-                activation_generation=collection.activation_generation,
-            )
+            self._draft_network_collection = collection.detached_copy()
             self._draft_network = None
 
     @property
@@ -316,6 +308,7 @@ class Application:
                 draft.to_dict(),
                 project_id=draft.project_id,
                 activation_generation=draft.activation_generation,
+                revision=draft.revision,
             )
 
     def _draft_network_for_command(self, document_id: str | None = None) -> DraftNetwork | None:
@@ -378,6 +371,7 @@ class Application:
                 draft_network.to_dict(),
                 project_id=draft_network.project_id,
                 activation_generation=draft_network.activation_generation,
+                revision=draft_network.revision,
             )
 
     def _recovery_snapshot(self) -> Mapping[str, Any]:
