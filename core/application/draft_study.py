@@ -157,6 +157,16 @@ class DraftStudyPreparationService:
         for item in draft_network.equipment:
             equipment_type = str(item.equipment_type).strip().lower()
             core_id = f"{equipment_type}-{item.draft_id}"
+            core_element = candidate.network.get_by_identity(core_id)
+            if core_element is None:
+                raise ValueError(
+                    f"Draft equipment {item.draft_id!r} ({equipment_type}) was not materialized "
+                    "in the isolated candidate Network."
+                )
+            if not bool(getattr(core_element, "in_service", True)):
+                # Out-of-service draft elements are intentionally excluded by
+                # the canonical TopologyManager and do not enter this solver.
+                continue
             if equipment_type == "bus":
                 if core_id not in candidate.topology_snapshot.bus_ids:
                     raise ValueError(
