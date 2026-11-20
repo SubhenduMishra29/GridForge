@@ -723,7 +723,7 @@ class DraftNetwork:
         for item in data.get("connections", ()): draft.add_connection(DraftConnection.from_dict(item))
         draft.validation_state = dict(data.get("validation_state", {}))
         draft._revision = revision
-        draft._snapshot_id = snapshot_id or uuid4().hex
+        draft._snapshot_id = snapshot_id.strip() if snapshot_id is not None else uuid4().hex
         return draft
 
     @classmethod
