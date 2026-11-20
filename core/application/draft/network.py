@@ -12,6 +12,7 @@ from math import isfinite
 import re
 from types import MappingProxyType
 from typing import Any, Mapping
+from uuid import uuid4
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,11 +337,22 @@ class DraftNetwork:
         # Runtime-only, monotonic authoring version. It is deliberately not
         # serialized: project activation/generation scopes a newly loaded draft.
         self._revision = 0
+        self._snapshot_id = uuid4().hex
 
     @property
     def revision(self) -> int:
         """Return the monotonic in-memory version of this DraftNetwork graph."""
         return self._revision
+
+    @property
+    def snapshot_id(self) -> str:
+        """Return the in-memory identity of this draft snapshot lineage."""
+        return self._snapshot_id
+
+    @property
+    def version_token(self) -> tuple[str, int]:
+        """Return the identity/revision pair used to fence future draft studies."""
+        return self._snapshot_id, self._revision
 
     def _mark_changed(self) -> None:
         self._revision += 1
@@ -681,6 +693,8 @@ class DraftNetwork:
             snapshot,
             project_id=self.project_id,
             activation_generation=self.activation_generation,
+            revision=self.revision,
+            snapshot_id=self.snapshot_id,
         )
         self._equipment = restored._equipment
         self._connections = restored._connections
@@ -696,9 +710,12 @@ class DraftNetwork:
         project_id: str,
         activation_generation: int,
         revision: int = 0,
+        snapshot_id: str | None = None,
     ) -> "DraftNetwork":
         if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
             raise ValueError("DraftNetwork revision must be a non-negative integer.")
+        if snapshot_id is not None and (not isinstance(snapshot_id, str) or not snapshot_id.strip()):
+            raise ValueError("DraftNetwork snapshot_id must be a non-empty string when supplied.")
         if data.get("project_id", project_id) != project_id: raise ValueError("DraftNetwork project_id does not match project metadata.")
         if data.get("activation_generation") is not None and int(data["activation_generation"]) > activation_generation: raise ValueError("DraftNetwork generation is newer than active project generation.")
         draft = cls(project_id, activation_generation)
@@ -706,6 +723,7 @@ class DraftNetwork:
         for item in data.get("connections", ()): draft.add_connection(DraftConnection.from_dict(item))
         draft.validation_state = dict(data.get("validation_state", {}))
         draft._revision = revision
+        draft._snapshot_id = snapshot_id or uuid4().hex
         return draft
 
     @classmethod
