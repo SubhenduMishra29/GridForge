@@ -3561,6 +3561,11 @@ class Application:
             candidate,
             draft_snapshot,
         )
+        DraftStudyPreparationService.validate_study_configuration(
+            candidate,
+            request.study_type,
+            request.configuration.get("configuration"),
+        )
         is_current = lambda: self._draft_study_is_current(
             project_id=request.project_id,
             activation_generation=request.activation_generation,
