@@ -288,7 +288,7 @@ class Application:
                 self._draft_network_collection = None
                 self._draft_network = None
                 return
-            self._draft_network_collection = collection.detached_copy()
+            self._draft_network_collection = collection.detached_copy(invalidate_snapshots=True)
             self._draft_network = None
 
     @property
@@ -309,6 +309,7 @@ class Application:
                 project_id=draft.project_id,
                 activation_generation=draft.activation_generation,
                 revision=draft.revision,
+                snapshot_id=draft.snapshot_id,
             )
 
     def _draft_network_for_command(self, document_id: str | None = None) -> DraftNetwork | None:
@@ -371,7 +372,8 @@ class Application:
                 draft_network.to_dict(),
                 project_id=draft_network.project_id,
                 activation_generation=draft_network.activation_generation,
-                revision=draft_network.revision,
+                revision=draft_network.revision + 1,
+                snapshot_id=draft_network.snapshot_id,
             )
 
     def _recovery_snapshot(self) -> Mapping[str, Any]:
