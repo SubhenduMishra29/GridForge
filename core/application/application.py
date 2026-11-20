@@ -5357,6 +5357,11 @@ class Application:
             if isinstance(item, Mapping)
             and str(item.get("equipment_type", "")).strip().lower() == "bus"
             and str(item.get("draft_id", "")).strip()
+            and bool(
+                item.get("engineering_data", {}).get("in_service", True)
+                if isinstance(item.get("engineering_data", {}), Mapping)
+                else True
+            )
         }
         return tuple(sorted(identities))
 
