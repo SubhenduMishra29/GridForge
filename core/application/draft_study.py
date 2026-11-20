@@ -108,7 +108,8 @@ class DraftStudyPreparationService:
                 str(getattr(item, "equipment_type", "")).strip().lower(),
             )
             for item in draft_network.equipment
-            if str(getattr(item, "equipment_type", "")).strip().lower() not in supported
+            if bool(getattr(item, "engineering_data", {}).get("in_service", True))
+            and str(getattr(item, "equipment_type", "")).strip().lower() not in supported
         ))
         if unsupported:
             details = ", ".join(
