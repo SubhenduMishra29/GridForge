@@ -104,6 +104,7 @@ class DraftStudyPreparationService:
         candidate_network.project_id = project_id
         candidate_network.activation_generation = activation_generation
         candidate_network.state.topology_revision = int(base_network.state.topology_revision)
+        candidate_network.rebuild_topology()
 
         candidate_draft = DraftNetwork.from_dict(
             draft_network.to_dict(),
