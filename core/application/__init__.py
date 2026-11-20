@@ -11,6 +11,7 @@ from __future__ import annotations
 from .application import Application
 from .bootstrap import create_application, recover_application
 from .dynamic_control_cycle import DynamicControlCycleResult, DynamicControlCycleService
+from .draft_study import DraftStudyCandidate, DraftStudyPreparationService
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
 from .control_dispatch import (
     ControlCommandDispatcher,
@@ -77,7 +78,13 @@ from .read_service import (
     StudyResultNumericDeltaReadModel,
 )
 from .revision import ProjectRevision
-from .study import StudyCaseDefinition, StudyRequest, StudyResult
+from .study import (
+    StudyCaseDefinition,
+    StudyExecutionContext,
+    StudyRequest,
+    StudyResult,
+    StaleDraftStudyError,
+)
 from .protection_study import (
     ProtectionFaultScenario,
     ProtectionCoordinationTimingEnvelopeConfiguration,
@@ -105,6 +112,8 @@ __all__ = [
     "ControlCycleService",
     "DynamicControlCycleResult",
     "DynamicControlCycleService",
+    "DraftStudyCandidate",
+    "DraftStudyPreparationService",
     "ControlExecutionResult",
     "ControlExecutionService",
     "ControlCommandDispatcher",
@@ -158,8 +167,10 @@ __all__ = [
     "StudyResultNumericDeltaReadModel",
     "StudyReadService",
     "StudyCaseDefinition",
+    "StudyExecutionContext",
     "StudyRequest",
     "StudyResult",
+    "StaleDraftStudyError",
     "ProtectionFaultScenario",
     "ProtectionCoordinationTimingEnvelopeConfiguration",
     "ProtectionCoordinationPairConfiguration",
