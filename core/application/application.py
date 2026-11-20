@@ -3410,7 +3410,7 @@ class Application:
         with self._execution_lock:
             try:
                 self._reject_during_async_commit()
-            except RuntimeError:
+            except Exception:
                 return False
             lifecycle = self.project_lifecycle
             context = lifecycle.context
