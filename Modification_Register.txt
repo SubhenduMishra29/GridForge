@@ -5724,8 +5724,10 @@ Correction:
 - StudyRequest and StudyExecutionContext carry the SLD document identity,
   deterministic DraftNetwork content revision and candidate topology revision.
 - StudyService checks draft/project/document freshness before and after
-  solver execution. A changed draft or expired activation is rejected and
-  persisted as a failed stale-draft outcome rather than published as current.
+  solver execution, then holds the Application mutation lock across the final
+  freshness check and durable result installation. A changed draft or expired
+  activation is rejected and persisted as a failed stale-draft outcome rather
+  than published as current.
 - Study Result metadata preserves draft provenance. The Application read
   projection marks results non-current when the authored draft no longer
   matches the revision used for the study.
