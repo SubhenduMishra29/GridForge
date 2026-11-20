@@ -3522,6 +3522,10 @@ class Application:
                 raise ValueError("Captured base ProjectSnapshot does not match the Draft StudyRequest.")
             draft_revision = DraftStudyPreparationService.revision(draft_snapshot)
 
+        DraftStudyPreparationService.validate_solver_eligibility(
+            draft_snapshot,
+            request.study_type,
+        )
         candidate = DraftStudyPreparationService(
             lambda: self._creation_contract_registry
         ).prepare(
