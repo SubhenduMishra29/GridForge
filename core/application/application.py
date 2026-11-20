@@ -5341,6 +5341,20 @@ class Application:
                 return None
             return deepcopy(draft.to_dict())
 
+    def read_draft_bus_ids(self, document_id: str | None = None) -> tuple[str, ...]:
+        """Return deterministic candidate Core identities for draft Bus items."""
+        snapshot = self.read_draft_network(document_id)
+        if not isinstance(snapshot, Mapping):
+            return ()
+        identities = {
+            f"bus-{str(item.get('draft_id', '')).strip()}"
+            for item in snapshot.get("equipment", ())
+            if isinstance(item, Mapping)
+            and str(item.get("equipment_type", "")).strip().lower() == "bus"
+            and str(item.get("draft_id", "")).strip()
+        }
+        return tuple(sorted(identities))
+
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command):
             raise TypeError("Application.execute requires a Command.")
