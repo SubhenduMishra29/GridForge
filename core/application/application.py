@@ -288,7 +288,10 @@ class Application:
                 self._draft_network_collection = None
                 self._draft_network = None
                 return
-            self._draft_network_collection = collection.detached_copy(invalidate_snapshots=True)
+            self._draft_network_collection = collection.detached_copy(
+                invalidate_snapshots=True,
+                previous=self._draft_network_collection,
+            )
             self._draft_network = None
 
     @property
@@ -368,11 +371,24 @@ class Application:
             if draft_network is None:
                 self._draft_network = None
                 return
+            current = (
+                self._draft_network_collection.get(document_id)
+                if self._draft_network_collection is not None and document_id
+                else self._draft_network
+            )
+            revision = draft_network.revision + 1
+            if (
+                current is not None
+                and current.project_id == draft_network.project_id
+                and current.activation_generation == draft_network.activation_generation
+                and current.snapshot_id == draft_network.snapshot_id
+            ):
+                revision = max(revision, current.revision + 1)
             self._draft_network = DraftNetwork.from_dict(
                 draft_network.to_dict(),
                 project_id=draft_network.project_id,
                 activation_generation=draft_network.activation_generation,
-                revision=draft_network.revision + 1,
+                revision=revision,
                 snapshot_id=draft_network.snapshot_id,
             )
 
