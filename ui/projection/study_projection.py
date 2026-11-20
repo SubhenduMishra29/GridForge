@@ -507,6 +507,9 @@ class StudyProjection:
                         and bool(draft.get("equipment") or draft.get("connections"))
                     )
             except Exception:
+                set_draft_available = getattr(self._panel, "set_draft_available", None)
+                if callable(set_draft_available):
+                    set_draft_available(False)
                 _LOGGER.exception("Study Case Bus choices could not be refreshed")
 
         try:
