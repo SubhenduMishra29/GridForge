@@ -5700,3 +5700,47 @@ Disposition:
   trace of SnapResult identity, resolved anchors, committed Core endpoints,
   resulting Core connection and ConnectivityResolver output.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Isolated draft-aware Power Flow and Short-Circuit studies
+Date: 2026-11-20
+Repository: SubhenduMishra29/GridForge
+Issue: #875
+Branch: fix/issue-875-draft-aware-study-snapshots-20261120
+
+Correction:
+- Added Application-owned DraftStudyPreparationService. It clones the
+  captured ProjectSnapshot Network through canonical Core serialization,
+  then applies DraftNetwork using CommitNetworkHandler, the trusted creation
+  contracts, ModelCommandHandlers and SimpleWireConnectionCommandHandlers.
+- Candidate Core equipment and connectivity are created only on the detached
+  Network. The live project Network, active DraftNetwork, SLD document and
+  command history are not mutated by candidate preparation.
+- Power Flow and Short-Circuit requests can now execute synchronously or
+  asynchronously against the candidate Network and its canonical
+  TopologySnapshot. Other study types remain explicitly unsupported for
+  draft execution until their own candidate-model contracts are defined.
+- StudyRequest and StudyExecutionContext carry the SLD document identity,
+  deterministic DraftNetwork content revision and candidate topology revision.
+- StudyService checks draft/project/document freshness before and after
+  solver execution. A changed draft or expired activation is rejected and
+  persisted as a failed stale-draft outcome rather than published as current.
+- Study Result metadata preserves draft provenance. The Application read
+  projection marks results non-current when the authored draft no longer
+  matches the revision used for the study.
+
+Architecture:
+- Core remains the sole owner of electrical equipment and topology truth.
+- Application owns candidate construction, commit-path reuse, execution
+  provenance and stale-result gating.
+- UI/SLD remains a projection; no canvas or QGraphics state is read by the
+  solver path. No Qt/QGraphics dependency is introduced into Core.
+
+Verification boundary:
+- Source changes are limited to Application study orchestration, the new
+  Application draft-study service, package exports and this register.
+- No tests or CI were run, as instructed. No numerical solver, GUI, project
+  save/reopen or import/runtime execution was performed. These remain
+  explicit integration acceptance items after merge.
+======================================================================
