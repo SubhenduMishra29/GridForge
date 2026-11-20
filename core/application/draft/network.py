@@ -12,6 +12,7 @@ from math import isfinite
 import re
 from types import MappingProxyType
 from typing import Any, Mapping
+from uuid import uuid4
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,8 +329,33 @@ class DraftNetwork:
     SCHEMA = 2
     def __init__(self, project_id: str, activation_generation: int):
         if not str(project_id).strip() or int(activation_generation) < 1: raise ValueError("DraftNetwork requires valid project scope.")
-        self.project_id = str(project_id); self.activation_generation = int(activation_generation)
-        self._equipment: dict[str, DraftEquipment] = {}; self._connections: dict[str, DraftConnection] = {}; self.validation_state: dict[str, Any] = {}
+        self.project_id = str(project_id)
+        self.activation_generation = int(activation_generation)
+        self._equipment: dict[str, DraftEquipment] = {}
+        self._connections: dict[str, DraftConnection] = {}
+        self.validation_state: dict[str, Any] = {}
+        # Runtime-only, monotonic authoring version. It is deliberately not
+        # serialized: project activation/generation scopes a newly loaded draft.
+        self._revision = 0
+        self._snapshot_id = uuid4().hex
+
+    @property
+    def revision(self) -> int:
+        """Return the monotonic in-memory version of this DraftNetwork graph."""
+        return self._revision
+
+    @property
+    def snapshot_id(self) -> str:
+        """Return the in-memory identity of this draft snapshot lineage."""
+        return self._snapshot_id
+
+    @property
+    def version_token(self) -> tuple[str, int]:
+        """Return the identity/revision pair used to fence future draft studies."""
+        return self._snapshot_id, self._revision
+
+    def _mark_changed(self) -> None:
+        self._revision += 1
 
     @property
     def equipment(self) -> tuple[DraftEquipment, ...]: return tuple(self._equipment.values())
@@ -339,14 +365,21 @@ class DraftNetwork:
 
     def add_equipment(self, equipment: DraftEquipment) -> None:
         if equipment.draft_id in self._equipment: raise ValueError(f"Draft equipment already exists: {equipment.draft_id}")
-        self._equipment[equipment.draft_id] = equipment; self.validation_state = {}
+        self._equipment[equipment.draft_id] = equipment
+        self.validation_state = {}
+        self._mark_changed()
 
     def update_equipment(self, draft_id: str, **changes: Any) -> DraftEquipment:
         current = self.require_equipment(draft_id); allowed = {"display_name","engineering_data","endpoints","placement","presentation","validation_state","layer_id"}
         unknown = set(changes) - allowed
         if unknown: raise ValueError(f"Unsupported DraftEquipment fields: {sorted(unknown)!r}")
         values = {name: getattr(current, name) for name in ("draft_id","equipment_type","display_name","terminal_contract","engineering_data","endpoints","placement","presentation","validation_state","command_type","id_field","parameter_mapping","endpoint_mapping","required_connection_terminals","parameter_contract","conditional_requirements","command_field_dispositions","layer_id")}
-        values.update(changes); updated = DraftEquipment(**values); self._equipment[draft_id] = updated; self.validation_state = {}; return updated
+        values.update(changes)
+        updated = DraftEquipment(**values)
+        self._equipment[draft_id] = updated
+        self.validation_state = {}
+        self._mark_changed()
+        return updated
 
     def remove_equipment(self, draft_id: str) -> DraftEquipment:
         equipment = self._equipment.pop(draft_id)
@@ -365,6 +398,7 @@ class DraftNetwork:
             ):
                 self._connections.pop(connection_id)
         self.validation_state = {}
+        self._mark_changed()
         return equipment
 
     def _validate_endpoint(self, endpoint: DraftEndpointReference, *, connection_id: str | None = None, network: Any | None = None) -> None:
@@ -502,6 +536,7 @@ class DraftNetwork:
         # cannot leave partially updated draft state.
         self._connections[connection.connection_id] = connection
         self.validation_state = {}
+        self._mark_changed()
 
     def update_connection_route(
         self,
@@ -525,11 +560,13 @@ class DraftNetwork:
         )
         self._connections[connection_id] = updated
         self.validation_state = {}
+        self._mark_changed()
         return updated
 
     def remove_connection(self, connection_id: str) -> DraftConnection:
         connection = self._connections.pop(connection_id)
         self.validation_state = {}
+        self._mark_changed()
         return connection
 
     def validate(self, network: Any | None = None) -> tuple[str, ...]:
@@ -589,7 +626,12 @@ class DraftNetwork:
                     )
         return tuple(errors)
 
-    def clear_after_commit(self) -> None: self._equipment.clear(); self._connections.clear(); self.validation_state = {}
+    def clear_after_commit(self) -> None:
+        if self._equipment or self._connections:
+            self._equipment.clear()
+            self._connections.clear()
+            self.validation_state = {}
+            self._mark_changed()
     def snapshot_state(self) -> tuple[tuple[tuple[str, DraftEquipment], ...], tuple[tuple[str, DraftConnection], ...], dict[str, Any]]:
         """Capture exact immutable draft objects for transaction rollback/undo."""
         return (
@@ -642,20 +684,47 @@ class DraftNetwork:
         self._equipment = equipment_snapshot
         self._connections = connection_snapshot
         self.validation_state = deepcopy(dict(validation_state))
+        # Undo/rollback restores content but never rewinds the version observed
+        # by an in-flight draft study.
+        self._mark_changed()
 
     def restore_snapshot(self, snapshot: Mapping[str, Any]) -> None:
-        restored = DraftNetwork.from_dict(snapshot, project_id=self.project_id, activation_generation=self.activation_generation)
-        self._equipment = restored._equipment; self._connections = restored._connections; self.validation_state = restored.validation_state
+        restored = DraftNetwork.from_dict(
+            snapshot,
+            project_id=self.project_id,
+            activation_generation=self.activation_generation,
+            revision=self.revision,
+            snapshot_id=self.snapshot_id,
+        )
+        self._equipment = restored._equipment
+        self._connections = restored._connections
+        self.validation_state = restored.validation_state
+        self._mark_changed()
     def to_dict(self) -> dict[str, Any]: return {"schema": self.SCHEMA, "project_id": self.project_id, "activation_generation": self.activation_generation, "equipment": [x.to_dict() for x in self.equipment], "connections": [x.to_dict() for x in self.connections], "validation_state": deepcopy(self.validation_state)}
 
     @classmethod
-    def from_dict(cls, data: Mapping[str, Any], *, project_id: str, activation_generation: int) -> "DraftNetwork":
+    def from_dict(
+        cls,
+        data: Mapping[str, Any],
+        *,
+        project_id: str,
+        activation_generation: int,
+        revision: int = 0,
+        snapshot_id: str | None = None,
+    ) -> "DraftNetwork":
+        if isinstance(revision, bool) or not isinstance(revision, int) or revision < 0:
+            raise ValueError("DraftNetwork revision must be a non-negative integer.")
+        if snapshot_id is not None and (not isinstance(snapshot_id, str) or not snapshot_id.strip()):
+            raise ValueError("DraftNetwork snapshot_id must be a non-empty string when supplied.")
         if data.get("project_id", project_id) != project_id: raise ValueError("DraftNetwork project_id does not match project metadata.")
         if data.get("activation_generation") is not None and int(data["activation_generation"]) > activation_generation: raise ValueError("DraftNetwork generation is newer than active project generation.")
         draft = cls(project_id, activation_generation)
         for item in data.get("equipment", ()): draft.add_equipment(DraftEquipment.from_dict(item))
         for item in data.get("connections", ()): draft.add_connection(DraftConnection.from_dict(item))
-        draft.validation_state = dict(data.get("validation_state", {})); return draft
+        draft.validation_state = dict(data.get("validation_state", {}))
+        draft._revision = revision
+        draft._snapshot_id = snapshot_id.strip() if snapshot_id is not None else uuid4().hex
+        return draft
 
     @classmethod
     def empty(cls, project_id: str, activation_generation: int) -> "DraftNetwork": return cls(project_id, activation_generation)

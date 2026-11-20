@@ -65,10 +65,16 @@ class DraftNetworkCollection:
             raise ValueError("DraftNetwork project_id does not match its collection.")
         if network.activation_generation != self.activation_generation:
             raise ValueError("DraftNetwork activation_generation does not match its collection.")
+        existing = self._networks.get(key)
+        revision = network.revision
+        if existing is not None and existing.snapshot_id == network.snapshot_id:
+            revision = max(existing.revision, revision) + 1
         self._networks[key] = DraftNetwork.from_dict(
             network.to_dict(),
             project_id=self.project_id,
             activation_generation=self.activation_generation,
+            revision=revision,
+            snapshot_id=network.snapshot_id,
         )
 
     def ensure_documents(self, document_ids) -> None:
@@ -94,9 +100,38 @@ class DraftNetworkCollection:
                 network.to_dict(),
                 project_id=self.project_id,
                 activation_generation=self.activation_generation,
+                revision=network.revision,
+                snapshot_id=network.snapshot_id,
             )
             for document_id, network in self._networks.items()
         }
+
+    def detached_copy(
+        self,
+        *,
+        invalidate_snapshots: bool = False,
+        previous: "DraftNetworkCollection | None" = None,
+    ) -> "DraftNetworkCollection":
+        """Return a detached collection with optional monotonic version fencing."""
+        if previous is not None and (
+            previous.project_id != self.project_id
+            or previous.activation_generation != self.activation_generation
+        ):
+            raise ValueError("Previous DraftNetworkCollection scope does not match.")
+        copied = DraftNetworkCollection(self.project_id, self.activation_generation)
+        for document_id, network in self._networks.items():
+            revision = network.revision + (1 if invalidate_snapshots else 0)
+            prior = previous.get(document_id) if previous is not None else None
+            if prior is not None and prior.snapshot_id == network.snapshot_id:
+                revision = max(revision, prior.revision + 1)
+            copied._networks[document_id] = DraftNetwork.from_dict(
+                network.to_dict(),
+                project_id=self.project_id,
+                activation_generation=self.activation_generation,
+                revision=revision,
+                snapshot_id=network.snapshot_id,
+            )
+        return copied
 
     def to_dict(self) -> dict[str, Any]:
         return {

@@ -276,11 +276,7 @@ class Application:
             collection = self._draft_network_collection
             if collection is None:
                 return None
-            return DraftNetworkCollection.from_dict(
-                collection.to_dict(),
-                project_id=collection.project_id,
-                activation_generation=collection.activation_generation,
-            )
+            return collection.detached_copy()
 
     def set_draft_network_collection(self, collection: DraftNetworkCollection | None) -> None:
         """Replace the complete document-scoped draft collection atomically."""
@@ -292,10 +288,15 @@ class Application:
                 self._draft_network_collection = None
                 self._draft_network = None
                 return
-            self._draft_network_collection = DraftNetworkCollection.from_dict(
-                collection.to_dict(),
-                project_id=collection.project_id,
-                activation_generation=collection.activation_generation,
+            previous_collection = self._draft_network_collection
+            if previous_collection is not None and (
+                previous_collection.project_id != collection.project_id
+                or previous_collection.activation_generation != collection.activation_generation
+            ):
+                previous_collection = None
+            self._draft_network_collection = collection.detached_copy(
+                invalidate_snapshots=True,
+                previous=previous_collection,
             )
             self._draft_network = None
 
@@ -316,6 +317,8 @@ class Application:
                 draft.to_dict(),
                 project_id=draft.project_id,
                 activation_generation=draft.activation_generation,
+                revision=draft.revision,
+                snapshot_id=draft.snapshot_id,
             )
 
     def _draft_network_for_command(self, document_id: str | None = None) -> DraftNetwork | None:
@@ -374,10 +377,25 @@ class Application:
             if draft_network is None:
                 self._draft_network = None
                 return
+            current = (
+                self._draft_network_collection.get(document_id)
+                if self._draft_network_collection is not None and document_id
+                else self._draft_network
+            )
+            revision = draft_network.revision + 1
+            if (
+                current is not None
+                and current.project_id == draft_network.project_id
+                and current.activation_generation == draft_network.activation_generation
+                and current.snapshot_id == draft_network.snapshot_id
+            ):
+                revision = max(revision, current.revision + 1)
             self._draft_network = DraftNetwork.from_dict(
                 draft_network.to_dict(),
                 project_id=draft_network.project_id,
                 activation_generation=draft_network.activation_generation,
+                revision=revision,
+                snapshot_id=draft_network.snapshot_id,
             )
 
     def _recovery_snapshot(self) -> Mapping[str, Any]:
