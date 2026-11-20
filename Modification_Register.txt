@@ -5700,3 +5700,51 @@ Disposition:
   trace of SnapResult identity, resolved anchors, committed Core endpoints,
   resulting Core connection and ConnectivityResolver output.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — SLD mixed-owner selection lifecycle closure reconciliation
+Date: 2026-11-20
+Repository: SubhenduMishra29/GridForge
+Issue: #880
+Implementation PRs: #1230, #1231, #1233, #1234
+
+Current-main reconciliation:
+- Draft Simple Wire selection retains its explicit draft_connection_id and
+  projects a typed draft-connection Inspector target; no Core connection ID
+  is fabricated for uncommitted wiring.
+- The existing Application deletion batch preflights committed equipment,
+  Core Simple Wires, DraftNetwork equipment and DraftNetwork connections
+  before dispatching child commands under one transaction/undo journal.
+- Single DraftNetwork equipment movement uses UpdateDraftEquipmentCommand
+  with the active document identity and canonical placement.
+- Mixed Core/DraftNetwork movement uses the document-scoped
+  MoveSelectionBatchCommand. Application preflight resolves every Core SLD
+  node and DraftNetwork equipment identity, rejects duplicate/stale identities
+  and non-finite placements, and executes all child commands in one shared
+  transaction/undo journal.
+- Core-only group movement retains SetSLDNodePositionsCommand.
+
+Architecture:
+- Core remains authoritative for electrical equipment, terminals and
+  connectivity; selection and drag geometry do not create electrical edges.
+- DraftNetwork remains Application-owned and separate from Core until the
+  explicit CommitNetworkCommand boundary.
+- UI selection and canvas graphics remain projections/interaction only.
+- No Qt/QGraphics dependency was added to Core. UI Qt imports remain routed
+  through ui/core/qt.py; that compatibility module was not changed.
+
+Verification boundary:
+- Verified merged PR metadata and fetched current-main source for
+  selection_commands.py, commands/__init__.py, bootstrap.py, select_tool.py
+  and this register. Confirmed the move command export/registration, active
+  document guard, complete-selection preflight and shared transaction path.
+- No tests, CI, Python imports/syntax execution, Qt GUI interaction,
+  undo/redo execution or project save/reopen runtime check was performed.
+  These are not represented as passed.
+
+Disposition:
+- Issue #880 is closed as completed for the reported selection/movement and
+  mixed-owner mutation source defects. GUI/history runtime acceptance remains
+  a separate verification limitation and is explicitly not claimed here.
+======================================================================
