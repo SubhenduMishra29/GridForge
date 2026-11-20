@@ -32,6 +32,7 @@ from .commands.draft_commands import CommitNetworkCommand, UpdateDraftEquipmentC
 from .commands.selection_commands import EngineeringUpdateBatchCommand
 from .draft.network import DraftNetwork
 from .draft.collection import DraftNetworkCollection
+from .draft.study_snapshot import DraftStudyNetworkBuilder
 from .commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
 from .commands.instrumentation_wiring_commands import SET_INSTRUMENTATION_WIRING_INVENTORY
 from .commands.control_commands import (
@@ -100,7 +101,7 @@ from math import isfinite
 from pathlib import Path
 from .services.control_service import ControlApplicationService
 from .services.validation_service import ValidationService
-from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService
+from .study import StudyCaseDefinition, StudyExecutionContext, StudyRequest, StudyResult, StudyService, draft_snapshot_identity
 from .protection_study import ProtectionStudyHandler
 from .validation import ValidationResult
 
@@ -725,6 +726,60 @@ class Application:
             "activation_generation": case.activation_generation,
         }))
         return case
+
+    def create_draft_study_request(
+        self,
+        *,
+        study_type: str,
+        configuration: Mapping[str, Any],
+        document_id: str | None = None,
+    ) -> StudyRequest:
+        """Capture one immutable active DraftNetwork snapshot for PF or Short-Circuit."""
+        normalized_type = str(study_type).strip().lower()
+        if normalized_type not in {"power_flow", "short_circuit"}:
+            raise ValueError("Draft studies support Power Flow and Short-Circuit only.")
+        if not isinstance(configuration, Mapping):
+            raise TypeError("configuration must be a mapping.")
+        with self._execution_lock:
+            self._reject_during_async_commit()
+            lifecycle = self.project_lifecycle
+            context = lifecycle.context
+            if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+                raise RuntimeError("Cannot capture a Draft Study without a valid active project.")
+            active = self.presentation
+            active_document_id = getattr(active, "document_id", None) if active is not None else None
+            if not isinstance(active_document_id, str) or not active_document_id.strip():
+                raise RuntimeError("Draft Study requires an active SLD document identity.")
+            if document_id is not None and document_id != active_document_id:
+                raise RuntimeError("Draft Study document does not match the active SLD document.")
+            revision_before = self.revision
+            draft_snapshot = self.read_draft_network(active_document_id)
+            revision_after = self.revision
+            if revision_before != revision_after:
+                raise RuntimeError("Project revision changed while capturing DraftNetwork; retry Draft Study.")
+            if not isinstance(draft_snapshot, Mapping) or not (
+                draft_snapshot.get("equipment") or draft_snapshot.get("connections")
+            ):
+                raise ValueError("The active DraftNetwork is empty; add draft equipment or connections before running a draft study.")
+            request = StudyRequest(
+                study_id=uuid4(),
+                project_id=context.project_id,
+                activation_generation=lifecycle.activation_generation,
+                source_revision=revision_after,
+                study_type=normalized_type,
+                configuration=configuration,
+                draft_document_id=active_document_id,
+                draft_revision=revision_after.model_revision,
+                draft_snapshot=draft_snapshot,
+                draft_snapshot_id=draft_snapshot_identity(draft_snapshot),
+            )
+        registered_types = self._study_service.registered_study_types
+        if request.study_type not in registered_types:
+            raise ValueError(
+                f"No study handler is registered for {request.study_type!r}; "
+                f"available study types: {', '.join(registered_types)}."
+            )
+        return request
 
     def study_case(self, study_id: UUID) -> StudyCaseDefinition:
         """Resolve one structured Study Case without exposing Core state to UI."""
@@ -3374,151 +3429,192 @@ class Application:
             dynamic_models=dynamic_models,
         )
 
-    def execute_study(self, request: StudyRequest) -> StudyResult:
+    def _prepare_study_execution_context(self, request: StudyRequest) -> StudyExecutionContext:
+        """Capture a revision-fenced committed or detached DraftNetwork study context."""
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
-        lifecycle = self.project_lifecycle
-        context = lifecycle.context
-        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
-            raise RuntimeError("Cannot start a study without a valid active project activation.")
-        if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
-            raise ValueError("StudyRequest project scope does not match the active project generation.")
-        # Project validation is an Application study gate. A study cannot
-        # publish StudyStarted until authoritative project validation succeeds.
         validation = self.validate_project()
         if not validation.valid:
             raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
-        if request.source_revision != self.revision:
-            raise ValueError("StudyRequest source_revision does not match the active project revision.")
-        network = lifecycle.network
-        # Runtime-only provenance metadata; never authoritative persisted state.
-        network.project_id = context.project_id
-        network.activation_generation = lifecycle.activation_generation
-        if network.state.topology_revision != request.source_revision.topology_revision:
-            raise ValueError("Network topology revision does not match StudyRequest source revision.")
-        if network.state.topology_dirty or not network.state.topology_valid:
-            network.rebuild_topology()
-        if network.state.topology_dirty or not network.state.topology_valid:
-            raise ValueError("Topology normalization did not produce a valid study-ready state.")
-        snapshot = network.topology_snapshot
-        if snapshot is None:
-            raise ValueError("Canonical TopologySnapshot is unavailable.")
-        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
-            raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
-        project_snapshot = self.capture_project_snapshot()
-        # The canonical topology and detached project snapshot are captured
-        # through separate boundaries. Refuse to pair them if a mutation landed
-        # between those captures or if the detached network carries a different
-        # topology revision than the StudyRequest.
-        if self.revision != request.source_revision:
-            raise ValueError("Project revision changed while preparing the study snapshot; retry study execution.")
-        if (
-            project_snapshot.project_id != request.project_id
-            or project_snapshot.activation_generation != request.activation_generation
-            or project_snapshot.revision != request.source_revision
-        ):
-            raise ValueError("Detached ProjectSnapshot provenance does not match StudyRequest.")
-        detached_network = project_snapshot.network
-        detached_state = getattr(detached_network, "state", None)
-        detached_topology_revision = getattr(detached_state, "topology_revision", None)
-        if detached_topology_revision != request.source_revision.topology_revision:
-            raise ValueError("Detached network topology revision does not match StudyRequest.")
-        execution_context = StudyExecutionContext(
+
+        lifecycle = self.project_lifecycle
+        with self._execution_lock:
+            self._reject_during_async_commit()
+            context = lifecycle.context
+            if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+                raise RuntimeError("Cannot start a study without a valid active project activation.")
+            if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
+                raise ValueError("StudyRequest project scope does not match the active project generation.")
+            if request.source_revision != self.revision:
+                raise ValueError("StudyRequest source_revision does not match the active project revision.")
+
+            if request.draft_document_id is None:
+                network = lifecycle.network
+                network.project_id = context.project_id
+                network.activation_generation = lifecycle.activation_generation
+                if network.state.topology_revision != request.source_revision.topology_revision:
+                    raise ValueError("Network topology revision does not match StudyRequest source revision.")
+                if network.state.topology_dirty or not network.state.topology_valid:
+                    network.rebuild_topology()
+                if network.state.topology_dirty or not network.state.topology_valid:
+                    raise ValueError("Topology normalization did not produce a valid study-ready state.")
+                topology = network.topology_snapshot
+                if topology is None:
+                    raise ValueError("Canonical TopologySnapshot is unavailable.")
+                if (
+                    topology.project_id != request.project_id
+                    or topology.activation_generation != request.activation_generation
+                    or topology.topology_revision != request.source_revision.topology_revision
+                ):
+                    raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
+                project_snapshot = self.capture_project_snapshot()
+                if self.revision != request.source_revision:
+                    raise ValueError("Project revision changed while preparing the study snapshot; retry study execution.")
+                detached_state = getattr(project_snapshot.network, "state", None)
+                if (
+                    project_snapshot.project_id != request.project_id
+                    or project_snapshot.activation_generation != request.activation_generation
+                    or project_snapshot.revision != request.source_revision
+                    or getattr(detached_state, "topology_revision", None) != topology.topology_revision
+                ):
+                    raise ValueError("Detached ProjectSnapshot provenance does not match StudyRequest.")
+                return StudyExecutionContext(
+                    project_id=request.project_id,
+                    activation_generation=request.activation_generation,
+                    source_revision=request.source_revision,
+                    topology_snapshot=topology,
+                    project_snapshot=project_snapshot,
+                )
+
+            if request.study_type not in {"power_flow", "short_circuit"}:
+                raise ValueError("Draft studies support Power Flow and Short-Circuit only.")
+            if (
+                request.draft_revision != request.source_revision.model_revision
+                or request.draft_snapshot is None
+                or request.draft_snapshot_id is None
+            ):
+                raise ValueError("Draft StudyRequest is missing its captured revision or snapshot identity.")
+            active = self.presentation
+            active_document_id = getattr(active, "document_id", None) if active is not None else None
+            if active_document_id != request.draft_document_id:
+                raise ValueError("Draft StudyRequest targets an SLD document that is no longer active.")
+            current_draft = self.read_draft_network(request.draft_document_id)
+            if current_draft is None or draft_snapshot_identity(current_draft) != request.draft_snapshot_id:
+                raise ValueError("DraftNetwork changed after the StudyRequest snapshot was captured; create a new Draft Study request.")
+            base_project_snapshot = self.capture_project_snapshot()
+            if self.revision != request.source_revision:
+                raise ValueError("Project revision changed while capturing the Draft Study base snapshot; retry.")
+
+        candidate_network = DraftStudyNetworkBuilder(self.creation_contract_registry).build(
+            committed_network=base_project_snapshot.network,
+            draft_snapshot=request.draft_snapshot,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            document_id=request.draft_document_id,
+            study_type=request.study_type,
+        )
+        candidate_topology = candidate_network.topology_snapshot
+        if candidate_topology is None:
+            raise ValueError("Detached DraftNetwork candidate has no canonical TopologySnapshot.")
+        candidate_project_snapshot = ProjectSnapshot(
+            project_id=base_project_snapshot.project_id,
+            activation_generation=base_project_snapshot.activation_generation,
+            revision=base_project_snapshot.revision,
+            network=candidate_network,
+            dynamic_models=base_project_snapshot.dynamic_models,
+        )
+
+        with self._execution_lock:
+            self._reject_during_async_commit()
+            current_context = lifecycle.context
+            active = self.presentation
+            active_document_id = getattr(active, "document_id", None) if active is not None else None
+            current_draft = (
+                self.read_draft_network(request.draft_document_id)
+                if active_document_id == request.draft_document_id
+                else None
+            )
+            if (
+                current_context is None
+                or current_context.project_id != request.project_id
+                or lifecycle.activation_generation != request.activation_generation
+                or lifecycle.state != "ACTIVE"
+                or self.revision != request.source_revision
+                or current_draft is None
+                or draft_snapshot_identity(current_draft) != request.draft_snapshot_id
+            ):
+                raise ValueError("Project or DraftNetwork changed while preparing the detached study candidate; retry Draft Study.")
+        return StudyExecutionContext(
             project_id=request.project_id,
             activation_generation=request.activation_generation,
             source_revision=request.source_revision,
-            topology_snapshot=snapshot,
-            project_snapshot=project_snapshot,
+            topology_snapshot=candidate_topology,
+            project_snapshot=candidate_project_snapshot,
+            draft_document_id=request.draft_document_id,
+            draft_revision=request.draft_revision,
+            draft_snapshot_id=request.draft_snapshot_id,
         )
-        # Only register a runnable Study Case after the request has passed
-        # project-generation, revision, validation, and topology provenance gates.
-        self._remember_study_case(request)
+
+    def execute_study(self, request: StudyRequest) -> StudyResult:
+        execution_context = self._prepare_study_execution_context(request)
+        if request.draft_document_id is None:
+            self._remember_study_case(request)
         return self._study_service.execute(request, execution_context)
 
-
     def submit_study(self, request: StudyRequest):
-        if not isinstance(request, StudyRequest):
-            raise TypeError("request must be a StudyRequest.")
-        lifecycle = self.project_lifecycle
-        context = lifecycle.context
-        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
-            raise RuntimeError("Cannot start a study without a valid active project activation.")
-        if request.project_id != context.project_id or request.activation_generation != lifecycle.activation_generation:
-            raise ValueError("StudyRequest project scope does not match the active project generation.")
-        # Project validation is an Application study gate. A study cannot
-        # publish StudyStarted until authoritative project validation succeeds.
-        validation = self.validate_project()
-        if not validation.valid:
-            raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
-        if request.source_revision != self.revision:
-            raise ValueError("StudyRequest source_revision does not match the active project revision.")
-        network = lifecycle.network
-        # Runtime-only provenance metadata; never authoritative persisted state.
-        network.project_id = context.project_id
-        network.activation_generation = lifecycle.activation_generation
-        if network.state.topology_revision != request.source_revision.topology_revision:
-            raise ValueError("Network topology revision does not match StudyRequest source revision.")
-        if network.state.topology_dirty or not network.state.topology_valid:
-            network.rebuild_topology()
-        if network.state.topology_dirty or not network.state.topology_valid:
-            raise ValueError("Topology normalization did not produce a valid study-ready state.")
-        snapshot = network.topology_snapshot
-        if snapshot is None:
-            raise ValueError("Canonical TopologySnapshot is unavailable.")
-        if snapshot.project_id != request.project_id or snapshot.activation_generation != request.activation_generation or snapshot.topology_revision != request.source_revision.topology_revision:
-            raise ValueError("TopologySnapshot provenance does not match StudyRequest.")
-        project_snapshot = self.capture_project_snapshot()
-        # The canonical topology and detached project snapshot are captured
-        # through separate boundaries. Refuse to pair them if a mutation landed
-        # between those captures or if the detached network carries a different
-        # topology revision than the StudyRequest.
-        if self.revision != request.source_revision:
-            raise ValueError("Project revision changed while preparing the study snapshot; retry study execution.")
-        if (
-            project_snapshot.project_id != request.project_id
-            or project_snapshot.activation_generation != request.activation_generation
-            or project_snapshot.revision != request.source_revision
-        ):
-            raise ValueError("Detached ProjectSnapshot provenance does not match StudyRequest.")
-        detached_network = project_snapshot.network
-        detached_state = getattr(detached_network, "state", None)
-        detached_topology_revision = getattr(detached_state, "topology_revision", None)
-        if detached_topology_revision != request.source_revision.topology_revision:
-            raise ValueError("Detached network topology revision does not match StudyRequest.")
-        execution_context = StudyExecutionContext(
-            project_id=request.project_id,
-            activation_generation=request.activation_generation,
-            source_revision=request.source_revision,
-            topology_snapshot=snapshot,
-            project_snapshot=project_snapshot,
-        )
-        # Only register a runnable Study Case after the request has passed
-        # project-generation, revision, validation, and topology provenance gates.
-        self._remember_study_case(request)
+        execution_context = self._prepare_study_execution_context(request)
+        if request.draft_document_id is None:
+            self._remember_study_case(request)
         return self._study_service.submit(request, execution_context)
+
+    def _current_draft_snapshot_identity(self, document_id: str) -> str | None:
+        """Read the active document's current electrical DraftNetwork identity."""
+        with self._execution_lock:
+            active = self.presentation
+            active_document_id = getattr(active, "document_id", None) if active is not None else None
+            if active_document_id != document_id:
+                return None
+            snapshot = self.read_draft_network(document_id)
+            return None if snapshot is None else draft_snapshot_identity(snapshot)
+
+    def _mark_draft_study_result_current(self, result: Any) -> Any:
+        if result is None:
+            return None
+        metadata = getattr(result, "metadata", {})
+        if not isinstance(metadata, Mapping) or metadata.get("study_input_scope") != "draft":
+            return result
+        document_id = metadata.get("draft_document_id")
+        snapshot_id = metadata.get("draft_snapshot_id")
+        if not isinstance(document_id, str) or not isinstance(snapshot_id, str):
+            return replace(result, current=False)
+        if self._current_draft_snapshot_identity(document_id) != snapshot_id:
+            return replace(result, current=False)
+        return result
 
     def read_study_result(self, study_id) -> Any:
         """Return the current project-scoped study result read model."""
         context = self.project_lifecycle.context
         if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
             return None
-        return self._study_read_service.result(
+        result = self._study_read_service.result(
             study_id,
             project_id=context.project_id,
             activation_generation=self.project_lifecycle.activation_generation,
             current_revision=self.revision,
         )
+        return self._mark_draft_study_result_current(result)
 
     def read_study_results(self) -> tuple[Any, ...]:
         """Return all study result read models for the active project generation."""
         context = self.project_lifecycle.context
         if context is None or not self.project_lifecycle.has_project or self.project_lifecycle.state != "ACTIVE":
             return ()
-        return self._study_read_service.results(
+        results = self._study_read_service.results(
             project_id=context.project_id,
             activation_generation=self.project_lifecycle.activation_generation,
             current_revision=self.revision,
         )
+        return tuple(self._mark_draft_study_result_current(result) for result in results)
 
     def read_archived_study_results(
         self, *, study_type: str | None = None, status: str | None = None,
@@ -5083,6 +5179,27 @@ class Application:
             if draft is None:
                 return None
             return deepcopy(draft.to_dict())
+
+    def read_study_bus_ids(self, *, include_draft: bool = False) -> tuple[str, ...]:
+        """Return canonical Core Bus IDs plus deterministic active Draft Bus IDs when requested."""
+        network = self.read_network()
+        bus_ids = {
+            str(element.object_id)
+            for element in getattr(network, "elements", ())
+            if str(getattr(element, "element_type", "")).strip().lower() == "bus"
+            and str(getattr(element, "object_id", "")).strip()
+        }
+        if include_draft:
+            draft = self.read_draft_network()
+            if isinstance(draft, Mapping):
+                for item in draft.get("equipment", ()):
+                    if not isinstance(item, Mapping):
+                        continue
+                    if str(item.get("equipment_type", "")).strip().lower() == "bus":
+                        draft_id = str(item.get("draft_id", "")).strip()
+                        if draft_id:
+                            bus_ids.add(f"bus-{draft_id}")
+        return tuple(sorted(bus_ids))
 
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command):

@@ -5700,3 +5700,54 @@ Disposition:
   trace of SnapResult identity, resolved anchors, committed Core endpoints,
   resulting Core connection and ConnectivityResolver output.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Isolated DraftNetwork Power Flow / Short-Circuit studies
+Date: 2026-11-20
+Repository: SubhenduMishra29/GridForge
+Issue: #875
+Implementation tracking issue: madhuri196mishra-cpu/GridForge#103
+Branch: fix/draft-aware-studies-875-20261120
+PR: pending
+
+Correction:
+- Added an Application-owned DraftStudyNetworkBuilder. It starts from the
+  detached ProjectSnapshot Network and invokes the same CommitNetworkHandler,
+  CreationContractRegistry, model command handlers and Simple Wire command
+  handlers used by the normal DraftNetwork commit path.
+- Candidate equipment and connections are committed only into the detached
+  candidate Network. The active Core Network, project persistence state and
+  active DraftNetwork are not mutated by study preparation.
+- Draft StudyRequest carries the active SLD document identity, captured
+  project model revision, immutable DraftNetwork snapshot and SHA-256 snapshot
+  identity. Validation-state caches are excluded from the identity digest.
+- Power Flow and Short-Circuit have separate explicit draft equipment
+  eligibility sets. Unsupported draft element types fail with a typed
+  diagnostic; missing engineering parameters and invalid/incomplete
+  connections are rejected by the canonical commit preparation path. No
+  engineering defaults are fabricated by the draft-study builder.
+- StudyExecutionContext validates candidate Network / TopologySnapshot
+  provenance independently from the committed source ProjectRevision.
+  StudyStarted/terminal events and persisted StudyResult metadata retain the
+  draft document, revision, snapshot identity, source topology revision and
+  candidate study topology revision.
+- Application result reads mark draft results stale when the active document
+  or its electrical DraftNetwork snapshot identity changes.
+- The Study Cases panel exposes Run Draft Study for Power Flow and
+  Short-Circuit only. Its Bus choices include deterministic active Draft Bus
+  identities; ordinary Study Case creation still validates against committed
+  Core Bus identities.
+- StudyProjection refreshes Bus choices and result overlays on DraftChanged.
+
+Architecture / verification:
+- Core remains the authority for electrical equipment, terminals and topology.
+  The candidate is a detached Core Network constructed and mutated only by
+  Application command handlers. No UI/SLD geometry is consumed by the solver.
+- UI remains a projection and invokes the Application controller. All Qt
+  symbols remain imported through ui/core/qt.py; that file is unchanged.
+- No Core or persistence schema files were changed. No tests or CI were run.
+- Static syntax/import checks and final diff review are recorded in the PR.
+- GUI solver execution, numerical result comparison and save/reopen acceptance
+  remain unverified until exercised in the target application environment.
+======================================================================

@@ -27,6 +27,7 @@ from core.application.events import (
     ProjectLoaded,
     SLDPresentationChanged,
     TopologyChanged,
+    DraftChanged,
     StudyCancelled,
     StudyCaseCreated,
     StudyCompleted,
@@ -317,6 +318,7 @@ class StudyProjection:
         TopologyChanged,
         ProtectionChanged,
         SLDPresentationChanged,
+        DraftChanged,
     )
 
     def __init__(
@@ -407,6 +409,7 @@ class StudyProjection:
             TopologyChanged,
             ProtectionChanged,
             SLDPresentationChanged,
+            DraftChanged,
         )):
             # Invalidate the selected result projection on both granular Core
             # mutation events and aggregate revision events. Event families can
@@ -477,16 +480,20 @@ class StudyProjection:
 
     def _refresh_all_results(self) -> None:
         """Reload active Study Cases and project-scoped results after mutations."""
+        read_bus_ids = getattr(self._application, "read_study_bus_ids", None)
         read_network = getattr(self._application, "read_network", None)
         set_available_buses = getattr(self._panel, "set_available_buses", None)
-        if callable(read_network) and callable(set_available_buses):
+        if callable(set_available_buses):
             try:
-                network = read_network()
-                set_available_buses(
-                    element.object_id
-                    for element in getattr(network, "elements", ())
-                    if str(getattr(element, "element_type", "")).strip().lower() == "bus"
-                )
+                if callable(read_bus_ids):
+                    set_available_buses(read_bus_ids(include_draft=True))
+                elif callable(read_network):
+                    network = read_network()
+                    set_available_buses(
+                        element.object_id
+                        for element in getattr(network, "elements", ())
+                        if str(getattr(element, "element_type", "")).strip().lower() == "bus"
+                    )
             except Exception:
                 _LOGGER.exception("Study Case Bus choices could not be refreshed")
 
