@@ -69,6 +69,7 @@ class DraftNetworkCollection:
             network.to_dict(),
             project_id=self.project_id,
             activation_generation=self.activation_generation,
+            revision=network.revision,
         )
 
     def ensure_documents(self, document_ids) -> None:
@@ -94,9 +95,16 @@ class DraftNetworkCollection:
                 network.to_dict(),
                 project_id=self.project_id,
                 activation_generation=self.activation_generation,
+                revision=network.revision,
             )
             for document_id, network in self._networks.items()
         }
+
+    def detached_copy(self) -> "DraftNetworkCollection":
+        """Return a detached collection while preserving runtime draft revisions."""
+        copied = DraftNetworkCollection(self.project_id, self.activation_generation)
+        copied._networks = self.snapshot()
+        return copied
 
     def to_dict(self) -> dict[str, Any]:
         return {
