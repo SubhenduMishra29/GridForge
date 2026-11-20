@@ -819,6 +819,30 @@ class Application:
         )
         return self.submit_study(request)
 
+    def submit_draft_study_case(self, study_id: UUID, *, document_id: str) -> Future[StudyResult]:
+        """Queue a saved Study Case against the current selected SLD DraftNetwork."""
+        case = self.study_case(study_id)
+        lifecycle = self.project_lifecycle
+        context = lifecycle.context
+        if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Cannot run a draft Study Case without a valid active project activation.")
+        if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
+            raise ValueError("Study Case project scope does not match the active project generation.")
+        if not case.source_revision.matches_study_state(self.revision):
+            raise ValueError(
+                "Study Case configuration is stale for the active electrical model/topology. "
+                "Reconfigure or recreate the Study Case before draft execution."
+            )
+        request = StudyRequest(
+            study_id=case.study_id,
+            project_id=context.project_id,
+            activation_generation=lifecycle.activation_generation,
+            source_revision=self.revision,
+            study_type=case.study_type,
+            configuration=case.configuration,
+        )
+        return self.submit_draft_study(request, document_id=document_id)
+
     @property
     def project_lifecycle(self) -> ProjectLifecycleService:
         if self._project_lifecycle is None: raise RuntimeError("Application project lifecycle is not configured.")
