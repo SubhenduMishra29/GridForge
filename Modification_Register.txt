@@ -5730,11 +5730,19 @@ Correction:
   it to the live Core project.
 - StudyRequest and StudyExecutionContext carry the SLD document identity,
   deterministic DraftNetwork content revision and candidate topology revision.
+- Draft solver preflight rejects unsupported equipment types, incomplete
+  canonical Bus attachments, and Power Flow configurations that do not classify
+  the exact candidate Bus set. Short-Circuit fault Bus identity must exist in
+  the candidate topology. No bus type, impedance or equivalent source is
+  inferred by the draft-study path.
 - StudyService checks draft/project/document freshness before and after
   solver execution, then holds the Application mutation lock across the final
   freshness check and durable result installation. A changed draft or expired
   activation is rejected and persisted as a failed stale-draft outcome rather
   than published as current.
+- Application exposes draft Bus identities through a read-only projection;
+  StudyProjection refreshes those choices on DraftChanged and SLD document
+  changes so Study Cases can explicitly classify/fault draft Buses.
 - Study Result metadata preserves draft provenance. The Application read
   projection marks results non-current when the authored draft no longer
   matches the revision used for the study.
