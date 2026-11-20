@@ -5758,13 +5758,16 @@ Branch: feature/issue-875-draft-revision-fence-20261120
 Issue: #875
 
 Correction:
-- Added a runtime-only monotonic DraftNetwork revision. Successful equipment,
-  connection, route and commit-clear mutations advance the revision.
+- Added a runtime-only DraftNetwork snapshot identity plus monotonic revision.
+  Successful equipment, connection, route and commit-clear mutations advance
+  the revision; a newly created/reloaded document draft receives a new identity.
 - Undo/rollback restoration advances the live revision instead of rewinding it
-  to an earlier content version, so a future draft-study result cannot become
-  fresh again merely because the authoring graph was restored.
+  to an earlier content version. Application collection replacement also
+  invalidates copied revisions, preventing a restored old snapshot from
+  reusing a prior version token.
 - DraftNetwork detached copies and document-collection snapshots preserve the
-  revision across Application read/transition snapshots.
+  identity/revision pair across Application read snapshots. The pair is
+  available as DraftNetwork.version_token for future study provenance.
 - The revision is intentionally excluded from persisted DraftNetwork schema;
   project activation/generation remains the durable scope boundary after load.
 
