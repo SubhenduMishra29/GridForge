@@ -3424,9 +3424,9 @@ class Application:
                 return False
             if not self.revision.matches_study_state(source_revision):
                 return False
-            active_presentation = self.presentation
-            if getattr(active_presentation, "document_id", None) != document_id:
-                return False
+            # The captured document need not remain selected while an
+            # asynchronous study runs. Its own collection entry must remain
+            # present and byte-for-byte revision-identical until publication.
             current_revision = self._current_draft_revision(document_id)
             return current_revision == draft_revision
 
