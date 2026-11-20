@@ -157,7 +157,10 @@ class DraftStudyPreparationService:
         for item in draft_network.equipment:
             equipment_type = str(item.equipment_type).strip().lower()
             core_id = f"{equipment_type}-{item.draft_id}"
-            core_element = candidate.network.get_by_identity(core_id)
+            try:
+                core_element = candidate.network.get_by_identity(core_id)
+            except KeyError:
+                core_element = None
             if core_element is None:
                 raise ValueError(
                     f"Draft equipment {item.draft_id!r} ({equipment_type}) was not materialized "
