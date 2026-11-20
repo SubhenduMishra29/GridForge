@@ -5755,8 +5755,11 @@ Architecture:
   solver path. No Qt/QGraphics dependency is introduced into Core.
 
 Verification boundary:
-- Source changes are limited to Application study orchestration, the new
-  Application draft-study service, package exports and this register.
+- Source changes are limited to Application study orchestration and the new
+  Application draft-study service, Application package exports, the Study
+  Case controller/panel/projection, main composition and this register.
+- Existing ui/core/qt.py QPushButton coverage is reused; no Qt shim change was
+  needed. No Core model file or QGraphics dependency was introduced.
 - No tests or CI were run, as instructed. No numerical solver, GUI, project
   save/reopen or import/runtime execution was performed. These remain
   explicit integration acceptance items after merge.
