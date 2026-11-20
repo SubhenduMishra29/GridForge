@@ -265,7 +265,8 @@ class DraftStudyPreparationService:
         transaction.commit()
 
         candidate_network.rebuild_topology()
-        candidate_network.validate()
+        if not candidate_network.validate():
+            raise ValueError("Draft study candidate Network failed Core structural validation.")
         topology_snapshot = candidate_network.topology_snapshot
         if not isinstance(topology_snapshot, TopologySnapshot):
             raise ValueError("Draft study candidate did not produce a canonical TopologySnapshot.")
