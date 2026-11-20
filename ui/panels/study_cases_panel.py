@@ -27,6 +27,7 @@ class StudyCasesPanelWidget(QWidget):
         self._list = QListWidget(self)
         self._run_handler: Callable[[UUID], object] | None = None
         self._run_draft_handler: Callable[[UUID], object] | None = None
+        self._draft_available = False
         self._cancel_handler: Callable[[UUID], bool] | None = None
         self._run_error_handler: Callable[[BaseException], object] | None = None
         self._active_study_id: UUID | None = None
@@ -197,6 +198,10 @@ class StudyCasesPanelWidget(QWidget):
         self._run_draft_handler = handler
         self._on_case_selected(self._list.currentRow())
 
+    def set_draft_available(self, available: bool) -> None:
+        self._draft_available = bool(available)
+        self._on_case_selected(self._list.currentRow())
+
     def set_cancel_handler(self, handler: Callable[[UUID], bool] | None) -> None:
         self._cancel_handler = handler
 
@@ -322,6 +327,7 @@ class StudyCasesPanelWidget(QWidget):
         study_type = str(getattr(row, "study_type", "")).strip().lower()
         self._run_draft.setEnabled(
             self._run_draft_handler is not None
+            and self._draft_available
             and study_type in {"power_flow", "short_circuit"}
             and self._run_future is None
         )
