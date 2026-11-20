@@ -17,6 +17,7 @@ from core.application.revision import ProjectRevision
 _LOGGER = logging.getLogger(__name__)
 
 from core.application.events import (
+    DraftChanged,
     ElementCreated,
     ElementRemoved,
     ElementUpdated,
@@ -304,6 +305,7 @@ class StudyProjection:
     event_types = (
         ProjectLoaded,
         ProjectClosed,
+        DraftChanged,
         ElementCreated,
         ElementRemoved,
         ElementUpdated,
@@ -407,6 +409,7 @@ class StudyProjection:
             TopologyChanged,
             ProtectionChanged,
             SLDPresentationChanged,
+            DraftChanged,
         )):
             # Invalidate the selected result projection on both granular Core
             # mutation events and aggregate revision events. Event families can
@@ -482,11 +485,16 @@ class StudyProjection:
         if callable(read_network) and callable(set_available_buses):
             try:
                 network = read_network()
-                set_available_buses(
-                    element.object_id
+                bus_ids = {
+                    str(element.object_id)
                     for element in getattr(network, "elements", ())
                     if str(getattr(element, "element_type", "")).strip().lower() == "bus"
-                )
+                    and str(getattr(element, "object_id", "")).strip()
+                }
+                read_draft_bus_ids = getattr(self._application, "read_draft_bus_ids", None)
+                if callable(read_draft_bus_ids):
+                    bus_ids.update(str(value) for value in read_draft_bus_ids() if str(value).strip())
+                set_available_buses(tuple(sorted(bus_ids)))
             except Exception:
                 _LOGGER.exception("Study Case Bus choices could not be refreshed")
 
