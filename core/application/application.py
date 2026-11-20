@@ -3557,6 +3557,10 @@ class Application:
             draft_snapshot,
             document_id=document_id,
         )
+        DraftStudyPreparationService.validate_candidate_connectivity(
+            candidate,
+            draft_snapshot,
+        )
         is_current = lambda: self._draft_study_is_current(
             project_id=request.project_id,
             activation_generation=request.activation_generation,
