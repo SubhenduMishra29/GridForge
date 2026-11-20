@@ -65,11 +65,16 @@ class DraftNetworkCollection:
             raise ValueError("DraftNetwork project_id does not match its collection.")
         if network.activation_generation != self.activation_generation:
             raise ValueError("DraftNetwork activation_generation does not match its collection.")
+        existing = self._networks.get(key)
+        revision = network.revision
+        if existing is not None and existing.snapshot_id == network.snapshot_id:
+            revision = max(existing.revision, revision) + 1
         self._networks[key] = DraftNetwork.from_dict(
             network.to_dict(),
             project_id=self.project_id,
             activation_generation=self.activation_generation,
-            revision=network.revision,
+            revision=revision,
+            snapshot_id=network.snapshot_id,
         )
 
     def ensure_documents(self, document_ids) -> None:
@@ -96,14 +101,22 @@ class DraftNetworkCollection:
                 project_id=self.project_id,
                 activation_generation=self.activation_generation,
                 revision=network.revision,
+                snapshot_id=network.snapshot_id,
             )
             for document_id, network in self._networks.items()
         }
 
-    def detached_copy(self) -> "DraftNetworkCollection":
-        """Return a detached collection while preserving runtime draft revisions."""
+    def detached_copy(self, *, invalidate_snapshots: bool = False) -> "DraftNetworkCollection":
+        """Return a detached collection, optionally fencing prior snapshot consumers."""
         copied = DraftNetworkCollection(self.project_id, self.activation_generation)
-        copied._networks = self.snapshot()
+        for document_id, network in self._networks.items():
+            copied._networks[document_id] = DraftNetwork.from_dict(
+                network.to_dict(),
+                project_id=self.project_id,
+                activation_generation=self.activation_generation,
+                revision=network.revision + (1 if invalidate_snapshots else 0),
+                snapshot_id=network.snapshot_id,
+            )
         return copied
 
     def to_dict(self) -> dict[str, Any]:
