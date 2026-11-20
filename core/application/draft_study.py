@@ -20,6 +20,8 @@ from core.application.draft.network import DraftNetwork
 from core.application.services.model_service import ModelService
 from core.application.services.simple_wire_service import SimpleWireConnectionCommandHandlers
 from core.application.transaction import Transaction
+from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
 from core.network.network import Network
 from core.network.topology_snapshot import TopologySnapshot
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -178,6 +180,45 @@ class DraftStudyPreparationService:
                     f"found {len(actual_records)}. Complete its DraftConnections "
                     "before running the solver."
                 )
+
+    @staticmethod
+    def validate_study_configuration(
+        candidate: DraftStudyCandidate,
+        study_type: str,
+        configuration: Any,
+    ) -> None:
+        """Require explicit study-side Bus choices for the exact candidate topology."""
+        if not isinstance(candidate, DraftStudyCandidate):
+            raise TypeError("candidate must be DraftStudyCandidate.")
+        bus_ids = set(candidate.topology_snapshot.bus_ids)
+        if study_type == "power_flow":
+            if not isinstance(configuration, PowerFlowStudyConfiguration):
+                raise TypeError("Power Flow draft study requires PowerFlowStudyConfiguration.")
+            configured_bus_ids = set(configuration.bus_types)
+            missing = sorted(bus_ids - configured_bus_ids)
+            extra = sorted(configured_bus_ids - bus_ids)
+            if missing or extra:
+                details = []
+                if missing:
+                    details.append("missing Bus classifications: " + ", ".join(missing))
+                if extra:
+                    details.append("classifications for absent Buses: " + ", ".join(extra))
+                raise ValueError(
+                    "Power Flow Study Case does not classify the exact draft candidate topology ("
+                    + "; ".join(details)
+                    + "). Recreate the Study Case after the DraftNetwork Bus set is final; "
+                    "no bus operating type is inferred."
+                )
+        elif study_type == "short_circuit":
+            if not isinstance(configuration, ShortCircuitStudyConfiguration):
+                raise TypeError("Short-Circuit draft study requires ShortCircuitStudyConfiguration.")
+            if configuration.fault_bus_id not in bus_ids:
+                raise ValueError(
+                    f"Short-Circuit fault Bus {configuration.fault_bus_id!r} is not present "
+                    "in the candidate TopologySnapshot."
+                )
+        else:
+            raise ValueError("Draft study configuration validation supports only Power Flow and Short-Circuit.")
 
     def prepare(
         self,
