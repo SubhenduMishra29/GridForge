@@ -26,9 +26,11 @@ class StudyCasesPanelWidget(QWidget):
         self.setObjectName("GridForgePanel_study_cases")
         self._list = QListWidget(self)
         self._run_handler: Callable[[UUID], object] | None = None
+        self._run_draft_handler: Callable[[UUID], object] | None = None
         self._cancel_handler: Callable[[UUID], bool] | None = None
         self._run_error_handler: Callable[[BaseException], object] | None = None
         self._active_study_id: UUID | None = None
+        self._active_run_button: QPushButton | None = None
         self._create_handler: Callable[..., object] | None = None
         self._result_selection_handler: Callable[[UUID | None], object] | None = None
         self._case_rows: tuple[object, ...] = ()
@@ -112,6 +114,13 @@ class StudyCasesPanelWidget(QWidget):
         self._compare_archive.clicked.connect(self._compare_selected_archives)
         self._run = QPushButton("Run Study", self)
         self._run.clicked.connect(self._run_selected)
+        self._run_draft = QPushButton("Run on Draft", self)
+        self._run_draft.setToolTip(
+            "Run the selected Power Flow or Short-Circuit case against an isolated "
+            "candidate built from the active SLD DraftNetwork; this does not commit the draft."
+        )
+        self._run_draft.setEnabled(False)
+        self._run_draft.clicked.connect(self._run_selected_draft)
         self._cancel = QPushButton("Cancel Study", self)
         self._cancel.setEnabled(False)
         self._cancel.clicked.connect(self._cancel_active_study)
@@ -123,6 +132,7 @@ class StudyCasesPanelWidget(QWidget):
         layout.addWidget(self._create)
         layout.addWidget(self._list)
         layout.addWidget(self._run)
+        layout.addWidget(self._run_draft)
         layout.addWidget(self._cancel)
         layout.addWidget(self._result_heading)
         layout.addWidget(self._result_list)
@@ -182,6 +192,10 @@ class StudyCasesPanelWidget(QWidget):
 
     def set_run_handler(self, handler: Callable[[UUID], object] | None) -> None:
         self._run_handler = handler
+
+    def set_run_draft_handler(self, handler: Callable[[UUID], object] | None) -> None:
+        self._run_draft_handler = handler
+        self._on_case_selected(self._list.currentRow())
 
     def set_cancel_handler(self, handler: Callable[[UUID], bool] | None) -> None:
         self._cancel_handler = handler
@@ -301,9 +315,16 @@ class StudyCasesPanelWidget(QWidget):
         study_id = getattr(row, "study_id", None) if row is not None else None
         return study_id if isinstance(study_id, UUID) else None
 
-    def _on_case_selected(self, _index: int) -> None:
+    def _on_case_selected(self, index: int) -> None:
         if self._result_selection_handler is not None:
             self._result_selection_handler(self.selected_case_id())
+        row = self._case_rows[index] if 0 <= index < len(self._case_rows) else None
+        study_type = str(getattr(row, "study_type", "")).strip().lower()
+        self._run_draft.setEnabled(
+            self._run_draft_handler is not None
+            and study_type in {"power_flow", "short_circuit"}
+            and self._run_future is None
+        )
 
     def _create_study_case(self) -> None:
         if self._create_handler is None:
@@ -325,19 +346,29 @@ class StudyCasesPanelWidget(QWidget):
             self._case_name.clear()
             self._pv_buses.clear()
 
-    def _run_selected(self) -> None:
-        study_id = self.selected_case_id()
-        if study_id is None or self._run_handler is None or self._run_future is not None:
-            return
-        submitted = self._run_handler(study_id)
+    def _queue_study(self, study_id: UUID, submitted: object, *, draft: bool) -> None:
         if not callable(getattr(submitted, "done", None)):
             return
         self._run_future = submitted
         self._active_study_id = study_id
+        self._active_run_button = self._run_draft if draft else self._run
         self._run.setEnabled(False)
-        self._run.setText("Study queued…")
+        self._run_draft.setEnabled(False)
+        self._active_run_button.setText("Draft study queued…" if draft else "Study queued…")
         self._cancel.setEnabled(True)
         self._run_timer.start()
+
+    def _run_selected(self) -> None:
+        study_id = self.selected_case_id()
+        if study_id is None or self._run_handler is None or self._run_future is not None:
+            return
+        self._queue_study(study_id, self._run_handler(study_id), draft=False)
+
+    def _run_selected_draft(self) -> None:
+        study_id = self.selected_case_id()
+        if study_id is None or self._run_draft_handler is None or self._run_future is not None:
+            return
+        self._queue_study(study_id, self._run_draft_handler(study_id), draft=True)
 
     def _cancel_active_study(self) -> None:
         study_id = self._active_study_id
@@ -356,27 +387,32 @@ class StudyCasesPanelWidget(QWidget):
         self._run_timer.stop()
         self._run_future = None
         self._active_study_id = None
+        active_button = self._active_run_button or self._run
+        is_draft = active_button is self._run_draft
+        prefix = "Draft study" if is_draft else "Study"
         try:
             result = future.result()
         except Exception as exc:
             if self._run_error_handler is not None:
                 self._run_error_handler(exc)
-            self._run.setText("Study failed")
-            self._run.setToolTip(str(exc))
+            active_button.setText(f"{prefix} failed")
+            active_button.setToolTip(str(exc))
         else:
             status = str(getattr(result, "status", "")).strip().lower()
             message = str(getattr(result, "message", "") or "").strip()
             terminal_labels = {
-                "completed": "Study completed",
-                "cancelled": "Study cancelled",
-                "failed": "Study failed",
+                "completed": f"{prefix} completed",
+                "cancelled": f"{prefix} cancelled",
+                "failed": f"{prefix} failed",
             }
-            label = terminal_labels.get(status, "Study finished")
-            self._run.setText(label)
-            self._run.setToolTip(message or f"StudyService terminal status: {status or 'not reported'}.")
+            label = terminal_labels.get(status, f"{prefix} finished")
+            active_button.setText(label)
+            active_button.setToolTip(message or f"StudyService terminal status: {status or 'not reported'}.")
+        self._active_run_button = None
         self._cancel.setEnabled(False)
         self._cancel.setText("Cancel Study")
         self._run.setEnabled(True)
+        self._on_case_selected(self._list.currentRow())
 
 
 __all__ = ["StudyCasesPanelWidget"]
