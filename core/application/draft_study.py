@@ -67,6 +67,59 @@ class DraftStudyPreparationService:
             ) from exc
         return sha256(canonical.encode("utf-8")).hexdigest()
 
+    _POWER_FLOW_DRAFT_TYPES = frozenset({
+        "bus", "grid", "generator", "synchronous_machine", "load", "motor",
+        "solar", "battery", "line", "cable", "transformer", "shunt",
+        "capacitor", "reactor", "breaker", "switch", "disconnector", "fuse",
+    })
+    _SHORT_CIRCUIT_DRAFT_TYPES = frozenset({
+        "bus", "grid", "generator", "synchronous_machine", "motor",
+        "line", "cable", "transformer", "breaker", "switch",
+        "disconnector", "fuse",
+    })
+
+    @classmethod
+    def validate_solver_eligibility(
+        cls,
+        draft_network: DraftNetwork,
+        study_type: str,
+    ) -> None:
+        """Reject draft equipment with no explicit model in the selected solver path.
+
+        Breakers, switches, disconnectors and fuses are topology-only inputs:
+        their conduction state is consumed by canonical TopologySnapshot
+        normalization. They are not fabricated as numerical impedance branches.
+        """
+        if not isinstance(draft_network, DraftNetwork):
+            raise TypeError("draft_network must be DraftNetwork.")
+        if study_type == "power_flow":
+            supported = cls._POWER_FLOW_DRAFT_TYPES
+        elif study_type == "short_circuit":
+            supported = cls._SHORT_CIRCUIT_DRAFT_TYPES
+        else:
+            raise ValueError(
+                "Draft solver eligibility is defined only for power_flow and short_circuit."
+            )
+        unsupported = tuple(sorted(
+            (
+                str(getattr(item, "draft_id", "")).strip(),
+                str(getattr(item, "equipment_type", "")).strip().lower(),
+            )
+            for item in draft_network.equipment
+            if str(getattr(item, "equipment_type", "")).strip().lower() not in supported
+        ))
+        if unsupported:
+            details = ", ".join(
+                f"{draft_id or '<missing-id>'}:{equipment_type or '<missing-type>'}"
+                for draft_id, equipment_type in unsupported
+            )
+            raise ValueError(
+                f"Draft {study_type.replace('_', ' ')} study cannot model these draft "
+                f"equipment items: {details}. Remove them from this candidate or use "
+                "a study type with an explicit numerical model; no default impedance "
+                "or equivalent source will be synthesized."
+            )
+
     def prepare(
         self,
         project_snapshot: Any,
