@@ -30,6 +30,8 @@ class StudyCaseController:
             raise TypeError("application must expose study_case().")
         if not callable(getattr(application, "submit_study_case", None)):
             raise TypeError("application must expose submit_study_case().")
+        if not callable(getattr(application, "submit_draft_study_case", None)):
+            raise TypeError("application must expose submit_draft_study_case().")
         self._application = application
         self._error_handler = error_handler
         self._active_scopes: dict[UUID, tuple[str, int]] = {}
@@ -48,6 +50,45 @@ class StudyCaseController:
             with self._scope_lock:
                 self._active_scopes[study_id] = scope
             future = self._application.submit_study_case(study_id)
+
+            def _release_scope(_completed: object) -> None:
+                with self._scope_lock:
+                    if self._active_scopes.get(study_id) == scope:
+                        self._active_scopes.pop(study_id, None)
+
+            future.add_done_callback(_release_scope)
+            return future
+        except Exception as exc:
+            with self._scope_lock:
+                self._active_scopes.pop(study_id, None)
+            return self._handle_error(exc)
+
+    def run_draft_study(self, study_id: UUID) -> object | None:
+        """Run the selected Power Flow/Short-Circuit Study Case on the active SLD draft."""
+        if not isinstance(study_id, UUID):
+            try:
+                study_id = UUID(str(study_id))
+            except (TypeError, ValueError) as exc:
+                return self._handle_error(ValueError("Selected Study Case identity is invalid."), cause=exc)
+        try:
+            case = self._application.study_case(study_id)
+            if case.study_type not in {"power_flow", "short_circuit"}:
+                raise ValueError(
+                    "Draft validation is available only for Power Flow and Short-Circuit Study Cases."
+                )
+            presentation = self._application.presentation
+            document_id = getattr(presentation, "document_id", None)
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise RuntimeError("An active SLD document is required to run a study on DraftNetwork.")
+            scope = (case.project_id, case.activation_generation)
+            with self._scope_lock:
+                if study_id in self._active_scopes:
+                    raise RuntimeError(f"Study Case {study_id} already has an active execution.")
+                self._active_scopes[study_id] = scope
+            future = self._application.submit_draft_study_case(
+                study_id,
+                document_id=document_id,
+            )
 
             def _release_scope(_completed: object) -> None:
                 with self._scope_lock:
