@@ -3567,6 +3567,7 @@ class Application:
             draft_revision=draft_revision,
             draft_topology_revision=candidate.topology_revision,
             draft_is_current=is_current,
+            draft_publication_lock=self._execution_lock,
         )
         return candidate_request, execution_context
 
