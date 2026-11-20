@@ -288,9 +288,15 @@ class Application:
                 self._draft_network_collection = None
                 self._draft_network = None
                 return
+            previous_collection = self._draft_network_collection
+            if previous_collection is not None and (
+                previous_collection.project_id != collection.project_id
+                or previous_collection.activation_generation != collection.activation_generation
+            ):
+                previous_collection = None
             self._draft_network_collection = collection.detached_copy(
                 invalidate_snapshots=True,
-                previous=self._draft_network_collection,
+                previous=previous_collection,
             )
             self._draft_network = None
 
