@@ -120,6 +120,65 @@ class DraftStudyPreparationService:
                 "or equivalent source will be synthesized."
             )
 
+    @staticmethod
+    def validate_candidate_connectivity(
+        candidate: DraftStudyCandidate,
+        draft_network: DraftNetwork,
+    ) -> None:
+        """Require every draft solver element to reach its canonical Bus terminals."""
+        if not isinstance(candidate, DraftStudyCandidate):
+            raise TypeError("candidate must be DraftStudyCandidate.")
+        if not isinstance(draft_network, DraftNetwork):
+            raise TypeError("draft_network must be DraftNetwork.")
+        attachments: dict[str, list[Any]] = {}
+        for record in candidate.topology_snapshot.equipment_bus_attachments:
+            attachments.setdefault(str(record.equipment_id), []).append(record)
+        required_counts = {
+            "grid": 1,
+            "generator": 1,
+            "synchronous_machine": 1,
+            "load": 1,
+            "motor": 1,
+            "solar": 1,
+            "battery": 1,
+            "shunt": 1,
+            "capacitor": 1,
+            "reactor": 1,
+            "line": 2,
+            "cable": 2,
+            "transformer": 2,
+            "breaker": 2,
+            "switch": 2,
+            "disconnector": 2,
+            "fuse": 2,
+        }
+        for item in draft_network.equipment:
+            equipment_type = str(item.equipment_type).strip().lower()
+            core_id = f"{equipment_type}-{item.draft_id}"
+            if equipment_type == "bus":
+                if core_id not in candidate.topology_snapshot.bus_ids:
+                    raise ValueError(
+                        f"Draft Bus {item.draft_id!r} was not materialized in the candidate TopologySnapshot."
+                    )
+                continue
+            expected = required_counts.get(equipment_type)
+            if expected is None:
+                # Solver-type eligibility is checked separately; keep this
+                # guard fail-closed if a future type is added to that list
+                # without defining its physical Bus attachment contract.
+                raise ValueError(
+                    f"Draft equipment {item.draft_id!r} ({equipment_type}) has no "
+                    "declared candidate Bus-attachment contract."
+                )
+            actual_records = attachments.get(core_id, ())
+            if len(actual_records) != expected:
+                raise ValueError(
+                    f"Draft equipment {item.draft_id!r} ({equipment_type}) requires "
+                    f"{expected} canonical Bus terminal attachment(s) for this study; "
+                    f"found {len(actual_records)}. Complete its DraftConnections "
+                    "before running the solver."
+                )
+
     def prepare(
         self,
         project_snapshot: Any,
