@@ -5719,8 +5719,15 @@ Correction:
   command history are not mutated by candidate preparation.
 - Power Flow and Short-Circuit requests can now execute synchronously or
   asynchronously against the candidate Network and its canonical
-  TopologySnapshot. Other study types remain explicitly unsupported for
-  draft execution until their own candidate-model contracts are defined.
+  TopologySnapshot. Study-specific draft equipment allowlists reject unsupported
+  solver models with element IDs/types; switching devices are admitted only as
+  topology inputs, never fabricated as impedance branches. Other study types
+  remain explicitly unsupported for draft execution until their own
+  candidate-model contracts are defined.
+- Added a Study Cases “Run on Draft” action, controller routing and Application
+  Study Case entrypoint. It is enabled only for Power Flow/Short-Circuit cases
+  and submits the current active SLD document's DraftNetwork without committing
+  it to the live Core project.
 - StudyRequest and StudyExecutionContext carry the SLD document identity,
   deterministic DraftNetwork content revision and candidate topology revision.
 - StudyService checks draft/project/document freshness before and after
