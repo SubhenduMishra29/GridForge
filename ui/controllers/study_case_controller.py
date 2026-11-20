@@ -32,6 +32,8 @@ class StudyCaseController:
             raise TypeError("application must expose submit_study_case().")
         if not callable(getattr(application, "submit_draft_study_case", None)):
             raise TypeError("application must expose submit_draft_study_case().")
+        if not callable(getattr(application, "read_draft_bus_ids", None)):
+            raise TypeError("application must expose read_draft_bus_ids().")
         self._application = application
         self._error_handler = error_handler
         self._active_scopes: dict[UUID, tuple[str, int]] = {}
@@ -155,12 +157,18 @@ class StudyCaseController:
         if not callable(read_network):
             raise TypeError("application must expose read_network().")
         snapshot = read_network()
-        return tuple(sorted(
+        identities = {
             str(element.object_id)
             for element in getattr(snapshot, "elements", ())
             if str(getattr(element, "element_type", "")).strip().lower() == "bus"
             and str(getattr(element, "object_id", "")).strip()
-        ))
+        }
+        identities.update(
+            str(bus_id).strip()
+            for bus_id in self._application.read_draft_bus_ids()
+            if str(bus_id).strip()
+        )
+        return tuple(sorted(identities))
 
     @staticmethod
     def _positive_finite(value: object, label: str) -> float:
