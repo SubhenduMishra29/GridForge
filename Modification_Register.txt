@@ -5748,3 +5748,39 @@ Disposition:
   mixed-owner mutation source defects. GUI/history runtime acceptance remains
   a separate verification limitation and is explicitly not claimed here.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — DraftNetwork monotonic authoring revision foundation
+Date: 2026-11-20
+Repository: SubhenduMishra29/GridForge
+Branch: feature/issue-875-draft-revision-fence-20261120
+Issue: #875
+
+Correction:
+- Added a runtime-only monotonic DraftNetwork revision. Successful equipment,
+  connection, route and commit-clear mutations advance the revision.
+- Undo/rollback restoration advances the live revision instead of rewinding it
+  to an earlier content version, so a future draft-study result cannot become
+  fresh again merely because the authoring graph was restored.
+- DraftNetwork detached copies and document-collection snapshots preserve the
+  revision across Application read/transition snapshots.
+- The revision is intentionally excluded from persisted DraftNetwork schema;
+  project activation/generation remains the durable scope boundary after load.
+
+Scope boundary:
+- This is the stale-snapshot identity foundation only. No isolated candidate
+  Network builder, draft-aware power-flow/short-circuit preparation, StudyRequest
+  or StudyResult draft provenance, or stale-result publication guard is claimed.
+- Issue #875 remains open until those end-to-end study stages are integrated.
+
+Architecture:
+- DraftNetwork remains Application-owned and separate from Core Network.
+- No live Core mutation, canvas/Qt read, or duplicate study scheduler is added.
+- No Core Qt/QGraphics dependency is introduced; ui/core/qt.py and package
+  exports are unchanged.
+
+Verification boundary:
+- Static source edits only; no tests, CI, Python imports/syntax execution,
+  solver execution, GUI, undo/redo runtime or save/reopen checks were run.
+======================================================================
