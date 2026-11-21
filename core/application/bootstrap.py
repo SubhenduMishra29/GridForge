@@ -1196,6 +1196,7 @@ def create_application(
             study_cases=application.study_cases,
             instrumentation_wiring=instrumentation_wiring_service.inventory,
             temperature_instruments=temperature_instrument_service.inventory,
+            configuration_reviews=application.configuration_reviews,
             protection_presentation=(                application.protection_presentation.to_dict()
                 if callable(getattr(getattr(application, "protection_presentation", None), "to_dict", None))
                 else getattr(application, "protection_presentation", None)
