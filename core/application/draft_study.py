@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
@@ -208,11 +208,6 @@ class DraftStudyCandidateBuilder:
         if creation_contract_registry is None or not callable(getattr(creation_contract_registry, "resolve", None)):
             raise TypeError("creation_contract_registry must expose resolve().")
         self._creation_contract_registry = creation_contract_registry
-
-    @staticmethod
-    def core_identity(item: Any) -> str:
-        """Return the canonical Core identity used by CommitNetworkHandler."""
-        return CommitNetworkHandler._core_id_for(item)
 
     def build(
         self,
