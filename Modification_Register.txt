@@ -5823,3 +5823,45 @@ Verification boundary:
   GUI, concurrency stress, rollback/undo/redo runtime, or performance profiling
   were run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Show all workflow-backed draft configuration review dispositions
+Date: 2026-11-21
+Repository: SubhenduMishra29/GridForge
+Implementation provenance: madhuri196mishra-cpu/GridForge PR #224
+Tracking: SubhenduMishra29/GridForge#994; madhuri196mishra-cpu/GridForge#32
+
+Finding:
+- The SLD draft selection projection classified only later_configuration
+  fields as requiring configuration review.
+- Other canonical workflow-backed dispositions could therefore be presented
+  as an ordinary draft even though their owning Application workflow still
+  requires engineering follow-up.
+
+Correction:
+- The projection now recognizes operating_point, lifecycle_state,
+  operational_state, measurement_association, and provisional_default in
+  addition to later_configuration.
+- The status remains read-side presentation metadata. It does not declare
+  fields universally mandatory, determine study applicability, or claim
+  completion. Those decisions remain with the owning Application workflows.
+- No Core model, command, persistence schema, registry, or lifecycle authority
+  was changed.
+
+Reconciliation:
+- Contribution branch was created directly from authoritative root main at
+  f3e63707c46541181d89ccac5a7ccc7bc0c5c182.
+- The root-main source was fetched and the exact existing projection block
+  was replaced; no fork-main merge or unrelated implementation history was
+  included.
+- This is the isolated projection slice from implementation PR #224. The
+  broader Application-owned configuration-review lifecycle is not included
+  and requires a separate schema-9-aware root integration.
+
+Verification boundary:
+- Static source inspection and GitHub fetch-back only.
+- No tests, CI, imports, startup, GUI, or runtime experiments were run.
+- Issue #994 remains open; this contribution does not claim full configuration
+  review lifecycle completion.
+======================================================================
