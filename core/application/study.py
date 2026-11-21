@@ -71,6 +71,12 @@ class DraftStudyProvenance:
             or len({core_id for _, core_id in pairs}) != len(pairs)
         ):
             raise ValueError("draft_to_core_ids must contain unique non-empty draft/Core identity pairs.")
+        core_id_set = {core_id for _, core_id in pairs}
+        classified_ids = set(
+            self.solver_element_ids + self.topology_only_element_ids + self.excluded_element_ids
+        )
+        if not classified_ids.issubset(core_id_set):
+            raise ValueError("DraftStudyProvenance classifications must reference mapped Core identities.")
         object.__setattr__(self, "draft_to_core_ids", tuple(sorted(pairs)))
 
     def to_dict(self) -> dict[str, Any]:
