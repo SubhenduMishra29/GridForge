@@ -5915,7 +5915,6 @@ Verification boundary:
 - Static source inspection and GitHub fetch-back only.
 - No tests, CI, imports, startup, GUI, or runtime experiments were run.
 ======================================================================
-======================================================================
 GridForge V2 — Isolated DraftNetwork candidate studies and stale-result fencing (Issue #875)
 Date: 2026-11-21
 Repository: SubhenduMishra29/GridForge
@@ -5945,6 +5944,12 @@ Correction:
   elements, topology-only switching elements, and non-solver instrumentation/
   relay elements. Unsupported element types fail closed with diagnostics;
   no numerical defaults or substitute models are fabricated.
+- Retained the canonical draft-ID to Core-ID map in candidate/provenance
+  records and remapped Power Flow bus/voltage-base IDs plus Short Circuit
+  fault, element, and explicit phase-domain source/fault node identities.
+- Rejected prebuilt phase-domain cases because their graph/admittance/
+  impedance snapshots are tied to a different topology revision; explicit
+  source/fault contracts are rebuilt against the candidate Network instead.
 - Added DraftStudyProvenance to StudyRequest and StudyExecutionContext.
   StudyResult metadata and lifecycle events retain project, activation,
   document, draft snapshot/revision, candidate topology revision, source
