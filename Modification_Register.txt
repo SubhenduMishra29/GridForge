@@ -5787,3 +5787,39 @@ Verification boundary:
 - Static source edits only; no tests, CI, Python imports/syntax execution,
   solver execution, GUI, undo/redo runtime or save/reopen checks were run.
 ======================================================================
+
+
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-754-fast-fail-guards-20261121
+Issue: #754
+
+Correction:
+- Added an Application commit-gate preflight to execute(), undo(), and redo()
+  before they attempt to acquire the execution lock held by the asynchronous
+  DraftNetwork commit worker.
+- Retained the existing in-lock guard in all three paths. The preflight gives
+  commands arriving after the commit is marked in-flight an immediate
+  rejection; the second check preserves serialization if the commit gate
+  changes between preflight and lock acquisition.
+- Preserved the canonical CommandManager transaction, Core mutation boundary,
+  revision checks, single-flight state, and UI-thread semantic event finalization.
+- No validation or Core mutation was moved out of the worker transaction.
+
+Scope boundary:
+- This corrects fail-fast command rejection for execute/undo/redo during an
+  active asynchronous DraftNetwork commit. It does not claim measured large
+  network responsiveness, GUI smoothness, cancellation support, or general
+  non-blocking behavior for every Application read/lifecycle operation.
+- Issue #754 remains open pending runtime acceptance and representative
+  large-network responsiveness evidence.
+
+Architecture:
+- Application retains ownership of command orchestration and commit gating.
+- Core remains free of Qt/SLD dependencies; no new command path or scheduler
+  was introduced.
+
+Verification boundary:
+- Static source/diff inspection only; no tests, CI, Python syntax/import checks,
+  GUI, concurrency stress, rollback/undo/redo runtime, or performance profiling
+  were run.
+======================================================================
