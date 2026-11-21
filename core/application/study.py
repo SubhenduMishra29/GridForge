@@ -43,6 +43,7 @@ class DraftStudyProvenance:
     solver_element_ids: tuple[str, ...] = ()
     topology_only_element_ids: tuple[str, ...] = ()
     excluded_element_ids: tuple[str, ...] = ()
+    draft_to_core_ids: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("project_id", "document_id", "snapshot_id"):
@@ -63,6 +64,14 @@ class DraftStudyProvenance:
             if any(not value for value in values) or len(values) != len(set(values)):
                 raise ValueError(f"{name} must contain unique non-empty Core identities.")
             object.__setattr__(self, name, values)
+        pairs = tuple((str(draft_id).strip(), str(core_id).strip()) for draft_id, core_id in self.draft_to_core_ids)
+        if (
+            any(not draft_id or not core_id for draft_id, core_id in pairs)
+            or len({draft_id for draft_id, _ in pairs}) != len(pairs)
+            or len({core_id for _, core_id in pairs}) != len(pairs)
+        ):
+            raise ValueError("draft_to_core_ids must contain unique non-empty draft/Core identity pairs.")
+        object.__setattr__(self, "draft_to_core_ids", tuple(sorted(pairs)))
 
     def to_dict(self) -> dict[str, Any]:
         revision = self.source_revision
@@ -85,6 +94,7 @@ class DraftStudyProvenance:
             "solver_element_ids": self.solver_element_ids,
             "topology_only_element_ids": self.topology_only_element_ids,
             "excluded_element_ids": self.excluded_element_ids,
+            "draft_to_core_ids": self.draft_to_core_ids,
         }
 
 
