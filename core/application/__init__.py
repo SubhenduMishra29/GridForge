@@ -77,7 +77,18 @@ from .read_service import (
     StudyResultNumericDeltaReadModel,
 )
 from .revision import ProjectRevision
-from .study import StudyCaseDefinition, StudyRequest, StudyResult
+from .study import (
+    DraftStudyProvenance,
+    StaleDraftStudyError,
+    StudyCaseDefinition,
+    StudyRequest,
+    StudyResult,
+)
+from .draft_study import (
+    DraftStudyCandidate,
+    DraftStudyCandidateBuilder,
+    DraftStudyPreparationError,
+)
 from .protection_study import (
     ProtectionFaultScenario,
     ProtectionCoordinationTimingEnvelopeConfiguration,
@@ -160,6 +171,11 @@ __all__ = [
     "StudyCaseDefinition",
     "StudyRequest",
     "StudyResult",
+    "DraftStudyProvenance",
+    "StaleDraftStudyError",
+    "DraftStudyCandidate",
+    "DraftStudyCandidateBuilder",
+    "DraftStudyPreparationError",
     "ProtectionFaultScenario",
     "ProtectionCoordinationTimingEnvelopeConfiguration",
     "ProtectionCoordinationPairConfiguration",
