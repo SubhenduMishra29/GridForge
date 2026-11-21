@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import Any
 
 from core.network.network import Network
@@ -39,6 +42,7 @@ class DraftStudyCandidate:
 
     network: Network
     topology_snapshot: TopologySnapshot
+    draft_to_core_ids: Mapping[str, str]
     solver_element_ids: tuple[str, ...]
     topology_only_element_ids: tuple[str, ...]
     excluded_element_ids: tuple[str, ...]
@@ -48,11 +52,26 @@ class DraftStudyCandidate:
             raise TypeError("network must be a Core Network.")
         if not isinstance(self.topology_snapshot, TopologySnapshot):
             raise TypeError("topology_snapshot must be a TopologySnapshot.")
+        if not isinstance(self.draft_to_core_ids, Mapping):
+            raise TypeError("draft_to_core_ids must be a mapping.")
+        identity_map: dict[str, str] = {}
+        for draft_id, core_id in self.draft_to_core_ids.items():
+            draft_key = str(draft_id).strip()
+            core_value = str(core_id).strip()
+            if not draft_key or not core_value or draft_key in identity_map:
+                raise ValueError("draft_to_core_ids must contain unique non-empty draft/Core identities.")
+            identity_map[draft_key] = core_value
+        if len(set(identity_map.values())) != len(identity_map):
+            raise ValueError("draft_to_core_ids must map each draft identity to a unique Core identity.")
+        object.__setattr__(self, "draft_to_core_ids", MappingProxyType(identity_map))
         for name in ("solver_element_ids", "topology_only_element_ids", "excluded_element_ids"):
             values = tuple(str(value).strip() for value in getattr(self, name))
             if any(not value for value in values) or len(values) != len(set(values)):
                 raise ValueError(f"{name} must contain unique non-empty Core identities.")
             object.__setattr__(self, name, values)
+        core_ids = set(identity_map.values())
+        if any(not set(getattr(self, name)).issubset(core_ids) for name in ("solver_element_ids", "topology_only_element_ids", "excluded_element_ids")):
+            raise ValueError("DraftStudyCandidate classifications must reference mapped Core identities.")
         if (
             getattr(self.network, "project_id", None) != self.topology_snapshot.project_id
             or getattr(self.network, "activation_generation", None) != self.topology_snapshot.activation_generation
@@ -68,6 +87,101 @@ class DraftStudyCandidate:
         )
         if any(groups[left].intersection(groups[right]) for left in range(len(groups)) for right in range(left + 1, len(groups))):
             raise ValueError("DraftStudyCandidate element classifications must be disjoint.")
+
+
+    def remap_configuration(self, configuration: Any) -> Any:
+        """Translate draft-scoped IDs to the exact Core identities in this candidate."""
+        from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
+        from core.analysis.short_circuit_configuration import ShortCircuitStudyConfiguration
+
+        def map_identity(value: str) -> str:
+            return self.draft_to_core_ids.get(value, value)
+
+        def map_node_identity(value: str) -> str:
+            direct = map_identity(value)
+            if direct != value:
+                return direct
+            try:
+                parts = json.loads(value)
+            except (TypeError, ValueError):
+                return value
+            if not isinstance(parts, list) or not all(isinstance(part, str) for part in parts):
+                return value
+            mapped = [map_identity(part) for part in parts]
+            return json.dumps(mapped, ensure_ascii=True, separators=(",", ":")) if mapped != parts else value
+
+        if isinstance(configuration, PowerFlowStudyConfiguration):
+            bus_types: dict[str, Any] = {}
+            for bus_id, bus_type in configuration.bus_types.items():
+                core_id = map_identity(bus_id)
+                if core_id in bus_types:
+                    raise DraftStudyPreparationError(
+                        f"Power Flow bus identities collide after draft/Core resolution: {core_id!r}."
+                    )
+                bus_types[core_id] = bus_type
+            voltage_bases: dict[str, float] = {}
+            for bus_id, voltage in configuration.voltage_bases_kv.items():
+                core_id = map_identity(bus_id)
+                if core_id in voltage_bases:
+                    raise DraftStudyPreparationError(
+                        f"Power Flow voltage-base identities collide after draft/Core resolution: {core_id!r}."
+                    )
+                voltage_bases[core_id] = voltage
+            return replace(
+                configuration,
+                bus_types=bus_types,
+                voltage_bases_kv=voltage_bases,
+            )
+
+        if isinstance(configuration, ShortCircuitStudyConfiguration):
+            if configuration.phase_domain_case is not None:
+                raise DraftStudyPreparationError(
+                    "A prebuilt phase-domain case is bound to its original topology snapshot. "
+                    "For draft studies, supply explicit phase_domain_sources and phase_domain_faults "
+                    "so the phase-domain graph can be rebuilt from the isolated candidate Network."
+                )
+            from core.solver.short_circuit.phase_domain_solver import (
+                PhaseDomainFaultConnection,
+                PhaseDomainMultiConductorSource,
+                PhaseDomainSourceEquivalent,
+            )
+            sources = []
+            for source in configuration.phase_domain_sources:
+                if isinstance(source, PhaseDomainSourceEquivalent):
+                    sources.append(replace(source, node_id=map_node_identity(source.node_id)))
+                elif isinstance(source, PhaseDomainMultiConductorSource):
+                    sources.append(replace(source, node_ids=tuple(map_node_identity(item) for item in source.node_ids)))
+                else:
+                    raise DraftStudyPreparationError(
+                        f"Unsupported phase-domain source type for draft study: {type(source).__name__}."
+                    )
+            faults = []
+            for fault in configuration.phase_domain_faults:
+                if not isinstance(fault, PhaseDomainFaultConnection):
+                    raise DraftStudyPreparationError(
+                        f"Unsupported phase-domain fault type for draft study: {type(fault).__name__}."
+                    )
+                faults.append(replace(
+                    fault,
+                    from_node_id=map_node_identity(fault.from_node_id),
+                    to_node_id=map_node_identity(fault.to_node_id),
+                ))
+            element_ids = tuple(map_identity(item) for item in configuration.element_ids)
+            if len(set(element_ids)) != len(element_ids):
+                raise DraftStudyPreparationError(
+                    "Short Circuit element identities collide after draft/Core resolution."
+                )
+            return replace(
+                configuration,
+                fault_bus_id=map_identity(configuration.fault_bus_id),
+                element_ids=element_ids,
+                phase_domain_sources=tuple(sources),
+                phase_domain_faults=tuple(faults),
+            )
+
+        raise DraftStudyPreparationError(
+            "Draft studies require a typed PowerFlowStudyConfiguration or ShortCircuitStudyConfiguration."
+        )
 
 
 class DraftStudyCandidateBuilder:
@@ -271,6 +385,7 @@ class DraftStudyCandidateBuilder:
             solver_element_ids=identities(solver_items),
             topology_only_element_ids=identities(topology_items),
             excluded_element_ids=identities(excluded_items),
+            draft_to_core_ids=core_ids_by_draft,
         )
 
 
