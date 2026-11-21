@@ -145,12 +145,31 @@ class DraftStudyCandidate:
                 PhaseDomainMultiConductorSource,
                 PhaseDomainSourceEquivalent,
             )
+            if configuration.phase_domain_sources or configuration.phase_domain_faults:
+                unsupported_sources = tuple(
+                    str(getattr(item, "id", ""))
+                    for item in getattr(self.network, "synchronous_machines", ())
+                    if getattr(item, "in_service", True) is True
+                )
+                if unsupported_sources:
+                    raise DraftStudyPreparationError(
+                        "Phase-domain short-circuit preparation does not yet admit synchronous-machine "
+                        "source equivalents; fail-closed source IDs: " + ", ".join(sorted(unsupported_sources))
+                    )
             sources = []
             for source in configuration.phase_domain_sources:
                 if isinstance(source, PhaseDomainSourceEquivalent):
-                    sources.append(replace(source, node_id=map_node_identity(source.node_id)))
+                    sources.append(replace(
+                        source,
+                        source_id=map_identity(source.source_id),
+                        node_id=map_node_identity(source.node_id),
+                    ))
                 elif isinstance(source, PhaseDomainMultiConductorSource):
-                    sources.append(replace(source, node_ids=tuple(map_node_identity(item) for item in source.node_ids)))
+                    sources.append(replace(
+                        source,
+                        source_id=map_identity(source.source_id),
+                        node_ids=tuple(map_node_identity(item) for item in source.node_ids),
+                    ))
                 else:
                     raise DraftStudyPreparationError(
                         f"Unsupported phase-domain source type for draft study: {type(source).__name__}."
