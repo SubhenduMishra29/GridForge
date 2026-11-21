@@ -4111,6 +4111,8 @@ class Application:
                     }
                     if not pending:
                         continue
+                    if project_context is None:
+                        raise RuntimeError("Configuration review creation requires an active project.")
                     element_id = str(item.get("core_id", "")).strip()
                     element_type = str(item.get("element_type", "")).strip().lower()
                     if not element_id or not element_type:
@@ -4125,8 +4127,6 @@ class Application:
                         )
                     )
                 if new_records:
-                    if project_context is None:
-                        raise RuntimeError("Configuration review creation requires an active project.")
                     previous_reviews = dict(self._configuration_reviews)
                     for record in new_records:
                         if record.element_id in self._configuration_reviews:
