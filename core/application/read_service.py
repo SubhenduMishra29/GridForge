@@ -886,6 +886,7 @@ class StudyReadService:
         current_project_id: str | None = None,
         current_activation_generation: int | None = None,
         current_revision: ProjectRevision | None = None,
+        current_draft_provenance: Mapping[str, Any] | None = None,
     ) -> StudyResultReadModel | None:
         if result is None:
             return None
@@ -898,6 +899,21 @@ class StudyReadService:
             and result.activation_generation == current_activation_generation
             and source_revision.matches_study_state(current_revision)
         )
+        result_metadata = getattr(result, "metadata", {})
+        draft_provenance = (
+            result_metadata.get("draft_provenance")
+            if isinstance(result_metadata, Mapping)
+            else None
+        )
+        if draft_provenance is not None:
+            current = bool(
+                current
+                and isinstance(draft_provenance, Mapping)
+                and isinstance(current_draft_provenance, Mapping)
+                and draft_provenance.get("document_id") == current_draft_provenance.get("document_id")
+                and draft_provenance.get("snapshot_id") == current_draft_provenance.get("snapshot_id")
+                and draft_provenance.get("draft_revision") == current_draft_provenance.get("draft_revision")
+            )
         return StudyResultReadModel(
             study_id=result.study_id,
             project_id=result.project_id,
@@ -1348,6 +1364,7 @@ class StudyReadService:
         project_id: str,
         activation_generation: int,
         current_revision: ProjectRevision | None = None,
+        current_draft_provenance: Mapping[str, Any] | None = None,
     ) -> StudyResultReadModel | None:
         result = self._studies.get_result(
             study_id,
@@ -1359,6 +1376,7 @@ class StudyReadService:
             current_project_id=project_id,
             current_activation_generation=activation_generation,
             current_revision=current_revision,
+            current_draft_provenance=current_draft_provenance,
         )
 
     def results(
@@ -1367,6 +1385,7 @@ class StudyReadService:
         project_id: str,
         activation_generation: int,
         current_revision: ProjectRevision | None = None,
+        current_draft_provenance: Mapping[str, Any] | None = None,
     ) -> tuple[StudyResultReadModel, ...]:
         return tuple(
             self._to_read_model(
@@ -1374,6 +1393,7 @@ class StudyReadService:
                 current_project_id=project_id,
                 current_activation_generation=activation_generation,
                 current_revision=current_revision,
+                current_draft_provenance=current_draft_provenance,
             )
             for result in self._studies.results(
                 project_id=project_id,
@@ -2005,11 +2025,19 @@ class StudyReadService:
             raise RuntimeError("Study Result archive verification is unavailable.")
         return self._archive.verify(project_id, activation_generation=activation_generation)
 
-    def snapshot(self, *, project_id: str, activation_generation: int, current_revision: ProjectRevision | None = None) -> tuple[StudyResultReadModel, ...]:
+    def snapshot(
+        self,
+        *,
+        project_id: str,
+        activation_generation: int,
+        current_revision: ProjectRevision | None = None,
+        current_draft_provenance: Mapping[str, Any] | None = None,
+    ) -> tuple[StudyResultReadModel, ...]:
         return self.results(
             project_id=project_id,
             activation_generation=activation_generation,
             current_revision=current_revision,
+            current_draft_provenance=current_draft_provenance,
         )
 
 
