@@ -20,6 +20,7 @@ from typing import Any, Mapping, Sequence
 
 from core.analysis.dynamic_model_association import DynamicMachineModelAssociation
 from core.application.project import ProjectContext
+from core.application.configuration_review import ConfigurationReviewRecord
 from core.application.revision import ProjectRevision
 from core.application.study import StudyCaseDefinition
 from core.analysis.power_flow_configuration import PowerFlowStudyConfiguration
@@ -77,6 +78,7 @@ class LoadedProject:
     study_cases: tuple[StudyCaseDefinition, ...] = ()
     instrumentation_wiring: InstrumentationWiringInventory = InstrumentationWiringInventory()
     temperature_instruments: TemperatureInstrumentInventory = TemperatureInstrumentInventory()
+    configuration_reviews: tuple[ConfigurationReviewRecord, ...] = ()
 
 
 class ProjectPersistenceError(RuntimeError):
@@ -219,6 +221,20 @@ class ProjectPersistenceService:
         except (TypeError, ValueError, KeyError) as exc:
             raise ProjectPersistenceError(f"Invalid persisted temperature instrument inventory: {exc}") from exc
 
+        try:
+            configuration_reviews = tuple(
+                ConfigurationReviewRecord.from_dict(item)
+                for item in project.get("configuration_reviews", [])
+            )
+            if any(item.project_id != project_id for item in configuration_reviews):
+                raise ValueError("Configuration review record belongs to a different project.")
+            record_ids = [item.record_id for item in configuration_reviews]
+            element_ids = [item.element_id for item in configuration_reviews]
+            if len(record_ids) != len(set(record_ids)) or len(element_ids) != len(set(element_ids)):
+                raise ValueError("Configuration review register contains duplicate record or element identities.")
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ProjectPersistenceError(f"Invalid persisted configuration review register: {exc}") from exc
+
         context = ProjectContext(project_id=project_id, name=name, path=package)
         self._validate_project_state(
             context, network, presentation, presentation_collection,
@@ -241,6 +257,7 @@ class ProjectPersistenceService:
             study_cases=study_cases,
             instrumentation_wiring=instrumentation_wiring,
             temperature_instruments=temperature_instruments,
+            configuration_reviews=configuration_reviews,
         )
 
     def save(self, context: ProjectContext, network: Network,
@@ -257,7 +274,8 @@ class ProjectPersistenceService:
              presentation_collection: Mapping[str, Any] | None = None,
              study_cases: Sequence[StudyCaseDefinition] = (),
              instrumentation_wiring: InstrumentationWiringInventory | None = None,
-             temperature_instruments: TemperatureInstrumentInventory | None = None) -> None:
+             temperature_instruments: TemperatureInstrumentInventory | None = None,
+             configuration_reviews: Sequence[ConfigurationReviewRecord] = ()) -> None:
         if path is None:
             path = presentation
             presentation = None
@@ -279,6 +297,16 @@ class ProjectPersistenceService:
                 raise TypeError("draft_network_collection must be DraftNetworkCollection or None.")
             if draft_network_collection.project_id != context.project_id:
                 raise ProjectPersistenceError("DraftNetworkCollection project_id does not match the project.")
+        if not isinstance(configuration_reviews, Sequence) or any(
+            not isinstance(item, ConfigurationReviewRecord) for item in configuration_reviews
+        ):
+            raise TypeError("configuration_reviews must be a sequence of ConfigurationReviewRecord values.")
+        if any(item.project_id != context.project_id for item in configuration_reviews):
+            raise ProjectPersistenceError("configuration_reviews contains a record for a different project.")
+        review_record_ids = [item.record_id for item in configuration_reviews]
+        review_element_ids = [item.element_id for item in configuration_reviews]
+        if len(review_record_ids) != len(set(review_record_ids)) or len(review_element_ids) != len(set(review_element_ids)):
+            raise ProjectPersistenceError("configuration_reviews contains duplicate record or element identities.")
         if presentation is not None and not isinstance(presentation, Mapping):
             raise TypeError("presentation must be a mapping or None.")
         if presentation_collection is not None and not isinstance(presentation_collection, Mapping):
@@ -412,6 +440,7 @@ class ProjectPersistenceService:
             "study_cases": [self._serialize_study_case(item) for item in study_cases],
             "instrumentation_wiring": serialize_instrumentation_wiring(instrumentation_wiring),
             "temperature_instruments": serialize_temperature_instruments(temperature_instruments),
+            "configuration_reviews": [item.to_dict() for item in configuration_reviews],
         }
         if protection_snapshot is not None:
             project["protection"] = protection_snapshot.to_dict()
@@ -757,6 +786,7 @@ class ProjectPersistenceService:
             "schema", "project", "network", "presentations", "dynamic_models",
             "measurement", "control", "control_signal_mapping", "protection", "protection_presentation",
             "draft_network", "draft_networks", "study_cases", "instrumentation_wiring", "temperature_instruments",
+            "configuration_reviews",
         }
         unknown = sorted(set(project) - allowed)
         if unknown:
@@ -764,6 +794,17 @@ class ProjectPersistenceService:
                 "Unknown canonical project fields are rejected to prevent silent data loss: "
                 + ", ".join(str(item) for item in unknown)
             )
+        configuration_reviews = project.get("configuration_reviews")
+        if not isinstance(configuration_reviews, list) or any(not isinstance(item, Mapping) for item in configuration_reviews):
+            raise ProjectPersistenceError("Canonical configuration_reviews must be an array of objects.")
+        for index, item in enumerate(configuration_reviews):
+            try:
+                ConfigurationReviewRecord.from_dict(item)
+            except (TypeError, ValueError, KeyError) as exc:
+                raise ProjectPersistenceError(
+                    f"Invalid canonical configuration review record at index {index}: {exc}"
+                ) from exc
+
         if project.get("schema") != PROJECT_SCHEMA_VERSION:
             raise ProjectPersistenceError(
                 f"Canonical project schema must be {PROJECT_SCHEMA_VERSION}, got {project.get('schema')!r}."
