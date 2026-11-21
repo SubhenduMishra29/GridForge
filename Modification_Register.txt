@@ -5915,3 +5915,71 @@ Verification boundary:
 - Static source inspection and GitHub fetch-back only.
 - No tests, CI, imports, startup, GUI, or runtime experiments were run.
 ======================================================================
+======================================================================
+GridForge V2 — Isolated DraftNetwork candidate studies and stale-result fencing (Issue #875)
+Date: 2026-11-21
+Repository: SubhenduMishra29/GridForge
+Implementation branch: fix/draft-study-candidate-875-20261121
+Tracking: https://github.com/SubhenduMishra29/GridForge/issues/875
+
+Finding:
+- Power Flow and Short Circuit preparation consumed only the committed
+  ProjectSnapshot Network. The Application-owned DraftNetwork was excluded
+  until CommitNetworkCommand mutated the live project.
+- Draft snapshot identity/revision existed, but no isolated solver candidate,
+  typed result provenance, or atomic stale-result publication boundary existed.
+- Draft study result projection could not compare the result's draft token
+  with the active document token.
+
+Correction:
+- Added Application-owned execute_draft_study() and submit_draft_study()
+  paths for Power Flow and Short Circuit. Both use the existing StudyService,
+  solver preparation handlers, result archive, events, and read projection.
+- Added DraftStudyCandidateBuilder. It clones the detached committed Core
+  Network, clones the selected DraftNetwork with its exact snapshot token,
+  and invokes the existing CommitNetworkHandler with the canonical creation
+  contract and Application command handlers against the isolated candidate.
+  The live Core Network, live DraftNetwork, and SLD presentation are not
+  mutated or read as graphics.
+- Added explicit solver eligibility classification for supported numerical
+  elements, topology-only switching elements, and non-solver instrumentation/
+  relay elements. Unsupported element types fail closed with diagnostics;
+  no numerical defaults or substitute models are fabricated.
+- Added DraftStudyProvenance to StudyRequest and StudyExecutionContext.
+  StudyResult metadata and lifecycle events retain project, activation,
+  document, draft snapshot/revision, candidate topology revision, source
+  revision, and classified Core element identities.
+- Added a current-state validator for project activation, source revision,
+  active SLD document, and DraftNetwork version token. A publication guard
+  holds the Application execution lock through final validation, durable
+  StudyResult persistence, and live result registration.
+- Updated StudyReadService freshness projection so a draft result is current
+  only while its document/snapshot/revision token still matches. Read-side
+  project revision and draft token are captured consistently.
+- Exported the new Application study contracts and diagnostics. No project
+  persistence schema change is required; the existing result metadata archive
+  stores the provenance.
+
+Scope boundary:
+- Draft numerical execution is limited to Power Flow and Short Circuit.
+  Unsupported study types and unsupported draft element models fail closed.
+- Candidate topology is ephemeral and never committed back to the active
+  project. The ordinary CommitNetworkCommand remains the only live
+  Draft-to-Core commit boundary.
+- Issue #875 remains OPEN pending source review and user acceptance of
+  solver/runtime behavior; this PR does not claim GUI or solver execution.
+
+Reconciliation:
+- Rebased the focused three-file draft-study implementation from
+  feature/issue-875-draft-study-candidate-20261121 onto current root main
+  after PR #1241 merged. PR #1241's canonical command-field disposition
+  handoff is retained; no overlapping creation/commit files were overwritten.
+- Added the missing StudyReadService draft-token parameters and corrected
+  the stale publication race before preparing this PR.
+
+Verification boundary:
+- Static source review, package-export inspection, and Python AST parsing
+  only. No tests or CI were run, as instructed.
+- No full module imports, solver runs, GUI execution, undo/redo runtime,
+  or project save/reopen experiments are claimed.
+======================================================================
