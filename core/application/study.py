@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from contextlib import nullcontext
 from concurrent.futures import Future, ThreadPoolExecutor
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
@@ -24,28 +25,91 @@ from core.network.topology_snapshot import TopologySnapshot
 from .protection_study import ProtectionStudyConfiguration
 
 
+class StaleDraftStudyError(RuntimeError):
+    """Raised when the project or DraftNetwork changes during a draft study."""
+
+
+@dataclass(frozen=True, slots=True)
+class DraftStudyProvenance:
+    """Exact identity of one isolated candidate Network used by a numerical study."""
+
+    project_id: str
+    activation_generation: int
+    document_id: str
+    snapshot_id: str
+    draft_revision: int
+    source_revision: ProjectRevision
+    candidate_topology_revision: int
+    solver_element_ids: tuple[str, ...] = ()
+    topology_only_element_ids: tuple[str, ...] = ()
+    excluded_element_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        for name in ("project_id", "document_id", "snapshot_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string.")
+            object.__setattr__(self, name, value.strip())
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        for name in ("draft_revision", "candidate_topology_revision"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
+        for name in ("solver_element_ids", "topology_only_element_ids", "excluded_element_ids"):
+            values = tuple(str(value).strip() for value in getattr(self, name))
+            if any(not value for value in values) or len(values) != len(set(values)):
+                raise ValueError(f"{name} must contain unique non-empty Core identities.")
+            object.__setattr__(self, name, values)
+
+    def to_dict(self) -> dict[str, Any]:
+        revision = self.source_revision
+        return {
+            "project_id": self.project_id,
+            "activation_generation": self.activation_generation,
+            "document_id": self.document_id,
+            "snapshot_id": self.snapshot_id,
+            "draft_revision": self.draft_revision,
+            "source_revision": {
+                "model_revision": revision.model_revision,
+                "topology_revision": revision.topology_revision,
+                "presentation_revision": revision.presentation_revision,
+                "persisted_revision": revision.persisted_revision,
+                "instrumentation_revision": revision.instrumentation_revision,
+                "protection_equipment_revision": revision.protection_equipment_revision,
+                "protection_configuration_revision": revision.protection_configuration_revision,
+            },
+            "candidate_topology_revision": self.candidate_topology_revision,
+            "solver_element_ids": self.solver_element_ids,
+            "topology_only_element_ids": self.topology_only_element_ids,
+            "excluded_element_ids": self.excluded_element_ids,
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class StudyExecutionContext:
-    """Detached execution-time study context carrying canonical topology provenance."""
+    """Detached execution-time context for committed or isolated draft studies."""
+
     project_id: str
     activation_generation: int
     source_revision: ProjectRevision
     topology_snapshot: TopologySnapshot
     project_snapshot: Any
+    draft_provenance: DraftStudyProvenance | None = None
+    current_state_validator: Callable[[], None] | None = field(default=None, compare=False, repr=False)
+    publication_guard: Callable[[], Any] | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.source_revision, ProjectRevision): raise TypeError("source_revision must be ProjectRevision.")
-        if not isinstance(self.topology_snapshot, TopologySnapshot): raise TypeError("topology_snapshot must be TopologySnapshot.")
+        if not isinstance(self.source_revision, ProjectRevision):
+            raise TypeError("source_revision must be ProjectRevision.")
+        if not isinstance(self.topology_snapshot, TopologySnapshot):
+            raise TypeError("topology_snapshot must be TopologySnapshot.")
         if self.topology_snapshot.project_id != self.project_id or self.topology_snapshot.activation_generation != self.activation_generation:
             raise ValueError("TopologySnapshot provenance does not match study execution context.")
-        if self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
-            raise ValueError("TopologySnapshot revision does not match source revision.")
         if self.project_snapshot is None:
             raise ValueError("project_snapshot is required.")
-        # Both detached inputs must describe the same activated project state.
-        # Matching only the topology snapshot is insufficient: a project/network
-        # snapshot from another activation or model revision could otherwise be
-        # paired with this request and yield a numerically valid but mis-scoped result.
         if getattr(self.project_snapshot, "project_id", None) != self.project_id:
             raise ValueError("ProjectSnapshot project identity does not match study execution context.")
         if getattr(self.project_snapshot, "activation_generation", None) != self.activation_generation:
@@ -55,6 +119,38 @@ class StudyExecutionContext:
             raise TypeError("ProjectSnapshot revision must be ProjectRevision.")
         if snapshot_revision != self.source_revision:
             raise ValueError("ProjectSnapshot revision does not match study execution context source revision.")
+        network_state = getattr(getattr(self.project_snapshot, "network", None), "state", None)
+        network_topology_revision = getattr(network_state, "topology_revision", None)
+        if self.draft_provenance is None:
+            if self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
+                raise ValueError("TopologySnapshot revision does not match committed source revision.")
+            if self.current_state_validator is not None or self.publication_guard is not None:
+                raise ValueError("A committed study cannot carry draft freshness or publication guards.")
+            expected_network_revision = self.source_revision.topology_revision
+        else:
+            provenance = self.draft_provenance
+            if not isinstance(provenance, DraftStudyProvenance):
+                raise TypeError("draft_provenance must be DraftStudyProvenance or None.")
+            if (
+                provenance.project_id != self.project_id
+                or provenance.activation_generation != self.activation_generation
+                or provenance.source_revision != self.source_revision
+                or provenance.candidate_topology_revision != self.topology_snapshot.topology_revision
+            ):
+                raise ValueError("DraftStudyProvenance does not match the candidate study context.")
+            if not callable(self.current_state_validator):
+                raise TypeError("Draft studies require a current-state validator.")
+            if not callable(self.publication_guard):
+                raise TypeError("Draft studies require an atomic publication guard.")
+            expected_network_revision = provenance.candidate_topology_revision
+        if network_topology_revision != expected_network_revision:
+            raise ValueError("Detached Network topology revision does not match the study TopologySnapshot.")
+
+    def assert_current(self) -> None:
+        """Reject a queued or completed draft result if its captured inputs changed."""
+        if self.current_state_validator is not None:
+            self.current_state_validator()
+
 
 @dataclass(frozen=True, slots=True)
 class StudyRequest:
@@ -66,6 +162,7 @@ class StudyRequest:
     source_revision: ProjectRevision | None = None
     study_type: str = ""
     configuration: Mapping[str, Any] = field(default_factory=dict)
+    draft_provenance: DraftStudyProvenance | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
@@ -83,6 +180,15 @@ class StudyRequest:
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
         object.__setattr__(self, "configuration", _freeze_study_value(self.configuration))
+        if self.draft_provenance is not None:
+            if not isinstance(self.draft_provenance, DraftStudyProvenance):
+                raise TypeError("draft_provenance must be DraftStudyProvenance or None.")
+            if (
+                self.draft_provenance.project_id != self.project_id
+                or self.draft_provenance.activation_generation != self.activation_generation
+                or self.draft_provenance.source_revision != self.source_revision
+            ):
+                raise ValueError("DraftStudyProvenance does not match StudyRequest project, activation, or source revision.")
 
 
 def _freeze_study_value(value: Any) -> Any:
@@ -254,6 +360,11 @@ class StudyService:
             return tuple(self._handlers)
 
     @staticmethod
+    def _draft_metadata(request: StudyRequest) -> dict[str, Any]:
+        provenance = request.draft_provenance
+        return {} if provenance is None else {"draft_provenance": provenance.to_dict()}
+
+    @staticmethod
     def _event_metadata(request: StudyRequest, *, status: str | None = None, error: str | None = None) -> dict[str, Any]:
         metadata: dict[str, Any] = {
             "study_id": str(request.study_id),
@@ -265,6 +376,7 @@ class StudyService:
             "presentation_revision": request.source_revision.presentation_revision,
             "persisted_revision": request.source_revision.persisted_revision,
         }
+        metadata.update(StudyService._draft_metadata(request))
         if status is not None:
             metadata["status"] = status
         if error is not None:
@@ -323,7 +435,8 @@ class StudyService:
             raise TypeError("submit requires a StudyRequest and StudyExecutionContext.")
         if (execution_context.project_id != request.project_id
                 or execution_context.activation_generation != request.activation_generation
-                or execution_context.source_revision != request.source_revision):
+                or execution_context.source_revision != request.source_revision
+                or execution_context.draft_provenance != request.draft_provenance):
             raise ValueError("Study execution context does not match StudyRequest provenance.")
         key = (request.project_id, request.activation_generation, request.study_id)
         token = StudyCancellationToken()
@@ -356,6 +469,8 @@ class StudyService:
             raise ValueError("Study execution context does not match StudyRequest scope.")
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
+        if execution_context.draft_provenance != request.draft_provenance:
+            raise ValueError("Study execution context draft provenance does not match StudyRequest.")
         key = (request.project_id, request.activation_generation, request.study_id)
 
         def partial_provenance(partial: object | None) -> Mapping[str, Any]:
@@ -389,7 +504,9 @@ class StudyService:
         terminal_result_committed = False
         try:
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
+            execution_context.assert_current()
             value = None if token.cancelled else handler(request, execution_context, token)
+            execution_context.assert_current()
             with self._lock:
                 cancelled = token.finish()
             retained_value = (
@@ -411,6 +528,7 @@ class StudyService:
                 message="Study cancelled; partial execution evidence retained." if cancelled and retained_value is not None else ("Study cancelled." if cancelled else ""),
                 metadata=(
                     {
+                        **self._draft_metadata(request),
                         "partial_result_available": retained_value is not None,
                         "execution_status": str(partial_provenance(retained_value).get("execution_status", "cancelled")),
                         "trajectory_status": str(partial_provenance(retained_value).get("trajectory_status", "interrupted")),
@@ -428,66 +546,74 @@ class StudyService:
                         ),
                         "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
                     }
-                    if cancelled else {}
+                    if cancelled else self._draft_metadata(request)
                 ),
             )
-            try:
-                self._persist_result(result)
-            except Exception as persistence_exc:
-                if getattr(persistence_exc, "record_committed", False) is True:
-                    # The archive entry is already atomically visible. Do not
-                    # rewrite a completed electrical result as a solver failure
-                    # merely because the directory fsync could not be confirmed.
-                    metadata = dict(result.metadata)
-                    metadata["archive_durability"] = "uncertain"
-                    metadata["archive_record_id"] = str(getattr(persistence_exc, "record_id", ""))
-                    metadata["archive_warning"] = str(persistence_exc)
-                    result = StudyResult(
-                        study_id=result.study_id,
-                        project_id=result.project_id,
-                        activation_generation=result.activation_generation,
-                        source_revision=result.source_revision,
-                        study_type=result.study_type,
-                        status=result.status,
-                        value=result.value,
-                        message=result.message,
-                        metadata=metadata,
+            publication_scope = (
+                execution_context.publication_guard()
+                if execution_context.publication_guard is not None
+                else nullcontext()
+            )
+            with publication_scope:
+                execution_context.assert_current()
+                try:
+                    self._persist_result(result)
+                except Exception as persistence_exc:
+                    if getattr(persistence_exc, "record_committed", False) is True:
+                        # The archive entry is already atomically visible. Do not
+                        # rewrite a completed electrical result as a solver failure
+                        # merely because the directory fsync could not be confirmed.
+                        metadata = dict(result.metadata)
+                        metadata["archive_durability"] = "uncertain"
+                        metadata["archive_record_id"] = str(getattr(persistence_exc, "record_id", ""))
+                        metadata["archive_warning"] = str(persistence_exc)
+                        result = StudyResult(
+                            study_id=result.study_id,
+                            project_id=result.project_id,
+                            activation_generation=result.activation_generation,
+                            source_revision=result.source_revision,
+                            study_type=result.study_type,
+                            status=result.status,
+                            value=result.value,
+                            message=result.message,
+                            metadata=metadata,
+                        )
+                        with self._lock:
+                            self._results[key] = result
+                        terminal_result_committed = True
+                        self._event_bus.publish(
+                            StudyCompleted(metadata={
+                                **self._event_metadata(request, status="completed"),
+                                "archive_durability": "uncertain",
+                                "archive_record_id": str(getattr(persistence_exc, "record_id", "")),
+                                "archive_warning": str(persistence_exc),
+                            })
+                        )
+                        return result
+                    failure = StudyResult(
+                        study_id=request.study_id,
+                        project_id=request.project_id,
+                        activation_generation=request.activation_generation,
+                        source_revision=request.source_revision,
+                        study_type=request.study_type,
+                        status="failed",
+                        message=f"Durable Study Result persistence failed: {type(persistence_exc).__name__}: {persistence_exc}",
+                        metadata=self._draft_metadata(request),
                     )
                     with self._lock:
-                        self._results[key] = result
-                    terminal_result_committed = True
+                        self._results[key] = failure
                     self._event_bus.publish(
-                        StudyCompleted(metadata={
-                            **self._event_metadata(request, status="completed"),
-                            "archive_durability": "uncertain",
-                            "archive_record_id": str(getattr(persistence_exc, "record_id", "")),
-                            "archive_warning": str(persistence_exc),
-                        })
+                        StudyFailed(metadata=self._event_metadata(request, status="failed", error=failure.message))
                     )
-                    return result
-                failure = StudyResult(
-                    study_id=request.study_id,
-                    project_id=request.project_id,
-                    activation_generation=request.activation_generation,
-                    source_revision=request.source_revision,
-                    study_type=request.study_type,
-                    status="failed",
-                    message=f"Durable Study Result persistence failed: {type(persistence_exc).__name__}: {persistence_exc}",
-                )
+                    raise StudyResultPersistenceError(failure.message) from persistence_exc
                 with self._lock:
-                    self._results[key] = failure
-                self._event_bus.publish(
-                    StudyFailed(metadata=self._event_metadata(request, status="failed", error=failure.message))
-                )
-                raise StudyResultPersistenceError(failure.message) from persistence_exc
-            with self._lock:
-                self._results[key] = result
-            terminal_result_committed = True
-            if cancelled:
-                self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
-            else:
-                self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
-            return result
+                    self._results[key] = result
+                terminal_result_committed = True
+                if cancelled:
+                    self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
+                else:
+                    self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
+                return result
         except StudyResultPersistenceError:
             raise
         except Exception as exc:
@@ -515,6 +641,8 @@ class StudyService:
                     else ("Study cancelled." if cancelled else str(exc))
                 ),
                 metadata={
+                    **self._draft_metadata(request),
+                    "stale_draft_snapshot": isinstance(exc, StaleDraftStudyError),
                     "partial_result_available": getattr(exc, "partial_result", None) is not None,
                     "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
                     "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
@@ -616,6 +744,8 @@ class StudyService:
 
 
 __all__ = [
+    "StaleDraftStudyError",
+    "DraftStudyProvenance",
     "StudyExecutionContext",
     "StudyRequest",
     "StudyCaseDefinition",
