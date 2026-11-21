@@ -3041,7 +3041,11 @@ class Application:
                 if context is not None and loaded is not None
                 else ()
             )
-            if any(record.project_id != context.project_id for record in candidate_records) if context is not None else bool(candidate_records):
+            if context is None and candidate_records:
+                raise ValueError("An empty project activation cannot carry configuration review records.")
+            if context is not None and any(
+                record.project_id != context.project_id for record in candidate_records
+            ):
                 raise ValueError("Configuration review register does not belong to the candidate project.")
             candidate = {record.element_id: record for record in candidate_records}
             if len(candidate) != len(candidate_records):
@@ -4083,8 +4087,6 @@ class Application:
             if command.command_type == "network.commit_draft":
                 lifecycle = self._project_lifecycle
                 project_context = lifecycle.context if lifecycle is not None else None
-                if project_context is None:
-                    raise RuntimeError("Configuration review creation requires an active project.")
                 review_kinds = {
                     "later_configuration",
                     "operating_point",
@@ -4123,6 +4125,8 @@ class Application:
                         )
                     )
                 if new_records:
+                    if project_context is None:
+                        raise RuntimeError("Configuration review creation requires an active project.")
                     previous_reviews = dict(self._configuration_reviews)
                     for record in new_records:
                         if record.element_id in self._configuration_reviews:
