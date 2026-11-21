@@ -5865,3 +5865,61 @@ Verification boundary:
 - Issue #994 remains open; this contribution does not claim full configuration
   review lifecycle completion.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Application-owned configuration review register persistence (Issue #32)
+Date: 2026-11-21
+Repository: SubhenduMishra29/GridForge
+Implementation branch: contribute/issue-32-review-register-schema10-root-main
+Tracking: SubhenduMishra29/GridForge#994; madhuri196mishra-cpu/GridForge#32
+
+Finding:
+- The current schema-9 project package has no durable representation for
+  post-commit engineering configuration-review obligations.
+- Without an Application-owned register, canonical field dispositions cannot
+  survive project save/load or project activation.
+
+Correction:
+- Added immutable ConfigurationReviewRecord in the Application layer.
+  It preserves project/element identity, canonical per-field dispositions,
+  pending/resolved/not_applicable status, and optional all-or-none completion
+  command provenance.
+- Advanced project schema 9 to schema 10.
+- Added a deterministic 9-to-10 migration that initializes an empty
+  configuration_reviews array. Historical projects are not assigned inferred
+  obligations from Core values or SLD labels.
+- LoadedProject now carries validated configuration review records.
+- ProjectPersistenceService validates project ownership and unique record/
+  element identities, serializes the register, and restores it on load.
+- Application owns the active in-memory register. Project activation stages
+  the candidate register and restores the previous register on rollback.
+- Draft commit pre-commit coordination records only review-relevant
+  dispositions supplied in committed result metadata. Records participate
+  in the existing command transaction undo path.
+- The composition root passes the Application register to project persistence.
+
+Architecture and scope:
+- The register is Application-owned; Core equipment models and command
+  payloads remain unchanged.
+- No parallel service, registry, or UI authority was introduced.
+- Record creation consumes trusted committed result metadata. The upstream
+  handoff that supplies that metadata is tracked separately in PR #1241.
+- This slice does not yet add committed read-model projection, deletion
+  reconciliation, workflow-specific completion coordinators, or study-
+  applicability enforcement. Issue #994 / implementation issue #32 remains
+  OPEN.
+
+Reconciliation:
+- Branch was created from authoritative root main at
+  f833648c29a007c7c4785e1a4e3da881ba4bba21.
+- Current root main was fetched before editing; no fork-only project schema
+  migration was copied.
+- Schema 10 was selected as the next available project schema after root
+  schema 9.
+
+Verification boundary:
+- Static source inspection and GitHub fetch-back only.
+- No tests, CI, Python syntax/import checks, startup, GUI, or runtime
+  persistence/activation/undo experiments were run.
+======================================================================
