@@ -5105,10 +5105,14 @@ class Application:
     def execute(self, command: Command) -> ApplicationResult:
         if not isinstance(command, Command):
             raise TypeError("Application.execute requires a Command.")
+        # Check the commit gate before waiting for the execution lock. The
+        # worker intentionally holds that lock for the full Core transaction;
+        # without this preflight, UI-originated commands would block behind it
+        # and only discover the in-flight commit after the worker had finished.
+        self._reject_during_async_commit()
         with self._execution_lock:
-            # The in-flight check must be atomic with acquiring the execution
-            # boundary; checking before this lock permits a waiter to slip
-            # through after an asynchronous commit marks itself in flight.
+            # Recheck under the execution boundary to close the race with a
+            # commit that became active after the preflight check.
             self._reject_during_async_commit()
             result = self._command_manager.execute(command)
             if result.success:
@@ -5223,6 +5227,9 @@ class Application:
             )
 
     def undo(self) -> ApplicationResult | None:
+        # Fail fast while an asynchronous DraftNetwork commit owns the
+        # execution lock; retain the in-lock check for race-safe serialization.
+        self._reject_during_async_commit()
         with self._execution_lock:
             self._reject_during_async_commit()
             records = self._command_manager.undo_commands()
@@ -5260,6 +5267,9 @@ class Application:
 
 
     def redo(self) -> ApplicationResult | None:
+        # Fail fast while an asynchronous DraftNetwork commit owns the
+        # execution lock; retain the in-lock check for race-safe serialization.
+        self._reject_during_async_commit()
         with self._execution_lock:
             self._reject_during_async_commit()
             records = self._command_manager.redo_commands()
