@@ -365,7 +365,7 @@ class DraftStudyCandidateBuilder:
         core_ids_by_draft = {
             str(item.get("draft_id")): str(item.get("core_id"))
             for item in created
-            if isinstance(item, dict) and item.get("draft_id") and item.get("core_id")
+            if isinstance(item, Mapping) and item.get("draft_id") and item.get("core_id")
         }
         expected_draft_ids = {item.draft_id for item in draft_network.equipment}
         if (
