@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from .application import Application
+from .configuration_review import ConfigurationReviewRecord
 from .bootstrap import create_application, recover_application
 from .dynamic_control_cycle import DynamicControlCycleResult, DynamicControlCycleService
 from .control_cycle import ControlCycleResult, ControlCycleService, ControlDiagnostic
@@ -98,6 +99,7 @@ from .services.temperature_instrument_service import (
 
 __all__ = [
     "Application",
+    "ConfigurationReviewRecord",
     "create_application",
     "recover_application",
     "ControlDiagnostic",
