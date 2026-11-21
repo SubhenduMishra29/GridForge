@@ -3598,6 +3598,7 @@ class Application:
             solver_element_ids=candidate.solver_element_ids,
             topology_only_element_ids=candidate.topology_only_element_ids,
             excluded_element_ids=candidate.excluded_element_ids,
+            draft_to_core_ids=tuple(sorted(candidate.draft_to_core_ids.items())),
         )
         candidate_snapshot = ProjectSnapshot(
             project_id=base_snapshot.project_id,
@@ -3656,7 +3657,15 @@ class Application:
                 validate_current_locked()
                 yield
 
-        draft_request = replace(request, draft_provenance=provenance)
+        request_configuration = dict(request.configuration)
+        request_configuration["configuration"] = candidate.remap_configuration(
+            request_configuration.get("configuration")
+        )
+        draft_request = replace(
+            request,
+            configuration=request_configuration,
+            draft_provenance=provenance,
+        )
         execution_context = StudyExecutionContext(
             project_id=request.project_id,
             activation_generation=request.activation_generation,
