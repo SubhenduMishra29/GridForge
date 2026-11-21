@@ -5915,3 +5915,57 @@ Verification boundary:
 - Static source inspection and GitHub fetch-back only.
 - No tests, CI, imports, startup, GUI, or runtime experiments were run.
 ======================================================================
+
+======================================================================
+GridForge V2 — Application-owned configuration review register persistence (Issue #32)
+Date: 2026-11-21
+Repository: SubhenduMishra29/GridForge
+Implementation branch: reconcile/issue-994-configuration-review-schema10
+Tracking: SubhenduMishra29/GridForge#994; madhuri196mishra-cpu/GridForge#32
+
+Finding:
+- The schema-9 project package had no durable representation for post-commit
+  engineering configuration-review obligations.
+- The trusted canonical command-field disposition handoff is now present on
+  authoritative main through PR #1241 (merge commit bdd91a985912).
+
+Correction:
+- Added immutable Application-owned ConfigurationReviewRecord values with
+  project/element identity, canonical per-field dispositions, lifecycle
+  status, and optional all-or-none completion-command provenance.
+- Advanced project schema 9 to 10 with deterministic migration that creates
+  an empty configuration_reviews array for historical projects; no obligations
+  are inferred from Core values or SLD labels.
+- LoadedProject and ProjectPersistenceService validate project ownership and
+  unique record/element identities, serialize the register, and restore it
+  on load.
+- Application owns the active register, stages it during project activation,
+  restores the prior register on activation rollback, and records review
+  obligations from trusted created_elements metadata within the commit
+  transaction/undo journal.
+- The composition root passes the Application-owned register through the
+  existing project save path.
+- Exported ConfigurationReviewRecord from core.application.
+
+Architecture and scope:
+- Configuration-review lifecycle state remains Application-owned; no Core
+  equipment model or UI-owned authority was introduced.
+- Draft-authored dispositions are not trusted; the record creation path
+  consumes the canonical disposition snapshot carried by PR #1241.
+- Committed read-model projection, deletion reconciliation, workflow-specific
+  completion coordinators, and study-specific applicability enforcement are
+  not included. Issue #994 remains OPEN.
+
+Reconciliation:
+- Fresh branch created from authoritative main at
+  bdd91a985912b2ee77d94f3aed83d4b6dbb7d978.
+- The seven-file schema-10 implementation was re-applied from the contribution
+  branch onto current main; the shared append-only register was reconciled
+  rather than replacing the newer #1241 entry.
+- No unrelated UI, Core, or test files were changed.
+
+Verification boundary:
+- Source fetch-back and static ownership/persistence review only.
+- No tests, CI, Python syntax/import checks, startup, GUI, or runtime
+  persistence/activation/undo experiments were run.
+======================================================================

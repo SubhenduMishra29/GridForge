@@ -401,6 +401,22 @@ class _ProjectSchema8To9(ProjectMigration):
         result["schema"] = self.target_schema
         return result
 
+class _ProjectSchema9To10(ProjectMigration):
+    source_schema = 9
+    target_schema = 10
+
+    def migrate(self, data: Mapping[str, Any]) -> Mapping[str, Any]:
+        result = deepcopy(dict(data))
+        if result.get("schema") != self.source_schema:
+            raise ProjectMigrationError("Project schema 9-to-10 received a non-schema-9 payload.")
+        # Historical projects have no configuration-review lifecycle register.
+        # Preserve that absence as an empty Application-owned register; never
+        # infer review obligations from Core equipment values or SLD labels.
+        result.setdefault("configuration_reviews", [])
+        result["schema"] = self.target_schema
+        return result
+
+
 class SLDMigrationError(ProjectMigrationError):
     """Raised when an historical SLD representation cannot be migrated."""
 
@@ -828,6 +844,7 @@ class ProjectPersistenceMigration:
         6: _ProjectSchema6To7(),
         7: _ProjectSchema7To8(),
         8: _ProjectSchema8To9(),
+        9: _ProjectSchema9To10(),
     }
     _sld_steps: dict[int, SLDMigration] = {1: _SLDSchema1To2(), 2: _SLDSchema2To3(), 3: _SLDSchema3To4()}
 

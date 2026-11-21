@@ -24,6 +24,7 @@ from core.network import TopologyEndpointReference
 from core.network.topology_snapshot import TopologySnapshot
 
 from .command import Command
+from .configuration_review import ConfigurationReviewRecord
 from .creation import CreationCommitIntent, CreationCommandPreparer, CreationContractRegistry
 from .engineering_configuration import EngineeringUpdatePreparer
 from .command_manager import CommandManager
@@ -202,6 +203,7 @@ class Application:
         # installed by another owner under a command type we originally owned.
         self._extension_handler_handlers: dict[str, dict[str, Any]] = {}
         self._revision_service = RevisionService()
+        self._configuration_reviews: dict[str, ConfigurationReviewRecord] = {}
         self._study_service = StudyService(self._event_bus)
         self._study_service.register("protection", ProtectionStudyHandler(self))
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
@@ -849,6 +851,15 @@ class Application:
     def _has_persistent_workspace_changes(self) -> bool:
         provider = self._workspace_dirty_provider
         return bool(provider is not None and provider())
+
+    @property
+    def configuration_reviews(self) -> tuple[ConfigurationReviewRecord, ...]:
+        """Return the active project's immutable configuration-review register."""
+        with self._execution_lock:
+            return tuple(
+                self._configuration_reviews[key]
+                for key in sorted(self._configuration_reviews)
+            )
 
     @property
     def revision(self) -> ProjectRevision: return self._revision_service.revision
@@ -3022,6 +3033,32 @@ class Application:
         if not isinstance(service, ProjectLifecycleService): raise TypeError("service must be a ProjectLifecycleService.")
         if self._project_lifecycle is not None and self._project_lifecycle is not service: raise RuntimeError("Application project lifecycle is already configured.")
         self._project_lifecycle = service
+
+        def activate_configuration_reviews(context: ProjectContext | None, loaded: Any, network: Any, generation: int):
+            previous = self._configuration_reviews
+            candidate_records = (
+                tuple(loaded.configuration_reviews)
+                if context is not None and loaded is not None
+                else ()
+            )
+            if context is None and candidate_records:
+                raise ValueError("An empty project activation cannot carry configuration review records.")
+            if context is not None and any(
+                record.project_id != context.project_id for record in candidate_records
+            ):
+                raise ValueError("Configuration review register does not belong to the candidate project.")
+            candidate = {record.element_id: record for record in candidate_records}
+            if len(candidate) != len(candidate_records):
+                raise ValueError("Configuration review register contains duplicate element identities.")
+            self._configuration_reviews = candidate
+
+            def rollback() -> None:
+                self._configuration_reviews = previous
+
+            return rollback
+
+        service.compose_project_state_activator(activate_configuration_reviews)
+
         if self._measurement_lifecycle_service is not service and self._measurement_channel_service is not None:
             measurement_service = self._measurement_channel_service
 
@@ -4047,6 +4084,60 @@ class Application:
                 )
             else:
                 self._revision_service.record_command_success(command, topology_revision=topology_revision)
+            if command.command_type == "network.commit_draft":
+                lifecycle = self._project_lifecycle
+                project_context = lifecycle.context if lifecycle is not None else None
+                review_kinds = {
+                    "later_configuration",
+                    "operating_point",
+                    "lifecycle_state",
+                    "operational_state",
+                    "measurement_association",
+                    "provisional_default",
+                }
+                new_records = []
+                for item in result.metadata.get("created_elements", ()):
+                    if not isinstance(item, Mapping):
+                        continue
+                    dispositions = item.get("command_field_dispositions")
+                    if not isinstance(dispositions, Mapping):
+                        continue
+                    pending = {
+                        str(field_name): dict(disposition)
+                        for field_name, disposition in dispositions.items()
+                        if isinstance(field_name, str)
+                        and isinstance(disposition, Mapping)
+                        and disposition.get("kind") in review_kinds
+                    }
+                    if not pending:
+                        continue
+                    if project_context is None:
+                        raise RuntimeError("Configuration review creation requires an active project.")
+                    element_id = str(item.get("core_id", "")).strip()
+                    element_type = str(item.get("element_type", "")).strip().lower()
+                    if not element_id or not element_type:
+                        raise ValueError("Committed configuration review metadata requires Core element identity and type.")
+                    new_records.append(
+                        ConfigurationReviewRecord(
+                            record_id=f"{project_context.project_id}:{element_id}",
+                            project_id=project_context.project_id,
+                            element_id=element_id,
+                            element_type=element_type,
+                            field_dispositions=pending,
+                        )
+                    )
+                if new_records:
+                    previous_reviews = dict(self._configuration_reviews)
+                    for record in new_records:
+                        if record.element_id in self._configuration_reviews:
+                            raise ValueError(
+                                f"Configuration review record already exists for element {record.element_id!r}."
+                            )
+                    transaction.record_undo(
+                        lambda previous=previous_reviews: setattr(self, "_configuration_reviews", previous)
+                    )
+                    for record in new_records:
+                        self._configuration_reviews[record.element_id] = record
         # Revision snapshots are transaction-local bookkeeping. Restore the
         # exact snapshot only when pre-commit rollback succeeds; committed user
         # undo must retain the revision transition so Application.undo() can
