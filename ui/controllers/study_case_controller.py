@@ -61,6 +61,37 @@ class StudyCaseController:
                 self._active_scopes.pop(study_id, None)
             return self._handle_error(exc)
 
+    def run_draft_study(self, study_id: UUID) -> object | None:
+        """Run Power Flow/Short-Circuit on the active SLD document's detached draft snapshot."""
+        if not isinstance(study_id, UUID):
+            try:
+                study_id = UUID(str(study_id))
+            except (TypeError, ValueError) as exc:
+                return self._handle_error(ValueError("Selected Study Case identity is invalid."), cause=exc)
+        try:
+            case = self._application.study_case(study_id)
+            if case.study_type not in {"power_flow", "short_circuit"}:
+                raise ValueError("Draft studies support Power Flow and Short-Circuit only.")
+            submit = getattr(self._application, "submit_draft_study_case", None)
+            if not callable(submit):
+                raise RuntimeError("Application draft-study execution is not configured.")
+            scope = (case.project_id, case.activation_generation)
+            with self._scope_lock:
+                self._active_scopes[study_id] = scope
+            future = submit(study_id)
+
+            def _release_scope(_completed: object) -> None:
+                with self._scope_lock:
+                    if self._active_scopes.get(study_id) == scope:
+                        self._active_scopes.pop(study_id, None)
+
+            future.add_done_callback(_release_scope)
+            return future
+        except Exception as exc:
+            with self._scope_lock:
+                self._active_scopes.pop(study_id, None)
+            return self._handle_error(exc)
+
     def cancel_study(self, study_id: UUID) -> bool:
         """Cancel using the exact project activation captured at submission."""
         with self._scope_lock:
