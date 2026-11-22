@@ -408,6 +408,8 @@ class StudyService:
                 or execution_context.draft_snapshot_id != request.draft_snapshot_id
                 or execution_context.draft_revision != request.draft_revision):
             raise ValueError("Study execution context does not match StudyRequest provenance.")
+        if request.draft_snapshot_id is not None and self._result_scope_validator is None:
+            raise RuntimeError("Draft study execution requires a configured result freshness validator.")
         key = (request.project_id, request.activation_generation, request.study_id)
         token = StudyCancellationToken()
         with self._lock:
@@ -445,6 +447,8 @@ class StudyService:
             or execution_context.draft_revision != request.draft_revision
         ):
             raise ValueError("Study execution context does not match StudyRequest draft provenance.")
+        if request.draft_snapshot_id is not None and self._result_scope_validator is None:
+            raise RuntimeError("Draft study execution requires a configured result freshness validator.")
         key = (request.project_id, request.activation_generation, request.study_id)
 
         def partial_provenance(partial: object | None) -> Mapping[str, Any]:
