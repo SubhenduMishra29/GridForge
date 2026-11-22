@@ -28,10 +28,55 @@ from .study import StudyExecutionContext
 class StudyPreparationService:
     """Prepare detached Core study snapshots without exposing live Core objects to handlers."""
 
+    _DRAFT_TOPOLOGY_ONLY_TYPES = frozenset({"breaker", "switch", "disconnector", "fuse"})
+    _DRAFT_POWER_FLOW_TYPES = _DRAFT_TOPOLOGY_ONLY_TYPES | frozenset({
+        "bus", "grid", "generator", "synchronous_machine", "load", "motor",
+        "solar", "battery", "line", "cable", "transformer", "shunt",
+        "capacitor", "reactor",
+    })
+    _DRAFT_SHORT_CIRCUIT_TYPES = _DRAFT_TOPOLOGY_ONLY_TYPES | frozenset({
+        "bus", "grid", "generator", "synchronous_machine", "motor",
+        "line", "cable", "transformer",
+    })
+
     def __init__(self, execution_context: StudyExecutionContext) -> None:
         if not isinstance(execution_context, StudyExecutionContext):
             raise TypeError("execution_context must be StudyExecutionContext.")
         self._execution_context = execution_context
+
+    def _validate_draft_solver_eligibility(self, study_type: str) -> None:
+        if self._execution_context.draft_snapshot_id is None:
+            return
+        supported = (
+            self._DRAFT_POWER_FLOW_TYPES
+            if study_type == "power_flow"
+            else self._DRAFT_SHORT_CIRCUIT_TYPES
+        )
+        unsupported = tuple(
+            (equipment_type, draft_id)
+            for equipment_type, draft_id in self._execution_context.draft_equipment
+            if equipment_type not in supported
+        )
+        if unsupported:
+            details = ", ".join(
+                f"{equipment_type}:{draft_id}" for equipment_type, draft_id in unsupported
+            )
+            raise ValueError(
+                f"Draft {study_type.replace('_', ' ')} has no supported numerical model for: {details}."
+            )
+
+    def _draft_preparation_error(self, study_type: str, exc: Exception) -> ValueError:
+        context = self._execution_context
+        equipment = ", ".join(
+            f"{equipment_type}:{draft_id}"
+            for equipment_type, draft_id in context.draft_equipment
+        ) or "none"
+        return ValueError(
+            f"Draft {study_type.replace('_', ' ')} preparation rejected the isolated candidate "
+            f"(document={context.draft_document_id}, snapshot={context.draft_snapshot_id}, "
+            f"revision={context.draft_revision}; draft equipment={equipment}): "
+            f"{type(exc).__name__}: {exc}"
+        )
 
     @property
     def snapshot(self) -> ProjectSnapshot:
@@ -44,11 +89,17 @@ class StudyPreparationService:
     def prepare_power_flow(self, configuration: PowerFlowStudyConfiguration) -> PreparedPowerFlow:
         if not isinstance(configuration, PowerFlowStudyConfiguration):
             raise TypeError("configuration must be PowerFlowStudyConfiguration.")
-        prepared = PowerFlowPreparation.prepare(
-            self._execution_context.project_snapshot.network,
-            configuration,
-            topology_snapshot=self.topology,
-        )
+        try:
+            self._validate_draft_solver_eligibility("power_flow")
+            prepared = PowerFlowPreparation.prepare(
+                self._execution_context.project_snapshot.network,
+                configuration,
+                topology_snapshot=self.topology,
+            )
+        except Exception as exc:
+            if self._execution_context.draft_snapshot_id is None:
+                raise
+            raise self._draft_preparation_error("power_flow", exc) from exc
         revision = self._execution_context.source_revision
         return replace(
             prepared,
@@ -63,20 +114,26 @@ class StudyPreparationService:
     def prepare_short_circuit(self, configuration: ShortCircuitStudyConfiguration) -> ShortCircuitInput:
         if not isinstance(configuration, ShortCircuitStudyConfiguration):
             raise TypeError("configuration must be ShortCircuitStudyConfiguration.")
-        preparation = ShortCircuitPreparation(
-            self._execution_context.project_snapshot.network,
-            base_mva=(configuration.base_mva if configuration.base_mva is not None else configuration.metadata.get("base_mva")),
-        )
-        return preparation.prepare(
-            configuration.fault_type,
-            configuration.fault_bus_id,
-            configuration.fault_impedance,
-            elements=configuration.element_ids or None,
-            topology_snapshot=self.topology,
-            phase_domain_case=configuration.phase_domain_case,
-            phase_domain_sources=configuration.phase_domain_sources or None,
-            phase_domain_faults=configuration.phase_domain_faults or None,
-        )
+        try:
+            self._validate_draft_solver_eligibility("short_circuit")
+            preparation = ShortCircuitPreparation(
+                self._execution_context.project_snapshot.network,
+                base_mva=(configuration.base_mva if configuration.base_mva is not None else configuration.metadata.get("base_mva")),
+            )
+            return preparation.prepare(
+                configuration.fault_type,
+                configuration.fault_bus_id,
+                configuration.fault_impedance,
+                elements=configuration.element_ids or None,
+                topology_snapshot=self.topology,
+                phase_domain_case=configuration.phase_domain_case,
+                phase_domain_sources=configuration.phase_domain_sources or None,
+                phase_domain_faults=configuration.phase_domain_faults or None,
+            )
+        except Exception as exc:
+            if self._execution_context.draft_snapshot_id is None:
+                raise
+            raise self._draft_preparation_error("short_circuit", exc) from exc
 
     def prepare_transient_stability(
         self,
