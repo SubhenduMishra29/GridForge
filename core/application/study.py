@@ -35,6 +35,7 @@ class StudyExecutionContext:
     draft_document_id: str | None = None
     draft_snapshot_id: str | None = None
     draft_revision: int | None = None
+    draft_equipment: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_revision, ProjectRevision): raise TypeError("source_revision must be ProjectRevision.")
@@ -60,6 +61,21 @@ class StudyExecutionContext:
                 raise ValueError("Draft TopologySnapshot revision does not match its isolated candidate Network.")
         elif self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
             raise ValueError("TopologySnapshot revision does not match source revision.")
+        normalized_equipment: list[tuple[str, str]] = []
+        seen_draft_ids: set[str] = set()
+        for item in self.draft_equipment:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise TypeError("draft_equipment entries must be (equipment_type, draft_id) tuples.")
+            equipment_type, draft_id = (str(value).strip().lower() for value in item)
+            if not equipment_type or not draft_id:
+                raise ValueError("draft_equipment entries require non-empty equipment types and draft identities.")
+            if draft_id in seen_draft_ids:
+                raise ValueError(f"Duplicate draft equipment identity {draft_id!r}.")
+            seen_draft_ids.add(draft_id)
+            normalized_equipment.append((equipment_type, draft_id))
+        if not any(value is not None for value in draft_scope) and normalized_equipment:
+            raise ValueError("draft_equipment is valid only for a draft-scoped study context.")
+        object.__setattr__(self, "draft_equipment", tuple(normalized_equipment))
         # Both detached inputs must describe the same activated project state.
         # Matching only the topology snapshot is insufficient: a project/network
         # snapshot from another activation or model revision could otherwise be
@@ -481,6 +497,10 @@ class StudyService:
 
         terminal_result_committed = False
         try:
+            if request.draft_snapshot_id is not None and not self._draft_scope_is_current(request, execution_context):
+                raise ValueError(
+                    "DraftNetwork changed while the study was queued; refresh the active SLD draft and retry."
+                )
             self._event_bus.publish(StudyStarted(metadata=self._event_metadata(request, status="started")))
             value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
