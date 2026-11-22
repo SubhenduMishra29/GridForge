@@ -32,16 +32,34 @@ class StudyExecutionContext:
     source_revision: ProjectRevision
     topology_snapshot: TopologySnapshot
     project_snapshot: Any
+    draft_document_id: str | None = None
+    draft_snapshot_id: str | None = None
+    draft_revision: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_revision, ProjectRevision): raise TypeError("source_revision must be ProjectRevision.")
         if not isinstance(self.topology_snapshot, TopologySnapshot): raise TypeError("topology_snapshot must be TopologySnapshot.")
         if self.topology_snapshot.project_id != self.project_id or self.topology_snapshot.activation_generation != self.activation_generation:
             raise ValueError("TopologySnapshot provenance does not match study execution context.")
-        if self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
-            raise ValueError("TopologySnapshot revision does not match source revision.")
         if self.project_snapshot is None:
             raise ValueError("project_snapshot is required.")
+        draft_scope = (self.draft_document_id, self.draft_snapshot_id, self.draft_revision)
+        if any(value is not None for value in draft_scope):
+            if not all(value is not None for value in draft_scope):
+                raise ValueError("Draft study execution context requires document, snapshot, and revision provenance together.")
+            for name in ("draft_document_id", "draft_snapshot_id"):
+                value = getattr(self, name)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"{name} must be a non-empty string.")
+                object.__setattr__(self, name, value.strip())
+            if isinstance(self.draft_revision, bool) or not isinstance(self.draft_revision, int) or self.draft_revision < 0:
+                raise ValueError("draft_revision must be a non-negative integer.")
+            candidate_network = getattr(self.project_snapshot, "network", None)
+            candidate_state = getattr(candidate_network, "state", None)
+            if getattr(candidate_state, "topology_revision", None) != self.topology_snapshot.topology_revision:
+                raise ValueError("Draft TopologySnapshot revision does not match its isolated candidate Network.")
+        elif self.topology_snapshot.topology_revision != self.source_revision.topology_revision:
+            raise ValueError("TopologySnapshot revision does not match source revision.")
         # Both detached inputs must describe the same activated project state.
         # Matching only the topology snapshot is insufficient: a project/network
         # snapshot from another activation or model revision could otherwise be
@@ -66,6 +84,9 @@ class StudyRequest:
     source_revision: ProjectRevision | None = None
     study_type: str = ""
     configuration: Mapping[str, Any] = field(default_factory=dict)
+    draft_document_id: str | None = None
+    draft_snapshot_id: str | None = None
+    draft_revision: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
@@ -82,6 +103,17 @@ class StudyRequest:
             raise TypeError("configuration must be a mapping.")
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
+        draft_scope = (self.draft_document_id, self.draft_snapshot_id, self.draft_revision)
+        if any(value is not None for value in draft_scope):
+            if not all(value is not None for value in draft_scope):
+                raise ValueError("Draft StudyRequest requires document, snapshot, and revision provenance together.")
+            for name in ("draft_document_id", "draft_snapshot_id"):
+                value = getattr(self, name)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"{name} must be a non-empty string.")
+                object.__setattr__(self, name, value.strip())
+            if isinstance(self.draft_revision, bool) or not isinstance(self.draft_revision, int) or self.draft_revision < 0:
+                raise ValueError("draft_revision must be a non-negative integer.")
         object.__setattr__(self, "configuration", _freeze_study_value(self.configuration))
 
 
@@ -169,6 +201,9 @@ class StudyResult:
     value: Any = None
     message: str = ""
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    draft_document_id: str | None = None
+    draft_snapshot_id: str | None = None
+    draft_revision: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
@@ -185,6 +220,17 @@ class StudyResult:
             raise ValueError("status must be completed, failed, or cancelled.")
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", self.study_type.strip())
+        draft_scope = (self.draft_document_id, self.draft_snapshot_id, self.draft_revision)
+        if any(value is not None for value in draft_scope):
+            if not all(value is not None for value in draft_scope):
+                raise ValueError("Draft StudyResult requires document, snapshot, and revision provenance together.")
+            for name in ("draft_document_id", "draft_snapshot_id"):
+                value = getattr(self, name)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"{name} must be a non-empty string.")
+                object.__setattr__(self, name, value.strip())
+            if isinstance(self.draft_revision, bool) or not isinstance(self.draft_revision, int) or self.draft_revision < 0:
+                raise ValueError("draft_revision must be a non-negative integer.")
         object.__setattr__(self, "message", str(self.message))
         object.__setattr__(self, "metadata", _freeze_study_value(self.metadata))
 
@@ -240,6 +286,7 @@ class StudyService:
         self._results: dict[tuple[str, int, UUID], StudyResult] = {}
         self._tokens: dict[tuple[str, int, UUID], StudyCancellationToken] = {}
         self._result_persister: Callable[[StudyResult], Any] | None = None
+        self._result_scope_validator: Callable[[StudyRequest, StudyExecutionContext], bool] | None = None
         # Counts by study type prevent teardown while any execution is active.
         self._active_study_types: dict[str, int] = {}
         self._lock = RLock()
@@ -265,6 +312,12 @@ class StudyService:
             "presentation_revision": request.source_revision.presentation_revision,
             "persisted_revision": request.source_revision.persisted_revision,
         }
+        if request.draft_snapshot_id is not None:
+            metadata.update({
+                "draft_document_id": request.draft_document_id,
+                "draft_snapshot_id": request.draft_snapshot_id,
+                "draft_revision": request.draft_revision,
+            })
         if status is not None:
             metadata["status"] = status
         if error is not None:
@@ -279,6 +332,33 @@ class StudyService:
             if self._tokens:
                 raise RuntimeError("Cannot change Study Result persistence while studies are active.")
             self._result_persister = persister
+
+    def set_result_scope_validator(
+        self,
+        validator: Callable[[StudyRequest, StudyExecutionContext], bool] | None,
+    ) -> None:
+        """Configure the fail-closed freshness guard for draft study results."""
+        if validator is not None and not callable(validator):
+            raise TypeError("validator must be callable or None.")
+        with self._lock:
+            if self._tokens:
+                raise RuntimeError("Cannot change Study Result freshness validation while studies are active.")
+            self._result_scope_validator = validator
+
+    def _draft_scope_is_current(
+        self,
+        request: StudyRequest,
+        execution_context: StudyExecutionContext,
+    ) -> bool:
+        if request.draft_snapshot_id is None:
+            return True
+        validator = self._result_scope_validator
+        if validator is None:
+            return False
+        try:
+            return validator(request, execution_context) is True
+        except Exception:
+            return False
 
     def _persist_result(self, result: StudyResult) -> None:
         persister = self._result_persister
@@ -323,7 +403,10 @@ class StudyService:
             raise TypeError("submit requires a StudyRequest and StudyExecutionContext.")
         if (execution_context.project_id != request.project_id
                 or execution_context.activation_generation != request.activation_generation
-                or execution_context.source_revision != request.source_revision):
+                or execution_context.source_revision != request.source_revision
+                or execution_context.draft_document_id != request.draft_document_id
+                or execution_context.draft_snapshot_id != request.draft_snapshot_id
+                or execution_context.draft_revision != request.draft_revision):
             raise ValueError("Study execution context does not match StudyRequest provenance.")
         key = (request.project_id, request.activation_generation, request.study_id)
         token = StudyCancellationToken()
@@ -356,6 +439,12 @@ class StudyService:
             raise ValueError("Study execution context does not match StudyRequest scope.")
         if execution_context.source_revision != request.source_revision:
             raise ValueError("Study execution context does not match StudyRequest revision.")
+        if (
+            execution_context.draft_document_id != request.draft_document_id
+            or execution_context.draft_snapshot_id != request.draft_snapshot_id
+            or execution_context.draft_revision != request.draft_revision
+        ):
+            raise ValueError("Study execution context does not match StudyRequest draft provenance.")
         key = (request.project_id, request.activation_generation, request.study_id)
 
         def partial_provenance(partial: object | None) -> Mapping[str, Any]:
@@ -392,6 +481,7 @@ class StudyService:
             value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
+            stale_draft = not cancelled and not self._draft_scope_is_current(request, execution_context)
             retained_value = (
                 value
                 if partial_provenance(value).get("execution_status") in {"completed", "cancelled", "failed"}
@@ -403,12 +493,23 @@ class StudyService:
                 activation_generation=request.activation_generation,
                 source_revision=request.source_revision,
                 study_type=request.study_type,
-                status="cancelled" if cancelled else "completed",
+                status="cancelled" if cancelled else ("failed" if stale_draft else "completed"),
                 # A cooperative handler may return a valid partial trajectory
                 # when cancellation is observed. Keep that evidence while the
                 # terminal lifecycle status remains cancelled.
-                value=retained_value if cancelled else value,
-                message="Study cancelled; partial execution evidence retained." if cancelled and retained_value is not None else ("Study cancelled." if cancelled else ""),
+                value=(
+                    retained_value if cancelled else
+                    None if stale_draft else value
+                ),
+                message=(
+                    "Study cancelled; partial execution evidence retained."
+                    if cancelled and retained_value is not None
+                    else (
+                        "Study cancelled." if cancelled else
+                        "DraftNetwork changed while the study was running; the numerical result was discarded."
+                        if stale_draft else ""
+                    )
+                ),
                 metadata=(
                     {
                         "partial_result_available": retained_value is not None,
@@ -428,8 +529,14 @@ class StudyService:
                         ),
                         "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
                     }
-                    if cancelled else {}
+                    if cancelled else (
+                        {"draft_snapshot_stale": True, "result_discarded": True}
+                        if stale_draft else {}
+                    )
                 ),
+                draft_document_id=request.draft_document_id,
+                draft_snapshot_id=request.draft_snapshot_id,
+                draft_revision=request.draft_revision,
             )
             try:
                 self._persist_result(result)
@@ -452,6 +559,9 @@ class StudyService:
                         value=result.value,
                         message=result.message,
                         metadata=metadata,
+                        draft_document_id=result.draft_document_id,
+                        draft_snapshot_id=result.draft_snapshot_id,
+                        draft_revision=result.draft_revision,
                     )
                     with self._lock:
                         self._results[key] = result
@@ -473,6 +583,9 @@ class StudyService:
                     study_type=request.study_type,
                     status="failed",
                     message=f"Durable Study Result persistence failed: {type(persistence_exc).__name__}: {persistence_exc}",
+                    draft_document_id=request.draft_document_id,
+                    draft_snapshot_id=request.draft_snapshot_id,
+                    draft_revision=request.draft_revision,
                 )
                 with self._lock:
                     self._results[key] = failure
@@ -485,6 +598,10 @@ class StudyService:
             terminal_result_committed = True
             if cancelled:
                 self._event_bus.publish(StudyCancelled(metadata=self._event_metadata(request, status="cancelled")))
+            elif stale_draft:
+                self._event_bus.publish(
+                    StudyFailed(metadata=self._event_metadata(request, status="failed", error=result.message))
+                )
             else:
                 self._event_bus.publish(StudyCompleted(metadata=self._event_metadata(request, status="completed")))
             return result
@@ -508,14 +625,32 @@ class StudyService:
                 status="cancelled" if cancelled else "failed",
                 # Preserve a solver-provided partial result even when a
                 # concurrent cancellation request wins terminal linearization.
-                value=getattr(exc, "partial_result", None),
+                value=(
+                    None
+                    if request.draft_snapshot_id is not None
+                    and not self._draft_scope_is_current(request, execution_context)
+                    else getattr(exc, "partial_result", None)
+                ),
                 message=(
                     "Study cancelled after a solver/handler termination; partial execution evidence retained."
                     if cancelled and getattr(exc, "partial_result", None) is not None
-                    else ("Study cancelled." if cancelled else str(exc))
+                    else (
+                        "Study cancelled." if cancelled else
+                        "DraftNetwork changed while the study was running; partial and numerical results were discarded."
+                        if request.draft_snapshot_id is not None
+                        and not self._draft_scope_is_current(request, execution_context)
+                        else str(exc)
+                    )
                 ),
                 metadata={
-                    "partial_result_available": getattr(exc, "partial_result", None) is not None,
+                    "draft_snapshot_stale": (
+                        request.draft_snapshot_id is not None
+                        and not self._draft_scope_is_current(request, execution_context)
+                    ),
+                    "partial_result_available": (
+                        request.draft_snapshot_id is None
+                        or self._draft_scope_is_current(request, execution_context)
+                    ) and getattr(exc, "partial_result", None) is not None,
                     "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
                     "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
                     "last_valid_time": (
@@ -534,6 +669,9 @@ class StudyService:
                         "diagnostic_message": getattr(exc, "diagnostic_message", str(exc)),
                     },
                 },
+                draft_document_id=request.draft_document_id,
+                draft_snapshot_id=request.draft_snapshot_id,
+                draft_revision=request.draft_revision,
             )
             try:
                 self._persist_result(result)
@@ -552,6 +690,9 @@ class StudyService:
                         "archive_write_failed": True,
                         "archive_failure": f"{type(persistence_exc).__name__}: {persistence_exc}",
                     },
+                    draft_document_id=result.draft_document_id,
+                    draft_snapshot_id=result.draft_snapshot_id,
+                    draft_revision=result.draft_revision,
                 )
             with self._lock:
                 self._results[key] = result
