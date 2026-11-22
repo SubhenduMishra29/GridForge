@@ -469,6 +469,9 @@ class StudyResultReadModel:
     message: str = ""
     metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
     current: bool = False
+    draft_document_id: str | None = None
+    draft_snapshot_id: str | None = None
+    draft_revision: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.study_id, UUID):
@@ -484,6 +487,17 @@ class StudyResultReadModel:
         object.__setattr__(self, "project_id", self.project_id.strip())
         object.__setattr__(self, "study_type", str(self.study_type).strip())
         object.__setattr__(self, "message", str(self.message))
+        draft_scope = (self.draft_document_id, self.draft_snapshot_id, self.draft_revision)
+        if any(value is not None for value in draft_scope):
+            if not all(value is not None for value in draft_scope):
+                raise ValueError("Draft StudyResultReadModel requires complete draft provenance.")
+            for name in ("draft_document_id", "draft_snapshot_id"):
+                value = getattr(self, name)
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(f"{name} must be a non-empty string.")
+                object.__setattr__(self, name, value.strip())
+            if isinstance(self.draft_revision, bool) or not isinstance(self.draft_revision, int) or self.draft_revision < 0:
+                raise ValueError("draft_revision must be a non-negative integer.")
         object.__setattr__(self, "metadata", _freeze(self.metadata))
 
 
