@@ -231,14 +231,24 @@ class DraftConnectivityResolver:
 
 
 class CommitNetworkHandler:
-    def __init__(self, draft_provider, command_executor, creation_contract_provider=None):
+    def __init__(
+        self,
+        draft_provider,
+        command_executor,
+        creation_contract_provider=None,
+        *,
+        require_required_connections: bool = True,
+    ):
         if not callable(command_executor):
             raise TypeError("command_executor must be callable.")
         if creation_contract_provider is not None and not callable(creation_contract_provider):
             raise TypeError("creation_contract_provider must be callable or None.")
+        if not isinstance(require_required_connections, bool):
+            raise TypeError("require_required_connections must be boolean.")
         self._draft_provider = draft_provider
         self._command_executor = command_executor
         self._creation_contract_provider = creation_contract_provider
+        self._require_required_connections = require_required_connections
         self._resolver = DraftConnectivityResolver()
 
     @staticmethod
@@ -427,7 +437,13 @@ class CommitNetworkHandler:
         )
 
         errors = snapshot.validate(getattr(context, "network", None))
-        errors += snapshot.validate_required_connections()
+        # Intermediate study snapshots may be numerically useful before the
+        # engineer has completed every equipment-specific commit obligation.
+        # The normal commit path retains the strict required-connection gate;
+        # the detached draft-study path opts out without weakening authoring
+        # or commit validation.
+        if self._require_required_connections:
+            errors += snapshot.validate_required_connections()
         if errors:
             raise ValueError("Draft validation failed: " + "; ".join(errors))
 
