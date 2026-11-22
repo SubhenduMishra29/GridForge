@@ -33,6 +33,7 @@ from .commands.draft_commands import CommitNetworkCommand, UpdateDraftEquipmentC
 from .commands.selection_commands import EngineeringUpdateBatchCommand
 from .draft.network import DraftNetwork
 from .draft.collection import DraftNetworkCollection
+from .draft.study_snapshot import DraftStudyNetworkBuilder
 from .commands.insertion_commands import INSERT_EQUIPMENT_INTO_CONNECTION
 from .commands.instrumentation_wiring_commands import SET_INSTRUMENTATION_WIRING_INVENTORY
 from .commands.control_commands import (
@@ -205,10 +206,14 @@ class Application:
         self._revision_service = RevisionService()
         self._configuration_reviews: dict[str, ConfigurationReviewRecord] = {}
         self._study_service = StudyService(self._event_bus)
+        self._study_service.set_result_scope_validator(self._study_result_scope_is_current)
         self._study_service.register("protection", ProtectionStudyHandler(self))
         self._study_cases: dict[UUID, StudyCaseDefinition] = {}
         self._study_result_archive: Any | None = None
-        self._study_read_service = StudyReadService(self._study_service)
+        self._study_read_service = StudyReadService(
+            self._study_service,
+            draft_version_provider=self._draft_version_token_for_document,
+        )
         self._control_execution = ControlExecutionService(ControlCommandDispatcher(command_manager, command_executor=self.execute))
         self._control_engine: ControlEngine | None = None
         self._control_cycle: ControlCycleService | None = None
@@ -340,6 +345,73 @@ class Application:
             if self._draft_network_collection is not None:
                 return self._draft_network_collection.get(active_id, create=True)
             return self._draft_network
+
+    def capture_draft_network_snapshot(self, document_id: str) -> DraftNetwork:
+        """Capture a detached DraftNetwork copy for one active SLD document."""
+        with self._execution_lock:
+            draft = self._draft_network_for_command(document_id)
+            if draft is None:
+                raise RuntimeError("The active SLD document has no Application DraftNetwork.")
+            return DraftNetwork.from_dict(
+                draft.to_dict(),
+                project_id=draft.project_id,
+                activation_generation=draft.activation_generation,
+                revision=draft.revision,
+                snapshot_id=draft.snapshot_id,
+            )
+
+    def _draft_version_token_for_document(self, document_id: str) -> tuple[str, int] | None:
+        """Return the active SLD document's draft token; inactive documents are not projectable."""
+        if not isinstance(document_id, str) or not document_id.strip():
+            return None
+        document_id = document_id.strip()
+        with self._execution_lock:
+            active = self.presentation
+            active_id = getattr(active, "document_id", None) if active is not None else None
+            if active_id != document_id:
+                return None
+            if self._draft_network_collection is not None:
+                draft = self._draft_network_collection.get(document_id)
+            else:
+                draft = self._draft_network
+            return draft.version_token if draft is not None else None
+
+    def _draft_study_request_is_current(self, request: StudyRequest) -> bool:
+        """Check project electrical revision and the exact document draft token."""
+        if request.draft_snapshot_id is None:
+            return True
+        with self._execution_lock:
+            lifecycle = self.project_lifecycle
+            context = lifecycle.context
+            if (
+                context is None
+                or not lifecycle.has_project
+                or lifecycle.state != "ACTIVE"
+                or context.project_id != request.project_id
+                or lifecycle.activation_generation != request.activation_generation
+                or not request.source_revision.matches_study_state(self.revision)
+            ):
+                return False
+            return self._draft_version_token_for_document(request.draft_document_id) == (
+                request.draft_snapshot_id,
+                request.draft_revision,
+            )
+
+    def _study_result_scope_is_current(
+        self,
+        request: StudyRequest,
+        execution_context: StudyExecutionContext,
+    ) -> bool:
+        """Fail closed when a draft-scoped numerical result no longer matches its source."""
+        if request.draft_snapshot_id is None:
+            return True
+        if (
+            execution_context.draft_document_id != request.draft_document_id
+            or execution_context.draft_snapshot_id != request.draft_snapshot_id
+            or execution_context.draft_revision != request.draft_revision
+        ):
+            return False
+        return self._draft_study_request_is_current(request)
 
     def draft_document_has_pending(self, document_id: str) -> bool:
         """Return whether the specified SLD document has uncommitted draft authoring."""
@@ -836,6 +908,52 @@ class Application:
             study_type=case.study_type,
             configuration=case.configuration,
         )
+        return self.submit_study(request)
+
+    def submit_draft_study_case(self, study_id: UUID):
+        """Queue Power Flow/Short-Circuit against one atomic active-document draft capture."""
+        case = self.study_case(study_id)
+        with self._execution_lock:
+            lifecycle = self.project_lifecycle
+            context = lifecycle.context
+            if context is None or not lifecycle.has_project or lifecycle.state != "ACTIVE":
+                raise RuntimeError("Cannot run a draft study without a valid active project activation.")
+            if case.project_id != context.project_id or case.activation_generation != lifecycle.activation_generation:
+                raise ValueError("Study Case project scope does not match the active project generation.")
+            if case.study_type not in {"power_flow", "short_circuit"}:
+                raise ValueError("Draft studies support Power Flow and Short-Circuit only.")
+            if not case.source_revision.matches_study_state(self.revision):
+                raise ValueError(
+                    "Study Case configuration is stale for the active electrical model/topology. "
+                    "Reconfigure or recreate the Study Case before execution."
+                )
+            presentation = self.presentation
+            document_id = getattr(presentation, "document_id", None) if presentation is not None else None
+            if not isinstance(document_id, str) or not document_id.strip():
+                raise RuntimeError("Draft study requires an active SLD document identity.")
+            live_draft = self._draft_network_for_command(document_id)
+            if live_draft is None:
+                raise RuntimeError("The active SLD document has no Application DraftNetwork.")
+            if not live_draft.equipment and not live_draft.connections:
+                raise ValueError("The active SLD document has no pending draft equipment or connections.")
+            draft = DraftNetwork.from_dict(
+                live_draft.to_dict(),
+                project_id=live_draft.project_id,
+                activation_generation=live_draft.activation_generation,
+                revision=live_draft.revision,
+                snapshot_id=live_draft.snapshot_id,
+            )
+            request = StudyRequest(
+                study_id=case.study_id,
+                project_id=context.project_id,
+                activation_generation=lifecycle.activation_generation,
+                source_revision=self.revision,
+                study_type=case.study_type,
+                configuration=case.configuration,
+                draft_document_id=document_id,
+                draft_snapshot_id=draft.snapshot_id,
+                draft_revision=draft.revision,
+            )
         return self.submit_study(request)
 
     @property
@@ -3429,6 +3547,95 @@ class Application:
             dynamic_models=dynamic_models,
         )
 
+    def _build_draft_study_execution_context(
+        self,
+        request: StudyRequest,
+    ) -> StudyExecutionContext:
+        """Capture and compose a detached candidate Network for Power Flow/SC."""
+        if request.study_type not in {"power_flow", "short_circuit"}:
+            raise ValueError(
+                "Draft-scoped execution currently supports Power Flow and Short-Circuit only."
+            )
+        if (
+            request.draft_document_id is None
+            or request.draft_snapshot_id is None
+            or request.draft_revision is None
+        ):
+            raise ValueError("Draft study execution requires complete document and version provenance.")
+
+        with self._execution_lock:
+            lifecycle = self.project_lifecycle
+            project_context = lifecycle.context
+            if (
+                project_context is None
+                or not lifecycle.has_project
+                or lifecycle.state != "ACTIVE"
+                or project_context.project_id != request.project_id
+                or lifecycle.activation_generation != request.activation_generation
+            ):
+                raise RuntimeError("Draft study request no longer belongs to the active project generation.")
+            if request.source_revision != self.revision:
+                raise ValueError("Project electrical revision changed before draft study snapshot capture.")
+
+            active_network = lifecycle.network
+            active_network.project_id = request.project_id
+            active_network.activation_generation = request.activation_generation
+            if active_network.state.topology_revision != request.source_revision.topology_revision:
+                raise ValueError("Committed Network topology revision does not match the draft StudyRequest.")
+            if active_network.state.topology_dirty or not active_network.state.topology_valid:
+                active_network.rebuild_topology()
+            if active_network.state.topology_dirty or not active_network.state.topology_valid:
+                raise ValueError("Committed Network topology is not valid for draft study preparation.")
+
+            base_snapshot = self.capture_project_snapshot()
+            if base_snapshot.revision != request.source_revision:
+                raise ValueError("Committed ProjectSnapshot changed while capturing the draft study base.")
+            live_draft = self._draft_network_for_command(request.draft_document_id)
+            if live_draft is None:
+                raise RuntimeError("The requested SLD document has no active DraftNetwork.")
+            expected_token = (request.draft_snapshot_id, request.draft_revision)
+            if live_draft.version_token != expected_token:
+                raise ValueError("DraftNetwork changed before candidate study preparation; refresh and retry.")
+            detached_draft = DraftNetwork.from_dict(
+                live_draft.to_dict(),
+                project_id=live_draft.project_id,
+                activation_generation=live_draft.activation_generation,
+                revision=live_draft.revision,
+                snapshot_id=live_draft.snapshot_id,
+            )
+
+        builder = DraftStudyNetworkBuilder(lambda: self._creation_contract_registry)
+        candidate_network, candidate_topology = builder.build(
+            base_snapshot.network,
+            detached_draft,
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+        )
+        candidate_snapshot = ProjectSnapshot(
+            project_id=base_snapshot.project_id,
+            activation_generation=base_snapshot.activation_generation,
+            revision=base_snapshot.revision,
+            network=candidate_network,
+            dynamic_models=base_snapshot.dynamic_models,
+        )
+        execution_context = StudyExecutionContext(
+            project_id=request.project_id,
+            activation_generation=request.activation_generation,
+            source_revision=request.source_revision,
+            topology_snapshot=candidate_topology,
+            project_snapshot=candidate_snapshot,
+            draft_document_id=request.draft_document_id,
+            draft_snapshot_id=request.draft_snapshot_id,
+            draft_revision=request.draft_revision,
+            draft_equipment=tuple(
+                (str(item.equipment_type).strip().lower(), str(item.draft_id).strip())
+                for item in detached_draft.equipment
+            ),
+        )
+        if not self._study_result_scope_is_current(request, execution_context):
+            raise ValueError("Project or DraftNetwork changed while preparing the candidate study snapshot; retry.")
+        return execution_context
+
     def execute_study(self, request: StudyRequest) -> StudyResult:
         if not isinstance(request, StudyRequest):
             raise TypeError("request must be a StudyRequest.")
@@ -3443,6 +3650,9 @@ class Application:
         validation = self.validate_project()
         if not validation.valid:
             raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
+        if request.draft_snapshot_id is not None:
+            execution_context = self._build_draft_study_execution_context(request)
+            return self._study_service.execute(request, execution_context)
         if request.source_revision != self.revision:
             raise ValueError("StudyRequest source_revision does not match the active project revision.")
         network = lifecycle.network
@@ -3505,6 +3715,9 @@ class Application:
         validation = self.validate_project()
         if not validation.valid:
             raise ValueError("Project validation failed; study execution is blocked before StudyStarted.")
+        if request.draft_snapshot_id is not None:
+            execution_context = self._build_draft_study_execution_context(request)
+            return self._study_service.submit(request, execution_context)
         if request.source_revision != self.revision:
             raise ValueError("StudyRequest source_revision does not match the active project revision.")
         network = lifecycle.network

@@ -240,6 +240,14 @@ def _result_lines(result: Any) -> tuple[str, ...]:
         f"Project: {result.project_id}",
         f"Source revision: {result.source_revision}",
     ]
+    if getattr(result, "draft_snapshot_id", None) is not None:
+        lines.append(
+            "Source scope: SLD document "
+            f"{result.draft_document_id}, draft {result.draft_snapshot_id}, "
+            f"revision {result.draft_revision}"
+        )
+    else:
+        lines.append("Source scope: committed project snapshot")
     if result.message:
         lines.append(f"Message: {result.message}")
     if result.metadata:
@@ -285,6 +293,14 @@ def _result_lines(result: Any) -> tuple[str, ...]:
         f"Project: {result.project_id}",
         f"Source revision: {result.source_revision}",
     ]
+    if getattr(result, "draft_snapshot_id", None) is not None:
+        lines.append(
+            "Source scope: SLD document "
+            f"{result.draft_document_id}, draft {result.draft_snapshot_id}, "
+            f"revision {result.draft_revision}"
+        )
+    else:
+        lines.append("Source scope: committed project snapshot")
     if result.message:
         lines.append(f"Message: {result.message}")
     if result.metadata:

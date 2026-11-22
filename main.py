@@ -1807,6 +1807,7 @@ def _build_application_impl(
     )
     study_tool_runtime.bind_study_case_controller(study_case_controller)
     study_cases_panel.set_run_handler(study_case_controller.run_study)
+    study_cases_panel.set_run_draft_handler(study_case_controller.run_draft_study)
     study_cases_panel.set_cancel_handler(study_case_controller.cancel_study)
     study_cases_panel.set_run_error_handler(study_case_controller.handle_async_error)
     study_cases_panel.set_create_handler(study_case_controller.create_study_case)

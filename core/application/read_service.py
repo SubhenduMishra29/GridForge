@@ -14,7 +14,7 @@ from enum import Enum
 import json
 import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from .revision import ProjectRevision
@@ -624,6 +624,9 @@ class ArchivedStudyResultReadModel:
     message: str
     metadata: Any
     value: Any
+    draft_document_id: str | None = None
+    draft_snapshot_id: str | None = None
+    draft_revision: int | None = None
 
     @property
     def transformer_delta_loop_currents(self) -> Any:
@@ -863,13 +866,22 @@ class StudyReadService:
     generation. Archived values remain detached snapshots.
     """
 
-    def __init__(self, studies: Any, archive: Any | None = None) -> None:
+    def __init__(
+        self,
+        studies: Any,
+        archive: Any | None = None,
+        *,
+        draft_version_provider: Callable[[str], tuple[str, int] | None] | None = None,
+    ) -> None:
         if studies is None or not callable(getattr(studies, "get_result", None)):
             raise TypeError("studies must provide get_result().")
         if not callable(getattr(studies, "results", None)):
             raise TypeError("studies must provide results().")
+        if draft_version_provider is not None and not callable(draft_version_provider):
+            raise TypeError("draft_version_provider must be callable or None.")
         self._studies = studies
         self._archive = None
+        self._draft_version_provider = draft_version_provider
         self.configure_archive(archive)
 
     def configure_archive(self, archive: Any | None) -> None:
@@ -886,6 +898,7 @@ class StudyReadService:
         current_project_id: str | None = None,
         current_activation_generation: int | None = None,
         current_revision: ProjectRevision | None = None,
+        current_draft_version: tuple[str, int] | None = None,
     ) -> StudyResultReadModel | None:
         if result is None:
             return None
@@ -898,6 +911,11 @@ class StudyReadService:
             and result.activation_generation == current_activation_generation
             and source_revision.matches_study_state(current_revision)
         )
+        if result.draft_snapshot_id is not None:
+            current = current and current_draft_version == (
+                result.draft_snapshot_id,
+                result.draft_revision,
+            )
         return StudyResultReadModel(
             study_id=result.study_id,
             project_id=result.project_id,
@@ -909,6 +927,9 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             current=current,
+            draft_document_id=result.draft_document_id,
+            draft_snapshot_id=result.draft_snapshot_id,
+            draft_revision=result.draft_revision,
         )
 
     @staticmethod
@@ -926,6 +947,9 @@ class StudyReadService:
             message=result.message,
             metadata=result.metadata,
             value=result.value,
+            draft_document_id=result.draft_document_id,
+            draft_snapshot_id=result.draft_snapshot_id,
+            draft_revision=result.draft_revision,
         )
 
     @staticmethod
@@ -1354,11 +1378,19 @@ class StudyReadService:
             project_id=project_id,
             activation_generation=activation_generation,
         )
+        draft_version = (
+            self._draft_version_provider(result.draft_document_id)
+            if result is not None
+            and result.draft_document_id is not None
+            and self._draft_version_provider is not None
+            else None
+        )
         return self._to_read_model(
             result,
             current_project_id=project_id,
             current_activation_generation=activation_generation,
             current_revision=current_revision,
+            current_draft_version=draft_version,
         )
 
     def results(
@@ -1368,18 +1400,25 @@ class StudyReadService:
         activation_generation: int,
         current_revision: ProjectRevision | None = None,
     ) -> tuple[StudyResultReadModel, ...]:
-        return tuple(
-            self._to_read_model(
+        rows = []
+        for result in self._studies.results(
+            project_id=project_id,
+            activation_generation=activation_generation,
+        ):
+            draft_version = (
+                self._draft_version_provider(result.draft_document_id)
+                if result.draft_document_id is not None
+                and self._draft_version_provider is not None
+                else None
+            )
+            rows.append(self._to_read_model(
                 result,
                 current_project_id=project_id,
                 current_activation_generation=activation_generation,
                 current_revision=current_revision,
-            )
-            for result in self._studies.results(
-                project_id=project_id,
-                activation_generation=activation_generation,
-            )
-        )
+                current_draft_version=draft_version,
+            ))
+        return tuple(row for row in rows if row is not None)
 
     def archived_results(
         self,

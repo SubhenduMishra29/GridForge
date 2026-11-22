@@ -47,7 +47,7 @@ from core.solver.short_circuit.result import (
 
 
 ARCHIVE_FORMAT = "GridForgeStudyResult"
-ARCHIVE_SCHEMA_VERSION = 4
+ARCHIVE_SCHEMA_VERSION = 5
 
 
 class StudyResultArchiveError(RuntimeError):
@@ -564,6 +564,9 @@ class StudyResultArchive:
             "value": _encode_value(result.value),
             "message": result.message,
             "metadata": _encode_value(result.metadata),
+            "draft_document_id": result.draft_document_id,
+            "draft_snapshot_id": result.draft_snapshot_id,
+            "draft_revision": result.draft_revision,
         }
 
     def save(self, result: StudyResult) -> ArchivedStudyResult:
@@ -633,14 +636,23 @@ class StudyResultArchive:
             if envelope.get("format") != ARCHIVE_FORMAT:
                 raise StudyResultArchiveError("Unsupported Study Result archive format.")
             schema_version = envelope.get("schema_version")
-            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2, 3, 4}:
+            if isinstance(schema_version, bool) or not isinstance(schema_version, int) or schema_version not in {1, 2, 3, 4, 5}:
                 raise StudyResultArchiveError(
                     f"Unsupported Study Result archive schema: {schema_version!r}."
                 )
             payload = envelope.get("payload")
             if not isinstance(payload, Mapping):
                 raise StudyResultArchiveError("Study Result archive payload must be an object.")
-            if set(payload) != {"study_id", "project_id", "activation_generation", "source_revision", "study_type", "status", "value", "message", "metadata"}:
+            legacy_payload_fields = {
+                "study_id", "project_id", "activation_generation", "source_revision",
+                "study_type", "status", "value", "message", "metadata",
+            }
+            expected_payload_fields = (
+                legacy_payload_fields
+                if schema_version < 5
+                else legacy_payload_fields | {"draft_document_id", "draft_snapshot_id", "draft_revision"}
+            )
+            if set(payload) != expected_payload_fields:
                 raise StudyResultArchiveError("Study Result archive payload contains missing or unknown fields.")
             unsigned = {key: envelope[key] for key in ("format", "schema_version", "record_id", "saved_at", "payload")}
             expected_digest = hashlib.sha256(_canonical_json(unsigned)).hexdigest()
@@ -674,6 +686,9 @@ class StudyResultArchive:
                 value=_decode_value(payload.get("value"), schema_version=schema_version),
                 message=str(payload.get("message", "")),
                 metadata=metadata,
+                draft_document_id=payload.get("draft_document_id"),
+                draft_snapshot_id=payload.get("draft_snapshot_id"),
+                draft_revision=payload.get("draft_revision"),
             )
             record_id = UUID(str(envelope["record_id"]))
             if path.name != f"{result.study_id}.{record_id}.json":

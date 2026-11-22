@@ -5969,3 +5969,14 @@ Verification boundary:
 - No tests, CI, Python syntax/import checks, startup, GUI, or runtime
   persistence/activation/undo experiments were run.
 ======================================================================
+
+## 2026-11-22 — Issue #875: Draft-aware Power Flow and Short-Circuit studies
+
+- Added an Application-owned detached candidate Network builder that clones the committed Network through the canonical persistence DTO boundary and applies the captured DraftNetwork through the existing creation-contract, Core command, endpoint-identity, and Simple Wire commit translation path.
+- Added document/snapshot/revision provenance to StudyRequest, StudyExecutionContext, StudyResult, archived result records, and StudyResultReadModel. Durable archive schema advanced compatibly to version 5.
+- Added the Study Cases “Run Draft Study” action for Power Flow and Short-Circuit only. The selected Study Case configuration is bound to one active SLD document's exact DraftNetwork version.
+- Draft candidate construction now uses the same required-terminal connectivity gate as normal commit. Power Flow and Short-Circuit preparation explicitly reject draft equipment types without a supported numerical model and report the document, draft token, revision, and offending draft equipment identities.
+- Queued studies fail closed if the project/draft provenance changes before execution. Results are revalidated against the active document draft token at the Application read boundary; stale results are not marked current and cannot be projected onto another SLD document.
+- Request capture is performed under the Application execution lock. Candidate construction mutates only the detached Network/DraftNetwork copies; the live Core Network and live DraftNetwork remain unchanged.
+- Architecture boundary: Core remains electrical truth; Application owns candidate construction and study orchestration; UI invokes the Application API and consumes result read models. No Qt/SLD dependency was added to Core.
+- Verification boundary: Python py_compile passed for the new draft-study snapshot builder; modified blocks and import paths were reviewed statically. Full-project compile/import/startup, tests/CI, runtime GUI/solver execution, archive round-trip, and live draft-mutation experiments were not run or treated as acceptance gates in accordance with the repository workflow.
