@@ -481,7 +481,10 @@ class StudyService:
             value = None if token.cancelled else handler(request, execution_context, token)
             with self._lock:
                 cancelled = token.finish()
-            stale_draft = not cancelled and not self._draft_scope_is_current(request, execution_context)
+            stale_draft = (
+                request.draft_snapshot_id is not None
+                and not self._draft_scope_is_current(request, execution_context)
+            )
             retained_value = (
                 value
                 if partial_provenance(value).get("execution_status") in {"completed", "cancelled", "failed"}
@@ -498,16 +501,15 @@ class StudyService:
                 # when cancellation is observed. Keep that evidence while the
                 # terminal lifecycle status remains cancelled.
                 value=(
-                    retained_value if cancelled else
-                    None if stale_draft else value
+                    None if stale_draft else
+                    retained_value if cancelled else value
                 ),
                 message=(
-                    "Study cancelled; partial execution evidence retained."
-                    if cancelled and retained_value is not None
-                    else (
-                        "Study cancelled." if cancelled else
-                        "DraftNetwork changed while the study was running; the numerical result was discarded."
-                        if stale_draft else ""
+                    "DraftNetwork changed while the study was running; numerical and partial results were discarded."
+                    if stale_draft else (
+                        "Study cancelled; partial execution evidence retained."
+                        if cancelled and retained_value is not None
+                        else ("Study cancelled." if cancelled else "")
                     )
                 ),
                 metadata=(
@@ -529,10 +531,10 @@ class StudyService:
                         ),
                         "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
                     }
-                    if cancelled else (
-                        {"draft_snapshot_stale": True, "result_discarded": True}
-                        if stale_draft else {}
-                    )
+                    if cancelled else {}
+                ) | (
+                    {"draft_snapshot_stale": True, "result_discarded": True}
+                    if stale_draft else {}
                 ),
                 draft_document_id=request.draft_document_id,
                 draft_snapshot_id=request.draft_snapshot_id,
@@ -566,14 +568,18 @@ class StudyService:
                     with self._lock:
                         self._results[key] = result
                     terminal_result_committed = True
-                    self._event_bus.publish(
-                        StudyCompleted(metadata={
-                            **self._event_metadata(request, status="completed"),
-                            "archive_durability": "uncertain",
-                            "archive_record_id": str(getattr(persistence_exc, "record_id", "")),
-                            "archive_warning": str(persistence_exc),
-                        })
-                    )
+                    archive_metadata = {
+                        **self._event_metadata(request, status=result.status),
+                        "archive_durability": "uncertain",
+                        "archive_record_id": str(getattr(persistence_exc, "record_id", "")),
+                        "archive_warning": str(persistence_exc),
+                    }
+                    if result.status == "failed":
+                        self._event_bus.publish(StudyFailed(metadata={**archive_metadata, "error": result.message}))
+                    elif result.status == "cancelled":
+                        self._event_bus.publish(StudyCancelled(metadata=archive_metadata))
+                    else:
+                        self._event_bus.publish(StudyCompleted(metadata=archive_metadata))
                     return result
                 failure = StudyResult(
                     study_id=request.study_id,
@@ -616,6 +622,10 @@ class StudyService:
             # the terminal state atomically and persist the resulting outcome.
             with self._lock:
                 cancelled = token.finish()
+            stale_draft = (
+                request.draft_snapshot_id is not None
+                and not self._draft_scope_is_current(request, execution_context)
+            )
             result = StudyResult(
                 study_id=request.study_id,
                 project_id=request.project_id,
@@ -625,32 +635,19 @@ class StudyService:
                 status="cancelled" if cancelled else "failed",
                 # Preserve a solver-provided partial result even when a
                 # concurrent cancellation request wins terminal linearization.
-                value=(
-                    None
-                    if request.draft_snapshot_id is not None
-                    and not self._draft_scope_is_current(request, execution_context)
-                    else getattr(exc, "partial_result", None)
-                ),
+                value=None if stale_draft else getattr(exc, "partial_result", None),
                 message=(
-                    "Study cancelled after a solver/handler termination; partial execution evidence retained."
-                    if cancelled and getattr(exc, "partial_result", None) is not None
-                    else (
-                        "Study cancelled." if cancelled else
-                        "DraftNetwork changed while the study was running; partial and numerical results were discarded."
-                        if request.draft_snapshot_id is not None
-                        and not self._draft_scope_is_current(request, execution_context)
-                        else str(exc)
+                    "DraftNetwork changed while the study was running; partial and numerical results were discarded."
+                    if stale_draft else (
+                        "Study cancelled after a solver/handler termination; partial execution evidence retained."
+                        if cancelled and getattr(exc, "partial_result", None) is not None
+                        else ("Study cancelled." if cancelled else str(exc))
                     )
                 ),
                 metadata={
-                    "draft_snapshot_stale": (
-                        request.draft_snapshot_id is not None
-                        and not self._draft_scope_is_current(request, execution_context)
-                    ),
-                    "partial_result_available": (
-                        request.draft_snapshot_id is None
-                        or self._draft_scope_is_current(request, execution_context)
-                    ) and getattr(exc, "partial_result", None) is not None,
+                    "draft_snapshot_stale": stale_draft,
+                    "result_discarded": stale_draft,
+                    "partial_result_available": not stale_draft and getattr(exc, "partial_result", None) is not None,
                     "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
                     "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
                     "last_valid_time": (
