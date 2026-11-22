@@ -531,7 +531,7 @@ class StudyService:
                         ),
                         "event_schedule": tuple(partial_provenance(retained_value).get("event_schedule", ())),
                     }
-                    if cancelled else {}
+                    if cancelled and not stale_draft else {}
                 ) | (
                     {"draft_snapshot_stale": True, "result_discarded": True}
                     if stale_draft else {}
@@ -644,28 +644,30 @@ class StudyService:
                         else ("Study cancelled." if cancelled else str(exc))
                     )
                 ),
-                metadata={
-                    "draft_snapshot_stale": stale_draft,
-                    "result_discarded": stale_draft,
-                    "partial_result_available": not stale_draft and getattr(exc, "partial_result", None) is not None,
-                    "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
-                    "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
-                    "last_valid_time": (
-                        last_valid_time(getattr(exc, "partial_result", None))
-                    ),
-                    "event_schedule": tuple(
-                        partial_provenance(getattr(exc, "partial_result", None)).get("event_schedule", ())
-                    ),
-                    "termination": {
-                        "status": "cancelled" if cancelled else "failed",
-                        "reason": "cancellation_requested" if cancelled else "handler_exception",
-                        "stage": getattr(exc, "failing_stage", "handler_execution"),
-                        "termination_reason": getattr(exc, "termination_reason", "handler_exception"),
-                        "failing_time": getattr(exc, "failing_time", None),
-                        "exception_type": getattr(exc, "cause_type", None) or type(exc).__name__,
-                        "diagnostic_message": getattr(exc, "diagnostic_message", str(exc)),
-                    },
-                },
+                metadata=(
+                    {
+                        "partial_result_available": getattr(exc, "partial_result", None) is not None,
+                        "execution_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("execution_status", "cancelled" if cancelled else "failed")),
+                        "trajectory_status": str(partial_provenance(getattr(exc, "partial_result", None)).get("trajectory_status", "interrupted" if cancelled else "incomplete")),
+                        "last_valid_time": last_valid_time(getattr(exc, "partial_result", None)),
+                        "event_schedule": tuple(
+                            partial_provenance(getattr(exc, "partial_result", None)).get("event_schedule", ())
+                        ),
+                        "termination": {
+                            "status": "cancelled" if cancelled else "failed",
+                            "reason": "cancellation_requested" if cancelled else "handler_exception",
+                            "stage": getattr(exc, "failing_stage", "handler_execution"),
+                            "termination_reason": getattr(exc, "termination_reason", "handler_exception"),
+                            "failing_time": getattr(exc, "failing_time", None),
+                            "exception_type": getattr(exc, "cause_type", None) or type(exc).__name__,
+                            "diagnostic_message": getattr(exc, "diagnostic_message", str(exc)),
+                        },
+                    }
+                    if not stale_draft else {}
+                ) | (
+                    {"draft_snapshot_stale": True, "result_discarded": True}
+                    if stale_draft else {}
+                ),
                 draft_document_id=request.draft_document_id,
                 draft_snapshot_id=request.draft_snapshot_id,
                 draft_revision=request.draft_revision,
