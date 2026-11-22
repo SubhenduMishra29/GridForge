@@ -77,16 +77,14 @@ class DraftStudyNetworkBuilder:
             handlers.update(SimpleWireConnectionCommandHandlers().handlers())
             command_manager = CommandManager(context=context, handlers=handlers)
 
-            # Reuse the exact creation-contract, endpoint-identity and Simple
-            # Wire translation path used by DraftNetwork commit. Only the
-            # commit-only required-connection gate is disabled for this
-            # disposable candidate; invalid endpoints and malformed equipment
-            # still fail closed.
+            # Reuse the exact creation-contract, endpoint-identity, required
+            # terminal-connection and Simple Wire validation path used by a
+            # real DraftNetwork commit. An incomplete electrical model must not
+            # be silently admitted to a numerical study candidate.
             commit_handler = CommitNetworkHandler(
                 draft_provider=lambda document_id: draft_snapshot,
                 command_executor=command_manager.execute_in_transaction,
                 creation_contract_provider=self._creation_contract_provider,
-                require_required_connections=False,
             )
             command = CommitNetworkCommand(
                 project_id=project_id.strip(),
