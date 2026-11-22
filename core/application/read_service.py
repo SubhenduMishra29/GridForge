@@ -14,7 +14,7 @@ from enum import Enum
 import json
 import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 from uuid import UUID
 
 from .revision import ProjectRevision
