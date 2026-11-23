@@ -19,6 +19,7 @@ from ui.core.qt import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QListWidget,
     QVBoxLayout,
 )
 
@@ -68,6 +69,8 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
         self._ratio_reference = QLabel("Select a PT/CVT to inspect its authoritative model ratio.", self)
         self._status = QLabel("", self)
         self._status.setWordWrap(True)
+        self._existing_bindings = QListWidget(self)
+        self._existing_bindings.setObjectName("ProtectionMeasurementBindingInventory")
         self._create = QPushButton("Create Protection Measurement Binding", self)
         self._create.setObjectName("CreateProtectionMeasurementBinding")
         self._create.clicked.connect(self._create_binding)
@@ -86,12 +89,18 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(self._create)
+        layout.addWidget(QLabel("Persisted physical measurement bindings", self))
+        layout.addWidget(self._existing_bindings)
         layout.addWidget(self._status)
 
         self._element.currentIndexChanged.connect(self._refresh_inputs)
         self._relay_input.currentIndexChanged.connect(self._refresh_input_channel)
         self._instrument.currentIndexChanged.connect(self._refresh_ratio_reference)
         self._source_endpoint.currentIndexChanged.connect(self._refresh_side_choices)
+        for control in (self._element, self._relay_input, self._instrument, self._channel, self._source_endpoint, self._electrical_side, self._phase):
+            control.currentIndexChanged.connect(self._update_create_enabled)
+        self._ratio.textChanged.connect(self._update_create_enabled)
+        self._result_quantity.textChanged.connect(self._update_create_enabled)
         self.refresh()
 
     @staticmethod
@@ -301,6 +310,18 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
         else:
             self._electrical_side.addItem("Equipment terminal side", "equipment")
 
+    def _update_create_enabled(self, *_: Any) -> None:
+        if self._refreshing:
+            return
+        complete = all((
+            self._element.currentData(), self._relay_input.currentData(),
+            self._instrument.currentData(), self._channel.currentData(),
+            self._source_endpoint.currentData(), self._electrical_side.currentData(),
+            self._phase.currentData(), self._result_quantity.text().strip(),
+            self._ratio.text().strip(),
+        ))
+        self._create.setEnabled(bool(complete))
+
     def _create_binding(self) -> None:
         element_id = self._element.currentData()
         input_selection = self._relay_input.currentData()
@@ -361,10 +382,13 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
             bindings = self._application.read_protection_measurement_bindings()
         except (RuntimeError, AttributeError):
             return
-        if bindings:
-            self._status.setText(
-                f"{len(bindings)} physical protection measurement binding(s) currently persisted. "
-                "New associations are validated by the Application against live topology and instrument data."
+        self._existing_bindings.clear()
+        for binding in bindings:
+            endpoint = dict(binding.source_endpoint_reference)
+            endpoint_label = ":".join(str(endpoint.get(key, "")) for key in ("kind", "object_id", "terminal_role", "attachment_id") if endpoint.get(key) is not None)
+            self._existing_bindings.addItem(
+                f"{binding.binding_id} | {binding.protection_element_id}:{binding.relay_input_id} | "
+                f"{binding.instrument_id} | {binding.channel_id} | {binding.phase_or_sequence} | {endpoint_label}"
             )
 
 
