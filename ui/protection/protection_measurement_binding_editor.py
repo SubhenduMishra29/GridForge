@@ -40,6 +40,7 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
             raise TypeError("Protection binding editor requires Application.execute().")
         self._application = application
         self._refreshing = False
+        self._project_scope: tuple[str, int] | None = None
         self._network_elements: dict[str, Any] = {}
         self._functions: dict[str, Any] = {}
         self._channels: dict[str, Any] = {}
@@ -128,6 +129,7 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
         self._refreshing = True
         self._create.setEnabled(False)
         self._existing_bindings.clear()
+        self._project_scope = None
         self._ratio.clear()
         self._result_quantity.clear()
         has_eligible_elements = False
@@ -144,9 +146,24 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
             self._channels = {}
             self._instruments = {}
             try:
+                lifecycle = self._application.project_lifecycle
+                context = lifecycle.context
+                if not lifecycle.has_project or lifecycle.state != "ACTIVE" or context is None:
+                    raise RuntimeError("An active project is required for PT/CVT protection binding authoring.")
+                project_scope = (str(context.project_id), int(lifecycle.activation_generation))
                 network = self._application.read_network()
                 functions = self._application.read_protection_function_configurations()
                 channel_configs = self._application.read_measurement_channel_configurations()
+                current_lifecycle = self._application.project_lifecycle
+                current_context = current_lifecycle.context
+                current_scope = (
+                    (str(current_context.project_id), int(current_lifecycle.activation_generation))
+                    if current_lifecycle.has_project and current_lifecycle.state == "ACTIVE" and current_context is not None
+                    else None
+                )
+                if current_scope != project_scope:
+                    raise RuntimeError("Project activation changed while binding editor choices were being loaded.")
+                self._project_scope = project_scope
             except (RuntimeError, AttributeError) as exc:
                 self._status.setText(f"Binding editor unavailable: {exc}")
                 self._create.setEnabled(False)
@@ -328,6 +345,18 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
         self._create.setEnabled(bool(complete))
 
     def _create_binding(self) -> None:
+        scope = self._project_scope
+        lifecycle = self._application.project_lifecycle
+        context = lifecycle.context
+        current_scope = (
+            (str(context.project_id), int(lifecycle.activation_generation))
+            if lifecycle.has_project and lifecycle.state == "ACTIVE" and context is not None
+            else None
+        )
+        if scope is None or current_scope != scope:
+            self._status.setText("Binding authoring stopped: the active project changed. Reload the editor and reselect every source.")
+            self.refresh()
+            return
         element_id = self._element.currentData()
         input_selection = self._relay_input.currentData()
         instrument_id = self._instrument.currentData()
