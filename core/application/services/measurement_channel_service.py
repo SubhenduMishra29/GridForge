@@ -260,6 +260,14 @@ class MeasurementChannelService:
                         0.0, quality=MeasurementQuality.UNKNOWN, available=False,
                         timestamp=None, sample_sequence=None,
                     )
+                elif str(getattr(channel.source, "element_type", type(channel.source).__name__)).strip().upper() in {"PT", "CVT"}:
+                    self._validate_voltage_channel_definition(
+                        definition, channel, existing_channels=next_channels
+                    )
+                    channel.reset(
+                        0.0, quality=MeasurementQuality.UNKNOWN, available=False,
+                        timestamp=None, sample_sequence=None,
+                    )
                 # Bind immutable producer identity before sealing the channel.
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
                 channel._bind_sample_update_authority(self._sample_update_authority)
@@ -329,7 +337,7 @@ class MeasurementChannelService:
     def create_channel(
         self, *, definition: Mapping[str, Any], transaction: Transaction,
     ) -> ApplicationResult[str]:
-        """Author one CT secondary channel through the active Application transaction."""
+        """Author one explicitly configured CT or PT/CVT secondary channel transactionally."""
         self._require_transaction(transaction)
         with self._execution_lock:
             channel = self._build_configured_channel(definition)
