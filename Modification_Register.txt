@@ -6078,3 +6078,34 @@ Verification boundary:
 - Issue #774 remains open pending binding authoring UI and complete primary sensing/SLD
   persistence and undo/redo integration.
 ======================================================================
+
+
+======================================================================
+
+GridForge V2 — Detached Protection measurement binding read contract
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Issue: #774
+Branch: fix/issue-774-protection-binding-read-model
+
+Correction:
+- Added immutable ProtectionMeasurementBindingReadModel. The Application
+  projection exposes explicit source endpoint mapping, physical instrument,
+  authoritative configured ratio, channel, RelayInput, phase/sequence,
+  electrical side, result quantity and primary-side association without
+  returning mutable aggregate state or Core equipment objects.
+- Added Application.read_protection_measurement_bindings() with active-project
+  enforcement and optional protection-element / relay filtering.
+- ProtectionChanged semantic event publication now includes create/rebind
+  canonical measurement-binding commands, so UI projections can refresh after
+  successful command execution.
+- No source endpoint, phase, ratio, channel or RelayInput is inferred.
+
+Remaining:
+- Engineer-facing editor and command submission for explicit PT/CVT binding
+  creation/rebinding; read-only snapshots do not complete authoring.
+- Verify binding list/editor refresh and stale project-generation behavior
+  through the UI workflow.
+- End-to-end PT/CVT primary sensing, SLD provenance, persistence and undo/redo
+  reconciliation remain open under #774.
+- Runtime/import/test/GUI verification not performed.
