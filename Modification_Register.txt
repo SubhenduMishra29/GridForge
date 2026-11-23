@@ -6055,3 +6055,26 @@ Verification boundary:
 - Issue #774 remains open pending explicit ProtectionMeasurementBinding authoring
   and end-to-end primary sensing/SLD/persistence workflow.
 ======================================================================
+
+======================================================================
+
+GridForge V2 — Issue #774 Protection binding phase/sequence consistency
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-774-binding-phase-channel-consistency
+
+Correction:
+- ProtectionMeasurementBinding validation now requires the declared phase_or_sequence
+  to match the authoritative MeasurementChannel phase/sequence, case-normalized.
+- A missing channel phase or mismatched binding phase is rejected with a typed
+  PROTECTION_MEASUREMENT_CHANNEL_PHASE_MISMATCH diagnostic.
+- Applies uniformly to current and voltage physical instrument bindings, preventing
+  PT/CVT voltage channels from being correlated to a different RelayInput phase.
+- No phase is inferred, defaulted, or rewritten. Existing source endpoint, instrument
+  ratio, secondary terminal, quantity, and RelayInput identity checks remain intact.
+
+Verification boundary:
+- Static source inspection only; no tests, imports, GUI, or runtime protection execution.
+- Issue #774 remains open pending binding authoring UI and complete primary sensing/SLD
+  persistence and undo/redo integration.
+======================================================================
