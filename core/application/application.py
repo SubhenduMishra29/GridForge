@@ -69,7 +69,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel)
+from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel, ProtectionMeasurementBindingReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -5783,6 +5783,50 @@ class Application:
             return ()
         return tuple(configuration.elements)
 
+
+    def read_protection_measurement_bindings(
+        self, *, protection_element_id: str | None = None, relay_id: str | None = None
+    ) -> tuple[ProtectionMeasurementBindingReadModel, ...]:
+        """Return detached physical-source-to-RelayInput binding snapshots."""
+        lifecycle = self.project_lifecycle
+        if not lifecycle.has_project or lifecycle.state != "ACTIVE":
+            raise RuntimeError("Protection measurement binding reads require an active project.")
+        for name, value in (("protection_element_id", protection_element_id), ("relay_id", relay_id)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string or None.")
+        service = getattr(self, "protection_configuration_service", None)
+        configuration = getattr(service, "configuration", None) if service is not None else None
+        if configuration is None:
+            return ()
+        elements_by_id = {item.element_id: item for item in configuration.elements}
+        result = []
+        for binding in sorted(configuration.measurement_bindings, key=lambda item: item.binding_id):
+            element = elements_by_id.get(binding.protection_element_id)
+            if element is None:
+                continue
+            if protection_element_id is not None and binding.protection_element_id != protection_element_id.strip():
+                continue
+            if relay_id is not None and element.relay_id != relay_id.strip():
+                continue
+            result.append(ProtectionMeasurementBindingReadModel(
+                binding_id=binding.binding_id,
+                protection_element_id=binding.protection_element_id,
+                source_equipment_id=binding.source_equipment_id,
+                source_endpoint_reference=dict(binding.source_endpoint_reference.to_mapping()),
+                electrical_side=binding.electrical_side,
+                measurement_type=binding.measurement_type,
+                phase_or_sequence=binding.phase_or_sequence,
+                result_quantity=binding.result_quantity,
+                instrument_id=binding.instrument_id,
+                instrument_ratio=binding.instrument_ratio,
+                channel_id=binding.channel_id,
+                relay_input_id=binding.relay_input_id,
+                metadata=dict(binding.metadata),
+                instrument_primary_side=binding.instrument_primary_side,
+                instrument_primary_component_fingerprint=binding.instrument_primary_component_fingerprint,
+            ))
+        return tuple(result)
+
     def read_protection_function_configurations(
         self, *, relay_id: str | None = None
     ) -> tuple[ProtectionFunctionConfigurationReadModel, ...]:
@@ -6064,6 +6108,8 @@ class Application:
             "protection.delete_configuration",
             "protection.bind_measurement",
             "protection.unbind_measurement",
+            "protection.create_measurement_binding",
+            "protection.rebind_measurement_binding",
         }:
             self._event_bus.publish(ProtectionChanged(
                 operation=operation,
