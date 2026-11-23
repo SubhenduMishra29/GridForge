@@ -2,12 +2,11 @@
 # GridForge V2 — CT Secondary Measurement Channel Editor
 # ============================================================
 
-"""Engineer-facing CT secondary-channel authoring surface.
+"""Engineer-facing CT/PT/CVT secondary-channel authoring surface.
 
-This widget stages presentation values only. It reads detached channel
-configuration and live-telemetry snapshots separately and submits immutable commands
-through Application.execute(); it never touches Core equipment or
-MeasurementChannel objects directly.
+The editor stages presentation values, reads detached configuration and
+telemetry snapshots, and submits immutable Application commands. It never
+mutates Core equipment or MeasurementChannel objects directly.
 """
 
 from __future__ import annotations
@@ -44,6 +43,7 @@ class CTSecondaryChannelEditor(QGroupBox):
         self.setObjectName("CTSecondaryChannelEditor")
         self._application: Any | None = None
         self._target_id: str | None = None
+        self._target_type: str | None = None
         self._refreshing = False
         self._channels_by_id: dict[str, Any] = {}
         self._samples_by_id: dict[str, Any] = {}
@@ -63,12 +63,17 @@ class CTSecondaryChannelEditor(QGroupBox):
 
         self._terminal = QComboBox(self)
         self._terminal.setObjectName("CTSecondaryTerminal")
-        self._terminal.addItem("S1 — secondary winding terminal", "S1")
-        self._terminal.addItem("S2 — secondary winding terminal", "S2")
+        for label, role in (
+            ("S1 — CT secondary", "S1"), ("S2 — CT secondary", "S2"),
+            ("secondary_a — PT secondary", "secondary_a"),
+            ("secondary_b — PT secondary", "secondary_b"),
+            ("X1 — CVT secondary", "X1"), ("X2 — CVT secondary", "X2"),
+        ):
+            self._terminal.addItem(label, role)
 
         self._phase = QComboBox(self)
         self._phase.setObjectName("CTSecondaryChannelPhase")
-        for phase in ("A", "B", "C", "N"):
+        for phase in ("A", "B", "C", "N", "AB", "BC", "CA", "THREE_PHASE", "POSITIVE_SEQUENCE", "NEGATIVE_SEQUENCE", "ZERO_SEQUENCE"):
             self._phase.addItem(phase, phase)
 
         self._nominal = self._number("CTSecondaryNominalValue", 5.0, 0.000001, 100000000.0, 6)
@@ -92,10 +97,17 @@ class CTSecondaryChannelEditor(QGroupBox):
         form.addRow("Existing channel", self._channel_selector)
         form.addRow("Channel ID", self._channel_id)
         form.addRow("Name", self._name)
-        form.addRow("Physical CT terminal", self._terminal)
-        form.addRow("Signal / unit", QLabel("CURRENT / A", self))
-        form.addRow("Phase", self._phase)
-        form.addRow("Nominal secondary current (A)", self._nominal)
+        form.addRow("Physical instrument secondary", self._terminal)
+        self._signal_unit = QLabel("CURRENT / A", self)
+        form.addRow("Signal / unit", self._signal_unit)
+        form.addRow("Phase / sequence", self._phase)
+        self._unit = QComboBox(self)
+        self._unit.setObjectName("MeasurementChannelUnit")
+        self._unit.addItem("A", "A")
+        self._unit.addItem("V", "V")
+        self._unit.addItem("kV", "kV")
+        form.addRow("Engineering unit", self._unit)
+        form.addRow("Nominal secondary value", self._nominal)
         form.addRow("Channel scale", self._scale)
         form.addRow("Polarity", self._polarity)
         form.addRow("Producer identity", self._producer)
@@ -193,17 +205,42 @@ class CTSecondaryChannelEditor(QGroupBox):
             attributes = getattr(projection, "attributes", {}) or {}
             equipment_type = str(attributes.get("equipment_type", "")).strip().lower()
             normalized = display_type.replace(" ", "_").replace("-", "_")
-            if normalized in {"current_transformer", "currenttransformer", "ct"} or equipment_type in {"current_transformer", "ct"}:
+            aliases = {
+                "current_transformer": "ct", "currenttransformer": "ct", "ct": "ct",
+                "potential_transformer": "pt", "voltage_transformer": "pt", "pt": "pt",
+                "capacitive_voltage_transformer": "cvt", "capacitivevoltagetransformer": "cvt", "cvt": "cvt",
+            }
+            candidate_type = aliases.get(normalized) or aliases.get(equipment_type)
+            if candidate_type in {"ct", "pt", "cvt"}:
                 candidate = str(getattr(projection, "object_id", "")).strip()
                 target_id = candidate or None
+                self._target_type = candidate_type
+        if target_id is None:
+            self._target_type = None
         self._target_id = target_id
+        if target_id is not None:
+            self.setTitle({"ct": "CT Secondary Measurement Channels", "pt": "PT Voltage Secondary Channels", "cvt": "CVT Voltage Secondary Channels"}[self._target_type])
         self.setVisible(target_id is not None)
+        self._configure_quantity()
         self._refresh_channels()
+
+    def _configure_quantity(self) -> None:
+        is_current = self._target_type == "ct"
+        self._signal_unit.setText("CURRENT / A" if is_current else "VOLTAGE / V or kV")
+        self._unit.clear()
+        if is_current:
+            self._unit.addItem("A", "A")
+        else:
+            self._unit.addItem("V", "V")
+            self._unit.addItem("kV", "kV")
+        self._nominal.setValue(5.0 if is_current else 110.0)
+        self._terminal.setCurrentIndex(0 if is_current else (2 if self._target_type == "pt" else 4))
+        self._phase.setCurrentIndex(max(0, self._phase.findData("A")))
 
     def _set_enabled(self, enabled: bool) -> None:
         for control in (
             self._channel_selector, self._channel_id, self._name, self._terminal,
-            self._phase, self._nominal, self._scale, self._polarity,
+            self._phase, self._unit, self._nominal, self._scale, self._polarity,
             self._producer, self._timestamp_domain, self._stale_after,
         ):
             control.setEnabled(enabled)
@@ -227,10 +264,14 @@ class CTSecondaryChannelEditor(QGroupBox):
             channels = tuple(
                 item for item in self._application.read_measurement_channel_configurations()
                 if item.source_id == self._target_id
-                and item.source_equipment_type == "ct"
+                and item.source_equipment_type == self._target_type
                 and item.source_terminal_reference is not None
-                and item.source_terminal_reference.get("terminal_role") in {"S1", "S2"}
-                and item.signal_type == "CURRENT"
+                and item.source_terminal_reference.get("terminal_role") in (
+                    {"S1", "S2"} if self._target_type == "ct"
+                    else {"secondary_a", "secondary_b"} if self._target_type == "pt"
+                    else {"X1", "X2"}
+                )
+                and item.signal_type == ("CURRENT" if self._target_type == "ct" else "VOLTAGE")
             )
             samples = {
                 item.channel_id: item
@@ -277,7 +318,7 @@ class CTSecondaryChannelEditor(QGroupBox):
         else:
             self._reset_definition()
             self._status.setText(
-                f"CT {self._target_id}: no S1/S2 measurement channels are authored yet. "
+                f"{self._target_type.upper()} {self._target_id}: no secondary measurement channels are authored yet. "
                 "A channel remains unavailable until a trusted producer publishes an authenticated sample."
             )
 
@@ -298,7 +339,8 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._name.setText(channel.name or "")
         self._terminal.setCurrentIndex(max(0, self._terminal.findData(channel.source_terminal_reference.get("terminal_role"))))
         self._phase.setCurrentIndex(max(0, self._phase.findData(channel.phase)))
-        self._nominal.setValue(float(channel.nominal_value or 5.0))
+        self._unit.setCurrentIndex(max(0, self._unit.findData(channel.unit)))
+        self._nominal.setValue(float(channel.nominal_value or (5.0 if self._target_type == "ct" else 110.0)))
         self._scale.setValue(float(channel.scale or 1.0))
         self._polarity.setCurrentIndex(max(0, self._polarity.findData(float(channel.polarity or 1.0))))
         self._producer.setText(channel.producer_id or "")
@@ -325,15 +367,13 @@ class CTSecondaryChannelEditor(QGroupBox):
         finally:
             self._refreshing = False
         self._reset_definition()
-        self._status.setText("Enter a new channel ID and explicit producer and timestamp identities, then create the S1/S2 channel.")
+        self._status.setText("Enter a channel ID and explicit producer identity, then create the selected instrument's voltage/current secondary channel.")
 
     def _reset_definition(self) -> None:
         self._channel_id.clear()
         self._channel_id.setReadOnly(False)
         self._name.clear()
-        self._terminal.setCurrentIndex(0)
-        self._phase.setCurrentIndex(max(0, self._phase.findData("A")))
-        self._nominal.setValue(5.0)
+        self._configure_quantity()
         self._scale.setValue(1.0)
         self._polarity.setCurrentIndex(0)
         self._producer.clear()
@@ -347,8 +387,8 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._delete_button.setEnabled(False)
 
     def _definition(self) -> dict[str, Any]:
-        if not self._target_id:
-            raise RuntimeError("Select a committed Current Transformer first.")
+        if not self._target_id or self._target_type not in {"ct", "pt", "cvt"}:
+            raise RuntimeError("Select a committed CT, PT or CVT first.")
         channel_id = self._channel_id.text().strip()
         producer_id = self._producer.text().strip()
         timestamp_domain = self._timestamp_domain.text().strip()
@@ -367,13 +407,13 @@ class CTSecondaryChannelEditor(QGroupBox):
             "source": self._target_id,
             "source_terminal": {
                 "kind": "terminal",
-                "equipment_type": "ct",
+                "equipment_type": self._target_type,
                 "object_id": self._target_id,
                 "terminal_role": terminal_role,
             },
-            "signal_type": "CURRENT",
+            "signal_type": "CURRENT" if self._target_type == "ct" else "VOLTAGE",
             "phase": str(self._phase.currentData()),
-            "unit": "A",
+            "unit": str(self._unit.currentData()),
             "nominal_value": float(self._nominal.value()),
             "scale": float(self._scale.value()),
             "polarity": float(self._polarity.currentData()),
@@ -400,7 +440,7 @@ class CTSecondaryChannelEditor(QGroupBox):
         except (TypeError, ValueError, RuntimeError) as exc:
             self._status.setText(f"Channel definition invalid: {exc}")
             return
-        self._submit(command, f"Created CT secondary channel {definition['channel_id']}.")
+        self._submit(command, f"Created {self._target_type.upper()} secondary channel {definition['channel_id']}.")
 
     def _update_channel(self) -> None:
         channel_id = self._channel_selector.currentData()
@@ -416,7 +456,7 @@ class CTSecondaryChannelEditor(QGroupBox):
         except (TypeError, ValueError, RuntimeError) as exc:
             self._status.setText(f"Channel definition invalid: {exc}")
             return
-        self._submit(command, f"Updated CT secondary channel {channel_id}.")
+        self._submit(command, f"Updated {self._target_type.upper()} secondary channel {channel_id}.")
 
     def _delete_channel(self) -> None:
         channel_id = self._channel_selector.currentData()
@@ -429,4 +469,6 @@ class CTSecondaryChannelEditor(QGroupBox):
         )
 
 
-__all__ = ["CTSecondaryChannelEditor"]
+MeasurementSecondaryChannelEditor = CTSecondaryChannelEditor
+
+__all__ = ["CTSecondaryChannelEditor", "MeasurementSecondaryChannelEditor"]
