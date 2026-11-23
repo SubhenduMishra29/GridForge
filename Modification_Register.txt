@@ -6303,7 +6303,7 @@ Correction:
 
 Verification boundary:
 - Source-level correction and exact diff reviewed; branch fetch-back confirmed.
-- Python syntax check to be recorded after branch fetch-back.
+- The two changed call fragments passed Python compile() in isolation; full-module py_compile/import was not run.
 - No tests/CI, GUI, runtime insertion, layer visibility/lock interaction,
   save/reopen or undo/redo experiments were run.
 ======================================================================
