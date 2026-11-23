@@ -208,7 +208,7 @@ class CTSecondaryChannelEditor(QGroupBox):
             aliases = {
                 "current_transformer": "ct", "currenttransformer": "ct", "ct": "ct",
                 "potential_transformer": "pt", "voltage_transformer": "pt", "pt": "pt",
-                "capacitive_voltage_transformer": "cvt", "cvt": "cvt",
+                "capacitive_voltage_transformer": "cvt", "capacitivevoltagetransformer": "cvt", "cvt": "cvt",
             }
             candidate_type = aliases.get(normalized) or aliases.get(equipment_type)
             if candidate_type in {"ct", "pt", "cvt"}:
@@ -227,7 +227,12 @@ class CTSecondaryChannelEditor(QGroupBox):
     def _configure_quantity(self) -> None:
         is_current = self._target_type == "ct"
         self._signal_unit.setText("CURRENT / A" if is_current else "VOLTAGE / V or kV")
-        self._unit.setCurrentIndex(max(0, self._unit.findData("A" if is_current else "V")))
+        self._unit.clear()
+        if is_current:
+            self._unit.addItem("A", "A")
+        else:
+            self._unit.addItem("V", "V")
+            self._unit.addItem("kV", "kV")
         self._nominal.setValue(5.0 if is_current else 110.0)
         self._terminal.setCurrentIndex(0 if is_current else (2 if self._target_type == "pt" else 4))
         self._phase.setCurrentIndex(max(0, self._phase.findData("A")))
@@ -334,7 +339,8 @@ class CTSecondaryChannelEditor(QGroupBox):
         self._name.setText(channel.name or "")
         self._terminal.setCurrentIndex(max(0, self._terminal.findData(channel.source_terminal_reference.get("terminal_role"))))
         self._phase.setCurrentIndex(max(0, self._phase.findData(channel.phase)))
-        self._nominal.setValue(float(channel.nominal_value or 5.0))
+        self._unit.setCurrentIndex(max(0, self._unit.findData(channel.unit)))
+        self._nominal.setValue(float(channel.nominal_value or (5.0 if self._target_type == "ct" else 110.0)))
         self._scale.setValue(float(channel.scale or 1.0))
         self._polarity.setCurrentIndex(max(0, self._polarity.findData(float(channel.polarity or 1.0))))
         self._producer.setText(channel.producer_id or "")
