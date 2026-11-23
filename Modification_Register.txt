@@ -5980,3 +5980,52 @@ Verification boundary:
 - Request capture is performed under the Application execution lock. Candidate construction mutates only the detached Network/DraftNetwork copies; the live Core Network and live DraftNetwork remain unchanged.
 - Architecture boundary: Core remains electrical truth; Application owns candidate construction and study orchestration; UI invokes the Application API and consumes result read models. No Qt/SLD dependency was added to Core.
 - Verification boundary: Python py_compile passed for the new draft-study snapshot builder; modified blocks and import paths were reviewed statically. Full-project compile/import/startup, tests/CI, runtime GUI/solver execution, archive round-trip, and live draft-mutation experiments were not run or treated as acceptance gates in accordance with the repository workflow.
+
+
+======================================================================
+
+GridForge V2 — PT/CVT explicit voltage-secondary MeasurementChannel lifecycle
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Issue: #774
+Branch: fix/issue-774-pt-cvt-voltage-channel-lifecycle
+
+Finding:
+- PT and CVT creation commands already accept explicit primary and secondary
+  EndpointReference values, and their Application handlers resolve those
+  references through EndpointResolver. They must not be added to the CT-style
+  series insertion contract.
+- MeasurementChannelService authoring was CT-only even though Core measurement
+  provisioning already recognized PT secondary_a/secondary_b and CVT X1/X2 as
+  valid physical secondary terminal roles.
+
+Correction:
+- Added a separate PT/CVT voltage-channel authoring path to the existing
+  project-scoped MeasurementChannelService.
+- Requires an explicit PT or CVT source identity and its own physical
+  secondary terminal: PT secondary_a/secondary_b or CVT X1/X2.
+- Requires VOLTAGE signal type, explicit non-NONE phase/sequence, V or kV unit,
+  positive nominal voltage and scale, polarity +/-1, positive stale_after,
+  explicit producer identity, and timestamp domain matching the trusted
+  Application clock.
+- Newly authored channels start unavailable with UNKNOWN quality until a
+  trusted producer publishes an authenticated sample.
+- Duplicate channel ownership of the same instrument secondary terminal is
+  rejected.
+- Existing transactional create/update/delete path and channel-use guard are
+  retained. Project activation now applies the same PT/CVT validation and
+  restores the channel unavailable pending trusted ingress.
+- CT-specific S1/S2 CURRENT rules remain separate and unchanged.
+
+Remaining:
+- Add engineer-facing PT/CVT secondary-channel editor and explicit channel
+  configuration/read-model integration.
+- Reconcile ProtectionMeasurementBinding and RelayInput authoring for PT/CVT
+  voltage channels, including measurement quantity/phase/ratio semantics.
+- Complete end-to-end primary voltage-sensing workflow and SLD projection,
+  including explicit endpoint selection, persistence/restore, undo/redo and
+  topology validation.
+- Static source review only. No tests, imports, GUI, runtime, protection
+  simulation, or save/reopen execution performed. Do not close #774 yet.
+
+======================================================================
