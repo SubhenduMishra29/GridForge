@@ -5980,3 +5980,32 @@ Verification boundary:
 - Request capture is performed under the Application execution lock. Candidate construction mutates only the detached Network/DraftNetwork copies; the live Core Network and live DraftNetwork remain unchanged.
 - Architecture boundary: Core remains electrical truth; Application owns candidate construction and study orchestration; UI invokes the Application API and consumes result read models. No Qt/SLD dependency was added to Core.
 - Verification boundary: Python py_compile passed for the new draft-study snapshot builder; modified blocks and import paths were reviewed statically. Full-project compile/import/startup, tests/CI, runtime GUI/solver execution, archive round-trip, and live draft-mutation experiments were not run or treated as acceptance gates in accordance with the repository workflow.
+
+======================================================================
+GridForge V2 — SLD wire route normalization and canonical endpoint reconciliation (Issue #773)
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Branch: reconcile/issue-773-wire-lifecycle-20261123
+Authoritative tracking: SubhenduMishra29/GridForge#773
+
+Reconciliation:
+- Re-fetched current authoritative main at c64b1ff175eaafadda91b33e0ab33b0a8f48454d and confirmed the route contract in
+  core/application/draft/network.py. DraftConnection validates 2D finite numeric route
+  coordinates, removes consecutive duplicate bends, and retains non-consecutive revisits.
+- Canonical DraftEndpointReference source/target identities remain the only electrical
+  endpoints. Route bends remain SLD presentation metadata and are not Core terminals,
+  junctions, or connectivity.
+- The route-update Application handler validates project and activation provenance,
+  connection identity, endpoint pair and connection kind before replacing the immutable
+  route and recording the transaction inverse.
+- Existing source reconciliation traces the SLD route-edit command through presentation
+  persistence and reload projection. Stable object-snap endpoint identities, not visual
+  overlap, define wire connectivity.
+- Closed upstream audit issue #773 as completed after confirming the source corrections
+  are already integrated on main. GUI route edit/shorten/undo/redo/save/reopen and solver
+  behavior remain unverified; no tests or CI were run.
+
+Verification boundary:
+- Static source inspection and GitHub fetch-back only.
+- No production source changes, tests, CI, imports, startup, GUI or runtime experiments.
+======================================================================
