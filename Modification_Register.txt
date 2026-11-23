@@ -6178,3 +6178,54 @@ Remaining:
 - Static source review only. No tests, imports, solver execution, GUI or
   save/reopen execution performed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Issue #881 SLD route and presentation metadata preservation
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Authoritative baseline: main @ 5e59e8f072c00c8a303ddfa15265475cabd55184
+Issue: #881
+
+Current-main correction reconciliation:
+- The active SLD renderer resolves canonical endpoint anchors first and passes the
+  route snapshot to SLDConnectionItem. Engineer-owned orthogonal routes retain
+  their authored bend points; presentation-only endpoint elbows are generated
+  separately for rendering.
+- SLDConnectionItem.insertion_target captures the selected connection's stable
+  presentation/Core identities, canonical endpoint descriptors, exact rendered
+  source/target anchors, bend points, route ownership, and selected segment.
+- ElectricalInsertionTool forwards that value snapshot and segment index through
+  the immutable InsertEquipmentIntoConnectionCommand. ElectricalInsertionService
+  performs the Core terminal connections, removes the original SimpleWire only
+  after endpoint verification, creates both deterministic replacement wires,
+  validates the Core connectivity aggregate, and returns the insertion metadata.
+- Application's outer pre-commit hook invokes SLDService.reconcile_insertion in
+  the same transaction. The SLD service splits the supplied route at the selected
+  segment, retains routing_mode and ownership, and for engineer-owned routes
+  removes only consecutive duplicate points; collinear authored bends are not
+  compacted. Both replacement SLD connections inherit the original presentation
+  properties and provenance, including route ownership and projection source.
+- Existing equipment SLD nodes retain their authored presentation and properties.
+  The original endpoint nodes are not recreated. SLDAnnotationBlock is explicitly
+  node-bound, so existing endpoint annotation offsets remain attached to their
+  unchanged node identities; no unsupported connection-level annotation is
+  fabricated or migrated.
+- The SLD inverse is registered before mutation and retains the original
+  connection/node snapshots for transaction rollback and undo. Core topology
+  remains authoritative; route geometry remains SLD presentation state and never
+  creates electrical endpoints. No Qt/QGraphics dependency is introduced into
+  Core.
+
+Disposition:
+- The source-level route/presentation preservation correction is already present
+  in authoritative main. No additional production-source patch is justified for
+  the specific metadata-loss mechanism described by #881.
+- Close #881 as completed against the current-main implementation. GUI insertion,
+  save/reopen, and undo/redo interaction remain unverified and are not claimed.
+
+Verification boundary:
+- Current-main source fetch-back and static call-path inspection only.
+- No tests, CI, Python import/syntax execution, application startup, Qt GUI,
+  runtime insertion, save/reopen, or undo/redo experiments were run.
+======================================================================
