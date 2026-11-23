@@ -6272,3 +6272,38 @@ Verification boundary:
 - Current-main source inspection and GitHub fetch-back only.
 - No tests, CI, Python imports, startup, Qt GUI or runtime experiments were run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Issue #881 follow-up: preserve SLD presentation layer on wire split
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Issue: #881
+Authoritative baseline: main @ a8a523f372c840099ca53df3f89f9754326a44c4
+Branch: fix/issue-881-preserve-sld-layer-on-wire-split
+
+Confirmed source defect:
+- SLDConnection persists layer_id as a first-class presentation field.
+  SLDModel.create_connection defaults that field to "default" when omitted.
+- SLDService.reconcile_insertion replaced one connection with two new
+  connections but did not pass the original connection's layer_id to either
+  create_connection call. A wire inserted on a named/custom SLD layer therefore
+  lost that layer membership on both replacement segments, changing the
+  presentation-layer visibility, opacity, ordering and lock context.
+
+Correction:
+- Both replacement SLD connections now receive layer_id=old_connection.layer_id.
+- Existing route points, routing mode, engineer/auto ownership, endpoint
+  descriptors, connection properties/provenance and node metadata remain
+  preserved by the existing insertion reconciliation path.
+- The original connection snapshot and transaction inverse already retain its
+  layer_id for rollback/undo.
+- No Core topology or endpoint semantics changed. Layer membership remains
+  presentation state; no Qt/QGraphics dependency was added to Core.
+
+Verification boundary:
+- Source-level correction and exact diff reviewed; branch fetch-back confirmed.
+- The two changed call fragments passed Python compile() in isolation; full-module py_compile/import was not run.
+- No tests/CI, GUI, runtime insertion, layer visibility/lock interaction,
+  save/reopen or undo/redo experiments were run.
+======================================================================

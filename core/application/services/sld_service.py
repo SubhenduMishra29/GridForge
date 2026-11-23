@@ -1848,6 +1848,7 @@ class SLDService:
             target_endpoint=input_presentation_endpoint,
             route=route_for(first_polyline),
             properties=dict(properties, core_connection_id=first_core_id),
+            layer_id=old_connection.layer_id,
         )
         created_connection_refs[first_id] = self.document.model.get_connection(first_id)
         self.document.model.create_connection(
@@ -1858,6 +1859,7 @@ class SLDService:
             target_endpoint=old_connection.target_endpoint.to_dict() if old_connection.target_endpoint is not None else None,
             route=route_for(second_polyline),
             properties=dict(properties, core_connection_id=second_core_id),
+            layer_id=old_connection.layer_id,
         )
         created_connection_refs[second_id] = self.document.model.get_connection(second_id)
         self.document.mark_modified()
