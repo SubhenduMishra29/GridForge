@@ -111,6 +111,45 @@ class ShortCircuitSolver:
             voltages[sequence] = base - matrix[:, fault_index] * current
         return voltages
 
+    def _sequence_bus_voltage_payload(
+        self, typed: dict[str, Any]
+    ) -> tuple[dict[str, dict[str, complex]], ContributionStatus, tuple[str, ...]]:
+        """Detach solved post-fault sequence voltage phasors with exact Bus identity."""
+        snapshot = self.input.sequence_snapshot
+        if snapshot is None or not self.input.bus_ids:
+            return {}, ContributionStatus.UNAVAILABLE, (
+                "Sequence Bus-voltage records require a prepared sequence snapshot and canonical Bus identities.",
+            )
+        voltages = self._bus_voltages(typed)
+        if voltages is None:
+            return {}, ContributionStatus.UNAVAILABLE, (
+                "Solved sequence Bus voltages are unavailable for this short-circuit result.",
+            )
+        required = self._required_for_fault()
+        records: dict[str, dict[str, complex]] = {}
+        diagnostics: list[str] = []
+        for index, bus_id in enumerate(self.input.bus_ids):
+            unavailable = tuple(
+                sequence for sequence in required
+                if not snapshot.is_bus_available(sequence, index)
+            )
+            if unavailable:
+                diagnostics.append(
+                    f"Bus {bus_id!r} has unavailable post-fault sequence voltage components: {', '.join(unavailable)}."
+                )
+                continue
+            records[str(bus_id)] = {
+                sequence: complex(voltages[sequence][index])
+                for sequence in required
+            }
+        if len(records) == len(self.input.bus_ids):
+            status = ContributionStatus.COMPLETE
+        elif records:
+            status = ContributionStatus.PARTIAL
+        else:
+            status = ContributionStatus.UNAVAILABLE
+        return records, status, tuple(diagnostics)
+
     def _required_for_fault(self) -> tuple[str, ...]:
         if self.input.fault_type is FaultType.THREE_PHASE:
             return ("positive",)
@@ -616,6 +655,9 @@ class ShortCircuitSolver:
             return self._solve_phase_domain()
         values = self._execute()
         typed = self._fault_typed_quantities(values)
+        sequence_bus_voltages, sequence_bus_voltage_status, sequence_bus_voltage_diagnostics = (
+            self._sequence_bus_voltage_payload(typed)
+        )
         source_contributions, equipment_currents, branch_currents = self._calculate_contributions(typed)
         contribution_status, contribution_diagnostics = self._contribution_status(source_contributions, equipment_currents, branch_currents)
         terminal_currents, terminal_current_status, terminal_current_diagnostics = self._calculate_terminal_currents(typed)
@@ -653,6 +695,9 @@ class ShortCircuitSolver:
             # downstream instrument conversion never guesses a system base.
             "base_mva": self.input.base_mva,
             "bus_voltage_bases_kv": dict(self.input.bus_voltage_bases_kv),
+            "sequence_bus_voltage_status": sequence_bus_voltage_status.value,
+            "sequence_bus_voltage_bus_ids": tuple(sequence_bus_voltages),
+            "sequence_bus_voltage_diagnostics": sequence_bus_voltage_diagnostics,
             "current_units": "per_unit",
             "unavailable_sequence_buses": {
                 sequence: tuple(
@@ -671,6 +716,9 @@ class ShortCircuitSolver:
             "conductor_currents": conductor_currents,
             "conductor_current_status": conductor_current_status,
             "conductor_current_diagnostics": conductor_current_diagnostics,
+            "sequence_bus_voltages_pu": sequence_bus_voltages,
+            "sequence_bus_voltage_status": sequence_bus_voltage_status,
+            "sequence_bus_voltage_diagnostics": sequence_bus_voltage_diagnostics,
             "contribution_status": contribution_status,
             "contribution_diagnostics": contribution_diagnostics,
         })
