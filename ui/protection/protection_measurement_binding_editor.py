@@ -113,6 +113,7 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
             "cables": "cable",
             "pts": "pt",
             "potential_transformers": "potential_transformer",
+            "capacitive_voltage_transformers": "cvt",
             "cvts": "cvt",
         }.get(normalized, normalized)
 
