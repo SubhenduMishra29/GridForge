@@ -6143,3 +6143,38 @@ Remaining:
 - Static source review only. No imports, GUI, runtime, tests or save/reopen
   execution performed. Keep Issue #774 open.
 ======================================================================
+
+
+======================================================================
+
+GridForge V2 — Issue #774 post-fault sequence Bus-voltage result snapshot
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-774-short-circuit-bus-voltage-snapshot
+
+Correction:
+- ShortCircuitSolver now preserves the solved post-fault sequence voltage
+  phasors for each Bus whose required sequence components are available.
+- Added the detached result payload sequence_bus_voltages_pu, keyed by canonical
+  Bus ID and sequence name, with explicit COMPLETE/PARTIAL/UNAVAILABLE status.
+- Added diagnostics for Buses whose required sequence voltage components are
+  unavailable. No missing voltage component is fabricated or replaced by a
+  prefault value.
+- Added Bus IDs, voltage status and diagnostics to ShortCircuitResult provenance.
+  Existing exact bus_voltage_bases_kv provenance remains the basis for any
+  downstream per-unit to engineering-unit conversion.
+- The phase-domain path remains separate and retains its physical node-voltage
+  records; no sequence values are substituted for phase-domain results.
+
+Remaining:
+- PT/CVT sample conversion must resolve both primary winding endpoints to
+  authoritative topology components and map them to the correct solved voltage
+  phasors. Phase/line-to-line semantics and voltage-base handling must be
+  explicit; unsupported connection arrangements must fail closed.
+- Bind the resulting detached sample to the configured MeasurementChannel and
+  RelayInput in Protection Study without mutating live channel telemetry.
+- SLD provenance, persistence/restore and undo/redo integration remain open
+  under Issue #774.
+- Static source review only. No tests, imports, solver execution, GUI or
+  save/reopen execution performed.
+======================================================================
