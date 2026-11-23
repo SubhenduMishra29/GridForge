@@ -905,6 +905,19 @@ class ProtectionConfigurationService:
                     "measurement_type": measurement_type,
                 },
             )
+        channel_phase = str(getattr(getattr(channel, "phase", None), "value", "")).strip().upper()
+        binding_phase = binding.phase_or_sequence.strip().upper()
+        if not channel_phase or binding_phase != channel_phase:
+            raise DomainError(
+                code="PROTECTION_MEASUREMENT_CHANNEL_PHASE_MISMATCH",
+                message="Protection measurement binding phase/sequence must exactly match the physical secondary MeasurementChannel phase/sequence.",
+                details={
+                    "binding_id": binding.binding_id,
+                    "channel_id": binding.channel_id,
+                    "binding_phase_or_sequence": binding_phase,
+                    "channel_phase_or_sequence": channel_phase or None,
+                },
+            )
         relay = network.get_by_id("relay", element.relay_id)
         relay_input = relay.get_input(binding.relay_input_id)
         if relay_input.channel_id != binding.channel_id or relay_input.channel is not channel:
