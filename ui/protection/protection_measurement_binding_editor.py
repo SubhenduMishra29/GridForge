@@ -106,7 +106,15 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
 
     @staticmethod
     def _normalized_type(value: Any) -> str:
-        return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        normalized = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        return {
+            "buses": "bus",
+            "lines": "line",
+            "cables": "cable",
+            "pts": "pt",
+            "potential_transformers": "potential_transformer",
+            "cvts": "cvt",
+        }.get(normalized, normalized)
 
     @classmethod
     def _instrument_kind(cls, element: Any) -> str | None:
