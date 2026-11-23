@@ -6133,6 +6133,8 @@ Correction:
   and exact RelayInput association. The UI does not infer or rewrite those values.
 - Displays persisted binding identities and endpoint provenance. Exported the
   editor through ui.protection.__init__.
+- Captures the active project ID and activation generation while loading choices;
+  rejects submission if the project scope has changed before command dispatch.
 
 Remaining:
 - Rebinding/stale primary-topology association workflow is not exposed yet.
