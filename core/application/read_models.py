@@ -450,6 +450,52 @@ class ProtectionFunctionConfigurationReadModel:
         object.__setattr__(self, "unmodeled_settings", _freeze(self.unmodeled_settings))
 
 
+
+@dataclass(frozen=True, slots=True)
+class ProtectionMeasurementBindingReadModel:
+    """Detached, immutable Application projection of a physical protection measurement binding."""
+
+    binding_id: str
+    protection_element_id: str
+    source_equipment_id: str
+    source_endpoint_reference: Mapping[str, Any]
+    electrical_side: str
+    measurement_type: str
+    phase_or_sequence: str
+    result_quantity: str
+    instrument_id: str
+    instrument_ratio: float
+    channel_id: str
+    relay_input_id: str
+    metadata: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+    instrument_primary_side: str | None = None
+    instrument_primary_component_fingerprint: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in (
+            "binding_id", "protection_element_id", "source_equipment_id",
+            "electrical_side", "measurement_type", "phase_or_sequence",
+            "result_quantity", "instrument_id", "channel_id", "relay_input_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"ProtectionMeasurementBindingReadModel.{name} must be non-empty.")
+            object.__setattr__(self, name, value.strip())
+        if not isinstance(self.source_endpoint_reference, Mapping):
+            raise TypeError("source_endpoint_reference must be a mapping.")
+        object.__setattr__(self, "source_endpoint_reference", _freeze(self.source_endpoint_reference))
+        if isinstance(self.instrument_ratio, bool) or not isinstance(self.instrument_ratio, (int, float)) or not math.isfinite(self.instrument_ratio) or self.instrument_ratio <= 0:
+            raise ValueError("instrument_ratio must be finite and positive.")
+        object.__setattr__(self, "instrument_ratio", float(self.instrument_ratio))
+        if not isinstance(self.metadata, Mapping):
+            raise TypeError("metadata must be a mapping.")
+        object.__setattr__(self, "metadata", _freeze(self.metadata))
+        for name in ("instrument_primary_side", "instrument_primary_component_fingerprint"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be non-empty or None.")
+
+
 @dataclass(frozen=True, slots=True)
 class StudyResultReadModel:
     """Immutable Application read-side view of one published study result.
@@ -941,6 +987,7 @@ __all__ = [
     "PhysicalRelayConfigurationReadModel",
     "ProtectionSettingValueReadModel",
     "ProtectionFunctionConfigurationReadModel",
+    "ProtectionMeasurementBindingReadModel",
     "StudyResultReadModel",
     "TransientSignalReadModel",
     "TransientAlgebraicQualityReadModel",
