@@ -260,6 +260,14 @@ class MeasurementChannelService:
                         0.0, quality=MeasurementQuality.UNKNOWN, available=False,
                         timestamp=None, sample_sequence=None,
                     )
+                elif str(getattr(channel.source, "element_type", type(channel.source).__name__)).strip().upper() in {"PT", "CVT"}:
+                    self._validate_voltage_channel_definition(
+                        definition, channel, existing_channels=next_channels
+                    )
+                    channel.reset(
+                        0.0, quality=MeasurementQuality.UNKNOWN, available=False,
+                        timestamp=None, sample_sequence=None,
+                    )
                 # Bind immutable producer identity before sealing the channel.
                 channel.producer_id = self._normalize_optional_id(definition.get("producer_id"))
                 channel._bind_sample_update_authority(self._sample_update_authority)
@@ -329,10 +337,10 @@ class MeasurementChannelService:
     def create_channel(
         self, *, definition: Mapping[str, Any], transaction: Transaction,
     ) -> ApplicationResult[str]:
-        """Author one CT secondary channel through the active Application transaction."""
+        """Author one explicitly configured CT or PT/CVT secondary channel transactionally."""
         self._require_transaction(transaction)
         with self._execution_lock:
-            channel = self._build_ct_channel(definition)
+            channel = self._build_configured_channel(definition)
             if channel.id in self._channels:
                 raise ValueError(f"Measurement channel already exists: {channel.id}")
             previous = self._channels
@@ -436,7 +444,7 @@ class MeasurementChannelService:
             candidate_data.update(dict(definition))
             candidate_data["producer_id"] = previous_channel.producer_id
             candidate_data["channel_id"] = normalized_id
-            channel = self._build_ct_channel(candidate_data)
+            channel = self._build_configured_channel(candidate_data)
             previous = self._channels
             next_channels = dict(previous)
             next_channels[normalized_id] = channel
@@ -498,6 +506,97 @@ class MeasurementChannelService:
                 f"Measurement channel {channel_id!r} is still referenced by Protection or Control configuration; "
                 "unbind every consumer before editing or deleting it."
             )
+
+
+    def _build_configured_channel(self, definition: Mapping[str, Any]) -> MeasurementChannel:
+        """Build only explicitly configured CT-current or PT/CVT-voltage channels."""
+        terminal_data = definition.get("source_terminal", definition.get("source_terminal_reference"))
+        if not isinstance(terminal_data, Mapping):
+            raise ValueError("Measurement channel authoring requires an explicit source_terminal mapping.")
+        equipment_type = str(terminal_data.get("equipment_type", "")).strip().lower()
+        if equipment_type == "ct":
+            return self._build_ct_channel(definition)
+        if equipment_type in {"pt", "cvt"}:
+            return self._build_voltage_channel(definition)
+        raise ValueError("Only explicit CT, PT or CVT secondary channel sources are supported.")
+
+    def _build_voltage_channel(self, definition: Mapping[str, Any]) -> MeasurementChannel:
+        """Build a PT/CVT voltage channel from an explicitly selected secondary terminal."""
+        if not isinstance(definition, Mapping):
+            raise TypeError("Voltage measurement channel definition must be a mapping.")
+        if self._context is None or self._network is None or self._project_id != self._context.project_id:
+            raise RuntimeError("PT/CVT voltage channel authoring requires an active project and Network.")
+        channel_id = self._normalize_id(definition.get("channel_id", definition.get("id")))
+        source_id = self._normalize_id(definition.get("source", definition.get("source_id")))
+        terminal_data = definition.get("source_terminal", definition.get("source_terminal_reference"))
+        if not isinstance(terminal_data, Mapping):
+            raise ValueError("PT/CVT voltage channel authoring requires an explicit source_terminal mapping.")
+        reference = self._endpoint_reference(terminal_data)
+        source_type = str(getattr(reference.equipment_type, "value", "")).strip().upper()
+        roles = {"PT": {"secondary_a", "secondary_b"}, "CVT": {"X1", "X2"}}
+        if source_type not in roles or reference.terminal_role not in roles[source_type]:
+            raise ValueError("Voltage channels must reference PT secondary_a/secondary_b or CVT X1/X2.")
+        if reference.equipment_id != source_id:
+            raise ValueError("PT/CVT source identity does not match source_terminal identity.")
+        source = self._network.get_by_identity(source_id)
+        actual_type = str(getattr(source, "element_type", type(source).__name__)).strip().upper()
+        if actual_type != source_type:
+            raise ValueError(f"Measurement source {source_id!r} is not the referenced {source_type}.")
+        producer_id = self._normalize_optional_id(definition.get("producer_id"))
+        if producer_id is None:
+            raise ValueError("PT/CVT voltage channels require an explicit producer_id.")
+        channel = self._provision_definition(self._context, self._network, definition)
+        self._validate_voltage_channel_definition(definition, channel, existing_channels=self._channels)
+        channel.reset(0.0, quality=MeasurementQuality.UNKNOWN, available=False, timestamp=None, sample_sequence=None)
+        channel.producer_id = producer_id
+        channel._bind_sample_update_authority(self._sample_update_authority)
+        return channel
+
+    def _validate_voltage_channel_definition(
+        self, definition: Mapping[str, Any], channel: MeasurementChannel,
+        *, existing_channels: Mapping[str, MeasurementChannel],
+    ) -> None:
+        """Validate PT/CVT voltage source, terminal, engineering and producer identity."""
+        source_type = str(getattr(channel.source, "element_type", type(channel.source).__name__)).strip().upper()
+        roles = {"PT": {"secondary_a", "secondary_b"}, "CVT": {"X1", "X2"}}
+        reference = channel.source_terminal
+        if source_type not in roles or not isinstance(reference, EndpointReference):
+            raise ValueError("Voltage channel source must be an authoritative PT/CVT terminal.")
+        if reference.terminal_role not in roles[source_type] or reference.equipment_id != getattr(channel.source, "id", None):
+            raise ValueError("PT/CVT voltage channel must identify its own physical secondary terminal.")
+        if channel.signal_type is not MeasurementSignalType.VOLTAGE:
+            raise ValueError("PT/CVT secondary channels must expose VOLTAGE.")
+        if channel.phase is MeasurementPhase.NONE:
+            raise ValueError("PT/CVT voltage channels require an explicit phase or sequence designation.")
+        if not isinstance(channel.unit, str) or channel.unit.strip().upper() not in {"V", "KV"}:
+            raise ValueError("PT/CVT voltage channel unit must be V or kV.")
+        if "phase" not in definition:
+            raise ValueError("PT/CVT voltage channels require an explicit phase setting.")
+        if self._normalize_optional_id(definition.get("producer_id")) is None:
+            raise ValueError("PT/CVT voltage channels require an explicit producer_id.")
+        timestamp_domain = definition.get("timestamp_domain")
+        if not isinstance(timestamp_domain, str) or not timestamp_domain.strip() or timestamp_domain != timestamp_domain.strip():
+            raise ValueError("PT/CVT voltage channels require an explicit timestamp_domain.")
+        if self._clock_domain is None or timestamp_domain != self._clock_domain:
+            raise ValueError("PT/CVT timestamp_domain must match the trusted Application clock domain.")
+        for field in ("scale", "polarity", "stale_after"):
+            if field not in definition:
+                raise ValueError(f"PT/CVT voltage channels require explicit {field}.")
+        nominal, scale, polarity, stale = map(float, (
+            channel.nominal_value, channel.scale, channel.polarity, channel.stale_after
+        ))
+        if not math.isfinite(nominal) or nominal <= 0 or not math.isfinite(scale) or scale <= 0:
+            raise ValueError("PT/CVT nominal voltage and scale must be finite and positive.")
+        if polarity not in (-1.0, 1.0) or not math.isfinite(stale) or stale <= 0:
+            raise ValueError("PT/CVT polarity must be +/-1 and stale_after must be finite and positive.")
+        for existing_id, existing in existing_channels.items():
+            old_ref = existing.source_terminal
+            old_type = str(getattr(existing.source, "element_type", type(existing.source).__name__)).strip().upper()
+            if (existing_id != channel.id and old_type == source_type
+                    and getattr(existing.source, "id", None) == channel.source.id
+                    and isinstance(old_ref, EndpointReference)
+                    and old_ref.terminal_role == reference.terminal_role):
+                raise ValueError(f"{source_type} secondary terminal {channel.source.id}:{reference.terminal_role} already has channel {existing_id!r}.")
 
     def _build_ct_channel(self, definition: Mapping[str, Any]) -> MeasurementChannel:
         if not isinstance(definition, Mapping):
