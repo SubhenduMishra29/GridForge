@@ -6229,3 +6229,46 @@ Verification boundary:
 - No tests, CI, Python import/syntax execution, application startup, Qt GUI,
   runtime insertion, save/reopen, or undo/redo experiments were run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — SLD wire route normalization and canonical endpoint reconciliation (Issue #773)
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Branch: reconcile/issue-773-wire-lifecycle-main-20261123
+Authoritative baseline: main @ effe82b495e60727ae1300f8279825b03a485f46
+Authoritative tracking: SubhenduMishra29/GridForge#773
+
+Current-main reconciliation:
+- DraftConnection owns immutable canonical source/target DraftEndpointReference
+  values independently from route geometry. Its route contract validates each
+  bend as a finite two-dimensional coordinate, removes only consecutive
+  duplicates, and retains non-consecutive revisits. Route bends never create
+  Core terminals, junctions, or electrical connectivity.
+- DraftNetworkHandlers.update_connection_route checks project and activation
+  provenance, resolves the existing connection ID, constructs and validates a
+  replacement while retaining both canonical endpoints, connection kind,
+  validation state and layer, then records the exact DraftNetwork inverse before
+  applying the route update.
+- Committed SLD route editing uses SetSLDConnectionRouteCommand through the
+  Application transaction. The controller verifies the requested Core binding;
+  SLDService preserves endpoint/Core identity and presentation provenance,
+  sets engineer route ownership, and records an identity-aware inverse for undo.
+- SLD route points remain in the document-owned presentation model and are
+  re-projected for rendering. Snap/endpoint identity, not visual overlap or route
+  bends, remains the only basis for electrical connection identity.
+- Issue #773 is already closed. This append-only entry ports its previously
+  reviewed reconciliation record onto the current authoritative main after
+  the earlier register-only PR #1245 fell behind the integration baseline.
+
+Disposition:
+- The canonical route validation, identity-preserving update and transactional
+  undo path are present in current main. No production-source patch is required
+  for the source-level route-normalization and endpoint-identity scope of #773.
+- Runtime route editing, shortening, undo/redo, save/reopen and solver behavior
+  remain unverified and are not claimed.
+
+Verification boundary:
+- Current-main source inspection and GitHub fetch-back only.
+- No tests, CI, Python imports, startup, Qt GUI or runtime experiments were run.
+======================================================================
