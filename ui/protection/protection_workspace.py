@@ -33,6 +33,7 @@ from .protection_engineering_panels import (
     ProtectionTCCPanel,
     ProtectionCoordinationStudyPanel,
 )
+from .protection_measurement_binding_editor import ProtectionMeasurementBindingEditor
 
 
 class ProtectionGraphicsNode(QGraphicsRectItem):
@@ -919,6 +920,10 @@ class ProtectionWorkspace(QWidget):
 
         self._inspector_tabs = QTabWidget(self)
         self._inspector_tabs.addTab(self._inspector, "Relay Details")
+        self._binding_editor = ProtectionMeasurementBindingEditor(
+            application=application, parent=self
+        )
+        self._inspector_tabs.addTab(self._binding_editor, "Measurement Bindings")
         self._tcc_panel = ProtectionTCCPanel(
             application=application, selection_manager=selection_manager, parent=self
         )
@@ -990,6 +995,7 @@ class ProtectionWorkspace(QWidget):
         self._explorer.refresh()
         self._canvas.refresh()
         self._inspector.refresh()
+        self._binding_editor.refresh()
         self._function_catalog.refresh()
         self._tcc_panel.refresh()
         self._analysis_coverage.refresh()
