@@ -6029,3 +6029,29 @@ Remaining:
   simulation, or save/reopen execution performed. Do not close #774 yet.
 
 ======================================================================
+
+======================================================================
+
+GridForge V2 — Issue #774 PT/CVT voltage-secondary channel editor
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-774-pt-cvt-voltage-channel-editor
+
+Correction:
+- Extended the existing engineer-facing secondary-channel editor to recognize
+  committed CT, PT and CVT projections without creating a second editor path.
+- Added PT secondary_a/secondary_b and CVT X1/X2 terminal choices while
+  retaining CT S1/S2 choices.
+- Added explicit A/V/kV unit selection and the canonical voltage phase/sequence
+  choices; the generated command definition selects CURRENT for CT and VOLTAGE
+  for PT/CVT and persists the exact instrument terminal identity.
+- Reused detached channel configuration/telemetry read models and the existing
+  Create/Update/Delete Application commands. No Core or Qt dependency was added
+  to Core, and CT defaults/quantity semantics remain intact.
+
+Verification boundary:
+- Static source transformation and anchor review only. No GUI, import, runtime,
+  save/reopen, or undo/redo execution was performed.
+- Issue #774 remains open pending explicit ProtectionMeasurementBinding authoring
+  and end-to-end primary sensing/SLD/persistence workflow.
+======================================================================
