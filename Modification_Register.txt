@@ -6109,3 +6109,35 @@ Remaining:
 - End-to-end PT/CVT primary sensing, SLD provenance, persistence and undo/redo
   reconciliation remain open under #774.
 - Runtime/import/test/GUI verification not performed.
+
+
+======================================================================
+
+GridForge V2 — Issue #774 PT/CVT protection measurement binding editor
+Date: 2026-11-23
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-774-pt-cvt-protection-binding-editor
+
+Correction:
+- Added ProtectionMeasurementBindingEditor and mounted it as the Protection
+  workspace "Measurement Bindings" inspector tab.
+- The editor consumes detached Application network, function-configuration,
+  MeasurementChannel-configuration and binding read models only.
+- Exposes explicit Protection element, RelayInput, PT/CVT instrument, configured
+  voltage channel, source Bus/line endpoint, electrical side, phase/sequence,
+  result-quantity key and physical instrument ratio selections.
+- Constructs the immutable ProtectionMeasurementBinding candidate and submits
+  CreateProtectionMeasurementBindingCommand through Application.execute().
+- Application validation remains authoritative for primary topology membership,
+  physical instrument type/ratio, secondary terminal, channel quantity/phase,
+  and exact RelayInput association. The UI does not infer or rewrite those values.
+- Displays persisted binding identities and endpoint provenance. Exported the
+  editor through ui.protection.__init__.
+
+Remaining:
+- Rebinding/stale primary-topology association workflow is not exposed yet.
+- Complete primary-voltage measurement sample production, SLD provenance,
+  persistence/restore and undo/redo integration remain open under #774.
+- Static source review only. No imports, GUI, runtime, tests or save/reopen
+  execution performed. Keep Issue #774 open.
+======================================================================
