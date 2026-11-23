@@ -127,6 +127,9 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
         """Rebuild all choices from detached active-project Application read models."""
         self._refreshing = True
         self._create.setEnabled(False)
+        self._existing_bindings.clear()
+        self._ratio.clear()
+        self._result_quantity.clear()
         has_eligible_elements = False
         try:
             self._add_placeholder(self._element)
