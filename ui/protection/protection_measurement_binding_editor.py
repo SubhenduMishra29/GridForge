@@ -126,6 +126,8 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
     def refresh(self) -> None:
         """Rebuild all choices from detached active-project Application read models."""
         self._refreshing = True
+        self._create.setEnabled(False)
+        has_eligible_elements = False
         try:
             self._add_placeholder(self._element)
             self._add_placeholder(self._relay_input)
@@ -173,17 +175,17 @@ class ProtectionMeasurementBindingEditor(QGroupBox):
                     )
 
             self._populate_source_endpoints(network)
-            if self._element.count() > 1:
-                self._refresh_inputs()
-            else:
+            has_eligible_elements = self._element.count() > 1
+            if not has_eligible_elements:
                 self._status.setText(
                     "No configured protection RelayInput is currently backed by a PT/CVT voltage channel. "
                     "Configure the function input and PT/CVT secondary channel first."
                 )
-                self._create.setEnabled(False)
             self._refresh_existing_bindings()
         finally:
             self._refreshing = False
+        if has_eligible_elements:
+            self._refresh_inputs()
 
     def _populate_source_endpoints(self, network: Any) -> None:
         self._add_placeholder(self._source_endpoint)
