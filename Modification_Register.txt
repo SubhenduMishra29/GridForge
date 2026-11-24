@@ -6465,3 +6465,34 @@ Verification boundary:
 
 [2026-11-24] Issue #818 — event-to-canvas refresh timing instrumentation
 Finding: current SLD event reconciliation and canvas refresh execute synchronously, but no per-event duration measurement is exposed. The alleged navigation stutter is not yet attributable to projection refresh, renderer realization, routing, or Qt painting. Correction: SLDUpdateCoordinator now records the latest event type, total event-to-canvas reconciliation duration, and success status using a monotonic performance clock. The instrumentation preserves synchronous event ordering and existing refresh behavior; it does not coalesce events or change rendering. Verification boundary: current-main source inspection, branch diff/fetch-back only; no tests/CI, application startup, Qt GUI, or representative large-project profiling performed. Issue #818 remains open pending measured renderer/route/paint timings and GUI acceptance.
+
+
+======================================================================
+GridForge V2 — Local Ollama agent workbench current-main reconciliation
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Source: PR #1224 (agents/local-ollama-vscode-workbench)
+Branch: feat/local-ollama-agent-workbench-mainline
+
+Reconciliation and correction:
+- Reconstructed the isolated local agent workbench on current main rather
+  than merging its 51-ahead/46-behind divergent branch.
+- Kept its standard-library-only Python 3.10 runtime, isolated worktrees,
+  bounded repository tools, append-only Modification_Register handling,
+  local-only commits and explicit prohibition on push/merge/issue closure.
+- Set the initial model profile to qwen2.5-coder:7b; Doctor must still verify
+  native structured tool calling before autonomous execution is enabled.
+- Corrected Ollama version guidance: 0.21.0 is newer than the 0.3.0 minimum.
+- Hardened file discovery so list_files applies the same resolved-path and
+  protected-path checks as file reads. Added regression-test source for
+  secret paths and external symlinks.
+- Reconciled .gitignore to whitelist only the two intended VS Code files and
+  ignore local agent runtime data.
+
+Verification boundary:
+- Current-main reconstruction and source fetch-back/diff inspection only.
+- No unit tests, CI, Windows setup, Ollama Doctor, model tool-call probe,
+  autonomous issue run or local commit execution was performed.
+- The workbench does not modify GridForge runtime dependencies or claim
+  electrical engineering correctness for model-generated changes.
+======================================================================
