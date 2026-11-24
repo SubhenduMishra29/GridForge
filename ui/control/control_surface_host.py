@@ -377,7 +377,7 @@ class ControlSurfaceHost(QWidget):
                     mode = ToolMode(definition.default_mode)
                 except ValueError:
                     mode = ToolMode.IDLE
-            settings = ToolSettings(definition.tool_id, values=definition.settings)
+            settings = ToolSettings(definition.tool_id, definitions=definition.settings)
         engineering = getattr(context, "engineering", None)
         if engineering is not None:
             engineering = engineering.with_updates(active_tool=active_tool)
