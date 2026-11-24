@@ -43,6 +43,7 @@ class ControlSurfaceHost(QWidget):
         action_router: UIActionRouter | None = None,
         tool_activators: Mapping[str, Any] | None = None,
         tool_active_providers: Mapping[str, Any] | None = None,
+        tool_settings_provider: Any | None = None,
         icon_provider: Any | None = None,
         study_runtime: Any | None = None,
         parent: QWidget | None = None,
@@ -64,6 +65,7 @@ class ControlSurfaceHost(QWidget):
         if tool_activator is not None:
             activators.setdefault("sld", tool_activator)
         providers = dict(tool_active_providers or {})
+        self._tool_settings_provider = tool_settings_provider
         self._application = application
         self._study_runtime = study_runtime
         self._study_reports_view: ReportsWorkspaceView | None = None
@@ -377,7 +379,8 @@ class ControlSurfaceHost(QWidget):
                     mode = ToolMode(definition.default_mode)
                 except ValueError:
                     mode = ToolMode.IDLE
-            settings = ToolSettings(definition.tool_id, definitions=definition.settings)
+            retained = self._tool_settings_provider(editor_type, definition.tool_id) if callable(self._tool_settings_provider) else None
+            settings = retained if isinstance(retained, ToolSettings) else ToolSettings(definition.tool_id, definitions=definition.settings)
         engineering = getattr(context, "engineering", None)
         if engineering is not None:
             engineering = engineering.with_updates(active_tool=active_tool)
