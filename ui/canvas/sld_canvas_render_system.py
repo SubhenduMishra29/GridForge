@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import math
+from time import perf_counter
 from types import SimpleNamespace
 from typing import Any, Callable
 
@@ -115,6 +116,12 @@ class SLDCanvasRenderSystem:
         # Track only connections established by this renderer. Qt may emit a
         # RuntimeWarning (rather than raising) when disconnecting an absent slot.
         self._route_edit_bound_items: dict[int, Any] = {}
+        self._last_sync_metrics: dict[str, object] = {}
+
+    @property
+    def last_sync_metrics(self) -> dict[str, object]:
+        """Return a defensive copy of the latest successful scene synchronization metrics."""
+        return dict(self._last_sync_metrics)
 
     @property
     def scene(self) -> QGraphicsScene:
@@ -349,6 +356,29 @@ class SLDCanvasRenderSystem:
             raise TypeError("snapshot must be an SLDCanvasSnapshot or CompositeSLDCanvasSnapshot")
         if not isinstance(draft, DraftSLDCanvasSnapshot):
             raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
+        sync_started = perf_counter()
+        sync_metrics: dict[str, object] = {
+            "committed_node_count": len(committed.nodes),
+            "draft_node_count": len(draft.nodes),
+            "committed_connection_count": len(committed.connections),
+            "draft_connection_count": len(draft.connections),
+            "annotation_count": len(committed.annotations),
+            "removed_item_count": 0,
+            "committed_node_realizations": 0,
+            "committed_node_reuses": 0,
+            "draft_node_realizations": 0,
+            "draft_node_reuses": 0,
+            "committed_connection_realizations": 0,
+            "committed_connection_reuses": 0,
+            "draft_connection_realizations": 0,
+            "draft_connection_reuses": 0,
+            "annotation_realizations": 0,
+            "annotation_reuses": 0,
+            "automatic_route_count": 0,
+            "obstacle_extraction_seconds": 0.0,
+            "existing_route_extraction_seconds": 0.0,
+            "route_search_seconds": 0.0,
+        }
         draft_layers = {layer.layer_id: layer for layer in draft.layers}
 
         self._unsupported_presentations.clear()
@@ -366,6 +396,7 @@ class SLDCanvasRenderSystem:
         for item_id in tuple(self._items):
             if item_id not in desired_ids:
                 self._remove_realized(item_id)
+                sync_metrics["removed_item_count"] = int(sync_metrics["removed_item_count"]) + 1
 
         realized: dict[str, Any] = {
             node_id: items[0]
@@ -383,6 +414,7 @@ class SLDCanvasRenderSystem:
                 and node.node_id not in self._degraded_node_ids
             ):
                 realized[node.node_id] = self._items[node.node_id][0]
+                sync_metrics["committed_node_reuses"] = int(sync_metrics["committed_node_reuses"]) + 1
                 self._restore_node_selection(node, realized[node.node_id])
                 continue
 
@@ -492,6 +524,7 @@ class SLDCanvasRenderSystem:
             self._clear_reported_diagnostic(node.node_id)
             self._degraded_node_ids.discard(node.node_id)
             realized[node.node_id] = item
+            sync_metrics["committed_node_realizations"] = int(sync_metrics["committed_node_realizations"]) + 1
             self._restore_node_selection(node, item)
 
         # Draft nodes are realized after committed nodes but before either
@@ -512,6 +545,7 @@ class SLDCanvasRenderSystem:
                 and render_id not in self._degraded_node_ids
             ):
                 realized[render_id] = self._items[render_id][0]
+                sync_metrics["draft_node_reuses"] = int(sync_metrics["draft_node_reuses"]) + 1
                 continue
             # A fallback is visible but is not a successful symbol realization.
             # Keep it in place until a real symbol can replace it.
@@ -534,6 +568,7 @@ class SLDCanvasRenderSystem:
                 self._clear_reported_diagnostic(render_id)
                 self._degraded_node_ids.discard(render_id)
                 realized[render_id] = item
+                sync_metrics["draft_node_realizations"] = int(sync_metrics["draft_node_realizations"]) + 1
             except Exception as exc:
                 message = f"{type(exc).__name__}: {exc}"
                 code = "DRAFT_PRESENTATION_REALIZATION_FAILED"
@@ -601,6 +636,7 @@ class SLDCanvasRenderSystem:
                 self._render_signatures[render_id] = signature
                 self._degraded_node_ids.add(render_id)
                 realized[render_id] = fallback
+                sync_metrics["draft_node_realizations"] = int(sync_metrics["draft_node_realizations"]) + 1
 
         node_by_id = {node.node_id: node for node in committed.nodes}
         for connection in committed.connections:
@@ -651,6 +687,7 @@ class SLDCanvasRenderSystem:
                 self._restore_connection_selection(
                     connection, self._items[connection.connection_id][0]
                 )
+                sync_metrics["committed_connection_reuses"] = int(sync_metrics["committed_connection_reuses"]) + 1
                 continue
 
             item = None
@@ -660,6 +697,7 @@ class SLDCanvasRenderSystem:
                     # Route around realized non-endpoint SLD objects. These
                     # bounds are presentation geometry only; endpoint identity
                     # and Core topology remain owned by the canonical model.
+                    obstacle_started = perf_counter()
                     obstacle_bounds = []
                     for node_id, obstacle_item in realized.items():
                         if node_id in (connection.source_node_id, connection.target_node_id):
@@ -674,10 +712,14 @@ class SLDCanvasRenderSystem:
                             float(bounds.right()),
                             float(bounds.bottom()),
                         ))
+                    sync_metrics["obstacle_extraction_seconds"] = (
+                        float(sync_metrics["obstacle_extraction_seconds"]) + perf_counter() - obstacle_started
+                    )
                     # Existing realized connection paths are presentation
                     # geometry only. Use them as a soft routing cost so new
                     # automatic routes prefer fewer overlaps/crossings without
                     # changing endpoint identity or electrical connectivity.
+                    existing_routes_started = perf_counter()
                     existing_routes = []
                     for existing_id, existing_items in tuple(self._items.items()):
                         if existing_id == connection.connection_id:
@@ -709,11 +751,20 @@ class SLDCanvasRenderSystem:
                                 # Stale or unsupported presentation geometry is
                                 # ignored; it must never block electrical work.
                                 continue
+                    sync_metrics["existing_route_extraction_seconds"] = (
+                        float(sync_metrics["existing_route_extraction_seconds"])
+                        + perf_counter() - existing_routes_started
+                    )
+                    sync_metrics["automatic_route_count"] = int(sync_metrics["automatic_route_count"]) + 1
+                    route_started = perf_counter()
                     route = self._connection_router.route(
                         (source.x(), source.y()),
                         (target.x(), target.y()),
                         obstacles=obstacle_bounds,
                         existing_routes=existing_routes,
+                    )
+                    sync_metrics["route_search_seconds"] = (
+                        float(sync_metrics["route_search_seconds"]) + perf_counter() - route_started
                     )
                     route_points = tuple(route.points[1:-1])
                 elif connection.route.routing_mode == "orthogonal":
@@ -740,6 +791,7 @@ class SLDCanvasRenderSystem:
                 self._items[connection.connection_id] = (item,)
                 self._render_signatures[connection.connection_id] = signature
                 self._clear_reported_diagnostic(connection.connection_id)
+                sync_metrics["committed_connection_realizations"] = int(sync_metrics["committed_connection_realizations"]) + 1
             except Exception as exc:
                 if item is not None:
                     self._unbind_route_edit_item(item)
@@ -776,6 +828,7 @@ class SLDCanvasRenderSystem:
                     self._restore_draft_connection_selection(
                         connection, self._items[render_id][0]
                     )
+                    sync_metrics["draft_connection_reuses"] = int(sync_metrics["draft_connection_reuses"]) + 1
                     continue
                 if render_id in self._items:
                     self._remove_realized(render_id)
@@ -798,6 +851,7 @@ class SLDCanvasRenderSystem:
                 self._items[render_id] = (item,)
                 self._render_signatures[render_id] = signature
                 self._clear_reported_diagnostic(render_id)
+                sync_metrics["draft_connection_realizations"] = int(sync_metrics["draft_connection_realizations"]) + 1
             except Exception as exc:
                 # If endpoint resolution or recreation fails, do not leave a
                 # previously realized wire at obsolete endpoint coordinates.
@@ -819,6 +873,7 @@ class SLDCanvasRenderSystem:
             render_id = self._annotation_render_id(annotation.block_id)
             signature = self._annotation_signature(annotation)
             if self._render_signatures.get(render_id) == signature and render_id in self._items:
+                sync_metrics["annotation_reuses"] = int(sync_metrics["annotation_reuses"]) + 1
                 continue
             previous_items = self._items.get(render_id, ())
             previous_item = previous_items[0] if previous_items else None
@@ -837,8 +892,12 @@ class SLDCanvasRenderSystem:
             self._annotation_base_visibility[render_id] = bool(annotation.visible) and bool(annotation.layer_visible)
             self._items[render_id] = (item,)
             self._render_signatures[render_id] = signature
+            sync_metrics["annotation_realizations"] = int(sync_metrics["annotation_realizations"]) + 1
 
         self._reflow_annotation_layout()
+        sync_metrics["realized_item_count"] = len(self._items)
+        sync_metrics["synchronize_seconds"] = max(0.0, perf_counter() - sync_started)
+        self._last_sync_metrics = sync_metrics
 
     def _reflow_annotation_layout(self) -> None:
         """Resolve label collisions using rendered scene bounds and transient scaling."""
