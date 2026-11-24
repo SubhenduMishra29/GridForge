@@ -20,6 +20,7 @@ _LOGGER = logging.getLogger(__name__)
 
 from ui.creation.creation_context import CreationContext
 from ui.core.qt import QPointF
+from ui.tools.tool_settings import ToolSettings
 
 
 ToolFactory = Callable[..., Any]
@@ -310,6 +311,22 @@ class ToolManager:
     @property
     def active_tool_id(self) -> str | None:
         return self.get_current_tool_id()
+
+    def apply_active_tool_settings(self, settings: ToolSettings) -> None:
+        """Apply validated settings to the current runtime without reactivation."""
+        self._ensure_active()
+        if not isinstance(settings, ToolSettings):
+            raise TypeError("settings must be ToolSettings.")
+        if self._active_tool is None or self._active_tool_id is None:
+            raise RuntimeError("No active tool can receive settings.")
+        if settings.tool_id != self._active_tool_id:
+            raise ValueError("settings tool_id does not match the active tool.")
+        apply_settings = getattr(self._active_tool, "apply_settings", None)
+        if not callable(apply_settings):
+            if settings.values:
+                raise NotImplementedError("The active tool does not support settings application.")
+            return
+        apply_settings(settings)
 
     def activate(
         self,
