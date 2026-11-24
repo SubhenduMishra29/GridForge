@@ -29,6 +29,7 @@ class ToolSettingDefinition:
         if self.unit is not None and (not isinstance(self.unit, str) or not self.unit.strip()):
             raise ValueError("unit must be None or non-empty.")
         choices = tuple(self.choices)
+        object.__setattr__(self, "choices", choices)
         if any(type(v) not in (str, int, float, bool) for v in choices):
             raise TypeError("choices must be scalar immutable values.")
         if self.value_type == "choice" and not choices:
