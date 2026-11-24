@@ -14,7 +14,7 @@ snap_system.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Mapping
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ class ToolManager:
         for definition in definitions:
             tool_id = getattr(definition, "tool_id", None)
             settings = getattr(definition, "settings", None)
-            if not isinstance(tool_id, str) or not tool_id.strip() or not isinstance(settings, dict):
+            if not isinstance(tool_id, str) or not tool_id.strip() or not isinstance(settings, Mapping):
                 raise TypeError("tool settings configuration requires ToolDefinition-like values.")
             if tool_id in configured:
                 raise ValueError(f"Duplicate tool settings definition: {tool_id!r}")
