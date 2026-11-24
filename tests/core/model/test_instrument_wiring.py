@@ -414,3 +414,50 @@ def test_typed_terminal_accessories_require_explicit_conductive_pairs():
     )
     assert inventory.terminal_accessories == (marker,)
     assert marker.active_conductive_pairs == ()
+
+
+def test_retired_hop_keeps_historical_terminal_reference_after_terminal_replacement():
+    from core.model.instrument_wiring import (
+        TerminalBlock, TerminalPoint, PhysicalConnectionHop,
+        InstrumentationWiringInventory, WiringTerminalReference,
+    )
+
+    old_block = TerminalBlock(
+        id="tb-retired", tag="TB-RETIRED", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=1,
+    )
+    old_point = TerminalPoint(
+        id="tp-retired", terminal_block_id=old_block.id,
+        terminal_number="1", designation="X-OLD:1",
+    )
+    live_block = TerminalBlock(
+        id="tb-live", tag="TB-LIVE", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=1,
+    )
+    live_point = TerminalPoint(
+        id="tp-live", terminal_block_id=live_block.id,
+        terminal_number="1", designation="X-NEW:1",
+    )
+    device = WiringTerminalReference("DEVICE-1", "SIG", "SIG+")
+    old_terminal = WiringTerminalReference(
+        old_block.id, "1", "X-OLD:1", terminal_point_id=old_point.id,
+    )
+    live_terminal = WiringTerminalReference(
+        live_block.id, "1", "X-NEW:1", terminal_point_id=live_point.id,
+    )
+    cable = CableAssembly(id="c-retired", tag="C-RETIRED", service="signal", core_count=1)
+    core = CableCore(
+        id="core-retired", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL, terminal_path=(device, live_terminal),
+    )
+    retired = PhysicalConnectionHop(
+        id="hop-retired", from_terminal=device, to_terminal=old_terminal,
+        carrier_kind=CarrierKind.CABLE_CORE, carrier_id=core.id,
+        lifecycle_status="RETIRED",
+    )
+
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core,), connection_hops=(retired,),
+        terminal_blocks=(live_block,), terminal_points=(live_point,),
+    )
+    assert inventory.connection_hops == (retired,)
