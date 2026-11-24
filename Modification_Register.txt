@@ -6396,3 +6396,27 @@ Verification boundary:
 - Static source inspection and fetch-back review only. No tests/CI, Python
   syntax/import execution, GUI or runtime experiments performed.
 ======================================================================
+
+
+[2026-11-24] Issue #1195 — typed tool settings contract (implementation tranche)
+Finding: the prior PR #1228 was stale and its settings UI was presentation-only; runtime tools had no safe update contract. Correction: introduced immutable typed setting definitions and snapshots with strict type/range/step validation, read-only enforcement, schema validation in ToolDefinition, and Controller → ToolManager → existing runtime instance application. ToolBase fails closed for non-empty settings unless a concrete tool implements consumption. Reconciliation: rebuilt against current main; no stale PR commits imported. Verification boundary: source-level review and branch comparison only; no tests, CI, Python import/syntax execution, or GUI runtime validation. This tranche does not complete issue acceptance: concrete SLD setting declarations, operational widgets/callback wiring, and at least one real tool's setting consumption remain outstanding. Do not close #1195 until those are implemented and merged.
+
+
+[2026-11-24] Issue #1195 — SLD Select settings UI/runtime integration tranche
+Correction: declared the SLD Select tool's typed `drag_tolerance` setting (1.0–20.0 px, 0.5 px increments), implemented consumption by the existing SelectTool instance, replaced the read-only settings summary with typed editable controls, and wired edits through EditorContext presentation callback → Controller → ToolManager → active SelectTool without reactivation. Settings snapshots are now built from definitions in both the composition-root context factory and ControlSurfaceHost refresh path. This completes the first concrete end-to-end setting path at source level. Remaining acceptance: inspect/fetch-back all changed files, confirm UI/runtime behavior in an actual application session, ensure all supported settings widget types behave correctly, and review/merge the PR. No tests/CI or GUI runtime validation performed; Issue #1195 remains open.
+
+
+[2026-11-24] Issue #1195 — retained settings and read-only presentation correction
+Correction: retained per-tool settings are retrieved without constructing inactive tools and restored through the composition root and ControlSurfaceHost when editor/tool context refreshes. Read-only settings are explicitly labelled and rendered without editable controls. This closes the source-level gaps for stale settings on tool/editor switches; runtime GUI verification is still required before merge acceptance and issue closure.
+
+
+[2026-11-24] Issue #1195 — declared defaults applied before first tool activation
+Finding: ToolSettings snapshots exposed schema defaults to the UI, but a newly created runtime tool did not receive those defaults until the user edited a control. This allowed the displayed setting and runtime behavior to diverge for tools whose constructor defaults differ from metadata. Correction: ToolManager now accepts the canonical contextual ToolDefinition settings and applies a validated default ToolSettings snapshot to a tool instance before its first activation. Existing instance snapshots are preserved on later activations, and a tool that declares settings but cannot consume them fails closed. The composition root registers the SLD tool definitions with ToolManager. Verification boundary: source-level change and fetch-back review only; no tests/CI, Python syntax/import execution, or GUI runtime validation performed. PR #1259 and Issue #1195 remain open pending full review and GUI verification.
+
+
+[2026-11-24] Issue #1195 — immutable choice metadata normalization
+Finding: frozen ToolSettingDefinition instances could retain a caller-supplied mutable list in the choices field, allowing constraints to change after validation. Correction: normalize choices to a tuple and store the tuple on the frozen definition during initialization. Verification boundary: fetch-back/source inspection only; no tests/CI, Python syntax/import execution, or GUI runtime validation performed. PR #1259 and Issue #1195 remain open.
+
+
+[2026-11-24] Issue #1195 — failure cleanup and immutable schema correction
+Finding: initial runtime settings rejection could leave the failed tool instance cached, and frozen ToolDefinition objects still exposed a mutable settings mapping. Correction: dispose and evict the partially initialized tool when initial settings application fails; freeze ToolDefinition.settings with MappingProxyType; update ToolManager's schema registration to accept the Mapping contract while copying it into its private registry. Verification boundary: fetch-back/source inspection and branch comparison only; no tests/CI or GUI execution performed.

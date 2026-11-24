@@ -8,7 +8,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Mapping
+
+from ui.tools.tool_settings import ToolSettingDefinition
 
 
 # Explicit, Qt-independent icon policy for tools that use interaction glyphs
@@ -95,6 +98,9 @@ class ToolDefinition:
             if not isinstance(value, Mapping):
                 raise TypeError(f"{name} must be a mapping.")
             object.__setattr__(self, name, dict(value))
+        if any(not isinstance(key, str) or not key.strip() or not isinstance(item, ToolSettingDefinition) for key, item in self.settings.items()):
+            raise TypeError("settings must map non-empty IDs to ToolSettingDefinition values.")
+        object.__setattr__(self, "settings", MappingProxyType(dict(self.settings)))
 
     def supports_editor(self, editor_type: str) -> bool:
         return not self.editor_types or editor_type in self.editor_types
@@ -113,7 +119,7 @@ class ToolDefinition:
             "supported_modes": self.supported_modes,
             "default_mode": self.default_mode,
             "shortcuts": self.shortcuts,
-            "settings": dict(self.settings),
+            "settings": {key: definition.to_dict() for key, definition in self.settings.items()},
             "applicability": dict(self.applicability),
             "category": self.category,
             "metadata": dict(self.metadata),
@@ -196,6 +202,7 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
                 editor_types=(editor_type,),
                 shortcuts=((shortcut_map[lookup_id],) if lookup_id in shortcut_map else ()),
                 category=_TOOL_CATEGORY_BY_ID.get(lookup_id, "Engineering"),
+                settings=({"drag_tolerance": ToolSettingDefinition(label="Drag threshold", value_type="float", default=3.0, unit="px", minimum=1.0, maximum=20.0, step=0.5)} if lookup_id == "select" and editor_type == "sld" else {}),
                 metadata={"icon_kind": "tool"},
             )
         )

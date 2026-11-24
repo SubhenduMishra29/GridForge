@@ -19,6 +19,7 @@ from .electrical_insertion_tool import ElectricalInsertionTool
 from ui.core.qt import QPointF
 from ui.canvas.canvas_hit import CanvasHitKind, CanvasHitTarget
 from .tool_base import ToolBase
+from .tool_settings import ToolSettings
 
 
 class SelectTool(ToolBase):
@@ -33,6 +34,7 @@ class SelectTool(ToolBase):
     def __init__(self, controller: Any, application: Any, selection_manager: Any, snap_system: Any) -> None:
         super().__init__(controller=controller, application=application,
                          selection_manager=selection_manager, snap_system=snap_system)
+        self._drag_tolerance = self.DRAG_TOLERANCE
         self._pressed_object_id: Any = None
         self._pressed_scene_position: Optional[Tuple[float, float]] = None
         self._dragging = False
@@ -60,6 +62,10 @@ class SelectTool(ToolBase):
     @property
     def description(self) -> str:
         return "Select, box-select, and drag-move SLD objects."
+
+    def apply_settings(self, settings: ToolSettings) -> None:
+        super().apply_settings(settings)
+        self._drag_tolerance = float(settings.get("drag_tolerance", self.DRAG_TOLERANCE))
 
     def on_activate(self) -> None:
         self._clear_pointer_state()
@@ -152,7 +158,7 @@ class SelectTool(ToolBase):
             return False
         current = self._xy(self._event_scene_position(event))
         self._dragging = self._dragging or (
-            self._distance(self._pressed_scene_position, current) >= self.DRAG_TOLERANCE
+            self._distance(self._pressed_scene_position, current) >= self._drag_tolerance
         )
 
         if self._grab_mode:

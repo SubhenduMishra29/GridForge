@@ -14,12 +14,13 @@ snap_system.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Mapping
 
 _LOGGER = logging.getLogger(__name__)
 
 from ui.creation.creation_context import CreationContext
 from ui.core.qt import QPointF
+from ui.tools.tool_settings import ToolSettings
 
 
 ToolFactory = Callable[..., Any]
@@ -197,6 +198,7 @@ class ToolManager:
         self.creation_context = creation_context or CreationContext()
         self._tool_registry: dict[str, ToolFactory] = {}
         self._tool_instances: dict[str, Any] = {}
+        self._tool_setting_definitions: dict[str, dict[str, Any]] = {}
         self._active_tool_id: str | None = None
         self._active_tool: Any | None = None
         self._interaction_tool: Any | None = None
@@ -295,6 +297,52 @@ class ToolManager:
         self._validate_tool_id(tool_id)
         return self._get_or_create_tool(tool_id)
 
+    def configure_tool_settings(self, definitions: Iterable[Any]) -> None:
+        """Register presentation metadata used to seed each tool's first runtime snapshot."""
+        self._ensure_active()
+        configured: dict[str, dict[str, Any]] = {}
+        for definition in definitions:
+            tool_id = getattr(definition, "tool_id", None)
+            settings = getattr(definition, "settings", None)
+            if not isinstance(tool_id, str) or not tool_id.strip() or not isinstance(settings, Mapping):
+                raise TypeError("tool settings configuration requires ToolDefinition-like values.")
+            if tool_id in configured:
+                raise ValueError(f"Duplicate tool settings definition: {tool_id!r}")
+            configured[tool_id] = dict(settings)
+        self._tool_setting_definitions = configured
+
+    def _apply_initial_tool_settings(self, tool_id: str, tool: Any) -> None:
+        """Apply declared defaults once, before the tool's first activation."""
+        if getattr(tool, "tool_settings", None) is not None:
+            return
+        definitions = self._tool_setting_definitions.get(tool_id, {})
+        if not definitions:
+            return
+        settings = ToolSettings(tool_id, definitions=definitions)
+        apply_settings = getattr(tool, "apply_settings", None)
+        try:
+            if not callable(apply_settings):
+                raise NotImplementedError(
+                    f"Tool {tool_id!r} declares settings but its runtime cannot apply them."
+                )
+            apply_settings(settings)
+        except Exception:
+            # Do not retain a partially initialized runtime instance after a
+            # fail-closed settings application. A later activation must start
+            # from a fresh factory instance.
+            if self._tool_instances.get(tool_id) is tool:
+                self._tool_instances.pop(tool_id, None)
+            self._dispose_tool(tool)
+            raise
+
+    def get_existing_tool_settings(self, tool_id: str) -> ToolSettings | None:
+        """Return retained settings without constructing or activating a tool."""
+        self._ensure_active()
+        self._validate_tool_id(tool_id)
+        instance = self._tool_instances.get(tool_id)
+        settings = getattr(instance, "tool_settings", None) if instance is not None else None
+        return settings if isinstance(settings, ToolSettings) else None
+
     def get_current_tool(self) -> Any | None:
         self._ensure_active()
         return self._active_tool
@@ -310,6 +358,22 @@ class ToolManager:
     @property
     def active_tool_id(self) -> str | None:
         return self.get_current_tool_id()
+
+    def apply_active_tool_settings(self, settings: ToolSettings) -> None:
+        """Apply validated settings to the current runtime without reactivation."""
+        self._ensure_active()
+        if not isinstance(settings, ToolSettings):
+            raise TypeError("settings must be ToolSettings.")
+        if self._active_tool is None or self._active_tool_id is None:
+            raise RuntimeError("No active tool can receive settings.")
+        if settings.tool_id != self._active_tool_id:
+            raise ValueError("settings tool_id does not match the active tool.")
+        apply_settings = getattr(self._active_tool, "apply_settings", None)
+        if not callable(apply_settings):
+            if settings.values:
+                raise NotImplementedError("The active tool does not support settings application.")
+            return
+        apply_settings(settings)
 
     def activate(
         self,
@@ -367,6 +431,8 @@ class ToolManager:
             )
 
         requested_tool = self._get_or_create_tool(tool_id) if tool_id is not None else None
+        if tool_id is not None and requested_tool is not None:
+            self._apply_initial_tool_settings(tool_id, requested_tool)
 
         if previous_tool is not None:
             persist = getattr(previous_tool, "persist_transient_draft", None)

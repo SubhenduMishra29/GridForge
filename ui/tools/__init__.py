@@ -44,7 +44,7 @@ from ui.tools.transformer_tool import TransformerTool
 
 
 from ui.tools.tool_definition import ToolDefinition
-from ui.tools.tool_settings import ToolSettings
+from ui.tools.tool_settings import ToolSettingDefinition, ToolSettings
 
 
 __all__ = [
@@ -74,6 +74,7 @@ __all__ = [
     "CVTTool",
     "RelayTool",
     "ToolDefinition",
+    "ToolSettingDefinition",
     "ToolSettings",
 ]
 

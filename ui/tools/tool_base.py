@@ -15,6 +15,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from ui.tools.tool_settings import ToolSettings
+
 
 class ToolBase(ABC):
     """Abstract base class for GridForge V2 interaction tools."""
@@ -42,6 +44,7 @@ class ToolBase(ABC):
         self.snap_system = snap_system
         self._active = False
         self._disposed = False
+        self._tool_settings: ToolSettings | None = None
 
     @property
     @abstractmethod
@@ -70,6 +73,28 @@ class ToolBase(ABC):
             return
         self.on_deactivate()
         self._active = False
+
+    @property
+    def tool_settings(self) -> ToolSettings | None:
+        """Return the immutable settings currently applied to this instance."""
+        return self._tool_settings
+
+    def apply_settings(self, settings: ToolSettings) -> None:
+        """Apply a validated settings snapshot to this existing runtime instance.
+
+        Concrete tools must override this method to consume settings. The base
+        implementation accepts only an empty schema, failing closed otherwise.
+        """
+        self._ensure_not_disposed()
+        if not isinstance(settings, ToolSettings):
+            raise TypeError("settings must be ToolSettings.")
+        if settings.tool_id != self.tool_id:
+            raise ValueError("settings tool_id does not match this runtime tool.")
+        if settings.values and type(self).apply_settings is ToolBase.apply_settings:
+            raise NotImplementedError(
+                f"Tool {self.tool_id!r} does not implement settings application."
+            )
+        self._tool_settings = settings
 
     def on_activate(self) -> None:
         pass
