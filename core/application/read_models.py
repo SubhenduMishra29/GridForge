@@ -86,6 +86,38 @@ class EngineeringParameterReadModel:
 
 
 @dataclass(frozen=True, slots=True)
+class ConfigurationReviewReadModel:
+    """Immutable read-side view of one committed element's review obligations."""
+
+    record_id: str
+    status: str
+    field_dispositions: Mapping[str, Mapping[str, Any]]
+    completion_command_id: str | None = None
+    completion_command_type: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.record_id, str) or not self.record_id.strip():
+            raise ValueError("ConfigurationReviewReadModel.record_id must be non-empty")
+        if self.status not in {"pending", "resolved", "not_applicable"}:
+            raise ValueError("ConfigurationReviewReadModel.status is unsupported")
+        if not isinstance(self.field_dispositions, Mapping) or not self.field_dispositions:
+            raise ValueError("ConfigurationReviewReadModel.field_dispositions must be a non-empty mapping")
+        if (self.completion_command_id is None) != (self.completion_command_type is None):
+            raise ValueError("Configuration review completion provenance must be all-or-none")
+        if self.status == "pending" and self.completion_command_id is not None:
+            raise ValueError("Pending configuration review cannot carry completion provenance")
+        if self.status == "resolved" and self.completion_command_id is None:
+            raise ValueError("Resolved configuration review requires completion provenance")
+        object.__setattr__(self, "record_id", self.record_id.strip())
+        object.__setattr__(self, "field_dispositions", _freeze(self.field_dispositions))
+        if self.completion_command_id is not None:
+            if not self.completion_command_id.strip() or not self.completion_command_type.strip():
+                raise ValueError("Configuration review completion provenance must be non-empty")
+            object.__setattr__(self, "completion_command_id", self.completion_command_id.strip())
+            object.__setattr__(self, "completion_command_type", self.completion_command_type.strip())
+
+
+@dataclass(frozen=True, slots=True)
 class ElementReadModel:
     """Stable, UI-neutral immutable snapshot of one network element."""
 
@@ -95,6 +127,7 @@ class ElementReadModel:
     connectivity_refs: tuple[str, ...]
     attributes: Mapping[str, Any]
     engineering_parameters: tuple[EngineeringParameterReadModel, ...] = ()
+    configuration_reviews: tuple[ConfigurationReviewReadModel, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.object_id, str) or not self.object_id:
@@ -111,6 +144,10 @@ class ElementReadModel:
             raise TypeError("ElementReadModel.engineering_parameters must be a tuple")
         if not all(isinstance(item, EngineeringParameterReadModel) for item in self.engineering_parameters):
             raise TypeError("ElementReadModel.engineering_parameters must contain EngineeringParameterReadModel values")
+        if not isinstance(self.configuration_reviews, tuple) or not all(
+            isinstance(item, ConfigurationReviewReadModel) for item in self.configuration_reviews
+        ):
+            raise TypeError("ElementReadModel.configuration_reviews must contain ConfigurationReviewReadModel values")
         attributes = dict(self.attributes)
         semantic_type = self.element_type.strip().upper()
         for key in _CANONICAL_ATTRIBUTES.get(semantic_type, ()):
@@ -118,6 +155,7 @@ class ElementReadModel:
         object.__setattr__(self, "labels", _freeze(self.labels))
         object.__setattr__(self, "attributes", _freeze(attributes))
         object.__setattr__(self, "engineering_parameters", tuple(self.engineering_parameters))
+        object.__setattr__(self, "configuration_reviews", tuple(self.configuration_reviews))
 
 
 @dataclass(frozen=True, slots=True)
@@ -974,6 +1012,7 @@ class MeasurementChannelReadModel:
 
 
 __all__ = [
+    "ConfigurationReviewReadModel",
     "ElementReadModel",
     "EngineeringParameterReadModel",
     "NetworkReadModel",
