@@ -6633,3 +6633,42 @@ Verification boundary:
   Control/Protection provenance presentation and host navigation are still
   separate follow-up work.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Control/Protection Physical Wiring Provenance Projection
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-control-protection-provenance
+Issue: #1203
+
+Correction:
+- Added a shared UI-side formatter that joins the detached Application
+  SignalEndpointResolutionReadModel with the canonical InstrumentationWiring
+  read model only when project ID and activation generation agree.
+- Control Inspector now shows the selected component's exact input endpoint,
+  signal ID/tag, MeasurementChannel, declared cable-core/panel-wire identities,
+  terminal path, stable physical hop IDs, resolver status and diagnostics.
+- Control provenance refreshes on the existing Application event refresh path,
+  including MeasurementChannel and InstrumentationWiring changes.
+- Protection Inspector now shows the selected Protection element(s)' exact
+  RelayInput endpoint provenance using the same Application resolver and
+  canonical carrier inventory.
+- Unresolved bindings remain visibly unresolved; declared carrier associations
+  are not presented as proof of continuity. No tags, routes, terminal identity,
+  signal meaning or compatibility are inferred from canvas geometry.
+- The change is read-only UI projection. It does not create a second wiring
+  record, mutate Control/Protection/Core, or introduce Qt into Core.
+
+Boundary:
+- This batch adds Control/Protection inspector provenance only. Host-level
+  cross-canvas navigation/highlighting, terminal-block SLD authoring/selection,
+  complete schedule export/sign-off, remaining instrument-specific conductor
+  safety contracts, and GUI/save-reopen acceptance remain open under #1203.
+- PR #1207 remains a divergent draft integration reference and is not merged.
+
+Verification:
+- Source fetch-back and static review only. Python syntax/import verification,
+  tests/CI, GUI interaction and project save/reopen are not yet performed.
+- Issue #1203 remains open; this is a focused correction tranche, not closure.
+======================================================================
