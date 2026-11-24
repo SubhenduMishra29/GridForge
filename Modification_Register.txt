@@ -6416,3 +6416,7 @@ Finding: ToolSettings snapshots exposed schema defaults to the UI, but a newly c
 
 [2026-11-24] Issue #1195 — immutable choice metadata normalization
 Finding: frozen ToolSettingDefinition instances could retain a caller-supplied mutable list in the choices field, allowing constraints to change after validation. Correction: normalize choices to a tuple and store the tuple on the frozen definition during initialization. Verification boundary: fetch-back/source inspection only; no tests/CI, Python syntax/import execution, or GUI runtime validation performed. PR #1259 and Issue #1195 remain open.
+
+
+[2026-11-24] Issue #1195 — failure cleanup and immutable schema correction
+Finding: initial runtime settings rejection could leave the failed tool instance cached, and frozen ToolDefinition objects still exposed a mutable settings mapping. Correction: dispose and evict the partially initialized tool when initial settings application fails; freeze ToolDefinition.settings with MappingProxyType; update ToolManager's schema registration to accept the Mapping contract while copying it into its private registry. Verification boundary: fetch-back/source inspection and branch comparison only; no tests/CI or GUI execution performed.
