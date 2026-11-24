@@ -378,6 +378,7 @@ class SLDCanvasRenderSystem:
             "obstacle_extraction_seconds": 0.0,
             "existing_route_extraction_seconds": 0.0,
             "route_search_seconds": 0.0,
+            "annotation_reflow_seconds": 0.0,
         }
         draft_layers = {layer.layer_id: layer for layer in draft.layers}
 
@@ -894,7 +895,9 @@ class SLDCanvasRenderSystem:
             self._render_signatures[render_id] = signature
             sync_metrics["annotation_realizations"] = int(sync_metrics["annotation_realizations"]) + 1
 
+        annotation_reflow_started = perf_counter()
         self._reflow_annotation_layout()
+        sync_metrics["annotation_reflow_seconds"] = max(0.0, perf_counter() - annotation_reflow_started)
         sync_metrics["realized_item_count"] = len(self._items)
         sync_metrics["synchronize_seconds"] = max(0.0, perf_counter() - sync_started)
         self._last_sync_metrics = sync_metrics
