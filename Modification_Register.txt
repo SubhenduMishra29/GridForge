@@ -6668,7 +6668,12 @@ Boundary:
 - PR #1207 remains a divergent draft integration reference and is not merged.
 
 Verification:
-- Source fetch-back and static review only. Python syntax/import verification,
-  tests/CI, GUI interaction and project save/reopen are not yet performed.
+- GitHub fetch-back and current-main diff review completed. Python AST parsing
+  succeeded for the new helper and the modified Control/Protection code fragments.
+- `ui/core/qt.py` already exports the QListWidget/QLabel controls used here;
+  `ui/__init__.py` remains intentionally inert and no package export is needed.
+- Core and Application files are unchanged. A local full-repository syntax/import
+  pass could not be run because the execution environment could not resolve
+  github.com for a clone. No tests/CI, GUI interaction or save/reopen were run.
 - Issue #1203 remains open; this is a focused correction tranche, not closure.
 ======================================================================
