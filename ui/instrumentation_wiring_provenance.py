@@ -63,6 +63,16 @@ def instrumentation_wiring_provenance_lines(
     if not project_id or isinstance(generation, bool) or not isinstance(generation, int):
         return ("Physical-wiring snapshot has no valid project activation identity.",)
 
+    lifecycle = getattr(application, "project_lifecycle", None)
+    active_context = getattr(lifecycle, "context", None)
+    active_project_id = getattr(active_context, "project_id", None)
+    active_generation = getattr(lifecycle, "activation_generation", None)
+    if (
+        str(active_project_id or "") != project_id
+        or active_generation != generation
+    ):
+        return ("Physical-wiring snapshot is stale for the active project; refresh required.",)
+
     selected = tuple(
         item for item in resolutions
         if str(getattr(item, "endpoint_kind", "")).upper() == str(endpoint_kind).upper()
