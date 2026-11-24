@@ -6307,3 +6307,53 @@ Verification boundary:
 - No tests/CI, GUI, runtime insertion, layer visibility/lock interaction,
   save/reopen or undo/redo experiments were run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Configuration review committed read-model projection (Issue #32)
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Implementation branch: contribute/issue-32-configuration-review-read-model-root-main
+Tracking: SubhenduMishra29/GridForge#994; madhuri196mishra-cpu/GridForge#32
+
+Finding:
+- The schema-10 Application-owned configuration-review register is durable,
+  but Application.read_network() and Application.read_element() do not expose
+  its committed state to downstream read-side consumers.
+- UI/projection consumers must not read the register directly or infer review
+  status from labels, Core values, or draft-authored metadata.
+
+Correction:
+- Added immutable ConfigurationReviewReadModel as a read-side DTO with
+  record identity, lifecycle status, canonical field dispositions, and
+  optional completion command provenance.
+- Extended ElementReadModel with an additive, default-empty
+  configuration_reviews tuple; existing callers remain source-compatible.
+- Application.read_network() enriches each returned element from the
+  Application-owned register and returns a detached NetworkReadModel.
+- Application.read_element() applies the same enrichment to individual
+  element snapshots.
+- Read enrichment and register lookup share the existing Application
+  execution lock, preventing a read from observing a partially applied
+  register transaction.
+- Exported ConfigurationReviewReadModel through core.application.
+- The Application register remains the only lifecycle authority; Core and
+  UI ownership boundaries are unchanged.
+
+Scope boundary:
+- This correction is read-only projection. It does not mutate review status,
+  decide workflow completion, reconcile element deletion, or determine
+  study-specific applicability. Those remain separate Issue #994 work.
+
+Reconciliation:
+- Branch created from current authoritative root main at
+  764915a6d173a8c154f3fa54c969b15793bc590f.
+- PR #1241 is merged; PR #1243 superseded and replaced closed PR #1242.
+- Root schema 10 and its Application-owned register were fetched from main;
+  no schema migration or persistence implementation was duplicated here.
+
+Verification boundary:
+- Static source inspection and GitHub fetch-back only.
+- No tests, CI, Python syntax/import checks, startup, GUI, or runtime
+  experiments were run.
+======================================================================
