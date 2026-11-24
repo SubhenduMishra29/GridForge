@@ -14,6 +14,7 @@ SLD document or the Core network.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from time import perf_counter
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -126,6 +127,12 @@ class SLDCanvasProjection:
             raise TypeError("read_model_provider must be callable or None.")
         self._read_model_provider = read_model_provider
         self._study_result: StudyResultReadModel | None = None
+        self._last_project_metrics: dict[str, object] = {}
+
+    @property
+    def last_project_metrics(self) -> dict[str, object]:
+        """Return a defensive copy of the latest successful SLD snapshot projection metrics."""
+        return dict(self._last_project_metrics)
 
     def set_study_result(self, result: StudyResultReadModel | None) -> bool:
         """Set the selected Application result and report whether the canvas must refresh."""
@@ -154,6 +161,7 @@ class SLDCanvasProjection:
         """Project SLD structure and resolve annotation values from Application read models."""
         if not isinstance(model, SLDModel):
             raise TypeError("model must be an SLDModel.")
+        project_started = perf_counter()
         if instrumentation_wiring is not None and not isinstance(instrumentation_wiring, SLDInstrumentationWiringProjection):
             raise TypeError("instrumentation_wiring must be an SLDInstrumentationWiringProjection or None.")
         layer_by_id = {layer.layer_id: layer for layer in layers}
@@ -162,6 +170,7 @@ class SLDCanvasProjection:
         nodes = tuple(self._project_node(node, self._require_layer(layer_by_id, node.layer_id)) for node in model.nodes)
         connections = tuple(self._project_connection(connection, self._require_layer(layer_by_id, connection.layer_id)) for connection in model.connections)
         physical_diagnostics: tuple[str, ...] = ()
+        physical_connection_count = 0
         if instrumentation_wiring is not None:
             if "default" not in layer_by_id:
                 raise ValueError("Physical instrumentation wiring requires the SLD default presentation layer.")
@@ -211,14 +220,25 @@ class SLDCanvasProjection:
                         layer_locked=layer_by_id["default"].locked,
                     ))
             connections += tuple(physical_connections)
+            physical_connection_count = len(physical_connections)
             physical_diagnostics = tuple(diagnostics)
         nodes_by_id = {node.node_id: node for node in nodes}
         annotations = tuple(self._project_annotation(block, nodes_by_id, self._require_layer(layer_by_id, block.layer_id)) for block in annotation_blocks)
         annotations += self._project_study_result_annotations(nodes, self._study_result)
-        return SLDCanvasSnapshot(
+        snapshot = SLDCanvasSnapshot(
             nodes=nodes, connections=connections, annotations=annotations,
             physical_wiring_diagnostics=physical_diagnostics,
         )
+        self._last_project_metrics = {
+            "node_count": len(snapshot.nodes),
+            "connection_count": len(snapshot.connections),
+            "annotation_count": len(snapshot.annotations),
+            "physical_wiring_connection_count": physical_connection_count,
+            "physical_wiring_diagnostic_count": len(physical_diagnostics),
+            "layer_count": len(layer_by_id),
+            "project_seconds": max(0.0, perf_counter() - project_started),
+        }
+        return snapshot
 
     @staticmethod
     def _require_layer(layers: Mapping[str, SLDPresentationLayer], layer_id: str) -> SLDPresentationLayer:

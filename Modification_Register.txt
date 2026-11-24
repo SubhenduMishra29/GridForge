@@ -6525,3 +6525,32 @@ Verification boundary:
   or input-to-visible latency. Issue #818 remains open pending local profile
   captures and comparison-viewport GUI acceptance.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — SLD snapshot projection profiling metrics
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Branch: perf/issue-760-projection-timing
+Issue: #760
+
+Correction:
+- Added SLDCanvasProjection.last_project_metrics as a defensive copy of the
+  latest successful snapshot projection metrics.
+- Captures projected node, connection, annotation and layer counts; physical
+  instrumentation segment and diagnostic counts; and monotonic projection
+  duration.
+- Preserves the renderer-neutral snapshot contract and existing projection
+  order. No caching, asynchronous work, stale snapshot reuse or Qt object
+  creation was introduced.
+- Together with SLDUpdateCoordinator.last_refresh_metrics and
+  SLDCanvasRenderSystem.last_sync_metrics, separates event refresh,
+  snapshot projection and renderer reconciliation timing.
+
+Verification boundary:
+- Source fetch-back and diff inspection only. No tests/CI, imports, Qt
+  startup, GUI, multi-document switching or profiling were run.
+- Qt paint/frame time and input-to-visible latency remain external runtime
+  measurements. Issue #760 remains open pending representative multi-SLD
+  profiles and GUI acceptance.
+======================================================================
