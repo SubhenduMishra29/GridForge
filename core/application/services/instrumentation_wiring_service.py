@@ -308,7 +308,7 @@ class InstrumentationWiringService:
         path = tuple(terminal_path)
         if len(path) < 2 or any(not isinstance(item, WiringTerminalReference) for item in path):
             raise ValueError("terminal_path must contain at least two terminal references.")
-        if len({item.identity for item in path}) != len(path):
+        if len({item.canonical_identity for item in path}) != len(path):
             raise ValueError("terminal_path must not repeat a terminal.")
         supplied_ids = tuple(new_hop_ids)
         if any(not isinstance(item, str) or not item.strip() for item in supplied_ids):
@@ -322,7 +322,7 @@ class InstrumentationWiringService:
         carrier_index = matches[0]
         carrier = records[carrier_index]
         new_pairs = [
-            frozenset((path[index].identity, path[index + 1].identity))
+            frozenset((path[index].canonical_identity, path[index + 1].canonical_identity))
             for index in range(len(path) - 1)
         ]
         if len(new_pairs) != len(set(new_pairs)):
@@ -333,7 +333,7 @@ class InstrumentationWiringService:
             if hop.carrier_kind is carrier_kind and hop.carrier_id == carrier_id
         ]
         active_by_pair = {
-            frozenset((hop.from_terminal.identity, hop.to_terminal.identity)): hop
+            frozenset((hop.from_terminal.canonical_identity, hop.to_terminal.canonical_identity)): hop
             for hop in existing if hop.lifecycle_status in {"PLANNED", "INSTALLED"}
         }
         preserved_pairs = set(active_by_pair).intersection(new_pairs)
@@ -351,7 +351,7 @@ class InstrumentationWiringService:
         id_iter = iter(supplied_ids)
         for index in range(len(path) - 1):
             left, right = path[index], path[index + 1]
-            pair = frozenset((left.identity, right.identity))
+            pair = frozenset((left.canonical_identity, right.canonical_identity))
             if pair in preserved_pairs:
                 continue
             new_hops.append(PhysicalConnectionHop(
