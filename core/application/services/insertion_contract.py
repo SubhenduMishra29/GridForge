@@ -37,6 +37,16 @@ INSERTION_CONTRACTS = {
         insertion_mode="SERIES_PRIMARY",
         terminal_mapping=("P1", "P2"),
     ),
+    "potential_transformer": InsertionContract(
+        equipment_type="potential_transformer",
+        insertion_mode="SERIES_PRIMARY",
+        terminal_mapping=("primary_a", "primary_b"),
+    ),
+    "cvt": InsertionContract(
+        equipment_type="cvt",
+        insertion_mode="SERIES_PRIMARY",
+        terminal_mapping=("H1", "H2"),
+    ),
 }
 
 

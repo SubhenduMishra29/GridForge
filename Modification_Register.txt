@@ -6307,3 +6307,42 @@ Verification boundary:
 - No tests/CI, GUI, runtime insertion, layer visibility/lock interaction,
   save/reopen or undo/redo experiments were run.
 ======================================================================
+
+
+======================================================================
+Issue #774 — Inline Branch Equipment Replacement Mechanics
+Date: 2026-11-24
+Status: CORRECTION PREPARED — PR REVIEW REQUIRED
+
+Audit baseline:
+- Authoritative main before this correction: 764915a6d173a8c154f3fa54c969b15793bc590f.
+- The insertion contract catalogue exposed breaker, disconnector, transformer
+  and CT only. PT and CVT had canonical Core models and Application creation
+  commands but could not enter the inline insertion workflow.
+- ElectricalInsertionService lacked PT/CVT creation dispatch, primary
+  terminal identity mapping, engineering parameter allowlists, and secondary
+  terminal isolation checks.
+
+Correction:
+- Added Potential Transformer insertion using primary_a/primary_b and the
+  canonical CreatePTCommand; secondary_a/secondary_b remain measurement-side
+  terminals and are never wired by the inline insertion transaction.
+- Added CVT insertion using H1/H2 and the canonical
+  CreateCapacitiveVoltageTransformerCommand; X1/X2 remain measurement-side
+  terminals and are never wired by the inline insertion transaction.
+- Added finite and positive-value validation for PT/CVT nameplate voltage
+  and frequency fields, and reject caller-supplied terminal endpoint overrides.
+- Existing-equipment insertion recognizes PT/CVT concrete Core types and
+  verifies required primary terminals are free before connecting them.
+- Generalized the instrument-secondary isolation invariant across CT, PT and
+  CVT. The primary topology still uses canonical EndpointReference and
+  ConnectTerminalCommand; no direct Core mutation or UI/Qt dependency added.
+- Existing atomic connection replacement, rollback, route geometry and SLD
+  projection contracts are retained; graphical snapping is not electrical
+  connectivity.
+
+Verification boundary:
+- Source-level diff reviewed; focused syntax/import integrity and final diff
+  review recorded in the PR. No tests/CI or GUI runtime experiments were run,
+  per repository workflow.
+======================================================================
