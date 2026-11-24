@@ -151,6 +151,7 @@ class ControlWorkspace(QWidget):
         try:
             model = self._application.read_control()
             self._reconcile_selection(model)
+            self._inspector.refresh_wiring_provenance(self._interaction.selected_component_id)
             self._status.set_status(
                 f"Control: {len(model.rungs)} rung(s), {len(model.components)} component(s)"
             )
