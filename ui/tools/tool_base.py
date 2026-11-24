@@ -90,7 +90,7 @@ class ToolBase(ABC):
             raise TypeError("settings must be ToolSettings.")
         if settings.tool_id != self.tool_id:
             raise ValueError("settings tool_id does not match this runtime tool.")
-        if settings.values:
+        if settings.values and type(self).apply_settings is ToolBase.apply_settings:
             raise NotImplementedError(
                 f"Tool {self.tool_id!r} does not implement settings application."
             )
