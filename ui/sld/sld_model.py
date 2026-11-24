@@ -320,6 +320,7 @@ class SLDEndpoint:
     terminal_role: str | None = None
     bus_id: str | None = None
     attachment_id: str | None = None
+    terminal_point_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, SLDEndpointKind):
@@ -333,12 +334,16 @@ class SLDEndpoint:
                 raise ValueError("equipment endpoints require terminal_role")
             if self.bus_id is not None or self.attachment_id is not None:
                 raise ValueError("equipment endpoints cannot carry bus attachment identity")
+            if self.terminal_point_id is not None and (
+                not isinstance(self.terminal_point_id, str) or not self.terminal_point_id
+            ):
+                raise ValueError("terminal_point_id must be a non-empty string when supplied")
         else:
             if not isinstance(self.bus_id, str) or not self.bus_id:
                 raise ValueError("bus endpoints require bus_id")
             if not isinstance(self.attachment_id, str) or not self.attachment_id:
                 raise ValueError("bus endpoints require attachment_id")
-            if self.equipment_id is not None or self.terminal_role is not None:
+            if self.equipment_id is not None or self.terminal_role is not None or self.terminal_point_id is not None:
                 raise ValueError("bus endpoints cannot carry equipment terminal identity")
 
     def to_dict(self) -> Dict[str, Any]:
@@ -349,17 +354,22 @@ class SLDEndpoint:
             "terminal_role": self.terminal_role,
             "bus_id": self.bus_id,
             "attachment_id": self.attachment_id,
+            "terminal_point_id": self.terminal_point_id,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "SLDEndpoint":
         if not isinstance(data, Mapping):
             raise TypeError("SLD endpoint payload must be a mapping.")
-        allowed = {"kind", "node_id", "equipment_id", "terminal_role", "bus_id", "attachment_id"}
+        allowed = {
+            "kind", "node_id", "equipment_id", "terminal_role", "bus_id",
+            "attachment_id", "terminal_point_id",
+        }
+        required = allowed - {"terminal_point_id"}
         unknown = sorted(set(data) - allowed)
         if unknown:
             raise ValueError("Unknown canonical SLD endpoint fields: " + ", ".join(unknown))
-        missing = sorted(allowed - set(data))
+        missing = sorted(required - set(data))
         if missing:
             raise ValueError("Missing canonical SLD endpoint fields: " + ", ".join(missing))
         return cls(
@@ -369,6 +379,7 @@ class SLDEndpoint:
             terminal_role=data.get("terminal_role"),
             bus_id=data.get("bus_id"),
             attachment_id=data.get("attachment_id"),
+            terminal_point_id=data.get("terminal_point_id"),
         )
 
 

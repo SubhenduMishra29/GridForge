@@ -18,8 +18,8 @@ def test_canvas_snapshot_contains_transient_physical_wiring_connections():
             "id": "core-1", "cable_id": "cable-1", "core_number": 1,
             "role": "SIGNAL", "core_tag": "IC-001/1",
             "terminal_path": (
-                {"equipment_id": "CT-1", "terminal_role": "S1", "designation": "X1:1"},
-                {"equipment_id": "TB-1", "terminal_role": "1", "designation": "X2:1"},
+                {"equipment_id": "CT-1", "terminal_role": "S1", "designation": "X1:1", "terminal_point_id": "tp-ct-s1"},
+                {"equipment_id": "TB-1", "terminal_role": "1", "designation": "X2:1", "terminal_point_id": "tp-tb-1"},
             ),
         },),
         panel_wires=(),
@@ -42,8 +42,12 @@ def test_canvas_snapshot_contains_transient_physical_wiring_connections():
     assert connection.properties["cable_id"] == "cable-1"
     assert connection.properties["core_id"] == "core-1"
     assert connection.properties["signal_tags"] == ("IA_A",)
+    assert connection.properties["signal_ids"] == ("signal-1",)
+    assert connection.properties["source_terminal_point_id"] == "tp-ct-s1"
+    assert connection.properties["target_terminal_point_id"] == "tp-tb-1"
     assert connection.source_endpoint.terminal_role == "S1"
     assert connection.target_endpoint.terminal_role == "1"
+    assert connection.target_endpoint.terminal_point_id == "tp-tb-1"
     assert snapshot.physical_wiring_diagnostics == ()
     assert model.connection_count == 0
 
