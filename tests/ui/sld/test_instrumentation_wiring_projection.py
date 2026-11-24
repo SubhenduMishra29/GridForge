@@ -9,9 +9,9 @@ from ui.sld.sld_model import SLDModel, SLDNode
 
 def _read_model(*, core_path=None, panel_wires=(), extra_binding=True):
     terminal_path = core_path if core_path is not None else (
-        {"equipment_id": "CT-1", "terminal_role": "S1", "designation": "X1:1"},
-        {"equipment_id": "TB-1", "terminal_role": "1", "designation": "X2:1"},
-        {"equipment_id": "RELAY-1", "terminal_role": "IA", "designation": "X3:1"},
+        {"equipment_id": "CT-1", "terminal_role": "S1", "designation": "X1:1", "terminal_point_id": "tp-ct-s1"},
+        {"equipment_id": "TB-1", "terminal_role": "1", "designation": "X2:1", "terminal_point_id": "tp-tb-1"},
+        {"equipment_id": "RELAY-1", "terminal_role": "IA", "designation": "X3:1", "terminal_point_id": "tp-relay-ia"},
     )
     return InstrumentationWiringReadModel(
         project_id="project-1",
@@ -54,10 +54,13 @@ def test_physical_core_projects_each_terminal_hop_without_mutating_document():
     assert len(record.segments) == 2
     assert record.segments[0].source.equipment_id == "CT-1"
     assert record.segments[0].source.terminal_role == "S1"
+    assert record.segments[0].source.terminal_point_id == "tp-ct-s1"
+    assert record.segments[0].target.terminal_point_id == "tp-tb-1"
     assert record.segments[0].target.equipment_id == "TB-1"
     assert record.segments[1].source.equipment_id == "TB-1"
     assert record.segments[1].target.equipment_id == "RELAY-1"
     assert record.segments[1].signal_tags == ("IA_A",)
+    assert record.segments[1].signal_ids == ("signal-1",)
     assert (model.node_count, model.connection_count) == before
 
 
