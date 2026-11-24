@@ -6496,3 +6496,32 @@ Verification boundary:
 - The workbench does not modify GridForge runtime dependencies or claim
   electrical engineering correctness for model-generated changes.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — SLD renderer reconciliation profiling metrics
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Branch: perf/issue-818-renderer-sync-metrics
+Issue: #818
+
+Correction:
+- Added SLDCanvasRenderSystem.last_sync_metrics as a defensive, read-only
+  snapshot of the latest successful scene synchronization.
+- Captures committed/draft node and connection counts, annotation count,
+  removed item count, realization/reuse counts, realized item count and
+  total synchronization duration.
+- Separates automatic-route count, obstacle-bound extraction time,
+  existing-route extraction time, route-search time and annotation reflow
+  time using a monotonic performance clock.
+- Preserves synchronous reconciliation, incremental signatures, route
+  ordering, Qt scene ownership and Application event semantics. No
+  coalescing, deferred rendering, caching or worker-thread behavior added.
+
+Verification boundary:
+- Source inspection and branch fetch-back only. No tests/CI, Python imports,
+  Qt startup, GUI profiling or representative large-diagram measurements
+  were run. Metrics cover renderer synchronization, not Qt paint/frame time
+  or input-to-visible latency. Issue #818 remains open pending local profile
+  captures and comparison-viewport GUI acceptance.
+======================================================================
