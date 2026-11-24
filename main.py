@@ -414,7 +414,7 @@ def _build_application_impl(
                     mode = ToolMode(definition.default_mode)
                 except ValueError:
                     mode = ToolMode.IDLE
-            settings = ToolSettings(definition.tool_id, values=definition.settings)
+            settings = ToolSettings(definition.tool_id, definitions=definition.settings)
         from ui.workspace.engineering_context import EditorContext
         region = next((item for item in getattr(editor, "regions", ()) if item.region_id == region_id), None)
         return EditorContext(
@@ -433,6 +433,7 @@ def _build_application_impl(
             tool_settings=settings,
             interaction_state={},
             view_state={},
+            presentation_state={"apply_tool_settings": controller.apply_active_tool_settings},
         )
 
     workspace_realizer = WorkspaceRealizer(
