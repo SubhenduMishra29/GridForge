@@ -296,6 +296,14 @@ class ToolManager:
         self._validate_tool_id(tool_id)
         return self._get_or_create_tool(tool_id)
 
+    def get_existing_tool_settings(self, tool_id: str) -> ToolSettings | None:
+        """Return retained settings without constructing or activating a tool."""
+        self._ensure_active()
+        self._validate_tool_id(tool_id)
+        instance = self._tool_instances.get(tool_id)
+        settings = getattr(instance, "tool_settings", None) if instance is not None else None
+        return settings if isinstance(settings, ToolSettings) else None
+
     def get_current_tool(self) -> Any | None:
         self._ensure_active()
         return self._active_tool
