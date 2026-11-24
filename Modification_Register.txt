@@ -6606,3 +6606,30 @@ Verification boundary:
 - Source fetch-back/diff review only. No tests/CI, imports, Application
   execution, GUI or save/reopen were run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Stable SLD instrumentation provenance identities
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Issue: #1203
+Branch: fix/issue-1203-sld-provenance-identities
+
+Correction:
+- Extended the presentation-side SLDEndpoint with optional terminal_point_id.
+  Existing endpoint payloads remain readable; the field is emitted on new
+  payloads and is never treated as Core electrical topology authority.
+- SLD instrumentation wiring projection now carries canonical signal IDs as
+  well as display tags, and propagates terminal-point identity from the
+  Application read model into each projected endpoint.
+- Canvas snapshot metadata exposes signal IDs and both endpoint terminal-point
+  IDs for downstream provenance inspection and deterministic navigation.
+- No Core records, connectivity, signal binding ownership, or SLD document
+  connection state is mutated by this read-only projection.
+
+Verification boundary:
+- Source edits and GitHub fetch-back/diff review only. No tests/CI, imports,
+  Qt startup, GUI navigation or save/reopen were run. Issue #1203 remains open;
+  Control/Protection provenance presentation and host navigation are still
+  separate follow-up work.
+======================================================================
