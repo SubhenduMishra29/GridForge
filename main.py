@@ -348,6 +348,9 @@ def _build_application_impl(
             "protection": lambda: protection_workspace.active_tool_id,
             "study": lambda: study_tool_runtime.active_tool_id,
         },
+        tool_settings_provider=lambda editor_type, tool_id: (
+            tool_manager.get_existing_tool_settings(tool_id) if editor_type == "sld" else None
+        ),
         icon_provider=_tool_icon,
         study_runtime=study_tool_runtime,
         parent=None,
@@ -414,7 +417,8 @@ def _build_application_impl(
                     mode = ToolMode(definition.default_mode)
                 except ValueError:
                     mode = ToolMode.IDLE
-            settings = ToolSettings(definition.tool_id, definitions=definition.settings)
+            retained = tool_manager.get_existing_tool_settings(definition.tool_id) if editor_type == "sld" else None
+            settings = retained if retained is not None else ToolSettings(definition.tool_id, definitions=definition.settings)
         from ui.workspace.engineering_context import EditorContext
         region = next((item for item in getattr(editor, "regions", ()) if item.region_id == region_id), None)
         return EditorContext(
