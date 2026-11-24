@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 import hashlib
 import json
+from time import perf_counter
 from typing import Any
 
 from core.application.application import Application
@@ -103,6 +104,7 @@ class SLDUpdateCoordinator:
         self._document: SLDDocument | None = None
         self._disposed = False
         self._last_reconciliation_error: Exception | None = None
+        self._last_refresh_metrics: dict[str, object] = {}
 
     @property
     def document(self) -> SLDDocument | None:
@@ -302,7 +304,26 @@ class SLDUpdateCoordinator:
         self._last_reconciliation_error = None
         self._refresh_canvas()
 
+    @property
+    def last_refresh_metrics(self) -> dict[str, object]:
+        """Return a copy of the latest event-to-canvas reconciliation timings."""
+        return dict(self._last_refresh_metrics)
+
     def refresh(self, event: ApplicationEvent) -> None:
+        """Measure one event-to-canvas reconciliation without changing event order."""
+        started = perf_counter()
+        succeeded = False
+        try:
+            self._refresh_event(event)
+            succeeded = True
+        finally:
+            self._last_refresh_metrics = {
+                "event_type": type(event).__name__,
+                "duration_seconds": max(0.0, perf_counter() - started),
+                "succeeded": succeeded,
+            }
+
+    def _refresh_event(self, event: ApplicationEvent) -> None:
         """Refresh read-only projections after an authoritative Application fact."""
         if self._disposed:
             return

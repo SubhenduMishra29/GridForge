@@ -6461,3 +6461,7 @@ Verification boundary:
 - No tests, CI, imports, startup, GUI, or runtime undo/redo experiments
   were run.
 ======================================================================
+
+
+[2026-11-24] Issue #818 — event-to-canvas refresh timing instrumentation
+Finding: current SLD event reconciliation and canvas refresh execute synchronously, but no per-event duration measurement is exposed. The alleged navigation stutter is not yet attributable to projection refresh, renderer realization, routing, or Qt painting. Correction: SLDUpdateCoordinator now records the latest event type, total event-to-canvas reconciliation duration, and success status using a monotonic performance clock. The instrumentation preserves synchronous event ordering and existing refresh behavior; it does not coalesce events or change rendering. Verification boundary: current-main source inspection, branch diff/fetch-back only; no tests/CI, application startup, Qt GUI, or representative large-project profiling performed. Issue #818 remains open pending measured renderer/route/paint timings and GUI acceptance.
