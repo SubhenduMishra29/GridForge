@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ui.tools.tool_settings import ToolSettings
+
 from core.application import Application
 from ui.core.qt import QObject, Signal
 
@@ -157,6 +159,15 @@ class Controller(QObject):
         if manager is None:
             raise RuntimeError("Controller requires the canonical ToolManager for tool activation.")
         manager.activate(tool_id, cancel_active_creation=cancel_active_creation)
+
+    def apply_active_tool_settings(self, settings: ToolSettings) -> None:
+        """Route a validated settings snapshot to the existing active tool."""
+        self._ensure_active()
+        manager = self._tool_manager
+        if manager is None:
+            raise RuntimeError("Controller requires the canonical ToolManager for tool settings.")
+        manager.apply_active_tool_settings(settings)
+        self.state_changed.emit()
 
     def commit_network(self) -> Any:
         """Commit the complete Application DraftNetwork through the canonical Application boundary."""
