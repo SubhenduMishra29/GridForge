@@ -200,6 +200,7 @@ def contextual_tool_definitions(tool_ids: tuple[str, ...] | list[str], *, editor
                 editor_types=(editor_type,),
                 shortcuts=((shortcut_map[lookup_id],) if lookup_id in shortcut_map else ()),
                 category=_TOOL_CATEGORY_BY_ID.get(lookup_id, "Engineering"),
+                settings=({"drag_tolerance": ToolSettingDefinition(label="Drag threshold", value_type="float", default=3.0, unit="px", minimum=1.0, maximum=20.0, step=0.5)} if lookup_id == "select" and editor_type == "sld" else {}),
                 metadata={"icon_kind": "tool"},
             )
         )
