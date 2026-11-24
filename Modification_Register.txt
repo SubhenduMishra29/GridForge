@@ -6363,6 +6363,10 @@ GridForge V2 — Configuration review committed read-model projection
 Date: 2026-11-24
 Repository: SubhenduMishra29/GridForge
 Correction branch: fix/config-review-read-model-main-reconcile
+Integration:
+- Reconstructed from authoritative main and merged as PR #1257.
+- Squash merge commit: 923ca983953dd6a5608da0d6f48fec6e81e055b4.
+- Original fork PR #1255 closed as superseded; no stale fork branch merged.
 Tracking: SubhenduMishra29/GridForge#994
 
 Finding:
