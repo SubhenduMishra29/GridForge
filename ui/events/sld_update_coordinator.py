@@ -312,13 +312,15 @@ class SLDUpdateCoordinator:
     def refresh(self, event: ApplicationEvent) -> None:
         """Measure one event-to-canvas reconciliation without changing event order."""
         started = perf_counter()
+        succeeded = False
         try:
             self._refresh_event(event)
+            succeeded = True
         finally:
             self._last_refresh_metrics = {
                 "event_type": type(event).__name__,
                 "duration_seconds": max(0.0, perf_counter() - started),
-                "succeeded": self._last_reconciliation_error is None,
+                "succeeded": succeeded,
             }
 
     def _refresh_event(self, event: ApplicationEvent) -> None:
