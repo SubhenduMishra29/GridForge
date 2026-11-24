@@ -10,9 +10,10 @@ from collections.abc import Callable, Iterable
 from typing import Any
 import logging
 
-from ui.core.qt import QFormLayout, QFrame, QIcon, QLabel, QScrollArea, QToolButton, QVBoxLayout, QWidget, Qt, QSize
+from ui.core.qt import QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QIcon, QLabel, QLineEdit, QScrollArea, QToolButton, QVBoxLayout, QWidget, Qt, QSize
 from ui.core.action_router import UIActionRouter
 from ui.tools.tool_definition import ToolDefinition
+from ui.tools.tool_settings import ToolSettings
 
 _LOG = logging.getLogger(__name__)
 
@@ -240,28 +241,85 @@ class ToolShelf(QWidget):
 
 
 class ToolSettingsPanel(QWidget):
-    """Presentation-only contextual settings for the active ToolDefinition."""
+    """Editable typed settings routed to the canonical active tool instance."""
 
     def __init__(self, *, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._title = QLabel("No active tool", self)
         self._form = QFormLayout()
+        self._context: object | None = None
+        self._settings: ToolSettings | None = None
+        self._updating = False
         layout = QVBoxLayout(self)
         layout.addWidget(self._title)
         layout.addLayout(self._form)
         self.setObjectName("GridForgeToolSettings")
 
     def set_context(self, context: object | None) -> None:
+        self._context = context
+        self._settings = getattr(context, "tool_settings", None) if context is not None else None
         while self._form.rowCount():
             self._form.removeRow(0)
         tool_id = getattr(context, "active_tool", None) if context is not None else None
-        settings = getattr(context, "tool_settings", None) if context is not None else None
         self._title.setText(f"Tool: {tool_id or 'None'}")
-        self.setVisible(bool(tool_id))
-        if settings is None:
+        self.setVisible(bool(tool_id and self._settings and self._settings.definitions))
+        if self._settings is None:
             return
-        for key, value in sorted(dict(getattr(settings, "values", {}) or {}).items()):
-            self._form.addRow(QLabel(str(key), self), QLabel(str(value), self))
+        for key, definition in sorted(self._settings.definitions.items()):
+            value = self._settings.get(key, definition.default)
+            if not definition.editable:
+                control = QLabel(str(value), self)
+            elif definition.value_type == "bool":
+                control = QCheckBox(self)
+                control.setChecked(bool(value))
+                control.toggled.connect(lambda checked, setting_id=key: self._commit(setting_id, checked))
+            elif definition.value_type in {"int", "float"}:
+                control = QDoubleSpinBox(self)
+                control.setDecimals(0 if definition.value_type == "int" else 3)
+                control.setRange(
+                    float(definition.minimum if definition.minimum is not None else (-1_000_000_000)),
+                    float(definition.maximum if definition.maximum is not None else 1_000_000_000),
+                )
+                control.setSingleStep(float(definition.step or (1 if definition.value_type == "int" else 0.1)))
+                control.setValue(float(value))
+                control.valueChanged.connect(
+                    lambda changed, setting_id=key, kind=definition.value_type:
+                    self._commit(setting_id, int(changed) if kind == "int" else float(changed))
+                )
+            elif definition.value_type == "choice":
+                control = QComboBox(self)
+                for choice in definition.choices:
+                    control.addItem(str(choice), choice)
+                index = next((i for i in range(control.count()) if type(control.itemData(i)) is type(value) and control.itemData(i) == value), -1)
+                control.setCurrentIndex(index)
+                control.currentIndexChanged.connect(
+                    lambda index, widget=control, setting_id=key:
+                    self._commit(setting_id, widget.itemData(index)) if index >= 0 else None
+                )
+            else:
+                control = QLineEdit(str(value), self)
+                control.editingFinished.connect(
+                    lambda widget=control, setting_id=key: self._commit(setting_id, widget.text())
+                )
+            suffix = f" ({definition.unit})" if definition.unit else ""
+            self._form.addRow(f"{definition.label}{suffix}", control)
+
+    def _commit(self, setting_id: str, value: object) -> None:
+        if self._updating or self._settings is None:
+            return
+        try:
+            updated = self._settings.with_updates(**{setting_id: value})
+            presentation = getattr(self._context, "presentation_state", {}) or {}
+            apply_settings = presentation.get("apply_tool_settings") if hasattr(presentation, "get") else None
+            if not callable(apply_settings):
+                raise RuntimeError("No canonical tool-settings update route is available.")
+            apply_settings(updated)
+            self._settings = updated
+        except Exception as exc:
+            _LOG.warning("TOOL_SETTINGS_UPDATE_REJECTED: %s", exc)
+            self.set_context(self._context)
+
+
 
 
 __all__ = ["ToolShelf", "ToolSettingsPanel"]
