@@ -6312,7 +6312,7 @@ Verification boundary:
 ======================================================================
 Issue #774 — Inline Branch Equipment Replacement Mechanics
 Date: 2026-11-24
-Status: CORRECTION PREPARED — PR REVIEW REQUIRED
+Status: CORRECTED — MERGED IN PR #1256
 
 Audit baseline:
 - Authoritative main before this correction: 764915a6d173a8c154f3fa54c969b15793bc590f.
@@ -6341,8 +6341,18 @@ Correction:
   projection contracts are retained; graphical snapping is not electrical
   connectivity.
 
+Integration:
+- PR #1256 merged into authoritative main.
+- Merge commit: 83a845f6ab27c54bc511e98ee03ad3eb3c4c55d7.
+- Issue #774 verified closed after merge.
+- Post-merge fetch confirmed PT/CVT insertion dispatch, primary terminal
+  contracts and instrument-secondary isolation are present on main.
+- ui/core/qt.py and core/application/services/__init__.py were inspected;
+  neither required modification. No Core Qt/QGraphics dependency introduced.
+
 Verification boundary:
-- Source-level diff reviewed; focused syntax/import integrity and final diff
-  review recorded in the PR. No tests/CI or GUI runtime experiments were run,
-  per repository workflow.
+- Source-level diff and post-merge repository state reviewed.
+- Python syntax/import execution, tests/CI and GUI runtime insertion were not
+  run. Runtime measurement-channel rehydration, save/reopen and undo/redo
+  remain outside this static correction verification.
 ======================================================================
