@@ -139,3 +139,27 @@ def test_engineer_owned_route_override_is_attached_to_stable_carrier_segment():
         (12.0, 18.0), (42.0, 18.0),
     )
     assert projection.records[0].segments[1].route.ownership == "auto"
+
+
+def test_sld_endpoint_round_trips_terminal_point_identity_and_reads_legacy_payload():
+    from ui.sld.sld_model import SLDEndpoint, SLDEndpointKind
+
+    endpoint = SLDEndpoint(
+        kind=SLDEndpointKind.EQUIPMENT,
+        node_id="node-tb",
+        equipment_id="TB-1",
+        terminal_role="1",
+        terminal_point_id="tp-tb-1",
+    )
+    assert SLDEndpoint.from_dict(endpoint.to_dict()) == endpoint
+
+    legacy_payload = {
+        "kind": "equipment",
+        "node_id": "node-tb",
+        "equipment_id": "TB-1",
+        "terminal_role": "1",
+        "bus_id": None,
+        "attachment_id": None,
+    }
+    legacy_endpoint = SLDEndpoint.from_dict(legacy_payload)
+    assert legacy_endpoint.terminal_point_id is None
