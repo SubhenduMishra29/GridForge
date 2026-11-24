@@ -24,8 +24,16 @@ env/
 
 # IDE/editor metadata
 .vscode/
+!.vscode/
+.vscode/*
+!.vscode/tasks.json
+!.vscode/extensions.json
 .idea/
 
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Local Ollama agent runtime (kept outside tracked project state)
+.venv-gridforge-agents/
+.gridforge-agent/

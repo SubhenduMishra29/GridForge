@@ -1,0 +1,71 @@
+{
+  "version": "2.0.0",
+  "inputs": [
+    {
+      "id": "issueNumber",
+      "type": "promptString",
+      "description": "Open GridForge GitHub issue number",
+      "default": "1203"
+    }
+  ],
+  "tasks": [
+    {
+      "label": "GridForge Agents: Setup (Python 3.10)",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\devtools\\gridforge_agents\\setup.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "GridForge Agents: Doctor",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv-gridforge-agents\\Scripts\\python.exe",
+      "args": ["-m", "gridforge_agents", "doctor"],
+      "options": {
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}\\devtools",
+          "PYTHONUTF8": "1"
+        }
+      },
+      "dependsOn": "GridForge Agents: Setup (Python 3.10)",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "GridForge Agents: Read-only repository audit",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv-gridforge-agents\\Scripts\\python.exe",
+      "args": ["-m", "gridforge_agents", "audit"],
+      "options": {
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}\\devtools",
+          "PYTHONUTF8": "1"
+        }
+      },
+      "dependsOn": "GridForge Agents: Setup (Python 3.10)",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "GridForge Agents: Implement GitHub issue",
+      "type": "process",
+      "command": "${workspaceFolder}\\.venv-gridforge-agents\\Scripts\\python.exe",
+      "args": ["-m", "gridforge_agents", "run", "--issue", "${input:issueNumber}"],
+      "options": {
+        "env": {
+          "PYTHONPATH": "${workspaceFolder}\\devtools",
+          "PYTHONUTF8": "1"
+        }
+      },
+      "dependsOn": "GridForge Agents: Setup (Python 3.10)",
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}
