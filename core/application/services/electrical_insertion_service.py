@@ -17,7 +17,11 @@ from core.network import EndpointCompatibility, EndpointCompatibilityError
 from ..command import Command
 from ..commands.breaker_commands import CreateBreakerCommand
 from ..commands.connection_commands import ConnectTerminalCommand
-from ..commands.measurement_commands import CreateCurrentTransformerCommand
+from ..commands.measurement_commands import (
+    CreateCapacitiveVoltageTransformerCommand,
+    CreateCurrentTransformerCommand,
+)
+from ..commands.pt_commands import CreatePTCommand
 from ..commands.model_commands import CreateDisconnectorCommand, CreateTransformerCommand
 from ..commands.simple_wire_commands import CreateSimpleWireConnectionCommand, RemoveSimpleWireConnectionCommand
 from ..errors import ValidationError
@@ -48,6 +52,16 @@ _CREATION_ALLOWED_FIELDS: dict[str, frozenset[str]] = {
         "accuracy_class", "frequency_hz", "polarity", "in_service",
         "presentation_x", "presentation_y",
     }),
+    "potential_transformer": frozenset({
+        "name", "primary_voltage_kv", "secondary_voltage_v", "accuracy_class",
+        "burden_va", "phase_displacement_deg", "in_service",
+        "presentation_x", "presentation_y",
+    }),
+    "cvt": frozenset({
+        "name", "rated_primary_voltage_kv", "rated_secondary_voltage_v",
+        "accuracy_class", "rated_burden_va", "polarity", "frequency_hz",
+        "in_service", "presentation_x", "presentation_y",
+    }),
 }
 
 _CREATION_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
@@ -55,6 +69,8 @@ _CREATION_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "disconnector": ("voltage_kv", "rated_current_a"),
     "transformer": ("r", "x", "impedance_basis", "impedance_base_voltage_kv"),
     "current_transformer": (),
+    "potential_transformer": (),
+    "cvt": (),
 }
 
 
@@ -175,12 +191,19 @@ class ElectricalInsertionService:
                 "disconnector": "Disconnector",
                 "transformer": "Transformer",
                 "current_transformer": "CurrentTransformer",
+                "potential_transformer": "PT",
+                "cvt": "CapacitiveVoltageTransformer",
             }[equipment_type]
             actual_type = str(
                 getattr(getattr(existing, "equipment_type", None), "value", getattr(existing, "equipment_type", ""))
             ).strip().lower()
             class_name = type(existing).__name__.strip().lower()
-            if class_name != expected_class.lower() and actual_type not in {equipment_type, expected_class.lower()}:
+            canonical_type = {"potential_transformer": "pt", "cvt": "cvt"}.get(
+                equipment_type, equipment_type
+            )
+            if class_name != expected_class.lower() and actual_type not in {
+                equipment_type, expected_class.lower(), canonical_type
+            }:
                 raise ValidationError(
                     code="EQUIPMENT_TYPE_MISMATCH",
                     message=f"Equipment {equipment_id!r} is not a {equipment_type}.",
@@ -244,6 +267,8 @@ class ElectricalInsertionService:
         forbidden = {
             "endpoint", "endpoint_from", "endpoint_to", "endpoint_a", "endpoint_b",
             "p1_endpoint", "p2_endpoint", "s1_endpoint", "s2_endpoint",
+            "primary_a", "primary_b", "secondary_a", "secondary_b",
+            "h1_endpoint", "h2_endpoint", "x1_endpoint", "x2_endpoint",
             "command_id", "correlation_id", "causation_id",
         }
         if forbidden.intersection(parameters):
@@ -377,7 +402,12 @@ class ElectricalInsertionService:
         # the second side. The explicit mapping is the engineering contract,
         # not a UI terminal-name guess.
         input_role, output_role = terminal_mapping
-        equipment_type_enum = EquipmentType(equipment_type)
+        equipment_type_enum = {
+            "potential_transformer": EquipmentType.PT,
+            "cvt": EquipmentType.CVT,
+        }.get(equipment_type)
+        if equipment_type_enum is None:
+            equipment_type_enum = EquipmentType(equipment_type)
         input_ref = EndpointReference.terminal(
             equipment_type=equipment_type_enum,
             equipment_id=equipment_id,
@@ -471,21 +501,28 @@ class ElectricalInsertionService:
         # contract. They must retain exactly the state produced before the
         # insertion transaction (normally disconnected) and are never touched
         # by the primary-path connection commands above.
-        if equipment_type == "current_transformer":
-            for role in ("S1", "S2"):
-                terminal = terminals_by_role.get(role)
-                if terminal is None:
-                    raise ValidationError(
-                        code="INSERTION_CT_TERMINAL_STATE_INVALID",
-                        message=f"Current Transformer is missing required secondary terminal {role!r}.",
-                        details={"equipment_id": equipment_id, "terminal_role": role},
-                    )
-                if getattr(terminal, "endpoint", None) is not None:
-                    raise ValidationError(
-                        code="INSERTION_CT_SECONDARY_CONNECTED",
-                        message=f"Current Transformer secondary terminal {role!r} must remain unconnected during insertion.",
-                        details={"equipment_id": equipment_id, "terminal_role": role},
-                    )
+        secondary_roles = {
+            "current_transformer": ("S1", "S2"),
+            "potential_transformer": ("secondary_a", "secondary_b"),
+            "cvt": ("X1", "X2"),
+        }.get(equipment_type, ())
+        for role in secondary_roles:
+            terminal = terminals_by_role.get(role)
+            if terminal is None:
+                raise ValidationError(
+                    code="INSERTION_INSTRUMENT_SECONDARY_MISSING",
+                    message=f"{equipment_type} is missing required secondary terminal {role!r}.",
+                    details={"equipment_id": equipment_id, "terminal_role": role},
+                )
+            if getattr(terminal, "endpoint", None) is not None:
+                raise ValidationError(
+                    code="INSERTION_INSTRUMENT_SECONDARY_CONNECTED",
+                    message=(
+                        f"{equipment_type} secondary terminal {role!r} must remain "
+                        "unconnected during primary-path insertion."
+                    ),
+                    details={"equipment_id": equipment_id, "terminal_role": role},
+                )
 
         # Remove the original relationship only after both inserted terminals
         # have been established through the canonical Application path.
@@ -620,13 +657,16 @@ class ElectricalInsertionService:
             "presentation_y", "r", "x", "b", "impedance_base_mva",
             "impedance_base_voltage_kv", "tap", "shift", "rate_mva",
             "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
+            "primary_voltage_kv", "secondary_voltage_v", "rated_primary_voltage_kv",
+            "rated_secondary_voltage_v", "rated_burden_va", "phase_displacement_deg",
             "frequency_hz", "current_a", "interrupting_ka",
         }
         positive_fields = {
             "voltage_kv", "rated_current_a", "operating_time", "impedance_base_mva",
             "impedance_base_voltage_kv", "tap", "rate_mva",
             "primary_rated_current_a", "secondary_rated_current_a", "burden_va",
-            "frequency_hz",
+            "primary_voltage_kv", "secondary_voltage_v", "rated_primary_voltage_kv",
+            "rated_secondary_voltage_v", "frequency_hz",
         }
         for field in numeric_fields.intersection(parameters):
             value = parameters[field]
@@ -702,6 +742,16 @@ class ElectricalInsertionService:
             )
         if equipment_type == "current_transformer":
             return CreateCurrentTransformerCommand(
+                transformer_id=equipment_id,
+                **common,
+            )
+        if equipment_type == "potential_transformer":
+            return CreatePTCommand(
+                pt_id=equipment_id,
+                **common,
+            )
+        if equipment_type == "cvt":
+            return CreateCapacitiveVoltageTransformerCommand(
                 transformer_id=equipment_id,
                 **common,
             )
