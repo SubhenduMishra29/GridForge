@@ -4397,7 +4397,7 @@ class Application:
             if element_id in self._configuration_reviews
         }
         if removed_reviews:
-            transaction.record_undo(
+            transaction.record_undo_first(
                 lambda removed=removed_reviews: self._configuration_reviews.update(removed)
             )
             for element_id in removed_reviews:
