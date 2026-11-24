@@ -71,6 +71,19 @@ class Transaction:
             raise TypeError("Undo operation must be callable.")
         self._undo_operations.append(operation)
 
+    def record_undo_first(self, operation: UndoOperation) -> None:
+        """Register an inverse that runs after subsequently registered inverses.
+
+        Pre-commit reconciliation may need its inverse to run only after the
+        command handler has restored the authoritative Core object. Inserting
+        at the front preserves that dependency under reverse-order rollback
+        and committed undo-journal execution.
+        """
+        self._require_open("record_undo_first")
+        if not callable(operation):
+            raise TypeError("Undo operation must be callable.")
+        self._undo_operations.insert(0, operation)
+
     def record_rollback_finalizer(self, operation: UndoOperation) -> None:
         """Register state restoration that runs only after all inverses succeed.
 
