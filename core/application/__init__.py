@@ -52,6 +52,7 @@ from .recovery import ApplicationRecoveryStatus, ApplicationRecoveryComposition
 from .project_presentation import ProjectPresentationCollection
 from .instrumentation_wiring_endpoint_resolver import resolve_signal_endpoint_bindings
 from .read_models import (
+    ConfigurationReviewReadModel,
     ElementReadModel,
     MeasurementChannelReadModel,
     MeasurementChannelConfigurationReadModel,
@@ -144,6 +145,7 @@ __all__ = [
     "MeasurementChannelConfigurationReadModel",
     "SignalEndpointResolutionReadModel",
     "resolve_signal_endpoint_bindings",
+    "ConfigurationReviewReadModel",
     "ElementReadModel",
     "NetworkReadModel",
     "ProtectionReadModel",
