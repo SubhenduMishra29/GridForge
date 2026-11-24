@@ -25,6 +25,7 @@ from ui.core.qt import (
     QVBoxLayout, QWidget, QComboBox, QLineEdit, QPushButton, QFormLayout, QCheckBox, QDoubleValidator,
 )
 from ui.core.selection_manager import SelectionManager
+from ui.instrumentation_wiring_provenance import instrumentation_wiring_provenance_lines
 from .protection_presentation import ProtectionPresentationDocument
 from .protection_tools import ProtectionInteractionController
 from .protection_engineering_panels import (
@@ -805,6 +806,22 @@ class ProtectionInspector(QGroupBox):
                 "  NOT COMMISSIONED — no ProtectionFunctionConfiguration is associated with this Relay.",
                 "  Protection evaluation is not implied by the physical Relay function label or its settings.",
             ])
+
+        lines.append("Physical Wiring Provenance")
+        provenance_owner_ids = tuple(
+            str(configuration.element_id) for configuration in visible_configurations
+        )
+        if provenance_owner_ids:
+            lines.extend(
+                f"  {line}"
+                for line in instrumentation_wiring_provenance_lines(
+                    self._application,
+                    endpoint_kind="PROTECTION_INPUT",
+                    owner_ids=provenance_owner_ids,
+                )
+            )
+        else:
+            lines.append("  No configured Protection input endpoints for this Relay.")
         self._label.setText("\n".join(lines))
         if selected_configuration is not None:
             self._build_settings_editor(selected_configuration)
