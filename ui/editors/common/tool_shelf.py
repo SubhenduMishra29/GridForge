@@ -302,7 +302,8 @@ class ToolSettingsPanel(QWidget):
                     lambda widget=control, setting_id=key: self._commit(setting_id, widget.text())
                 )
             suffix = f" ({definition.unit})" if definition.unit else ""
-            self._form.addRow(f"{definition.label}{suffix}", control)
+            read_only = " (read-only)" if not definition.editable else ""
+            self._form.addRow(f"{definition.label}{suffix}{read_only}", control)
 
     def _commit(self, setting_id: str, value: object) -> None:
         if self._updating or self._settings is None:
