@@ -55,7 +55,7 @@ def instrumentation_wiring_provenance_lines(
     try:
         wiring = read_wiring()
         resolutions = tuple(resolve_endpoints())
-    except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+    except (RuntimeError, AttributeError, TypeError, ValueError, KeyError) as exc:
         return (f"Physical-wiring provenance unavailable: {exc}",)
 
     project_id = str(getattr(wiring, "project_id", ""))
@@ -125,7 +125,7 @@ def instrumentation_wiring_provenance_lines(
         for binding in declared_bindings:
             carrier_kind = str(binding.get("carrier_kind") or "UNKNOWN")
             carrier_id = str(binding.get("carrier_id") or "?")
-            resolved = carrier_id in resolved_carrier_ids
+            resolved = resolution.status == "RESOLVED" and carrier_id in resolved_carrier_ids
             state = "resolved" if resolved else "declared; not resolved"
             if carrier_kind == "CABLE_CORE":
                 carrier = cores.get(carrier_id)
