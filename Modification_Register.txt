@@ -6587,3 +6587,22 @@ Verification boundary:
 - Issue #1203 remains open; this correction does not complete the broader
   instrumentation wiring, provenance, schedules or engineering safety scope.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Complete canonical identity use in hop retirement
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Follow-up to: PR #1265
+Branch: fix/instrumentation-hop-retirement-identity
+
+Correction:
+- Completed the route revision identity conversion by using
+  canonical_identity when deciding whether an existing active hop must be
+  retired. All route duplicate, preservation, creation and retirement
+  comparisons now include terminal_point_id.
+
+Verification boundary:
+- Source fetch-back/diff review only. No tests/CI, imports, Application
+  execution, GUI or save/reopen were run.
+======================================================================

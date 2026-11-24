@@ -369,7 +369,7 @@ class InstrumentationWiringService:
             if hop.carrier_kind is not carrier_kind or hop.carrier_id != carrier_id:
                 revised_hops.append(hop)
                 continue
-            pair = frozenset((hop.from_terminal.identity, hop.to_terminal.identity))
+            pair = frozenset((hop.from_terminal.canonical_identity, hop.to_terminal.canonical_identity))
             if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in new_pairs:
                 revised_hops.append(replace(
                     hop, revision=hop.revision + 1, lifecycle_status="RETIRED",
