@@ -6404,3 +6404,7 @@ Finding: the prior PR #1228 was stale and its settings UI was presentation-only;
 
 [2026-11-24] Issue #1195 — SLD Select settings UI/runtime integration tranche
 Correction: declared the SLD Select tool's typed `drag_tolerance` setting (1.0–20.0 px, 0.5 px increments), implemented consumption by the existing SelectTool instance, replaced the read-only settings summary with typed editable controls, and wired edits through EditorContext presentation callback → Controller → ToolManager → active SelectTool without reactivation. Settings snapshots are now built from definitions in both the composition-root context factory and ControlSurfaceHost refresh path. This completes the first concrete end-to-end setting path at source level. Remaining acceptance: inspect/fetch-back all changed files, confirm UI/runtime behavior in an actual application session, ensure all supported settings widget types behave correctly, and review/merge the PR. No tests/CI or GUI runtime validation performed; Issue #1195 remains open.
+
+
+[2026-11-24] Issue #1195 — retained settings and read-only presentation correction
+Correction: retained per-tool settings are retrieved without constructing inactive tools and restored through the composition root and ControlSurfaceHost when editor/tool context refreshes. Read-only settings are explicitly labelled and rendered without editable controls. This closes the source-level gaps for stale settings on tool/editor switches; runtime GUI verification is still required before merge acceptance and issue closure.
