@@ -6438,3 +6438,46 @@ Verification boundary:
 - No tests, CI, imports, startup, GUI, or runtime undo/redo experiments
   were run.
 ======================================================================
+
+======================================================================
+GridForge V2 — Configuration review deletion reconciliation (Issue #32)
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Implementation branch: contribute/issue-32-review-delete-reconciliation-root-main-20261124b
+Tracking: SubhenduMishra29/GridForge#994; madhuri196mishra-cpu/GridForge#32
+
+Finding:
+- The Application-owned configuration-review register is persisted and
+  projected into immutable element/network read models, but canonical
+  equipment deletion did not remove the corresponding review record.
+- A stale review obligation could therefore outlive its Core equipment
+  identity, including when deletion was issued inside an SLD selection batch.
+
+Correction:
+- The Application pre-commit coordinator now recognizes canonical
+  model.delete_* commands at both direct-command and SLD selection-batch
+  boundaries.
+- It resolves deleted equipment identity from explicit element_id or the
+  single canonical *_id payload field; ambiguous or empty identities fail
+  closed.
+- Matching Application-owned review records are removed in the same
+  transaction. The new Transaction.record_undo_first() API orders review
+  restoration after Core's registered inverse, preserving the Core-first
+  undo/rollback dependency.
+- No Core model, persistence schema, duplicate registry, or UI authority
+  was introduced.
+
+Reconciliation:
+- Branch starts from authoritative root main commit
+  4aa5d381b80795ddd723f9e9194300e2a28888c3.
+- The durable schema-10 register and read-model projection were confirmed
+  already present in current upstream main; no duplicate implementation
+  was submitted.
+- Direct equipment deletion and SLD selection-batch deletion share the
+  same identity reconciliation path; SimpleWire deletion is unaffected.
+
+Verification boundary:
+- Static source inspection and GitHub fetch-back only.
+- No tests, CI, imports, startup, GUI, or runtime undo/redo experiments
+  were run.
+======================================================================
