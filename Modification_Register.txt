@@ -6554,3 +6554,36 @@ Verification boundary:
   measurements. Issue #760 remains open pending representative multi-SLD
   profiles and GUI acceptance.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical physical-hop identity and retired endpoint history
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Issue: #1203
+Branch: fix/instrumentation-hop-canonical-identity
+
+Correction:
+- Route revision matching now uses WiringTerminalReference.canonical_identity,
+  including terminal_point_id, for duplicate detection, unchanged-segment
+  preservation and retirement decisions. The legacy two-field identity is
+  retained only for compatibility and is not used for physical hop identity.
+- Inventory ownership validation now treats RETIRED/REPLACED hop endpoints
+  as immutable historical references. Removed/replaced terminal points need
+  not remain in the active terminal-block inventory merely to preserve audit
+  history. PLANNED/INSTALLED hop endpoints remain fully validated against the
+  active terminal-point registry.
+- Added regression-test source proving a retired hop can retain its original
+  terminal reference after the active terminal point is replaced.
+
+Architecture:
+- Core retains stable physical hop identity and historical endpoint snapshots.
+- Application retains controlled route mutation and stale-inventory preconditions.
+- No Qt/UI or power-network topology changes.
+
+Verification boundary:
+- Source edits and GitHub fetch-back/diff review only. Tests/CI, imports,
+  application execution, GUI and save/reopen were not run.
+- Issue #1203 remains open; this correction does not complete the broader
+  instrumentation wiring, provenance, schedules or engineering safety scope.
+======================================================================
