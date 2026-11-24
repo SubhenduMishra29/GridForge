@@ -758,7 +758,16 @@ class InstrumentationWiringInventory:
         references = (
             [ref for core in self.cores for ref in core.terminal_path]
             + [ref for wire in self.panel_wires for ref in wire.terminal_path]
-            + [ref for hop in self.connection_hops for ref in (hop.from_terminal, hop.to_terminal)]
+            # Retired hops are immutable history snapshots. Their endpoint
+            # terminal points may have been removed/replaced in the live
+            # inventory, so only active hops participate in live ownership
+            # validation.
+            + [
+                ref
+                for hop in self.connection_hops
+                if hop.lifecycle_status in {"PLANNED", "INSTALLED"}
+                for ref in (hop.from_terminal, hop.to_terminal)
+            ]
             + [binding.endpoint.physical_terminal for binding in self.endpoint_bindings]
         )
         for reference in references:
