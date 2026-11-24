@@ -6356,3 +6356,39 @@ Verification boundary:
   run. Runtime measurement-channel rehydration, save/reopen and undo/redo
   remain outside this static correction verification.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Configuration review committed read-model projection
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Correction branch: fix/config-review-read-model-main-reconcile
+Tracking: SubhenduMishra29/GridForge#994
+
+Finding:
+- The schema-10 Application-owned configuration-review register is durable,
+  but Application.read_network() and Application.read_element() do not expose
+  committed review obligations through the canonical read boundary.
+
+Correction:
+- Added immutable ConfigurationReviewReadModel with validated lifecycle
+  status, canonical field dispositions and optional completion provenance.
+- Added an additive default-empty configuration_reviews tuple to
+  ElementReadModel, retaining existing positional construction compatibility.
+- Enriched network and individual element snapshots from the Application-owned
+  register while holding the existing Application execution lock.
+- Exported the DTO from core.application.read_models and core.application.
+- Core remains the authority for equipment data; Application remains the
+  lifecycle authority for review records; UI remains a read-only projection.
+- No persistence schema, Qt, QGraphics, UI or Core model changes introduced.
+
+Reconciliation:
+- Reconstructed on authoritative main after inspecting the source PR #1255.
+- Reused the existing ConfigurationReviewRecord, schema-10 persistence,
+  project activation and transaction-owned record creation already on main.
+- Supersedes the need to merge the diverged fork branch directly.
+
+Verification boundary:
+- Static source inspection and fetch-back review only. No tests/CI, Python
+  syntax/import execution, GUI or runtime experiments performed.
+======================================================================
