@@ -320,11 +320,20 @@ class ToolManager:
             return
         settings = ToolSettings(tool_id, definitions=definitions)
         apply_settings = getattr(tool, "apply_settings", None)
-        if not callable(apply_settings):
-            raise NotImplementedError(
-                f"Tool {tool_id!r} declares settings but its runtime cannot apply them."
-            )
-        apply_settings(settings)
+        try:
+            if not callable(apply_settings):
+                raise NotImplementedError(
+                    f"Tool {tool_id!r} declares settings but its runtime cannot apply them."
+                )
+            apply_settings(settings)
+        except Exception:
+            # Do not retain a partially initialized runtime instance after a
+            # fail-closed settings application. A later activation must start
+            # from a fresh factory instance.
+            if self._tool_instances.get(tool_id) is tool:
+                self._tool_instances.pop(tool_id, None)
+            self._dispose_tool(tool)
+            raise
 
     def get_existing_tool_settings(self, tool_id: str) -> ToolSettings | None:
         """Return retained settings without constructing or activating a tool."""
