@@ -6396,3 +6396,7 @@ Verification boundary:
 - Static source inspection and fetch-back review only. No tests/CI, Python
   syntax/import execution, GUI or runtime experiments performed.
 ======================================================================
+
+
+[2026-11-24] Issue #1195 — typed tool settings contract (implementation tranche)
+Finding: the prior PR #1228 was stale and its settings UI was presentation-only; runtime tools had no safe update contract. Correction: introduced immutable typed setting definitions and snapshots with strict type/range/step validation, read-only enforcement, schema validation in ToolDefinition, and Controller → ToolManager → existing runtime instance application. ToolBase fails closed for non-empty settings unless a concrete tool implements consumption. Reconciliation: rebuilt against current main; no stale PR commits imported. Verification boundary: source-level review and branch comparison only; no tests, CI, Python import/syntax execution, or GUI runtime validation. This tranche does not complete issue acceptance: concrete SLD setting declarations, operational widgets/callback wiring, and at least one real tool's setting consumption remain outstanding. Do not close #1195 until those are implemented and merged.
