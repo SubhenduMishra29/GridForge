@@ -309,6 +309,7 @@ def _build_application_impl(
         tool_manager.get_tool_ids(),
         editor_type="sld",
     )
+    tool_manager.configure_tool_settings(sld_tool_definitions)
     control_tool_definitions = control_workspace.tool_definitions
     protection_tool_definitions = ProtectionInteractionController.TOOL_DEFINITIONS
     study_tool_runtime = StudyToolRuntime(application=gridforge_application)
