@@ -69,7 +69,7 @@ from .project import ProjectContext, ProjectSnapshot
 from .project_lifecycle import ProjectLifecycleService
 from .project_transition import ProjectTransitionDecision, ProjectTransitionRequired
 from .recovery import ApplicationRecoveryStatus
-from .read_models import (ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel, ProtectionMeasurementBindingReadModel)
+from .read_models import (ConfigurationReviewReadModel, ElementReadModel, MeasurementChannelReadModel, MeasurementChannelConfigurationReadModel, NetworkReadModel, ProtectionReadModel, RelayReadModel, SimpleWireReadModel, InstrumentationWiringReadModel, SignalEndpointResolutionReadModel, PhysicalRelayConfigurationReadModel, ProtectionSettingValueReadModel, ProtectionFunctionConfigurationReadModel, ProtectionMeasurementBindingReadModel)
 from .read_service import MeasurementChannelReadService, ProtectionReadService, ReadService, StudyReadService
 from .results import ApplicationResult
 from core.persistence.network_serializer import deserialize_network, serialize_network
@@ -5762,10 +5762,34 @@ class Application:
             raise RuntimeError("Application Control service is not configured.")
         return service.read()
 
+    def _with_configuration_review(self, element: ElementReadModel) -> ElementReadModel:
+        """Enrich a Core-derived element snapshot with its Application review state."""
+        record = self._configuration_reviews.get(element.object_id)
+        if record is None:
+            return element
+        review = ConfigurationReviewReadModel(
+            record_id=record.record_id,
+            status=record.status,
+            field_dispositions=record.field_dispositions,
+            completion_command_id=record.completion_command_id,
+            completion_command_type=record.completion_command_type,
+        )
+        return replace(element, configuration_reviews=(review,))
+
     def read_network(self) -> NetworkReadModel:
-        self._require_read_service(); return self._read_service.network()  # type: ignore[union-attr]
+        self._require_read_service()
+        with self._execution_lock:
+            network = self._read_service.network()  # type: ignore[union-attr]
+            return replace(
+                network,
+                elements=tuple(self._with_configuration_review(item) for item in network.elements),
+            )
+
     def read_element(self, element_type: str, object_id: str) -> ElementReadModel:
-        self._require_read_service(); return self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+        self._require_read_service()
+        with self._execution_lock:
+            element = self._read_service.element(element_type, object_id)  # type: ignore[union-attr]
+            return self._with_configuration_review(element)
     def read_simple_wire(self, connection_id: str) -> SimpleWireReadModel:
         network = self.read_network()
         for connection in network.simple_wires:
