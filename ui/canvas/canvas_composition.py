@@ -628,6 +628,24 @@ class SLDCanvasSurface(QWidget):
     def sld_canvas_snapshot(self) -> SLDCanvasSnapshot:
         return self._sld_canvas_snapshot
 
+    def highlight_instrumentation_routes(
+        self,
+        *,
+        signal_ids: Any,
+        carrier_ids: Any,
+    ) -> tuple[str, ...]:
+        """Highlight exact resolved physical routes and fit the canonical SLD viewport."""
+        matched, bounds = self._sld_canvas_render_system.highlight_instrumentation_routes(
+            signal_ids=signal_ids,
+            carrier_ids=carrier_ids,
+        )
+        if not matched or bounds is None:
+            return ()
+        fit_rect = getattr(self._navigation_controller, "fit_rect", None)
+        if callable(fit_rect):
+            fit_rect(bounds.adjusted(-48.0, -48.0, 48.0, 48.0))
+        return matched
+
     def set_document_title(self, title: str | None) -> None:
         """Update only the visible document-tab title from projected application state."""
         value = str(title).strip() if title is not None else ""
