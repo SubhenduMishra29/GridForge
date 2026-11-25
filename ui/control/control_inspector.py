@@ -116,6 +116,8 @@ class ControlInspector(QWidget):
         self._set_enabled(False)
 
     def show_read_model(self, read_model: Any, component_id: str | None) -> None:
+        if self._selected_id != component_id:
+            self._locate_wiring_status.setText("")
         self._selected_id = component_id
         component = next((c for c in read_model.components if c.component_id == component_id), None) if component_id else None
         if component is None:
@@ -194,6 +196,7 @@ class ControlInspector(QWidget):
         self._update_locate_wiring_state()
 
     def enter_control_interlock_mode(self, read_model: Any, component_id: str | None) -> None:
+        self._locate_wiring_status.setText("")
         self._selected_id = component_id
         self._selected_type = None
         component = next((item for item in read_model.components if item.component_id == component_id), None)
