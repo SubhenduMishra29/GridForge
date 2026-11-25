@@ -8,7 +8,7 @@ bindings as physical continuity.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -235,6 +235,14 @@ class InstrumentationWiringNavigator:
             for carrier_id in tuple(getattr(item, "carrier_ids", ()) or ())
             if isinstance(carrier_id, str) and carrier_id.strip()
         )
+        terminal_point_ids = frozenset(
+            str(sink.get("terminal_point_id")).strip()
+            for item in current_resolved
+            for sink in (getattr(item, "physical_sink_terminal", None),)
+            if isinstance(sink, Mapping)
+            and sink.get("terminal_point_id") is not None
+            and str(sink.get("terminal_point_id")).strip()
+        )
         if not signal_ids or not carrier_ids:
             return WiringNavigationResult(
                 False,
@@ -252,6 +260,7 @@ class InstrumentationWiringNavigator:
                 self._surface.highlight_instrumentation_routes(
                     signal_ids=signal_ids,
                     carrier_ids=carrier_ids,
+                    terminal_point_ids=terminal_point_ids,
                 )
             )
         except Exception as exc:
