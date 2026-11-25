@@ -6702,7 +6702,7 @@ Correction:
 - The composition root injects one shared navigator. It activates the
   canonical SLD workspace, refreshes the active SLD projection from the
   Application read model, then highlights only visible projected segments
-  matching both canonical signal ID and carrier ID.
+  matching exact signal/carrier pairs and resolved sink terminal-point IDs.
 - SLD highlighting is transient presentation state. It does not alter
   SelectionManager, persisted SLD connections, Core topology, cable records,
   or Application wiring inventory. The highlight is cleared on the next
@@ -6720,7 +6720,8 @@ Architecture / compatibility:
   the inspectors. No ui/__init__.py or Core package export was added.
 
 Verification boundary:
-- Source edits and GitHub fetch-back/diff review are in progress.
+- Source edits, GitHub fetch-back/diff review, and Python AST parsing of the
+  new navigator and modified method fragments completed.
 - No tests/CI, full-module imports, application startup, GUI interaction,
   project save/reopen or runtime navigation were run.
 
