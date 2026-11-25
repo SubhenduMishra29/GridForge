@@ -243,7 +243,15 @@ class InstrumentationWiringNavigator:
             and sink.get("terminal_point_id") is not None
             and str(sink.get("terminal_point_id")).strip()
         )
-        if not signal_ids or not carrier_ids:
+        signal_carrier_pairs = frozenset(
+            (str(item.signal_id).strip(), str(carrier_id).strip())
+            for item in current_resolved
+            if isinstance(getattr(item, "signal_id", None), str)
+            and str(item.signal_id).strip()
+            for carrier_id in tuple(getattr(item, "carrier_ids", ()) or ())
+            if isinstance(carrier_id, str) and carrier_id.strip()
+        )
+        if not signal_ids or not carrier_ids or not signal_carrier_pairs:
             return WiringNavigationResult(
                 False,
                 "Revalidated endpoint data contains no canonical signal/carrier identity; no route was highlighted.",
@@ -258,8 +266,7 @@ class InstrumentationWiringNavigator:
         try:
             highlighted = tuple(
                 self._surface.highlight_instrumentation_routes(
-                    signal_ids=signal_ids,
-                    carrier_ids=carrier_ids,
+                    signal_carrier_pairs=signal_carrier_pairs,
                     terminal_point_ids=terminal_point_ids,
                 )
             )
