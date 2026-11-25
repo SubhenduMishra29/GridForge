@@ -66,6 +66,13 @@ class ControlInspector(QWidget):
         self._signal_bindings = QListWidget(self)
         self._signal_status = QLabel("Signal mapping: select a source, Control input and action binding.", self)
         self._wiring_provenance = QListWidget(self)
+        self._instrumentation_navigator: Any | None = None
+        self._locate_wiring_button = QPushButton("Locate physical wiring in SLD", self)
+        self._locate_wiring_button.setEnabled(False)
+        self._locate_wiring_status = QLabel("", self)
+        self._locate_wiring_button.clicked.connect(
+            lambda _checked=False: self._locate_selected_wiring()
+        )
         self._add_signal_binding_button = QPushButton("Add / Update Engineering Signal Binding", self)
         self._add_signal_binding_button.clicked.connect(lambda _checked=False: self._add_signal_binding())
         self._remove_signal_binding_button = QPushButton("Remove Selected Signal Binding", self)
@@ -104,6 +111,8 @@ class ControlInspector(QWidget):
         root.addWidget(self._signal_status)
         root.addWidget(QLabel("Selected component physical wiring provenance", self))
         root.addWidget(self._wiring_provenance)
+        root.addWidget(self._locate_wiring_button)
+        root.addWidget(self._locate_wiring_status)
         self._set_enabled(False)
 
     def show_read_model(self, read_model: Any, component_id: str | None) -> None:
@@ -119,6 +128,7 @@ class ControlInspector(QWidget):
             self._actions.clear()
             self._refresh_signal_mapping_lists(read_model, None)
             self.refresh_wiring_provenance(None)
+            self._update_locate_wiring_state()
             self._set_enabled(False)
             return
 
@@ -144,6 +154,7 @@ class ControlInspector(QWidget):
         self._refresh_action_choices()
         self._refresh_signal_mapping_lists(read_model, component)
         self.refresh_wiring_provenance(component.component_id)
+        self._update_locate_wiring_state()
         self._set_enabled(True)
         self._apply.setEnabled(
             component.component_type == "timer"
@@ -171,6 +182,7 @@ class ControlInspector(QWidget):
             self._configuration_label.setText("")
             self._refresh_signal_mapping_lists(read_model, None)
             self.refresh_wiring_provenance(None)
+            self._update_locate_wiring_state()
             return
         self._rung_label.setText(
             f"Rung: {rung.rung_id} | order={rung.order} | "
@@ -179,6 +191,7 @@ class ControlInspector(QWidget):
         self._configuration_label.setText(f"Positions: {dict(rung.positions)}")
         self._refresh_signal_mapping_lists(read_model, None)
         self.refresh_wiring_provenance(None)
+        self._update_locate_wiring_state()
 
     def enter_control_interlock_mode(self, read_model: Any, component_id: str | None) -> None:
         self._selected_id = component_id
@@ -191,6 +204,7 @@ class ControlInspector(QWidget):
         self._configuration_label.setText("Control Interlock: selected logic component is the gating input.")
         self._mode_label.setText("Control Interlock mode: distinct from LogicEngine interlocks.")
         self.refresh_wiring_provenance(component_id)
+        self._update_locate_wiring_state()
         self._targets.clear()
         self._actions.clear()
         self._set_enabled(False)
@@ -257,6 +271,31 @@ class ControlInspector(QWidget):
                 "required_inputs": [self._selected_id],
             }
         ))
+
+    def bind_instrumentation_navigator(self, navigator: Any | None) -> None:
+        """Bind the composition-root-owned cross-canvas navigation service."""
+        if navigator is not None and not callable(
+            getattr(navigator, "locate_control_component", None)
+        ):
+            raise TypeError("navigator must expose locate_control_component().")
+        self._instrumentation_navigator = navigator
+        self._update_locate_wiring_state()
+
+    def _update_locate_wiring_state(self) -> None:
+        enabled = self._instrumentation_navigator is not None and self._selected_id is not None
+        self._locate_wiring_button.setEnabled(enabled)
+        if self._selected_id is None:
+            self._locate_wiring_status.setText("")
+
+    def _locate_selected_wiring(self) -> None:
+        navigator = self._instrumentation_navigator
+        component_id = self._selected_id
+        if navigator is None or component_id is None:
+            return
+        result = navigator.locate_control_component(component_id)
+        self._locate_wiring_status.setText(
+            str(getattr(result, "message", result))
+        )
 
     def refresh_wiring_provenance(self, component_id: str | None) -> None:
         """Refresh the selected Control input's read-only physical wiring trace."""
