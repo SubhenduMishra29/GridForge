@@ -465,21 +465,57 @@ class ProtectionInspector(QGroupBox):
         self._active_relay_id: str | None = None
         self._active_setting_snapshot: tuple[Any, ...] = ()
         self._relay_setting_snapshot: dict[str, Any] = {}
+        self._instrumentation_navigator: Any | None = None
+        self._visible_element_ids: tuple[str, ...] = ()
+        self._locate_wiring_button = QPushButton("Locate physical wiring in SLD", self)
+        self._locate_wiring_button.setEnabled(False)
+        self._locate_wiring_status = QLabel("", self)
         layout = QVBoxLayout(self)
         layout.addWidget(self._label)
+        layout.addWidget(self._locate_wiring_button)
+        layout.addWidget(self._locate_wiring_status)
         layout.addWidget(self._editor_host)
         layout.addWidget(self._apply_button)
         layout.addWidget(self._discard_button)
         layout.addWidget(self._editor_status)
         self._apply_button.clicked.connect(self._apply_settings)
         self._discard_button.clicked.connect(self._discard_changes)
+        self._locate_wiring_button.clicked.connect(
+            lambda _checked=False: self._locate_selected_wiring()
+        )
         selection_manager.selection_changed.connect(self._on_selection_changed)
         self.refresh()
 
     def _on_selection_changed(self, _ids: Any) -> None:
         self.refresh()
 
+    def bind_instrumentation_navigator(self, navigator: Any | None) -> None:
+        """Bind the composition-root-owned cross-canvas navigation service."""
+        if navigator is not None and not callable(
+            getattr(navigator, "locate_protection_elements", None)
+        ):
+            raise TypeError("navigator must expose locate_protection_elements().")
+        self._instrumentation_navigator = navigator
+        self._update_locate_wiring_state()
+
+    def _update_locate_wiring_state(self) -> None:
+        self._locate_wiring_button.setEnabled(
+            self._instrumentation_navigator is not None and bool(self._visible_element_ids)
+        )
+        if not self._visible_element_ids:
+            self._locate_wiring_status.setText("")
+
+    def _locate_selected_wiring(self) -> None:
+        navigator = self._instrumentation_navigator
+        if navigator is None or not self._visible_element_ids:
+            return
+        result = navigator.locate_protection_elements(self._visible_element_ids)
+        self._locate_wiring_status.setText(str(getattr(result, "message", result)))
+
     def dispose(self) -> None:
+        self._instrumentation_navigator = None
+        self._visible_element_ids = ()
+        self._update_locate_wiring_state()
         try:
             self._selection_manager.selection_changed.disconnect(self._on_selection_changed)
         except (RuntimeError, TypeError):
@@ -685,9 +721,12 @@ class ProtectionInspector(QGroupBox):
 
     def refresh(self) -> None:
         self._clear_editor()
+        self._visible_element_ids = ()
+        self._update_locate_wiring_state()
         selected = self._selection_manager.selected_ids
         if not selected:
             self._label.setText("Select a relay or a specific Protection function element.")
+            self._update_locate_wiring_state()
             return
         object_id = str(selected[0])
         try:
@@ -695,11 +734,13 @@ class ProtectionInspector(QGroupBox):
             configurations = self._application.read_protection_function_configurations()
         except RuntimeError:
             self._label.setText("Protection read boundary unavailable.")
+            self._update_locate_wiring_state()
             return
         relay_id = object_id.split(":", 1)[0]
         relay = next((item for item in protection.relays if str(item.object_id) == relay_id), None)
         if relay is None:
             self._label.setText(f"Protection presentation object: {object_id}")
+            self._update_locate_wiring_state()
             return
 
         relay_configurations = tuple(
@@ -720,6 +761,10 @@ class ProtectionInspector(QGroupBox):
             if selected_configuration is not None
             else relay_configurations
         )
+        self._visible_element_ids = tuple(
+            str(configuration.element_id) for configuration in visible_configurations
+        )
+        self._update_locate_wiring_state()
         decision_by_element = {
             str(item.element_id): item
             for item in getattr(relay, "element_decisions", ())
@@ -744,7 +789,9 @@ class ProtectionInspector(QGroupBox):
         try:
             physical_configuration = self._application.read_physical_relay_configuration(relay_id)
         except (RuntimeError, KeyError):
+            self._visible_element_ids = ()
             self._label.setText("Physical Relay configuration is no longer available; refresh the selection.")
+            self._update_locate_wiring_state()
             return
         lines = [
             "Identity", f"  {relay.object_id}",
@@ -1000,6 +1047,10 @@ class ProtectionWorkspace(QWidget):
     def editor_inspector(self) -> QWidget:
         return self._inspector_tabs
 
+    def bind_instrumentation_navigator(self, navigator: Any | None) -> None:
+        """Bind the shared Application-backed SLD wiring navigator."""
+        self._inspector.bind_instrumentation_navigator(navigator)
+
     @property
     def canvas_state(self):
         return self._state_machine.state
@@ -1048,6 +1099,7 @@ class ProtectionWorkspace(QWidget):
                 self._application.protection_presentation = self._presentation
         self.refresh()
     def dispose(self) -> None:
+        self.bind_instrumentation_navigator(None)
         for event_type, handler in tuple(self._subscriptions):
             self._application.event_bus.unsubscribe(event_type, handler)
         self._subscriptions.clear()
