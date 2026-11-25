@@ -930,6 +930,56 @@ class NavigationController:
         )
         self._notify_zoom_changed()
 
+    def fit_rect(
+        self,
+        rect: Any,
+        margin: float = DEFAULT_FIT_MARGIN,
+    ) -> None:
+        """Fit one presentation rectangle without changing scene or document state."""
+        if isinstance(margin, bool) or not isinstance(margin, (int, float)):
+            raise TypeError("margin must be numeric.")
+        margin = float(margin)
+        if not math.isfinite(margin) or margin < 0.0:
+            raise ValueError("margin must be finite and non-negative.")
+        if rect is None or not callable(getattr(rect, "isNull", None)) or not callable(getattr(rect, "isEmpty", None)):
+            raise TypeError("rect must expose QRectF-compatible isNull()/isEmpty() methods.")
+
+        self._ensure_active()
+        if rect.isNull() or rect.isEmpty():
+            return
+        viewport = self.view.viewport()
+        viewport_width = float(viewport.width())
+        viewport_height = float(viewport.height())
+        if viewport_width <= 0.0 or viewport_height <= 0.0:
+            return
+        available_width = viewport_width - 2.0 * margin
+        available_height = viewport_height - 2.0 * margin
+        if available_width <= 0.0 or available_height <= 0.0:
+            return
+
+        self.end_pan()
+        self.view.resetTransform()
+        self.view.fitInView(rect, Qt.KeepAspectRatio)
+        margin_factor = min(
+            1.0,
+            available_width / viewport_width,
+            available_height / viewport_height,
+        )
+        if margin_factor < 1.0:
+            self._scale_at(margin_factor, self._viewport_center())
+
+        actual_zoom = self._estimate_zoom_level()
+        target_zoom = self._clamp_zoom(actual_zoom)
+        if not math.isclose(
+            target_zoom,
+            actual_zoom,
+            rel_tol=self.TRANSFORM_TOLERANCE,
+            abs_tol=self.TRANSFORM_TOLERANCE,
+        ):
+            self._apply_zoom_level(target_zoom)
+        self._zoom_level = self._clamp_zoom(self._estimate_zoom_level())
+        self._notify_zoom_changed()
+
     # ========================================================
     # VIEW TRANSFORM
     # ========================================================

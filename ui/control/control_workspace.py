@@ -147,10 +147,15 @@ class ControlWorkspace(QWidget):
     def refresh(self) -> None:
         self._coordinator.refresh_current()
 
+    def bind_instrumentation_navigator(self, navigator: Any | None) -> None:
+        """Bind the composition-root-owned SLD cross-canvas navigation service."""
+        self._inspector.bind_instrumentation_navigator(navigator)
+
     def _presentation_refresh(self) -> None:
         try:
             model = self._application.read_control()
             self._reconcile_selection(model)
+            self._inspector.refresh_wiring_provenance(self._interaction.selected_component_id)
             self._status.set_status(
                 f"Control: {len(model.rungs)} rung(s), {len(model.components)} component(s)"
             )
@@ -244,6 +249,7 @@ class ControlWorkspace(QWidget):
             )
 
     def dispose(self) -> None:
+        self.bind_instrumentation_navigator(None)
         self._interaction.clear_project_state()
         for event_type, handler in tuple(self._subscriptions):
             self._application.event_bus.unsubscribe(event_type, handler)

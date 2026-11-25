@@ -27,6 +27,7 @@ from ui.events.control_update_coordinator import ControlUpdateCoordinator
 from ui.control.control_surface_host import ControlSurfaceHost
 from ui.control.control_workspace import ControlWorkspace
 from ui.protection.protection_workspace import ProtectionWorkspace
+from ui.instrumentation_wiring_navigation import InstrumentationWiringNavigator
 from ui.canvas.grid_scene import GridScene
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.canvas.sld_canvas_render_system import SLDCanvasRenderSystem
@@ -1175,6 +1176,19 @@ def _build_application_impl(
             active_tool=None,
             selected_ids=(),
         )
+
+    # Cross-canvas navigation is a UI composition service. It resolves
+    # exact Application endpoint identities, then asks the canonical SLD
+    # projection to highlight matching transient physical route segments.
+    instrumentation_wiring_navigator = InstrumentationWiringNavigator(
+        application=gridforge_application,
+        activate_sld=lambda: _activate_workspace(SLD_WORKSPACE_ID, "sld"),
+        refresh_sld=canvas_composition.refresh_active_document,
+        surface=canvas_composition.surface,
+    )
+    control_workspace.bind_instrumentation_navigator(instrumentation_wiring_navigator)
+    protection_workspace.bind_instrumentation_navigator(instrumentation_wiring_navigator)
+    resources["instrumentation_wiring_navigator"] = instrumentation_wiring_navigator
 
     def _active_workspace_area_id() -> str | None:
         layout = workspace_controller.realized_layout

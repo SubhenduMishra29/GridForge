@@ -102,6 +102,8 @@ class SLDCanvasRenderSystem:
         self._annotation_base_visibility: dict[str, bool] = {}
         self._annotation_priorities: dict[str, int] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
+        self._instrumentation_connection_metadata: dict[str, tuple[str, frozenset[str], frozenset[str]]] = {}
+        self._highlighted_instrumentation_ids: set[str] = set()
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
@@ -217,6 +219,97 @@ class SLDCanvasRenderSystem:
     def selection_manager(self) -> Any:
         """Return the canonical selection projection dependency, if bound."""
         return self._selection_manager
+
+    def clear_instrumentation_highlight(self) -> None:
+        """Remove only the transient highlight applied to projected physical routes."""
+        for item_id in tuple(self._highlighted_instrumentation_ids):
+            for item in self._items.get(item_id, ()):
+                setter = getattr(item, "set_visual_state", None)
+                if not callable(setter):
+                    continue
+                try:
+                    setter(VisualState.NORMAL)
+                except (RuntimeError, TypeError, ValueError):
+                    _LOGGER.debug("Unable to reset transient SLD wiring highlight for %s", item_id)
+        self._highlighted_instrumentation_ids.clear()
+
+    def highlight_instrumentation_routes(
+        self,
+        *,
+        signal_carrier_pairs: Any,
+        terminal_point_ids: Any = (),
+    ) -> tuple[tuple[str, ...], Any | None]:
+        """Highlight visible SLD segments matching exact signal/carrier pairs and sink identities."""
+        def normalized(values: Any) -> frozenset[str]:
+            if values is None:
+                return frozenset()
+            if isinstance(values, str):
+                values = (values,)
+            try:
+                return frozenset(
+                    str(value).strip()
+                    for value in values
+                    if value is not None and str(value).strip()
+                )
+            except TypeError:
+                return frozenset()
+
+        pairs: frozenset[tuple[str, str]] = frozenset()
+        if signal_carrier_pairs is not None:
+            try:
+                pairs = frozenset(
+                    (str(pair[0]).strip(), str(pair[1]).strip())
+                    for pair in signal_carrier_pairs
+                    if isinstance(pair, (tuple, list))
+                    and len(pair) == 2
+                    and str(pair[0]).strip()
+                    and str(pair[1]).strip()
+                )
+            except TypeError:
+                pairs = frozenset()
+        terminals = normalized(terminal_point_ids)
+        self.clear_instrumentation_highlight()
+        if not pairs:
+            return (), None
+
+        candidate_ids: list[str] = []
+        available_terminal_ids: set[str] = set()
+        for connection_id, metadata in self._instrumentation_connection_metadata.items():
+            carrier_id, connection_signals, connection_terminals = metadata
+            if not any(
+                pair_carrier_id == carrier_id and signal_id in connection_signals
+                for signal_id, pair_carrier_id in pairs
+            ):
+                continue
+            candidate_ids.append(connection_id)
+            available_terminal_ids.update(connection_terminals)
+        if terminals and not terminals.issubset(available_terminal_ids):
+            return (), None
+
+        matched: list[str] = []
+        bounds: Any | None = None
+        for connection_id in candidate_ids:
+            visible_match = False
+            for item in self._items.get(connection_id, ()):
+                if item is None:
+                    continue
+                is_visible = getattr(item, "isVisible", None)
+                if callable(is_visible) and not is_visible():
+                    continue
+                setter = getattr(item, "set_visual_state", None)
+                if not callable(setter):
+                    continue
+                try:
+                    setter(VisualState.SELECTED)
+                    rect = item.sceneBoundingRect()
+                except (AttributeError, RuntimeError, TypeError, ValueError):
+                    continue
+                self._highlighted_instrumentation_ids.add(connection_id)
+                bounds = rect if bounds is None else bounds.united(rect)
+                visible_match = True
+            if visible_match:
+                matched.append(connection_id)
+        return tuple(matched), bounds
 
     def _restore_node_selection(self, node: Any, item: Any) -> None:
         """Project canonical Core selection onto the current permanent item."""
@@ -356,6 +449,28 @@ class SLDCanvasRenderSystem:
             raise TypeError("snapshot must be an SLDCanvasSnapshot or CompositeSLDCanvasSnapshot")
         if not isinstance(draft, DraftSLDCanvasSnapshot):
             raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
+        self.clear_instrumentation_highlight()
+        self._instrumentation_connection_metadata = {
+            connection.connection_id: (
+                str(connection.properties.get("carrier_id") or ""),
+                frozenset(
+                    str(value).strip()
+                    for value in (connection.properties.get("signal_ids") or ())
+                    if value is not None and str(value).strip()
+                ),
+                frozenset(
+                    str(value).strip()
+                    for value in (
+                        connection.properties.get("source_terminal_point_id"),
+                        connection.properties.get("target_terminal_point_id"),
+                    )
+                    if value is not None and str(value).strip()
+                ),
+            )
+            for connection in committed.connections
+            if connection.projection_source == "instrumentation_wiring"
+            and connection.properties.get("carrier_id")
+        }
         sync_started = perf_counter()
         sync_metrics: dict[str, object] = {
             "committed_node_count": len(committed.nodes),
@@ -1248,6 +1363,8 @@ class SLDCanvasRenderSystem:
 
     def clear(self) -> None:
         """Clear every tracked realization even if individual cleanup steps fail."""
+        self.clear_instrumentation_highlight()
+        self._instrumentation_connection_metadata.clear()
         for item_id in tuple(self._items):
             self._remove_realized(item_id)
         if self._snap_system is not None and callable(getattr(self._snap_system, "clear_candidates", None)):

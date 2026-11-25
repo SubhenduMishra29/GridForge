@@ -6633,3 +6633,100 @@ Verification boundary:
   Control/Protection provenance presentation and host navigation are still
   separate follow-up work.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Control/Protection Physical Wiring Provenance Projection
+Date: 2026-11-24
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-control-protection-provenance
+Issue: #1203
+
+Correction:
+- Added a shared UI-side formatter that joins the detached Application
+  SignalEndpointResolutionReadModel with the canonical InstrumentationWiring
+  read model only when project ID and activation generation agree.
+- Control Inspector now shows the selected component's exact input endpoint,
+  signal ID/tag, MeasurementChannel, declared cable-core/panel-wire identities,
+  terminal path, stable physical hop IDs, resolver status and diagnostics.
+- Control provenance refreshes on the existing Application event refresh path,
+  including MeasurementChannel and InstrumentationWiring changes.
+- Protection Inspector now shows the selected Protection element(s)' exact
+  RelayInput endpoint provenance using the same Application resolver and
+  canonical carrier inventory.
+- Unresolved bindings remain visibly unresolved; declared carrier associations
+  are not presented as proof of continuity. No tags, routes, terminal identity,
+  signal meaning or compatibility are inferred from canvas geometry.
+- The change is read-only UI projection. It does not create a second wiring
+  record, mutate Control/Protection/Core, or introduce Qt into Core.
+
+Boundary:
+- This batch adds Control/Protection inspector provenance only. Host-level
+  cross-canvas navigation/highlighting, terminal-block SLD authoring/selection,
+  complete schedule export/sign-off, remaining instrument-specific conductor
+  safety contracts, and GUI/save-reopen acceptance remain open under #1203.
+- PR #1207 remains a divergent draft integration reference and is not merged.
+
+Verification:
+- GitHub fetch-back and current-main diff review completed. Python AST parsing
+  succeeded for the new helper and the modified Control/Protection code fragments.
+- `ui/core/qt.py` already exports the QListWidget/QLabel controls used here;
+  `ui/__init__.py` remains intentionally inert and no package export is needed.
+- Core and Application files are unchanged. A local full-repository syntax/import
+  pass could not be run because the execution environment could not resolve
+  github.com for a clone. No tests/CI, GUI interaction or save/reopen were run.
+- Issue #1203 remains open; this is a focused correction tranche, not closure.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Control/Protection to SLD physical-wiring navigation
+Date: 2026-11-25
+Repository: SubhenduMishra29/GridForge
+Issue: #1203
+Branch: feat/issue-1203-control-protection-provenance
+
+Correction:
+- Added a UI-only InstrumentationWiringNavigator that resolves the selected
+  Control component or Protection element against the Application's canonical
+  SignalEndpointResolutionReadModel.
+- Navigation rejects inactive projects, mismatched project activation
+  generations, unresolved endpoints and missing canonical signal/carrier IDs.
+  If a selection contains both resolved and unresolved endpoints, only the
+  resolved paths are eligible for highlighting and the unresolved count is
+  reported to the engineer.
+- Control and Protection inspectors now expose Locate physical wiring in SLD.
+  A selected Control component resolves its exact component input endpoints;
+  a selected Protection function resolves its element, while a selected Relay
+  resolves the visible configured elements without inventing input mappings.
+- The composition root injects one shared navigator. It activates the
+  canonical SLD workspace, refreshes the active SLD projection from the
+  Application read model, then highlights only visible projected segments
+  matching exact signal/carrier pairs and resolved sink terminal-point IDs.
+- SLD highlighting is transient presentation state. It does not alter
+  SelectionManager, persisted SLD connections, Core topology, cable records,
+  or Application wiring inventory. The highlight is cleared on the next
+  renderer synchronization or canvas clear.
+- NavigationController now fits a supplied presentation rectangle while
+  retaining ownership of viewport transforms. No Qt/QGraphics dependency was
+  added to Core or Application.
+
+Architecture / compatibility:
+- Core remains the sole owner of physical wiring and terminal connectivity.
+- Application remains the sole owner of endpoint resolution and read models.
+- UI remains a projection and navigation layer; visual route matching is not
+  treated as electrical continuity.
+- Existing ui.core.qt exports cover the QPushButton/QLabel controls used by
+  the inspectors. No ui/__init__.py or Core package export was added.
+
+Verification boundary:
+- Source edits, GitHub fetch-back/diff review, and Python AST parsing of the
+  new navigator and modified method fragments completed.
+- No tests/CI, full-module imports, application startup, GUI interaction,
+  project save/reopen or runtime navigation were run.
+
+Issue #1203 remains open. Terminal-block SLD authoring/independent selection,
+complete schedule export/sign-off, remaining instrument-specific conductor
+safety contracts, revision/history acceptance and end-to-end GUI/save-reopen
+evidence remain outstanding.
+======================================================================
