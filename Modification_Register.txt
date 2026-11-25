@@ -6677,3 +6677,55 @@ Verification:
   github.com for a clone. No tests/CI, GUI interaction or save/reopen were run.
 - Issue #1203 remains open; this is a focused correction tranche, not closure.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Control/Protection to SLD physical-wiring navigation
+Date: 2026-11-25
+Repository: SubhenduMishra29/GridForge
+Issue: #1203
+Branch: feat/issue-1203-control-protection-provenance
+
+Correction:
+- Added a UI-only InstrumentationWiringNavigator that resolves the selected
+  Control component or Protection element against the Application's canonical
+  SignalEndpointResolutionReadModel.
+- Navigation rejects inactive projects, mismatched project activation
+  generations, unresolved endpoints and missing canonical signal/carrier IDs.
+  If a selection contains both resolved and unresolved endpoints, only the
+  resolved paths are eligible for highlighting and the unresolved count is
+  reported to the engineer.
+- Control and Protection inspectors now expose Locate physical wiring in SLD.
+  A selected Control component resolves its exact component input endpoints;
+  a selected Protection function resolves its element, while a selected Relay
+  resolves the visible configured elements without inventing input mappings.
+- The composition root injects one shared navigator. It activates the
+  canonical SLD workspace, refreshes the active SLD projection from the
+  Application read model, then highlights only visible projected segments
+  matching both canonical signal ID and carrier ID.
+- SLD highlighting is transient presentation state. It does not alter
+  SelectionManager, persisted SLD connections, Core topology, cable records,
+  or Application wiring inventory. The highlight is cleared on the next
+  renderer synchronization or canvas clear.
+- NavigationController now fits a supplied presentation rectangle while
+  retaining ownership of viewport transforms. No Qt/QGraphics dependency was
+  added to Core or Application.
+
+Architecture / compatibility:
+- Core remains the sole owner of physical wiring and terminal connectivity.
+- Application remains the sole owner of endpoint resolution and read models.
+- UI remains a projection and navigation layer; visual route matching is not
+  treated as electrical continuity.
+- Existing ui.core.qt exports cover the QPushButton/QLabel controls used by
+  the inspectors. No ui/__init__.py or Core package export was added.
+
+Verification boundary:
+- Source edits and GitHub fetch-back/diff review are in progress.
+- No tests/CI, full-module imports, application startup, GUI interaction,
+  project save/reopen or runtime navigation were run.
+
+Issue #1203 remains open. Terminal-block SLD authoring/independent selection,
+complete schedule export/sign-off, remaining instrument-specific conductor
+safety contracts, revision/history acceptance and end-to-end GUI/save-reopen
+evidence remain outstanding.
+======================================================================
