@@ -721,6 +721,7 @@ class ProtectionInspector(QGroupBox):
 
     def refresh(self) -> None:
         self._clear_editor()
+        self._locate_wiring_status.setText("")
         self._visible_element_ids = ()
         self._update_locate_wiring_state()
         selected = self._selection_manager.selected_ids
