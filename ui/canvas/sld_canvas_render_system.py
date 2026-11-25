@@ -236,11 +236,10 @@ class SLDCanvasRenderSystem:
     def highlight_instrumentation_routes(
         self,
         *,
-        signal_ids: Any,
-        carrier_ids: Any,
+        signal_carrier_pairs: Any,
         terminal_point_ids: Any = (),
     ) -> tuple[tuple[str, ...], Any | None]:
-        """Highlight visible SLD segments matching exact signal, carrier and sink identities."""
+        """Highlight visible SLD segments matching exact signal/carrier pairs and sink identities."""
         def normalized(values: Any) -> frozenset[str]:
             if values is None:
                 return frozenset()
@@ -255,18 +254,32 @@ class SLDCanvasRenderSystem:
             except TypeError:
                 return frozenset()
 
-        signals = normalized(signal_ids)
-        carriers = normalized(carrier_ids)
+        pairs: frozenset[tuple[str, str]] = frozenset()
+        if signal_carrier_pairs is not None:
+            try:
+                pairs = frozenset(
+                    (str(pair[0]).strip(), str(pair[1]).strip())
+                    for pair in signal_carrier_pairs
+                    if isinstance(pair, (tuple, list))
+                    and len(pair) == 2
+                    and str(pair[0]).strip()
+                    and str(pair[1]).strip()
+                )
+            except TypeError:
+                pairs = frozenset()
         terminals = normalized(terminal_point_ids)
         self.clear_instrumentation_highlight()
-        if not signals or not carriers:
+        if not pairs:
             return (), None
 
         candidate_ids: list[str] = []
         available_terminal_ids: set[str] = set()
         for connection_id, metadata in self._instrumentation_connection_metadata.items():
             carrier_id, connection_signals, connection_terminals = metadata
-            if carrier_id not in carriers or not signals.intersection(connection_signals):
+            if not any(
+                pair_carrier_id == carrier_id and signal_id in connection_signals
+                for signal_id, pair_carrier_id in pairs
+            ):
                 continue
             candidate_ids.append(connection_id)
             available_terminal_ids.update(connection_terminals)
