@@ -631,14 +631,12 @@ class SLDCanvasSurface(QWidget):
     def highlight_instrumentation_routes(
         self,
         *,
-        signal_ids: Any,
-        carrier_ids: Any,
+        signal_carrier_pairs: Any,
         terminal_point_ids: Any = (),
     ) -> tuple[str, ...]:
         """Highlight exact resolved physical routes and fit the canonical SLD viewport."""
         matched, bounds = self._sld_canvas_render_system.highlight_instrumentation_routes(
-            signal_ids=signal_ids,
-            carrier_ids=carrier_ids,
+            signal_carrier_pairs=signal_carrier_pairs,
             terminal_point_ids=terminal_point_ids,
         )
         if not matched or bounds is None:
