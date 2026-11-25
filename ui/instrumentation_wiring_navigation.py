@@ -180,6 +180,67 @@ class InstrumentationWiringNavigator:
                 False,
                 "The active project changed before SLD highlighting; no route was highlighted.",
             )
+
+        # Re-resolve after the SLD projection refresh so a wiring edit that
+        # occurred during workspace activation cannot highlight an old route.
+        try:
+            current_resolutions = tuple(resolver())
+        except Exception as exc:
+            return WiringNavigationResult(
+                False,
+                f"Signal-endpoint revalidation failed closed: {exc}",
+            )
+        if self._active_project_identity() != identity:
+            return WiringNavigationResult(
+                False,
+                "The active project changed during SLD route revalidation; no route was highlighted.",
+            )
+        current_selected = tuple(
+            item
+            for item in current_resolutions
+            if str(getattr(item, "endpoint_kind", "")).upper() == endpoint_kind
+            and (not owner_ids or str(getattr(item, "owner_id", "")) in owner_ids)
+            and (not endpoint_ids or str(getattr(item, "endpoint_id", "")) in endpoint_ids)
+        )
+        if not current_selected or any(
+            str(getattr(item, "project_id", "")) != project_id
+            or getattr(item, "activation_generation", None) != generation
+            for item in current_selected
+        ):
+            return WiringNavigationResult(
+                False,
+                "The selected endpoint changed project identity during SLD refresh; no route was highlighted.",
+            )
+        current_resolved = tuple(
+            item
+            for item in current_selected
+            if str(getattr(item, "status", "")).upper() == "RESOLVED"
+            and tuple(getattr(item, "carrier_ids", ()) or ())
+        )
+        unresolved_count = len(current_selected) - len(current_resolved)
+        if not current_resolved:
+            return WiringNavigationResult(
+                False,
+                "The selected physical path is no longer resolved after SLD refresh; no route was highlighted.",
+            )
+        signal_ids = frozenset(
+            str(item.signal_id).strip()
+            for item in current_resolved
+            if isinstance(getattr(item, "signal_id", None), str)
+            and str(item.signal_id).strip()
+        )
+        carrier_ids = frozenset(
+            str(carrier_id).strip()
+            for item in current_resolved
+            for carrier_id in tuple(getattr(item, "carrier_ids", ()) or ())
+            if isinstance(carrier_id, str) and carrier_id.strip()
+        )
+        if not signal_ids or not carrier_ids:
+            return WiringNavigationResult(
+                False,
+                "Revalidated endpoint data contains no canonical signal/carrier identity; no route was highlighted.",
+            )
+
         if not getattr(self._surface, "document_id", None):
             return WiringNavigationResult(
                 False,
