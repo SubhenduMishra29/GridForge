@@ -102,7 +102,7 @@ class SLDCanvasRenderSystem:
         self._annotation_base_visibility: dict[str, bool] = {}
         self._annotation_priorities: dict[str, int] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
-        self._instrumentation_connection_metadata: dict[str, tuple[str, frozenset[str]]] = {}
+        self._instrumentation_connection_metadata: dict[str, tuple[str, frozenset[str], frozenset[str]]] = {}
         self._highlighted_instrumentation_ids: set[str] = set()
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
@@ -238,8 +238,9 @@ class SLDCanvasRenderSystem:
         *,
         signal_ids: Any,
         carrier_ids: Any,
+        terminal_point_ids: Any = (),
     ) -> tuple[tuple[str, ...], Any | None]:
-        """Highlight visible SLD segments matching exact resolved signal/carrier IDs."""
+        """Highlight visible SLD segments matching exact signal, carrier and sink identities."""
         def normalized(values: Any) -> frozenset[str]:
             if values is None:
                 return frozenset()
@@ -256,16 +257,25 @@ class SLDCanvasRenderSystem:
 
         signals = normalized(signal_ids)
         carriers = normalized(carrier_ids)
+        terminals = normalized(terminal_point_ids)
         self.clear_instrumentation_highlight()
         if not signals or not carriers:
             return (), None
 
-        matched: list[str] = []
-        bounds: Any | None = None
+        candidate_ids: list[str] = []
+        available_terminal_ids: set[str] = set()
         for connection_id, metadata in self._instrumentation_connection_metadata.items():
-            carrier_id, connection_signals = metadata
+            carrier_id, connection_signals, connection_terminals = metadata
             if carrier_id not in carriers or not signals.intersection(connection_signals):
                 continue
+            candidate_ids.append(connection_id)
+            available_terminal_ids.update(connection_terminals)
+        if terminals and not terminals.issubset(available_terminal_ids):
+            return (), None
+
+        matched: list[str] = []
+        bounds: Any | None = None
+        for connection_id in candidate_ids:
             visible_match = False
             for item in self._items.get(connection_id, ()):
                 if item is None:
@@ -433,6 +443,14 @@ class SLDCanvasRenderSystem:
                 frozenset(
                     str(value).strip()
                     for value in (connection.properties.get("signal_ids") or ())
+                    if value is not None and str(value).strip()
+                ),
+                frozenset(
+                    str(value).strip()
+                    for value in (
+                        connection.properties.get("source_terminal_point_id"),
+                        connection.properties.get("target_terminal_point_id"),
+                    )
                     if value is not None and str(value).strip()
                 ),
             )
