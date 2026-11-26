@@ -1189,17 +1189,18 @@ class PropertiesPanelWidget(QWidget):
                 )
         if target.connectivity_refs:
             self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
-        unavailable_count = sum(not item.inspectable for item in target.engineering_parameters)
-        self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
-            f"{len(target.engineering_parameters)} catalogue parameter(s); "
-            f"{unavailable_count} unavailable in the committed read model. Core validation remains authoritative.",
-            self,
-        ))
-        for parameter in target.engineering_parameters:
-            control = self._create_parameter_control(parameter)
-            self._parameter_controls[parameter.parameter_id] = control
-            assert self._form_layout is not None
-            self._form_layout.addRow(self._parameter_label(parameter), control)
+        if target.identity_kind not in {"terminal_block", "terminal_point"}:
+            unavailable_count = sum(not item.inspectable for item in target.engineering_parameters)
+            self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
+                f"{len(target.engineering_parameters)} catalogue parameter(s); "
+                f"{unavailable_count} unavailable in the committed read model. Core validation remains authoritative.",
+                self,
+            ))
+            for parameter in target.engineering_parameters:
+                control = self._create_parameter_control(parameter)
+                self._parameter_controls[parameter.parameter_id] = control
+                assert self._form_layout is not None
+                self._form_layout.addRow(self._parameter_label(parameter), control)
         if self._validation_label is not None:
             if target.identity_kind in {"terminal_block", "terminal_point"}:
                 self._validation_label.setText(
