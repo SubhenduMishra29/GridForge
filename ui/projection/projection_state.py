@@ -93,7 +93,7 @@ class ProjectionState:
         if not isinstance(self.display_type, str) or not self.display_type:
             raise ValueError("ProjectionState display_type must be a non-empty string")
         if self.identity_kind not in {
-            "element", "protection", "simple_wire", "draft", "draft_connection"
+            "element", "protection", "simple_wire", "draft", "draft_connection", "terminal_block", "terminal_point"
         }:
             raise ValueError(
                 "ProjectionState.identity_kind must be element, protection, "
