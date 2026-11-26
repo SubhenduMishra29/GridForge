@@ -264,11 +264,11 @@ class SLDCanvasProjection:
                     y=panel_node.y + 60.0 + (block_index * 18.0),
                     text="\n".join((block.tag, block.location, *point_lines)),
                     visible=True,
-                    layer_id="default",
-                    layer_visible=layer_by_id["default"].visible,
-                    layer_opacity=layer_by_id["default"].opacity,
-                    layer_order=layer_by_id["default"].order,
-                    layer_locked=layer_by_id["default"].locked,
+                    layer_id=panel_node.layer_id,
+                    layer_visible=panel_node.layer_visible,
+                    layer_opacity=panel_node.layer_opacity,
+                    layer_order=panel_node.layer_order,
+                    layer_locked=panel_node.layer_locked,
                     priority=25,
                 ))
                 occupied_annotation_ids.add(annotation_id)
