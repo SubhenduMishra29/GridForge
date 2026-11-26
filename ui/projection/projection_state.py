@@ -97,7 +97,7 @@ class ProjectionState:
         }:
             raise ValueError(
                 "ProjectionState.identity_kind must be element, protection, "
-                "simple_wire, draft, or draft_connection"
+                "simple_wire, draft, draft_connection, terminal_block, or terminal_point"
             )
         if self.presentation_id is not None and (not isinstance(self.presentation_id, str) or not self.presentation_id):
             raise ValueError("ProjectionState.presentation_id must be non-empty when provided")
