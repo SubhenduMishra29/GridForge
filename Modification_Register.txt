@@ -6811,3 +6811,33 @@ Verification boundary:
 - Independent terminal/terminal-point selection and authoring remain a
   separate outstanding correction under #1203.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Independent terminal selection projection
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- Terminal-block summary and every terminal point are now separate transient
+  SLD annotations with stable namespaced selection identities.
+- Renderer marks only terminal-owned annotations selectable; ordinary
+  annotation labels remain click-through.
+- Canvas hit testing emits an explicit TERMINAL hit kind, avoiding the
+  incorrect interpretation of terminal IDs as equipment nodes.
+- SelectTool routes terminal block/point clicks into SelectionManager's
+  dedicated terminal selection domain. Terminal label dragging is not
+  treated as equipment movement or insertion.
+- SelectionProjectionCoordinator resolves the selected terminal identity
+  through Application.read_instrumentation_wiring() and projects the
+  canonical terminal record to the Properties panel.
+- No Core/SLD duplicate identity, Qt dependency in Core, or mutation path
+  is introduced. This tranche is selection/inspection only; editing and
+  persisted terminal layout remain outstanding.
+
+Verification boundary:
+- Updated source and regression-test source fetched back from the PR branch.
+- Tests/CI, imports, GUI interaction and save/reopen were not run.
+======================================================================
