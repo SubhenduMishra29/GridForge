@@ -1066,7 +1066,7 @@ class SLDCanvasRenderSystem:
             annotation.block_id, annotation.node_id, annotation.x, annotation.y,
             annotation.text, annotation.visible, annotation.layer_id,
             annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
-            annotation.layer_locked, annotation.priority,
+            annotation.layer_locked, annotation.priority, annotation.selection_kind,
         ))
 
     @staticmethod
