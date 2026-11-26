@@ -35,6 +35,8 @@ _EXPORTS = {
     "SLDPhysicalWiringSegment": ("ui.sld.instrumentation_wiring_projection", "SLDPhysicalWiringSegment"),
     "SLDPhysicalWiringRecord": ("ui.sld.instrumentation_wiring_projection", "SLDPhysicalWiringRecord"),
     "SLDInstrumentationWiringProjection": ("ui.sld.instrumentation_wiring_projection", "SLDInstrumentationWiringProjection"),
+    "SLDTerminalPointPresentation": ("ui.sld.instrumentation_wiring_projection", "SLDTerminalPointPresentation"),
+    "SLDTerminalBlockPresentation": ("ui.sld.instrumentation_wiring_projection", "SLDTerminalBlockPresentation"),
     "SLDInstrumentationWiringAdapter": ("ui.sld.instrumentation_wiring_projection", "SLDInstrumentationWiringAdapter"),
 }
 
