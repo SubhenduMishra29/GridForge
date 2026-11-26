@@ -121,6 +121,11 @@ class SelectTool(ToolBase):
                 self._handle_connection_click(core_connection_id, modifiers)
             return True
 
+        if self._pressed_hit.kind == CanvasHitKind.TERMINAL:
+            if self._pressed_object_id is not None:
+                self._handle_terminal_click(self._pressed_object_id, modifiers)
+            return True
+
         if self._pressed_object_id is None:
             if not self._has_additive_modifier(modifiers) and not self._has_toggle_modifier(modifiers):
                 self.get_selection_manager().clear()
@@ -171,6 +176,8 @@ class SelectTool(ToolBase):
 
         if not self._dragging or self._pressed_object_id is None:
             return self._dragging
+        if self._pressed_hit.kind == CanvasHitKind.TERMINAL:
+            return True
         if self._pressed_hit.kind != CanvasHitKind.NODE:
             return True
         equipment_type = self._equipment_type_for(self._pressed_object_id)
@@ -797,6 +804,15 @@ class SelectTool(ToolBase):
             manager.add_to_selection(core_connection_id, domain=manager.CONNECTION)
         else:
             manager.select_single(core_connection_id, domain=manager.CONNECTION)
+ 
+    def _handle_terminal_click(self, terminal_id: str, modifiers: int) -> None:
+        manager = self.get_selection_manager()
+        if self._has_toggle_modifier(modifiers):
+            manager.toggle_selection(terminal_id, domain="terminal")
+        elif self._has_additive_modifier(modifiers):
+            manager.add_to_selection(terminal_id, domain="terminal")
+        else:
+            manager.select_single(terminal_id, domain="terminal")
 
     def _capture_route_edit_target(self, hit: CanvasHitTarget) -> None:
         if hit.kind != CanvasHitKind.SIMPLE_WIRE_SEGMENT:
