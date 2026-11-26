@@ -25,6 +25,7 @@ class CanvasHitKind(str, Enum):
     NODE = "node"
     CONNECTION = "connection"
     SIMPLE_WIRE_SEGMENT = "simple_wire_segment"
+    TERMINAL = "terminal"
 
 @dataclass(frozen=True, slots=True)
 class CanvasHitTarget:
@@ -42,6 +43,7 @@ class CanvasHitTarget:
     target_point: Point | None = None
     route_points: RoutePoints = ()
     route_ownership: str | None = None
+    terminal_kind: str | None = None
 
     @classmethod
     def none(cls) -> "CanvasHitTarget":
@@ -54,6 +56,15 @@ class CanvasHitTarget:
         if object_id is None:
             return cls.none()
         return cls(kind=CanvasHitKind.NODE, object_id=object_id, presentation_id=str(object_id) if isinstance(object_id, str) else None)
+
+    @classmethod
+    def terminal(cls, object_id: Any, terminal_kind: str) -> "CanvasHitTarget":
+        """Create a selectable terminal identity without treating it as equipment."""
+        if not isinstance(object_id, str) or not object_id:
+            return cls.none()
+        if terminal_kind not in {"terminal_block", "terminal_point"}:
+            return cls.none()
+        return cls(kind=CanvasHitKind.TERMINAL, object_id=object_id, presentation_id=object_id, terminal_kind=terminal_kind)
 
     @classmethod
     def connection(cls, *, object_id: Any, presentation_id: str | None, core_connection_id: str | None) -> "CanvasHitTarget":
