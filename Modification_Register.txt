@@ -6730,3 +6730,52 @@ complete schedule export/sign-off, remaining instrument-specific conductor
 safety contracts, revision/history acceptance and end-to-end GUI/save-reopen
 evidence remain outstanding.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical terminal-block and terminal-point SLD read projection
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- Extended the renderer-neutral SLD instrumentation adapter to project
+  TerminalBlock and TerminalPoint identities from the existing immutable
+  Application InstrumentationWiringReadModel.
+- Terminal blocks resolve only against the existing panel equipment identity
+  and exactly one SLD node. Missing or ambiguous panel representations remain
+  explicit unresolved diagnostics; no panel or terminal is fabricated.
+- Manufacturer terminal designations, terminal number, function and optional
+  side remain distinct fields in the detached projection.
+- SLDCanvasProjection now displays complete terminal-block inventories as
+  transient SLD annotations anchored to the existing panel symbol. Labels
+  include terminal number, system designation and manufacturer designation.
+- Incomplete terminal inventories and unresolved panel identity fail closed:
+  no annotation is rendered and diagnostics remain visible in the canvas
+  snapshot.
+- Projection annotations use stable transient IDs and collision checks.
+- No Core/Application authority, electrical connectivity, SLD connection
+  record, or persistence schema was added or mutated. Presentation remains
+  a read-only projection; snapping does not create terminal connectivity.
+
+Architecture:
+- Core remains authoritative for TerminalBlock, TerminalPoint and physical
+  terminal connectivity.
+- Application supplies the immutable, project-scoped wiring read model.
+- SLD/UI only resolves panel-node presentation and renders annotations.
+- No Qt/QGraphics dependency was added to Core or Application.
+
+Verification boundary:
+- Source edits committed on a dedicated branch and fetched back for review.
+- Regression-test source added for complete terminal display and missing/
+  incomplete terminal inventory diagnostics.
+- No tests/CI, Python imports, GUI interaction, independent terminal
+  selection/editing, or save/reopen acceptance was run.
+- ui/core/qt.py required no additions: this tranche uses the existing
+  annotation rendering path and introduces no new Qt controls.
+- Issue #1203 remains open. Independent terminal-block/terminal-point
+  selection and authoring, persisted terminal-block symbol layout,
+  schedules/export/sign-off, domain-specific conductor safety, and
+  end-to-end GUI/save-reopen acceptance remain outstanding.
+======================================================================
