@@ -1020,6 +1020,10 @@ class SLDCanvasRenderSystem:
         annotation_reflow_started = perf_counter()
         self._reflow_annotation_layout()
         sync_metrics["annotation_reflow_seconds"] = max(0.0, perf_counter() - annotation_reflow_started)
+        if self._selection_manager is not None:
+            reconcile_selection = getattr(self._selection_manager, "sync_graphics", None)
+            if callable(reconcile_selection):
+                reconcile_selection(scene=self._scene)
         sync_metrics["realized_item_count"] = len(self._items)
         sync_metrics["synchronize_seconds"] = max(0.0, perf_counter() - sync_started)
         self._last_sync_metrics = sync_metrics
