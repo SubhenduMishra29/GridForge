@@ -106,3 +106,90 @@ def test_transient_projection_id_collision_does_not_overwrite_authored_connectio
     assert len(snapshot.connections) == 1
     assert snapshot.connections[0].connection_id == model.connections[0].connection_id
     assert any("collides" in item for item in snapshot.physical_wiring_diagnostics)
+
+
+
+def test_terminal_blocks_and_manufacturer_terminal_designations_project_to_sld():
+    model = SLDModel()
+    model.add_node(SLDNode(node_id="panel-node", equipment_id="PANEL-1"))
+    read_model = InstrumentationWiringReadModel(
+        project_id="project-1",
+        activation_generation=3,
+        cables=(),
+        cores=(),
+        panel_wires=(),
+        signals=(),
+        signal_bindings=(),
+        tag_policy=(),
+        terminal_blocks=({
+            "id": "tb-1",
+            "tag": "TB-101",
+            "panel_id": "PANEL-1",
+            "location": "MCC-1",
+            "terminal_count": 2,
+        },),
+        terminal_points=(
+            {
+                "id": "tp-1", "terminal_block_id": "tb-1",
+                "terminal_number": "1", "designation": "X1:1",
+                "function": "FEED_THROUGH", "manufacturer_designation": "S1",
+            },
+            {
+                "id": "tp-2", "terminal_block_id": "tb-1",
+                "terminal_number": "2", "designation": "X1:2",
+                "function": "FEED_THROUGH", "manufacturer_designation": "S2",
+            },
+        ),
+    )
+
+    wiring = SLDInstrumentationWiringAdapter().project(read_model, model)
+    snapshot = SLDCanvasProjection().project(model, instrumentation_wiring=wiring)
+
+    assert len(wiring.terminal_blocks) == 1
+    block = wiring.terminal_blocks[0]
+    assert block.id == "tb-1"
+    assert block.panel_node_id == "panel-node"
+    assert block.complete is True
+    assert tuple(point.id for point in block.terminal_points) == ("tp-1", "tp-2")
+    assert len(snapshot.annotations) == 1
+    annotation = snapshot.annotations[0]
+    assert annotation.block_id == "__gf_projection__:terminal_block:tb-1"
+    assert annotation.node_id == "panel-node"
+    assert "TB-101" in annotation.text
+    assert "1: X1:1 (S1)" in annotation.text
+    assert "2: X1:2 (S2)" in annotation.text
+    assert snapshot.physical_wiring_diagnostics == ()
+
+
+def test_terminal_block_projection_fails_closed_for_missing_panel_and_incomplete_points():
+    model = SLDModel()
+    read_model = InstrumentationWiringReadModel(
+        project_id="project-1",
+        activation_generation=3,
+        cables=(),
+        cores=(),
+        panel_wires=(),
+        signals=(),
+        signal_bindings=(),
+        tag_policy=(),
+        terminal_blocks=({
+            "id": "tb-missing", "tag": "TB-MISSING",
+            "panel_id": "PANEL-MISSING", "location": "JB-1",
+            "terminal_count": 2,
+        },),
+        terminal_points=({
+            "id": "tp-only", "terminal_block_id": "tb-missing",
+            "terminal_number": "1", "designation": "1",
+            "function": "FEED_THROUGH",
+        },),
+    )
+
+    wiring = SLDInstrumentationWiringAdapter().project(read_model, model)
+    snapshot = SLDCanvasProjection().project(model, instrumentation_wiring=wiring)
+
+    assert len(wiring.terminal_blocks) == 1
+    assert wiring.terminal_blocks[0].complete is False
+    assert wiring.terminal_blocks[0].panel_node_id is None
+    assert snapshot.annotations == ()
+    assert any("panel PANEL-MISSING is absent" in item for item in snapshot.physical_wiring_diagnostics)
+    assert any("declares 2 terminals but exposes 1" in item for item in snapshot.physical_wiring_diagnostics)
