@@ -121,6 +121,11 @@ class SelectTool(ToolBase):
                 self._handle_connection_click(core_connection_id, modifiers)
             return True
 
+        if self._pressed_hit.kind == CanvasHitKind.TERMINAL:
+            if self._pressed_object_id is not None:
+                self._handle_terminal_click(self._pressed_object_id, modifiers)
+            return True
+
         if self._pressed_object_id is None:
             if not self._has_additive_modifier(modifiers) and not self._has_toggle_modifier(modifiers):
                 self.get_selection_manager().clear()
@@ -171,6 +176,8 @@ class SelectTool(ToolBase):
 
         if not self._dragging or self._pressed_object_id is None:
             return self._dragging
+        if self._pressed_hit.kind == CanvasHitKind.TERMINAL:
+            return True
         if self._pressed_hit.kind != CanvasHitKind.NODE:
             return True
         equipment_type = self._equipment_type_for(self._pressed_object_id)
@@ -798,6 +805,15 @@ class SelectTool(ToolBase):
         else:
             manager.select_single(core_connection_id, domain=manager.CONNECTION)
 
+    def _handle_terminal_click(self, terminal_id: str, modifiers: int) -> None:
+        manager = self.get_selection_manager()
+        if self._has_toggle_modifier(modifiers):
+            manager.toggle_selection(terminal_id, domain=manager.TERMINAL)
+        elif self._has_additive_modifier(modifiers):
+            manager.add_to_selection(terminal_id, domain=manager.TERMINAL)
+        else:
+            manager.select_single(terminal_id, domain=manager.TERMINAL)
+
     def _capture_route_edit_target(self, hit: CanvasHitTarget) -> None:
         if hit.kind != CanvasHitKind.SIMPLE_WIRE_SEGMENT:
             return
@@ -865,7 +881,7 @@ class SelectTool(ToolBase):
     def _selection_object_id(hit: CanvasHitTarget, event: Any) -> Any:
         if hit.kind in {CanvasHitKind.CONNECTION, CanvasHitKind.SIMPLE_WIRE_SEGMENT}:
             return hit.core_connection_id or hit.draft_connection_id
-        if hit.kind == CanvasHitKind.NODE:
+        if hit.kind in {CanvasHitKind.NODE, CanvasHitKind.TERMINAL}:
             return hit.object_id
         return SelectTool._event_object_id(event)
 

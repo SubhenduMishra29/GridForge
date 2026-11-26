@@ -1147,10 +1147,38 @@ class PropertiesPanelWidget(QWidget):
         assert self._form_layout is not None
         self._form_layout.addRow(QLabel("Identity", self), QLabel(str(target.object_id), self))
         self._form_layout.addRow(QLabel("Type", self), QLabel(str(target.display_type), self))
-        self._form_layout.addRow(
-            QLabel("Status", self),
-            QLabel("Draft" if target.identity_kind == "draft" else str(target.status or "Unknown"), self),
-        )
+        if target.identity_kind in {"terminal_block", "terminal_point"}:
+            status_text = "Read-only canonical inventory"
+        else:
+            status_text = "Draft" if target.identity_kind == "draft" else str(target.status or "Unknown")
+        self._form_layout.addRow(QLabel("Status", self), QLabel(status_text, self))
+        if target.identity_kind == "terminal_block":
+            terminal_details = (
+                ("Tag", target.attributes.get("tag")),
+                ("Panel", target.attributes.get("panel_id")),
+                ("Location", target.attributes.get("location")),
+                ("Declared terminals", target.attributes.get("terminal_count")),
+                ("Terminal point IDs", target.attributes.get("terminal_point_ids")),
+            )
+        elif target.identity_kind == "terminal_point":
+            terminal_details = (
+                ("Terminal block", target.attributes.get("terminal_block_id")),
+                ("Terminal number", target.attributes.get("terminal_number")),
+                ("System designation", target.attributes.get("designation")),
+                ("Manufacturer designation", target.attributes.get("manufacturer_designation")),
+                ("Function", target.attributes.get("function")),
+                ("Side", target.attributes.get("side")),
+            )
+        else:
+            terminal_details = ()
+        if terminal_details:
+            self._form_layout.addRow(QLabel("Terminal Details", self), QLabel("", self))
+            for label, value in terminal_details:
+                if value is None:
+                    continue
+                if isinstance(value, (tuple, list)):
+                    value = ", ".join(str(item) for item in value)
+                self._form_layout.addRow(QLabel(label, self), QLabel(str(value), self))
         if target.identity_kind == "draft":
             self._form_layout.addRow(QLabel("Placement", self), QLabel(str(target.placement), self))
             self._form_layout.addRow(QLabel("Terminals", self), QLabel(", ".join(target.terminal_contract), self))
@@ -1161,24 +1189,31 @@ class PropertiesPanelWidget(QWidget):
                 )
         if target.connectivity_refs:
             self._form_layout.addRow(QLabel("Connections", self), QLabel(", ".join(map(str, target.connectivity_refs)), self))
-        unavailable_count = sum(not item.inspectable for item in target.engineering_parameters)
-        self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
-            f"{len(target.engineering_parameters)} catalogue parameter(s); "
-            f"{unavailable_count} unavailable in the committed read model. Core validation remains authoritative.",
-            self,
-        ))
-        for parameter in target.engineering_parameters:
-            control = self._create_parameter_control(parameter)
-            self._parameter_controls[parameter.parameter_id] = control
-            assert self._form_layout is not None
-            self._form_layout.addRow(self._parameter_label(parameter), control)
+        if target.identity_kind not in {"terminal_block", "terminal_point"}:
+            unavailable_count = sum(not item.inspectable for item in target.engineering_parameters)
+            self._form_layout.addRow(QLabel("Engineering Parameters", self), QLabel(
+                f"{len(target.engineering_parameters)} catalogue parameter(s); "
+                f"{unavailable_count} unavailable in the committed read model. Core validation remains authoritative.",
+                self,
+            ))
+            for parameter in target.engineering_parameters:
+                control = self._create_parameter_control(parameter)
+                self._parameter_controls[parameter.parameter_id] = control
+                assert self._form_layout is not None
+                self._form_layout.addRow(self._parameter_label(parameter), control)
         if self._validation_label is not None:
-            prefix = "Draft" if target.identity_kind == "draft" else target.display_type
-            self._validation_label.setText(
-                f"{prefix} {target.object_id} · "
-                + ("DraftNetwork validation is authoritative until Commit Network." if target.identity_kind == "draft"
-                   else "Core validation is authoritative on commit.")
-            )
+            if target.identity_kind in {"terminal_block", "terminal_point"}:
+                self._validation_label.setText(
+                    "Canonical terminal inventory · read-only projection. "
+                    "Core remains authoritative for terminal identity and connectivity."
+                )
+            else:
+                prefix = "Draft" if target.identity_kind == "draft" else target.display_type
+                self._validation_label.setText(
+                    f"{prefix} {target.object_id} · "
+                    + ("DraftNetwork validation is authoritative until Commit Network." if target.identity_kind == "draft"
+                       else "Core validation is authoritative on commit.")
+                )
         if self._apply_button is not None:
             if self._place_draft_connected:
                 try:
@@ -1189,10 +1224,16 @@ class PropertiesPanelWidget(QWidget):
             if not self._apply_changes_connected:
                 self._apply_button.clicked.connect(self._apply_changes)
                 self._apply_changes_connected = True
-            self._apply_button.setText("Apply Draft Changes" if target.identity_kind == "draft" else "Apply / Commit")
+            terminal_read_only = target.identity_kind in {"terminal_block", "terminal_point"}
+            self._apply_button.setText(
+                "Read-only" if terminal_read_only
+                else "Apply Draft Changes" if target.identity_kind == "draft"
+                else "Apply / Commit"
+            )
             self._apply_button.setProperty("role", "primaryAction")
             self._apply_button.setEnabled(
-                any(item.editable and not item.derived for item in target.engineering_parameters)
+                not terminal_read_only
+                and any(item.editable and not item.derived for item in target.engineering_parameters)
             )
         self._refresh_inspector_tab_order()
 

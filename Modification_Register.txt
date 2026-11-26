@@ -6730,3 +6730,158 @@ complete schedule export/sign-off, remaining instrument-specific conductor
 safety contracts, revision/history acceptance and end-to-end GUI/save-reopen
 evidence remain outstanding.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical terminal-block and terminal-point SLD read projection
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- Extended the renderer-neutral SLD instrumentation adapter to project
+  TerminalBlock and TerminalPoint identities from the existing immutable
+  Application InstrumentationWiringReadModel.
+- Terminal blocks resolve only against the existing panel equipment identity
+  and exactly one SLD node. Missing or ambiguous panel representations remain
+  explicit unresolved diagnostics; no panel or terminal is fabricated.
+- Manufacturer terminal designations, terminal number, function and optional
+  side remain distinct fields in the detached projection.
+- SLDCanvasProjection now displays complete terminal-block inventories as
+  transient SLD annotations anchored to the existing panel symbol. Labels
+  include terminal number, system designation and manufacturer designation.
+- Incomplete terminal inventories and unresolved panel identity fail closed:
+  no annotation is rendered and diagnostics remain visible in the canvas
+  snapshot.
+- Projection annotations use stable transient IDs and collision checks.
+- No Core/Application authority, electrical connectivity, SLD connection
+  record, or persistence schema was added or mutated. Presentation remains
+  a read-only projection; snapping does not create terminal connectivity.
+
+Architecture:
+- Core remains authoritative for TerminalBlock, TerminalPoint and physical
+  terminal connectivity.
+- Application supplies the immutable, project-scoped wiring read model.
+- SLD/UI only resolves panel-node presentation and renders annotations.
+- No Qt/QGraphics dependency was added to Core or Application.
+
+Verification boundary:
+- Source edits committed on a dedicated branch and fetched back for review.
+- Regression-test source added for complete terminal display and missing/
+  incomplete terminal inventory diagnostics.
+- No tests/CI, Python imports, GUI interaction, independent terminal
+  selection/editing, or save/reopen acceptance was run.
+- ui/core/qt.py required no additions: this tranche uses the existing
+  annotation rendering path and introduces no new Qt controls.
+- Issue #1203 remains open. Independent terminal-block/terminal-point
+  selection and authoring, persisted terminal-block symbol layout,
+  schedules/export/sign-off, domain-specific conductor safety, and
+  end-to-end GUI/save-reopen acceptance remain outstanding.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Terminal-block annotation layer ownership correction
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- Terminal-block read-projection annotations now inherit the exact SLD
+  presentation layer state of their owning panel node: layer identity,
+  visibility, opacity, order and lock state.
+- Removed the incorrect hard-coded default-layer assignment for these
+  panel-owned terminal labels.
+- Added regression-test source using a hidden, locked, non-default panel
+  layer to assert all inherited layer attributes in the renderer-neutral
+  canvas snapshot.
+
+Architecture:
+- Layer ownership remains SLD presentation state; no electrical topology,
+  Core identity, Application mutation or persistence schema was changed.
+- No Qt/QGraphics dependency added; the existing annotation renderer
+  consumes the corrected immutable snapshot metadata.
+
+Verification boundary:
+- Updated source and regression-test content fetched back from the PR branch.
+- Tests/CI, Python imports, GUI rendering and interactive selection were
+  not run.
+- Independent terminal/terminal-point selection and authoring remain a
+  separate outstanding correction under #1203.
+======================================================================
+
+
+======================================================================
+GridForge V2 — Independent terminal selection projection
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- Terminal-block summary and every terminal point are now separate transient
+  SLD annotations with stable namespaced selection identities.
+- Renderer marks only terminal-owned annotations selectable; ordinary
+  annotation labels remain click-through.
+- Canvas hit testing emits an explicit TERMINAL hit kind, avoiding the
+  incorrect interpretation of terminal IDs as equipment nodes.
+- SelectTool routes terminal block/point clicks into SelectionManager's
+  dedicated terminal selection domain. Terminal label dragging is not
+  treated as equipment movement or insertion.
+- SelectionProjectionCoordinator resolves the selected terminal identity
+  through Application.read_instrumentation_wiring() and projects the
+  canonical terminal record to the Properties panel.
+- No Core/SLD duplicate identity, Qt dependency in Core, or mutation path
+  is introduced. This tranche is selection/inspection only; editing and
+  persisted terminal layout remain outstanding.
+
+Verification boundary:
+- Updated source and regression-test source fetched back from the PR branch.
+- Tests/CI, imports, GUI interaction and save/reopen were not run.
+======================================================================
+
+
+Follow-up reconciliation:
+- Terminal block groups now allocate vertical rows cumulatively so one block's
+  terminal points do not overlap the next block's header.
+- After renderer reconciliation, canonical SelectionManager state is
+  re-applied to scene graphics so a selected terminal remains visibly
+  selected when its transient annotation item is recreated.
+- Regression-test source asserts distinct positions for the projected
+  terminal header and individual terminal point labels.
+
+
+======================================================================
+GridForge V2 — Terminal inspector projection reconciliation
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- PropertiesPanelWidget now renders the canonical TerminalBlock and
+  TerminalPoint fields supplied by SelectionProjectionCoordinator instead
+  of silently discarding ProjectionState.labels/attributes.
+- Terminal selection is explicitly read-only in the inspector: the Apply
+  action is disabled and labeled Read-only. No UI-side mutation or duplicate
+  terminal inventory was introduced.
+- SelectTool now obtains terminal identity directly from the semantic
+  CanvasHitTarget, rather than relying on the event object's fallback ID.
+- Terminal selection uses the SelectionManager.TERMINAL constant
+  consistently, and ProjectionState's validation message lists both
+  terminal identity kinds.
+
+Architecture:
+- Core/Application remain authoritative for terminal identity and wiring.
+- UI renders detached read models only; no Core mutation or Qt dependency
+  was introduced outside the existing ui.core.qt facade.
+
+Verification boundary:
+- Source and register changes committed and fetched back from the dedicated PR branch.
+- AST syntax checks passed for the changed PropertiesPanelWidget and
+  SelectTool methods; required QLabel, QFormLayout, QGraphicsItem and
+  QGraphicsTextItem exports were confirmed in ui.core.qt.
+- Full-module imports, tests/CI and GUI interaction were not run.
+======================================================================

@@ -47,12 +47,40 @@ class SLDPhysicalWiringRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class SLDTerminalPointPresentation:
+    """Read-only terminal designation projected from canonical Core identity."""
+
+    id: str
+    terminal_number: str
+    designation: str
+    function: str
+    side: str | None = None
+    manufacturer_designation: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SLDTerminalBlockPresentation:
+    """Terminal-block projection anchored to its existing panel SLD node."""
+
+    id: str
+    tag: str
+    panel_id: str
+    panel_node_id: str | None
+    location: str
+    terminal_count: int
+    terminal_points: tuple[SLDTerminalPointPresentation, ...] = ()
+    complete: bool = True
+    diagnostics: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class SLDInstrumentationWiringProjection:
     """Detached physical wiring projection for one SLD document."""
 
     project_id: str
     activation_generation: int
     records: tuple[SLDPhysicalWiringRecord, ...]
+    terminal_blocks: tuple[SLDTerminalBlockPresentation, ...] = ()
 
     @property
     def segments(self) -> tuple[SLDPhysicalWiringSegment, ...]:
@@ -135,10 +163,66 @@ class SLDInstrumentationWiringAdapter:
                 route_overrides=route_overrides,
             ))
 
+        points_by_block: dict[str, list[SLDTerminalPointPresentation]] = {}
+        for point in read_model.terminal_points:
+            block_id = str(point["terminal_block_id"])
+            points_by_block.setdefault(block_id, []).append(
+                SLDTerminalPointPresentation(
+                    id=str(point["id"]),
+                    terminal_number=str(point["terminal_number"]),
+                    designation=str(point["designation"]),
+                    function=str(point["function"]),
+                    side=(str(point["side"]) if point.get("side") is not None else None),
+                    manufacturer_designation=(
+                        str(point["manufacturer_designation"])
+                        if point.get("manufacturer_designation") is not None else None
+                    ),
+                )
+            )
+
+        terminal_blocks: list[SLDTerminalBlockPresentation] = []
+        for block in read_model.terminal_blocks:
+            block_id = str(block["id"])
+            panel_id = str(block["panel_id"])
+            panel_nodes = nodes_by_equipment.get(panel_id, ())
+            diagnostics: list[str] = []
+            panel_node_id = None
+            if len(panel_nodes) == 1:
+                panel_node_id = str(panel_nodes[0].node_id)
+            elif not panel_nodes:
+                diagnostics.append(
+                    f"Terminal block {block.get('tag', block_id)}: panel {panel_id} "
+                    "is absent from the active SLD document."
+                )
+            else:
+                diagnostics.append(
+                    f"Terminal block {block.get('tag', block_id)}: panel {panel_id} "
+                    "has multiple SLD representations; projection is ambiguous."
+                )
+            terminal_points = tuple(points_by_block.get(block_id, ()))
+            terminal_count = int(block["terminal_count"])
+            if len(terminal_points) != terminal_count:
+                diagnostics.append(
+                    f"Terminal block {block.get('tag', block_id)}: inventory declares "
+                    f"{terminal_count} terminals but exposes {len(terminal_points)} terminal points."
+                )
+            terminal_blocks.append(SLDTerminalBlockPresentation(
+                id=block_id,
+                tag=str(block["tag"]),
+                panel_id=panel_id,
+                panel_node_id=panel_node_id,
+                location=str(block["location"]),
+                terminal_count=terminal_count,
+                terminal_points=terminal_points,
+                complete=not diagnostics,
+                diagnostics=tuple(diagnostics),
+            ))
+
         return SLDInstrumentationWiringProjection(
             project_id=read_model.project_id,
             activation_generation=read_model.activation_generation,
             records=tuple(records),
+            terminal_blocks=tuple(terminal_blocks),
         )
 
     @staticmethod
@@ -224,6 +308,8 @@ class SLDInstrumentationWiringAdapter:
 __all__ = [
     "SLDPhysicalWiringSegment",
     "SLDPhysicalWiringRecord",
+    "SLDTerminalPointPresentation",
+    "SLDTerminalBlockPresentation",
     "SLDInstrumentationWiringProjection",
     "SLDInstrumentationWiringAdapter",
 ]

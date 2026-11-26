@@ -24,6 +24,7 @@ class SelectionManager(QObject):
 
     NODE = "node"
     CONNECTION = "connection"
+    TERMINAL = "terminal"
 
     def __init__(self, scene: Optional[QGraphicsScene] = None, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)

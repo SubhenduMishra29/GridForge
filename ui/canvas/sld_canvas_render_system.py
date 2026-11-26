@@ -994,9 +994,16 @@ class SLDCanvasRenderSystem:
             previous_items = self._items.get(render_id, ())
             previous_item = previous_items[0] if previous_items else None
             item = QGraphicsTextItem(annotation.text)
-            # Data labels are display-only; they must not intercept selection,
-            # connection, or placement gestures intended for underlying SLD items.
-            item.setAcceptedMouseButtons(Qt.NoButton)
+            if annotation.selection_kind is not None:
+                # Terminal block/point labels represent stable Application
+                # identities and participate in the canonical SelectTool hit path.
+                item.object_id = annotation.block_id
+                item.terminal_selection_kind = annotation.selection_kind
+                item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+                item.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+            else:
+                # Ordinary data labels remain click-through.
+                item.setAcceptedMouseButtons(Qt.NoButton)
             item.setPos(float(annotation.x), float(annotation.y))
             item.setOpacity(float(annotation.layer_opacity))
             item.setVisible(bool(annotation.visible) and bool(annotation.layer_visible) and self._zoom_level >= self._annotation_min_zoom)
@@ -1013,6 +1020,10 @@ class SLDCanvasRenderSystem:
         annotation_reflow_started = perf_counter()
         self._reflow_annotation_layout()
         sync_metrics["annotation_reflow_seconds"] = max(0.0, perf_counter() - annotation_reflow_started)
+        if self._selection_manager is not None:
+            reconcile_selection = getattr(self._selection_manager, "sync_graphics", None)
+            if callable(reconcile_selection):
+                reconcile_selection(scene=self._scene)
         sync_metrics["realized_item_count"] = len(self._items)
         sync_metrics["synchronize_seconds"] = max(0.0, perf_counter() - sync_started)
         self._last_sync_metrics = sync_metrics
@@ -1059,7 +1070,7 @@ class SLDCanvasRenderSystem:
             annotation.block_id, annotation.node_id, annotation.x, annotation.y,
             annotation.text, annotation.visible, annotation.layer_id,
             annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
-            annotation.layer_locked, annotation.priority,
+            annotation.layer_locked, annotation.priority, annotation.selection_kind,
         ))
 
     @staticmethod

@@ -92,6 +92,7 @@ class SLDCanvasAnnotation:
     layer_order: int = 0
     layer_locked: bool = False
     priority: int = 100
+    selection_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,12 +223,80 @@ class SLDCanvasProjection:
                         layer_order=layer_by_id["default"].order,
                         layer_locked=layer_by_id["default"].locked,
                     ))
+            for block in instrumentation_wiring.terminal_blocks:
+                diagnostics.extend(block.diagnostics)
+                if block.panel_node_id is not None and not any(
+                    node.node_id == block.panel_node_id for node in nodes
+                ):
+                    diagnostics.append(
+                        f"Terminal block {block.tag}: panel SLD node "
+                        f"{block.panel_node_id} is absent from the projected snapshot."
+                    )
             connections += tuple(physical_connections)
             physical_connection_count = len(physical_connections)
             physical_diagnostics = tuple(diagnostics)
         nodes_by_id = {node.node_id: node for node in nodes}
         annotations = tuple(self._project_annotation(block, nodes_by_id, self._require_layer(layer_by_id, block.layer_id)) for block in annotation_blocks)
         annotations += self._project_study_result_annotations(nodes, self._study_result)
+        if instrumentation_wiring is not None:
+            occupied_annotation_ids = {item.block_id for item in annotations}
+            terminal_annotations = []
+            terminal_row_offset = 0.0
+            for block in instrumentation_wiring.terminal_blocks:
+                panel_node = nodes_by_id.get(block.panel_node_id) if block.panel_node_id else None
+                if panel_node is None or not block.complete:
+                    continue
+                block_annotation_id = f"__gf_terminal_block__:{block.id}"
+                point_annotation_ids = tuple(
+                    f"__gf_terminal_point__:{point.id}" for point in block.terminal_points
+                )
+                candidate_ids = (block_annotation_id, *point_annotation_ids)
+                collisions = tuple(value for value in candidate_ids if value in occupied_annotation_ids)
+                if collisions:
+                    physical_diagnostics += (
+                        f"Terminal block {block.tag}: transient annotation identity "
+                        f"{collisions[0]!r} collides with an authored SLD annotation.",
+                    )
+                    continue
+                terminal_annotations.append(SLDCanvasAnnotation(
+                    block_id=block_annotation_id,
+                    node_id=panel_node.node_id,
+                    x=panel_node.x + 70.0,
+                    y=panel_node.y + 60.0 + terminal_row_offset,
+                    text=f"{block.tag} — {block.location}",
+                    visible=True,
+                    layer_id=panel_node.layer_id,
+                    layer_visible=panel_node.layer_visible,
+                    layer_opacity=panel_node.layer_opacity,
+                    layer_order=panel_node.layer_order,
+                    layer_locked=panel_node.layer_locked,
+                    priority=25,
+                    selection_kind="terminal_block",
+                ))
+                for point_index, point in enumerate(block.terminal_points):
+                    point_text = (
+                        f"{point.terminal_number}: {point.designation}"
+                        + (f" ({point.manufacturer_designation})" if point.manufacturer_designation else "")
+                        + f" — {point.function}"
+                    )
+                    terminal_annotations.append(SLDCanvasAnnotation(
+                        block_id=f"__gf_terminal_point__:{point.id}",
+                        node_id=panel_node.node_id,
+                        x=panel_node.x + 70.0,
+                        y=panel_node.y + 78.0 + terminal_row_offset + (point_index * 16.0),
+                        text=point_text,
+                        visible=True,
+                        layer_id=panel_node.layer_id,
+                        layer_visible=panel_node.layer_visible,
+                        layer_opacity=panel_node.layer_opacity,
+                        layer_order=panel_node.layer_order,
+                        layer_locked=panel_node.layer_locked,
+                        priority=26,
+                        selection_kind="terminal_point",
+                    ))
+                occupied_annotation_ids.update(candidate_ids)
+                terminal_row_offset += 24.0 + (len(block.terminal_points) * 16.0)
+            annotations += tuple(terminal_annotations)
         snapshot = SLDCanvasSnapshot(
             nodes=nodes, connections=connections, annotations=annotations,
             physical_wiring_diagnostics=physical_diagnostics,

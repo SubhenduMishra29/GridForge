@@ -111,6 +111,13 @@ class SelectionProjectionCoordinator:
         if isinstance(event, ProtectionChanged) and not self._is_selected_protection_target(event):
             return
 
+        terminal_selection = tuple(
+            self.selection_manager.get_selected_ids(domain="terminal")
+        )
+        if terminal_selection:
+            self._project_selected_terminal(terminal_selection)
+            return
+
         transition_operation = None
         if isinstance(event, NetworkCommitted):
             transition_operation = "commit"
@@ -436,6 +443,92 @@ class SelectionProjectionCoordinator:
         del selected_ids
         if not self._disposed:
             self.refresh()
+
+    def _project_selected_terminal(self, selected_ids: tuple[Any, ...]) -> None:
+        """Project one selected terminal identity from the canonical Application inventory."""
+        if self.application is None or len(selected_ids) != 1:
+            self.clear_projection()
+            return
+        reader = getattr(self.application, "read_instrumentation_wiring", None)
+        if not callable(reader):
+            self.clear_projection()
+            return
+        selected_id = str(selected_ids[0])
+        try:
+            inventory = reader()
+        except (KeyError, RuntimeError, TypeError, ValueError):
+            self.clear_projection()
+            return
+
+        if selected_id.startswith("__gf_terminal_block__:"):
+            record_id = selected_id.split(":", 1)[1]
+            matches = tuple(
+                item for item in inventory.terminal_blocks
+                if str(item.get("id", "")) == record_id
+            )
+            if len(matches) != 1:
+                self.clear_projection()
+                return
+            block = matches[0]
+            points = tuple(
+                item for item in inventory.terminal_points
+                if str(item.get("terminal_block_id", "")) == record_id
+            )
+            self._set_panel_target(ProjectionState(
+                object_id=record_id,
+                display_type="TERMINAL_BLOCK",
+                labels=(
+                    str(block.get("tag", record_id)),
+                    f"Panel: {block.get('panel_id', '')}",
+                    f"Location: {block.get('location', '')}",
+                    f"Terminal count: {block.get('terminal_count', len(points))}",
+                ),
+                identity_kind="terminal_block",
+                attributes={
+                    "tag": block.get("tag"),
+                    "panel_id": block.get("panel_id"),
+                    "location": block.get("location"),
+                    "terminal_count": block.get("terminal_count"),
+                    "terminal_point_ids": tuple(str(item.get("id", "")) for item in points),
+                },
+            ))
+            return
+
+        if selected_id.startswith("__gf_terminal_point__:"):
+            record_id = selected_id.split(":", 1)[1]
+            matches = tuple(
+                item for item in inventory.terminal_points
+                if str(item.get("id", "")) == record_id
+            )
+            if len(matches) != 1:
+                self.clear_projection()
+                return
+            point = matches[0]
+            self._set_panel_target(ProjectionState(
+                object_id=record_id,
+                display_type="TERMINAL_POINT",
+                labels=tuple(
+                    value for value in (
+                        f"Terminal: {point.get('terminal_number', '')}",
+                        f"Designation: {point.get('designation', '')}",
+                        f"Manufacturer: {point.get('manufacturer_designation', '')}",
+                        f"Function: {point.get('function', '')}",
+                        f"Side: {point.get('side', '')}",
+                        f"Terminal block: {point.get('terminal_block_id', '')}",
+                    ) if not value.endswith(": ")
+                ),
+                identity_kind="terminal_point",
+                attributes={
+                    "terminal_block_id": point.get("terminal_block_id"),
+                    "terminal_number": point.get("terminal_number"),
+                    "designation": point.get("designation"),
+                    "manufacturer_designation": point.get("manufacturer_designation"),
+                    "function": point.get("function"),
+                    "side": point.get("side"),
+                },
+            ))
+            return
+        self.clear_projection()
 
     def _read_selected_draft(self, object_id: Any) -> Mapping[str, Any] | None:
         if self.application is None or not isinstance(object_id, str):
