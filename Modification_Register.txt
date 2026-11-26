@@ -6879,7 +6879,9 @@ Architecture:
   was introduced outside the existing ui.core.qt facade.
 
 Verification boundary:
-- Source and register changes committed on the dedicated PR branch.
-- Static syntax/import checks are pending fetch-back; tests/CI and GUI
-  interaction are not run.
+- Source and register changes committed and fetched back from the dedicated PR branch.
+- AST syntax checks passed for the changed PropertiesPanelWidget and
+  SelectTool methods; required QLabel, QFormLayout, QGraphicsItem and
+  QGraphicsTextItem exports were confirmed in ui.core.qt.
+- Full-module imports, tests/CI and GUI interaction were not run.
 ======================================================================
