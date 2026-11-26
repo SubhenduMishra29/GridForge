@@ -6779,3 +6779,35 @@ Verification boundary:
   schedules/export/sign-off, domain-specific conductor safety, and
   end-to-end GUI/save-reopen acceptance remain outstanding.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Terminal-block annotation layer ownership correction
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- Terminal-block read-projection annotations now inherit the exact SLD
+  presentation layer state of their owning panel node: layer identity,
+  visibility, opacity, order and lock state.
+- Removed the incorrect hard-coded default-layer assignment for these
+  panel-owned terminal labels.
+- Added regression-test source using a hidden, locked, non-default panel
+  layer to assert all inherited layer attributes in the renderer-neutral
+  canvas snapshot.
+
+Architecture:
+- Layer ownership remains SLD presentation state; no electrical topology,
+  Core identity, Application mutation or persistence schema was changed.
+- No Qt/QGraphics dependency added; the existing annotation renderer
+  consumes the corrected immutable snapshot metadata.
+
+Verification boundary:
+- Updated source and regression-test content fetched back from the PR branch.
+- Tests/CI, Python imports, GUI rendering and interactive selection were
+  not run.
+- Independent terminal/terminal-point selection and authoring remain a
+  separate outstanding correction under #1203.
+======================================================================
