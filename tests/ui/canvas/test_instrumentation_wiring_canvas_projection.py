@@ -158,18 +158,32 @@ def test_terminal_blocks_and_manufacturer_terminal_designations_project_to_sld()
     assert block.panel_node_id == "panel-node"
     assert block.complete is True
     assert tuple(point.id for point in block.terminal_points) == ("tp-1", "tp-2")
-    assert len(snapshot.annotations) == 1
-    annotation = snapshot.annotations[0]
-    assert annotation.block_id == "__gf_projection__:terminal_block:tb-1"
-    assert annotation.node_id == "panel-node"
-    assert annotation.layer_id == "instrumentation"
-    assert annotation.layer_visible is False
-    assert annotation.layer_locked is True
-    assert annotation.layer_opacity == 0.45
-    assert annotation.layer_order == 3
-    assert "TB-101" in annotation.text
-    assert "1: X1:1 (S1)" in annotation.text
-    assert "2: X1:2 (S2)" in annotation.text
+    assert len(snapshot.annotations) == 3
+    block_annotation = next(
+        item for item in snapshot.annotations
+        if item.selection_kind == "terminal_block"
+    )
+    point_annotations = tuple(
+        item for item in snapshot.annotations
+        if item.selection_kind == "terminal_point"
+    )
+    assert block_annotation.block_id == "__gf_terminal_block__:tb-1"
+    assert block_annotation.node_id == "panel-node"
+    assert block_annotation.layer_id == "instrumentation"
+    assert block_annotation.layer_visible is False
+    assert block_annotation.layer_locked is True
+    assert block_annotation.layer_opacity == 0.45
+    assert block_annotation.layer_order == 3
+    assert "TB-101" in block_annotation.text
+    assert {item.block_id for item in point_annotations} == {
+        "__gf_terminal_point__:tp-1", "__gf_terminal_point__:tp-2",
+    }
+    assert {item.text for item in point_annotations} == {
+        "1: X1:1 (S1) — FEED_THROUGH",
+        "2: X1:2 (S2) — FEED_THROUGH",
+    }
+    assert all(item.node_id == "panel-node" for item in point_annotations)
+    assert all(item.layer_id == "instrumentation" for item in point_annotations)
     assert snapshot.physical_wiring_diagnostics == ()
 
 
