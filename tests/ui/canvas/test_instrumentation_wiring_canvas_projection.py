@@ -3,7 +3,7 @@
 from core.application.read_models import InstrumentationWiringReadModel
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.sld.instrumentation_wiring_projection import SLDInstrumentationWiringAdapter
-from ui.sld.sld_model import SLDModel, SLDNode
+from ui.sld.sld_model import SLDModel, SLDNode, SLDPresentationLayer
 
 
 def test_canvas_snapshot_contains_transient_physical_wiring_connections():
@@ -111,7 +111,7 @@ def test_transient_projection_id_collision_does_not_overwrite_authored_connectio
 
 def test_terminal_blocks_and_manufacturer_terminal_designations_project_to_sld():
     model = SLDModel()
-    model.add_node(SLDNode(node_id="panel-node", equipment_id="PANEL-1"))
+    model.add_node(SLDNode(node_id="panel-node", equipment_id="PANEL-1", layer_id="instrumentation"))
     read_model = InstrumentationWiringReadModel(
         project_id="project-1",
         activation_generation=3,
@@ -143,7 +143,14 @@ def test_terminal_blocks_and_manufacturer_terminal_designations_project_to_sld()
     )
 
     wiring = SLDInstrumentationWiringAdapter().project(read_model, model)
-    snapshot = SLDCanvasProjection().project(model, instrumentation_wiring=wiring)
+    snapshot = SLDCanvasProjection().project(
+        model,
+        layers=(SLDPresentationLayer(
+            "instrumentation", "Instrumentation",
+            visible=False, locked=True, opacity=0.45, order=3,
+        ),),
+        instrumentation_wiring=wiring,
+    )
 
     assert len(wiring.terminal_blocks) == 1
     block = wiring.terminal_blocks[0]
@@ -155,6 +162,11 @@ def test_terminal_blocks_and_manufacturer_terminal_designations_project_to_sld()
     annotation = snapshot.annotations[0]
     assert annotation.block_id == "__gf_projection__:terminal_block:tb-1"
     assert annotation.node_id == "panel-node"
+    assert annotation.layer_id == "instrumentation"
+    assert annotation.layer_visible is False
+    assert annotation.layer_locked is True
+    assert annotation.layer_opacity == 0.45
+    assert annotation.layer_order == 3
     assert "TB-101" in annotation.text
     assert "1: X1:1 (S1)" in annotation.text
     assert "2: X1:2 (S2)" in annotation.text
