@@ -92,6 +92,7 @@ class SLDCanvasAnnotation:
     layer_order: int = 0
     layer_locked: bool = False
     priority: int = 100
+    selection_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,25 +245,24 @@ class SLDCanvasProjection:
                 panel_node = nodes_by_id.get(block.panel_node_id) if block.panel_node_id else None
                 if panel_node is None or not block.complete:
                     continue
-                annotation_id = f"__gf_projection__:terminal_block:{block.id}"
-                if annotation_id in occupied_annotation_ids:
+                block_annotation_id = f"__gf_terminal_block__:{block.id}"
+                point_annotation_ids = tuple(
+                    f"__gf_terminal_point__:{point.id}" for point in block.terminal_points
+                )
+                candidate_ids = (block_annotation_id, *point_annotation_ids)
+                collisions = tuple(value for value in candidate_ids if value in occupied_annotation_ids)
+                if collisions:
                     physical_diagnostics += (
                         f"Terminal block {block.tag}: transient annotation identity "
-                        f"{annotation_id!r} collides with an authored SLD annotation.",
+                        f"{collisions[0]!r} collides with an authored SLD annotation.",
                     )
                     continue
-                point_lines = [
-                    f"{point.terminal_number}: {point.designation}"
-                    + (f" ({point.manufacturer_designation})" if point.manufacturer_designation else "")
-                    + f" — {point.function}"
-                    for point in block.terminal_points
-                ]
                 terminal_annotations.append(SLDCanvasAnnotation(
-                    block_id=annotation_id,
+                    block_id=block_annotation_id,
                     node_id=panel_node.node_id,
                     x=panel_node.x + 70.0,
                     y=panel_node.y + 60.0 + (block_index * 18.0),
-                    text="\n".join((block.tag, block.location, *point_lines)),
+                    text=f"{block.tag} — {block.location}",
                     visible=True,
                     layer_id=panel_node.layer_id,
                     layer_visible=panel_node.layer_visible,
@@ -270,8 +270,30 @@ class SLDCanvasProjection:
                     layer_order=panel_node.layer_order,
                     layer_locked=panel_node.layer_locked,
                     priority=25,
+                    selection_kind="terminal_block",
                 ))
-                occupied_annotation_ids.add(annotation_id)
+                for point_index, point in enumerate(block.terminal_points):
+                    point_text = (
+                        f"{point.terminal_number}: {point.designation}"
+                        + (f" ({point.manufacturer_designation})" if point.manufacturer_designation else "")
+                        + f" — {point.function}"
+                    )
+                    terminal_annotations.append(SLDCanvasAnnotation(
+                        block_id=f"__gf_terminal_point__:{point.id}",
+                        node_id=panel_node.node_id,
+                        x=panel_node.x + 70.0,
+                        y=panel_node.y + 78.0 + (block_index * 18.0) + (point_index * 16.0),
+                        text=point_text,
+                        visible=True,
+                        layer_id=panel_node.layer_id,
+                        layer_visible=panel_node.layer_visible,
+                        layer_opacity=panel_node.layer_opacity,
+                        layer_order=panel_node.layer_order,
+                        layer_locked=panel_node.layer_locked,
+                        priority=26,
+                        selection_kind="terminal_point",
+                    ))
+                occupied_annotation_ids.update(candidate_ids)
             annotations += tuple(terminal_annotations)
         snapshot = SLDCanvasSnapshot(
             nodes=nodes, connections=connections, annotations=annotations,
