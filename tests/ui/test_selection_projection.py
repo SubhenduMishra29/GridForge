@@ -255,3 +255,45 @@ def test_selection_projection_resolves_draft_from_authoritative_draft_network():
     assert panel.target.engineering_parameters
 
     coordinator.dispose()
+
+
+def test_mouse_adapter_preserves_terminal_selection_identity():
+    terminal = _FakeItem("__gf_terminal_point__:tp-1", selectable=True)
+    terminal.terminal_selection_kind = "terminal_point"
+    adapter = MouseEventAdapter(view=_FakeView(), scene=_FakeScene([terminal]))
+
+    event = adapter.adapt(_FakeMouseEvent(QPointF(2, 3)))
+
+    assert event.presentation_hit.kind.value == "terminal"
+    assert event.presentation_hit.object_id == "__gf_terminal_point__:tp-1"
+    assert event.presentation_hit.terminal_kind == "terminal_point"
+
+
+def test_selection_projection_reads_selected_terminal_point_from_application():
+    manager = SelectionManager()
+    inventory = SimpleNamespace(
+        terminal_blocks=({"id": "tb-1", "tag": "TB-101", "panel_id": "PANEL-1",
+                          "location": "MCC-1", "terminal_count": 1},),
+        terminal_points=({"id": "tp-1", "terminal_block_id": "tb-1",
+                          "terminal_number": "1", "designation": "X1:1",
+                          "manufacturer_designation": "S1", "function": "CT_SECONDARY",
+                          "side": "FIELD"},),
+    )
+    app = SimpleNamespace(read_instrumentation_wiring=lambda: inventory)
+    panel = _FakePanel()
+    coordinator = SelectionProjectionCoordinator(
+        selection_manager=manager,
+        application=app,
+        properties_panel=panel,
+    )
+
+    manager.select_single("__gf_terminal_point__:tp-1", domain=manager.TERMINAL)
+
+    assert panel.target is not None
+    assert panel.target.identity_kind == "terminal_point"
+    assert panel.target.object_id == "tp-1"
+    assert panel.target.display_type == "TERMINAL_POINT"
+    assert "Designation: X1:1" in panel.target.labels
+    assert "Manufacturer: S1" in panel.target.labels
+    assert panel.target.attributes["function"] == "CT_SECONDARY"
+    coordinator.dispose()
