@@ -6851,3 +6851,35 @@ Follow-up reconciliation:
   selected when its transient annotation item is recreated.
 - Regression-test source asserts distinct positions for the projected
   terminal header and individual terminal point labels.
+
+
+======================================================================
+GridForge V2 — Terminal inspector projection reconciliation
+Date: 2026-11-26
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-block-sld-projection
+Issue: #1203
+
+Correction:
+- PropertiesPanelWidget now renders the canonical TerminalBlock and
+  TerminalPoint fields supplied by SelectionProjectionCoordinator instead
+  of silently discarding ProjectionState.labels/attributes.
+- Terminal selection is explicitly read-only in the inspector: the Apply
+  action is disabled and labeled Read-only. No UI-side mutation or duplicate
+  terminal inventory was introduced.
+- SelectTool now obtains terminal identity directly from the semantic
+  CanvasHitTarget, rather than relying on the event object's fallback ID.
+- Terminal selection uses the SelectionManager.TERMINAL constant
+  consistently, and ProjectionState's validation message lists both
+  terminal identity kinds.
+
+Architecture:
+- Core/Application remain authoritative for terminal identity and wiring.
+- UI renders detached read models only; no Core mutation or Qt dependency
+  was introduced outside the existing ui.core.qt facade.
+
+Verification boundary:
+- Source and register changes committed on the dedicated PR branch.
+- Static syntax/import checks are pending fetch-back; tests/CI and GUI
+  interaction are not run.
+======================================================================
