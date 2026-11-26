@@ -6841,3 +6841,13 @@ Verification boundary:
 - Updated source and regression-test source fetched back from the PR branch.
 - Tests/CI, imports, GUI interaction and save/reopen were not run.
 ======================================================================
+
+
+Follow-up reconciliation:
+- Terminal block groups now allocate vertical rows cumulatively so one block's
+  terminal points do not overlap the next block's header.
+- After renderer reconciliation, canonical SelectionManager state is
+  re-applied to scene graphics so a selected terminal remains visibly
+  selected when its transient annotation item is recreated.
+- Regression-test source asserts distinct positions for the projected
+  terminal header and individual terminal point labels.
