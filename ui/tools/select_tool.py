@@ -808,7 +808,7 @@ class SelectTool(ToolBase):
     def _handle_terminal_click(self, terminal_id: str, modifiers: int) -> None:
         manager = self.get_selection_manager()
         if self._has_toggle_modifier(modifiers):
-            manager.toggle_selection(terminal_id, domain="terminal")
+            manager.toggle_selection(terminal_id, domain=manager.TERMINAL)
         elif self._has_additive_modifier(modifiers):
             manager.add_to_selection(terminal_id, domain="terminal")
         else:
