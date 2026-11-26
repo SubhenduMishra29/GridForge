@@ -1147,10 +1147,11 @@ class PropertiesPanelWidget(QWidget):
         assert self._form_layout is not None
         self._form_layout.addRow(QLabel("Identity", self), QLabel(str(target.object_id), self))
         self._form_layout.addRow(QLabel("Type", self), QLabel(str(target.display_type), self))
-        self._form_layout.addRow(
-            QLabel("Status", self),
-            QLabel("Draft" if target.identity_kind == "draft" else str(target.status or "Unknown"), self),
-        )
+        if target.identity_kind in {"terminal_block", "terminal_point"}:
+            status_text = "Read-only canonical inventory"
+        else:
+            status_text = "Draft" if target.identity_kind == "draft" else str(target.status or "Unknown")
+        self._form_layout.addRow(QLabel("Status", self), QLabel(status_text, self))
         if target.identity_kind == "terminal_block":
             terminal_details = (
                 ("Tag", target.attributes.get("tag")),
