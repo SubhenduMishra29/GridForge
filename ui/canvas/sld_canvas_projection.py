@@ -241,7 +241,8 @@ class SLDCanvasProjection:
         if instrumentation_wiring is not None:
             occupied_annotation_ids = {item.block_id for item in annotations}
             terminal_annotations = []
-            for block_index, block in enumerate(instrumentation_wiring.terminal_blocks):
+            terminal_row_offset = 0.0
+            for block in instrumentation_wiring.terminal_blocks:
                 panel_node = nodes_by_id.get(block.panel_node_id) if block.panel_node_id else None
                 if panel_node is None or not block.complete:
                     continue
@@ -261,7 +262,7 @@ class SLDCanvasProjection:
                     block_id=block_annotation_id,
                     node_id=panel_node.node_id,
                     x=panel_node.x + 70.0,
-                    y=panel_node.y + 60.0 + (block_index * 18.0),
+                    y=panel_node.y + 60.0 + terminal_row_offset,
                     text=f"{block.tag} — {block.location}",
                     visible=True,
                     layer_id=panel_node.layer_id,
@@ -282,7 +283,7 @@ class SLDCanvasProjection:
                         block_id=f"__gf_terminal_point__:{point.id}",
                         node_id=panel_node.node_id,
                         x=panel_node.x + 70.0,
-                        y=panel_node.y + 78.0 + (block_index * 18.0) + (point_index * 16.0),
+                        y=panel_node.y + 78.0 + terminal_row_offset + (point_index * 16.0),
                         text=point_text,
                         visible=True,
                         layer_id=panel_node.layer_id,
@@ -294,6 +295,7 @@ class SLDCanvasProjection:
                         selection_kind="terminal_point",
                     ))
                 occupied_annotation_ids.update(candidate_ids)
+                terminal_row_offset += 24.0 + (len(block.terminal_points) * 16.0)
             annotations += tuple(terminal_annotations)
         snapshot = SLDCanvasSnapshot(
             nodes=nodes, connections=connections, annotations=annotations,
