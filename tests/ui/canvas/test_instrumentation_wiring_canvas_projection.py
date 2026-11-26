@@ -184,6 +184,7 @@ def test_terminal_blocks_and_manufacturer_terminal_designations_project_to_sld()
     }
     assert all(item.node_id == "panel-node" for item in point_annotations)
     assert all(item.layer_id == "instrumentation" for item in point_annotations)
+    assert len({item.y for item in snapshot.annotations}) == 3
     assert snapshot.physical_wiring_diagnostics == ()
 
 
