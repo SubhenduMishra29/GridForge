@@ -172,6 +172,9 @@ class MouseEventAdapter:
     @classmethod
     def _presentation_hit_for_item(cls, item: Any, position: tuple[float, float]) -> CanvasHitTarget:
         object_id = getattr(item, "object_id", None)
+        terminal_kind = getattr(item, "terminal_selection_kind", None)
+        if terminal_kind is not None:
+            return CanvasHitTarget.terminal(object_id, str(terminal_kind))
         connection_kind = str(getattr(item, "connection_kind", "") or "").upper()
         resolver = getattr(item, "insertion_target", None)
         if connection_kind == "SIMPLE_WIRE" and callable(resolver):
