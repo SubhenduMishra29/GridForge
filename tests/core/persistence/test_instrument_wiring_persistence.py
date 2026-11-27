@@ -420,7 +420,7 @@ def test_terminal_block_inventory_round_trips_current_schema_without_losing_poin
     assert restored == inventory
 
 
-def test_schema_four_instrumentation_wiring_remains_readable_after_schema_five_upgrade():
+def test_schema_four_instrumentation_wiring_remains_readable_after_current_schema_upgrade():
     payload = serialize_instrumentation_wiring(sample_inventory())
     payload["schema"] = 4
     payload.pop("endpoint_bindings")
