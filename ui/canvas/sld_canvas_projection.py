@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from time import perf_counter
+from math import isfinite
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -158,10 +159,38 @@ class SLDCanvasProjection:
         annotation_blocks: tuple[SLDAnnotationBlock, ...] | list[SLDAnnotationBlock] = (),
         layers: tuple[SLDPresentationLayer, ...] | list[SLDPresentationLayer] = (),
         instrumentation_wiring: SLDInstrumentationWiringProjection | None = None,
+        terminal_block_layouts: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> SLDCanvasSnapshot:
         """Project SLD structure and resolve annotation values from Application read models."""
         if not isinstance(model, SLDModel):
             raise TypeError("model must be an SLDModel.")
+        if terminal_block_layouts is None:
+            terminal_block_layouts = {}
+        if not isinstance(terminal_block_layouts, Mapping):
+            raise TypeError("terminal_block_layouts must be a mapping or None.")
+        normalized_terminal_layouts: dict[str, dict[str, Any]] = {}
+        for block_id, layout in terminal_block_layouts.items():
+            if not isinstance(block_id, str) or not block_id or block_id != block_id.strip():
+                raise ValueError("Terminal-block layout keys must be canonical non-empty IDs.")
+            if not isinstance(layout, Mapping):
+                raise TypeError("Terminal-block layout entries must be mappings.")
+            offset_x = layout.get("offset_x", 70.0)
+            offset_y = layout.get("offset_y", 60.0)
+            visible = layout.get("visible", True)
+            if (
+                isinstance(offset_x, bool) or not isinstance(offset_x, (int, float))
+                or not isfinite(float(offset_x))
+                or isinstance(offset_y, bool) or not isinstance(offset_y, (int, float))
+                or not isfinite(float(offset_y))
+            ):
+                raise ValueError("Terminal-block layout offsets must be finite numbers.")
+            if not isinstance(visible, bool):
+                raise ValueError("Terminal-block layout visibility must be boolean.")
+            normalized_terminal_layouts[block_id] = {
+                "offset_x": float(offset_x),
+                "offset_y": float(offset_y),
+                "visible": visible,
+            }
         project_started = perf_counter()
         if instrumentation_wiring is not None and not isinstance(instrumentation_wiring, SLDInstrumentationWiringProjection):
             raise TypeError("instrumentation_wiring must be an SLDInstrumentationWiringProjection or None.")
@@ -258,13 +287,17 @@ class SLDCanvasProjection:
                         f"{collisions[0]!r} collides with an authored SLD annotation.",
                     )
                     continue
+                layout = normalized_terminal_layouts.get(block.id, {})
+                layout_x = layout.get("offset_x", 70.0)
+                layout_y = layout.get("offset_y", 60.0 + terminal_row_offset)
+                layout_visible = layout.get("visible", True)
                 terminal_annotations.append(SLDCanvasAnnotation(
                     block_id=block_annotation_id,
                     node_id=panel_node.node_id,
-                    x=panel_node.x + 70.0,
-                    y=panel_node.y + 60.0 + terminal_row_offset,
+                    x=panel_node.x + layout_x,
+                    y=panel_node.y + layout_y,
                     text=f"{block.tag} — {block.location}",
-                    visible=True,
+                    visible=layout_visible,
                     layer_id=panel_node.layer_id,
                     layer_visible=panel_node.layer_visible,
                     layer_opacity=panel_node.layer_opacity,
@@ -282,10 +315,10 @@ class SLDCanvasProjection:
                     terminal_annotations.append(SLDCanvasAnnotation(
                         block_id=f"__gf_terminal_point__:{point.id}",
                         node_id=panel_node.node_id,
-                        x=panel_node.x + 70.0,
-                        y=panel_node.y + 78.0 + terminal_row_offset + (point_index * 16.0),
+                        x=panel_node.x + layout_x,
+                        y=panel_node.y + layout_y + 18.0 + (point_index * 16.0),
                         text=point_text,
-                        visible=True,
+                        visible=layout_visible,
                         layer_id=panel_node.layer_id,
                         layer_visible=panel_node.layer_visible,
                         layer_opacity=panel_node.layer_opacity,
