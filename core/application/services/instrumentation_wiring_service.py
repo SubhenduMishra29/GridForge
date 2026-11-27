@@ -543,6 +543,10 @@ class InstrumentationWiringService:
                             f"{label} '{record_id}' cannot be removed after it leaves PLANNED; retire it instead."
                         )
                     continue
+                if previous.lifecycle_status in {"RETIRED", "REPLACED"} and candidate != previous:
+                    raise ValueError(
+                        f"{label} '{record_id}' is immutable after it is {previous.lifecycle_status}."
+                    )
                 if candidate != previous and candidate.revision <= previous.revision:
                     raise ValueError(
                         f"{label} '{record_id}' revision must advance when its record changes."
