@@ -53,6 +53,7 @@ from .project_presentation import ProjectPresentationCollection
 from .instrumentation_wiring_endpoint_resolver import resolve_signal_endpoint_bindings
 from .read_models import (
     ConfigurationReviewReadModel,
+    InstrumentationWiringReadModel,
     ElementReadModel,
     MeasurementChannelReadModel,
     MeasurementChannelConfigurationReadModel,
@@ -92,6 +93,11 @@ from .protection_study import (
 from .revision_service import RevisionService
 from .validation import ValidationIssue, ValidationResult, ValidationSeverity, ValidationSummary
 from .services.validation_service import ValidationService
+from .services.instrumentation_wiring_service import (
+    InstrumentationWiringService,
+    InstrumentationWiringServiceState,
+    InstrumentationWiringCommandHandlers,
+)
 from .services.temperature_instrument_service import (
     TemperatureInstrumentService,
     TemperatureInstrumentServiceState,
@@ -100,6 +106,10 @@ from .services.temperature_instrument_service import (
 
 __all__ = [
     "Application",
+    "InstrumentationWiringReadModel",
+    "InstrumentationWiringService",
+    "InstrumentationWiringServiceState",
+    "InstrumentationWiringCommandHandlers",
     "ConfigurationReviewRecord",
     "create_application",
     "recover_application",
