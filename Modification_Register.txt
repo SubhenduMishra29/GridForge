@@ -7012,3 +7012,11 @@ Canvas refresh lifecycle correction:
   presenting an empty draft snapshot while still resolving the active
   Application instrumentation projection.
 - Static source reconciliation only; no GUI/runtime interaction or tests run.
+
+
+2026-11-27 | PR #1272 | SLD terminal-block drag positioning and annotation density
+- Added stable terminal-block layout identity and panel-node anchor coordinates to the renderer-neutral SLD annotation projection. These values remain presentation metadata; no Core or Application electrical model was changed.
+- Terminal-block labels now use a dedicated movable graphics item. Drag release converts the final scene position into panel-relative offsets and commits through SLDController.set_instrumentation_terminal_block_layout; terminal-point labels are regenerated from the same persisted block offset.
+- Bound the renderer callback through CanvasComposition and the existing SLDController presentation-refresh lifecycle. A failed persistence callback restores the pre-drag position and records a renderer log.
+- Added presentation-only annotation density presets (Minimal, Standard, All) to the SLD header. Density filters by annotation priority and does not mutate persisted document metadata or Application/Core records.
+- Static source reconciliation only. No tests, CI, import smoke, GUI interaction, or save/reopen acceptance were executed. PR remains draft pending final review of callback lifecycle, renderer behavior, and any remaining #1203 requirements.
