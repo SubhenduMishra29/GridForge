@@ -6967,3 +6967,26 @@ Regression coverage follow-up:
   rejection of preserved or unknown predecessor IDs.
 - Test source is authored only; it has not been executed. No CI or issue
   acceptance claim is made.
+
+GridForge V2 — SLD terminal-block layout and visibility
+Date: 2026-11-27
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-terminal-block-layout-visibility
+Issue: #1203
+
+Correction:
+- Added SLDDocument metadata-backed, per-terminal-block presentation offsets
+  and visibility, validated as finite offsets and a strict boolean.
+- Added SLDController methods that resolve the stable terminal-block ID against
+  the active Application inventory before changing document-owned layout.
+- SLDCanvasProjection applies the offsets to the block label and all terminal
+  point labels, and carries visibility to the rendered annotations.
+- CanvasComposition supplies each document's layout metadata to projection.
+- Layout remains presentation-only; Core terminal identity, cable topology
+  and Application wiring records are unchanged. No Qt item is added to Core.
+
+Verification boundary:
+- Regression source covers document serialization/restore, custom offsets,
+  visibility and invalid layout values; tests have not been executed.
+- Static source reconciliation only. GUI drag/edit interaction and project
+  save/reopen acceptance remain outstanding. Issue #1203 remains open.
