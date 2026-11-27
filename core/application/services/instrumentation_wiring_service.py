@@ -290,12 +290,14 @@ class InstrumentationWiringService:
         terminal_path: tuple[Any, ...] | list[Any],
         *,
         new_hop_ids: tuple[str, ...] | list[str] = (),
+        supersedes_hop_ids: tuple[str | None, ...] | list[str | None] = (),
     ) -> SetInstrumentationWiringInventoryCommand:
-        """Prepare a route revision while retaining IDs for unchanged segments.
+        """Prepare a route revision while retaining IDs and explicit hop lineage.
 
-        new_hop_ids supplies explicit IDs only for newly introduced adjacent
-        segments, in route order. Removed active segments remain as RETIRED
-        history records; no ID is generated or inferred.
+        new_hop_ids supplies IDs for newly introduced adjacent segments in
+        route order. supersedes_hop_ids optionally supplies the prior active
+        hop replaced by each new segment, in the same order. Superseded hops
+        remain in history with REPLACED lifecycle status.
         """
         from core.model.instrument_wiring import CarrierKind, WiringTerminalReference
 
@@ -343,12 +345,47 @@ class InstrumentationWiringService:
                 f"Route revision requires exactly {len(added_pairs)} new_hop_ids; "
                 f"received {len(supplied_ids)}."
             )
+        if len(supplied_ids) != len(set(supplied_ids)):
+            raise ValueError("New hop IDs must be unique.")
         existing_ids = {item.id for item in self._inventory.connection_hops}
-        if len(supplied_ids) != len(set(supplied_ids)) or existing_ids.intersection(supplied_ids):
-            raise ValueError("New hop IDs must be unique and must not reuse existing hop IDs.")
+        if existing_ids.intersection(supplied_ids):
+            raise ValueError("New hop IDs must not reuse existing hop IDs.")
+
+        lineage = tuple(supersedes_hop_ids)
+        if not lineage:
+            lineage = (None,) * len(added_pairs)
+        if len(lineage) != len(added_pairs):
+            raise ValueError(
+                f"Route revision requires exactly {len(added_pairs)} supersedes_hop_ids "
+                f"(or none); received {len(lineage)}."
+            )
+        active_by_id = {
+            hop.id: hop for hop in existing
+            if hop.lifecycle_status in {"PLANNED", "INSTALLED"}
+        }
+        if any(value is not None and (not isinstance(value, str) or not value.strip()) for value in lineage):
+            raise ValueError("supersedes_hop_ids entries must be non-empty strings or None.")
+        superseded_ids = tuple(value for value in lineage if value is not None)
+        if len(superseded_ids) != len(set(superseded_ids)):
+            raise ValueError("A prior physical connection hop can be superseded only once per route revision.")
+        for prior_id in superseded_ids:
+            prior = active_by_id.get(prior_id)
+            if prior is None:
+                raise ValueError(
+                    f"Superseded hop '{prior_id}' is not an active hop of this carrier."
+                )
+            prior_pair = frozenset((
+                prior.from_terminal.canonical_identity,
+                prior.to_terminal.canonical_identity,
+            ))
+            if prior_pair in preserved_pairs:
+                raise ValueError(
+                    f"Superseded hop '{prior_id}' is retained by the revised route."
+                )
 
         new_hops = []
         id_iter = iter(supplied_ids)
+        lineage_iter = iter(lineage)
         for index in range(len(path) - 1):
             left, right = path[index], path[index + 1]
             pair = frozenset((left.canonical_identity, right.canonical_identity))
@@ -362,6 +399,7 @@ class InstrumentationWiringService:
                 carrier_id=carrier_id,
                 revision=1,
                 lifecycle_status="PLANNED",
+                supersedes_hop_id=next(lineage_iter),
             ))
 
         revised_hops = []
@@ -371,8 +409,9 @@ class InstrumentationWiringService:
                 continue
             pair = frozenset((hop.from_terminal.canonical_identity, hop.to_terminal.canonical_identity))
             if hop.lifecycle_status in {"PLANNED", "INSTALLED"} and pair not in new_pairs:
+                status = "REPLACED" if hop.id in superseded_ids else "RETIRED"
                 revised_hops.append(replace(
-                    hop, revision=hop.revision + 1, lifecycle_status="RETIRED",
+                    hop, revision=hop.revision + 1, lifecycle_status=status,
                 ))
             else:
                 revised_hops.append(hop)
