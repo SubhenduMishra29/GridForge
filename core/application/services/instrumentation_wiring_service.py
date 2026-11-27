@@ -310,7 +310,10 @@ class InstrumentationWiringService:
                 f"Terminal point '{terminal_point_id}' is already {point.lifecycle_status}."
             )
         return self.create_update_record_command(
-            replace(point, lifecycle_status="RETIRED")
+            replace(
+                point, lifecycle_status="RETIRED",
+                revision=point.revision + 1,
+            )
         )
 
     def create_retire_terminal_block_command(
@@ -335,12 +338,18 @@ class InstrumentationWiringService:
                 f"Terminal block '{terminal_block_id}' is already {block.lifecycle_status}."
             )
         blocks = tuple(
-            replace(item, lifecycle_status="RETIRED")
+            replace(
+                item, lifecycle_status="RETIRED",
+                revision=item.revision + 1,
+            )
             if item.id == terminal_block_id else item
             for item in self._inventory.terminal_blocks
         )
         points = tuple(
-            replace(item, lifecycle_status="RETIRED")
+            replace(
+                item, lifecycle_status="RETIRED",
+                revision=item.revision + 1,
+            )
             if item.terminal_block_id == terminal_block_id
             and item.lifecycle_status in {"PLANNED", "INSTALLED"}
             else item
@@ -534,6 +543,10 @@ class InstrumentationWiringService:
                             f"{label} '{record_id}' cannot be removed after it leaves PLANNED; retire it instead."
                         )
                     continue
+                if candidate != previous and candidate.revision <= previous.revision:
+                    raise ValueError(
+                        f"{label} '{record_id}' revision must advance when its record changes."
+                    )
                 allowed = transitions[previous.lifecycle_status]
                 if candidate.lifecycle_status not in allowed:
                     raise ValueError(
@@ -571,7 +584,7 @@ class InstrumentationWiringService:
         replacement = command.payload["replacement_inventory"]
         if self._inventory is not expected:
             raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
-        if not command.payload["allow_terminal_lifecycle_rollback"]:
+        if not command.payload.get("allow_terminal_lifecycle_rollback", False):
             self._validate_terminal_lifecycle_revision(expected, replacement)
         self._validate_inventory_terminals(network, replacement)
         if self._inventory_validator is not None:
