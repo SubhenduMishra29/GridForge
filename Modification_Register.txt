@@ -6977,8 +6977,9 @@ Issue: #1203
 Correction:
 - Added SLDDocument metadata-backed, per-terminal-block presentation offsets
   and visibility, validated as finite offsets and a strict boolean.
-- Added SLDController methods that resolve the stable terminal-block ID against
-  the active Application inventory before changing document-owned layout.
+- Added SLDController methods that resolve the stable terminal-block ID and
+  require exactly one corresponding panel node in the active SLD document
+  before changing document-owned layout.
 - SLDCanvasProjection applies the offsets to the block label and all terminal
   point labels, and carries visibility to the rendered annotations.
 - CanvasComposition supplies each document's layout metadata to projection.
