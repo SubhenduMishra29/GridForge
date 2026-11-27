@@ -50,6 +50,8 @@ class SelectTool(ToolBase):
         self._grab_axis: str | None = None
         self._rotation_pivot: Tuple[float, float] | None = None
         self._pivot_pick_pending = False
+        self._terminal_block_drag_item: Any | None = None
+        self._terminal_block_drag_origin: Tuple[float, float] | None = None
 
     @property
     def tool_id(self) -> str:
@@ -91,6 +93,20 @@ class SelectTool(ToolBase):
         self._route_edit_item = None
         self._route_edit_bend_index = None
         self._route_edit_position = None
+        self._terminal_block_drag_item = None
+        self._terminal_block_drag_origin = None
+        if (
+            self._pressed_hit.kind == CanvasHitKind.TERMINAL
+            and self._pressed_hit.terminal_kind == "terminal_block"
+        ):
+            self._terminal_block_drag_item = self._terminal_block_annotation_item(
+                self._pressed_hit.object_id
+            )
+            if self._terminal_block_drag_item is not None:
+                position = self._terminal_block_drag_item.pos()
+                self._terminal_block_drag_origin = (
+                    float(position.x()), float(position.y())
+                )
         modifiers = self._event_modifiers(event)
 
         if self._pivot_pick_pending:
@@ -176,6 +192,19 @@ class SelectTool(ToolBase):
 
         if not self._dragging or self._pressed_object_id is None:
             return self._dragging
+        if (
+            self._pressed_hit.kind == CanvasHitKind.TERMINAL
+            and self._pressed_hit.terminal_kind == "terminal_block"
+            and self._terminal_block_drag_item is not None
+            and self._terminal_block_drag_origin is not None
+        ):
+            origin_x, origin_y = self._terminal_block_drag_origin
+            start_x, start_y = self._pressed_scene_position
+            self._terminal_block_drag_item.setPos(
+                origin_x + current[0] - start_x,
+                origin_y + current[1] - start_y,
+            )
+            return True
         if self._pressed_hit.kind == CanvasHitKind.TERMINAL:
             return True
         if self._pressed_hit.kind != CanvasHitKind.NODE:
@@ -243,7 +272,17 @@ class SelectTool(ToolBase):
             return True
 
         if self._dragging:
-            if self._pressed_hit.kind == CanvasHitKind.NONE and self._pressed_object_id is None:
+            if (
+                self._pressed_hit.kind == CanvasHitKind.TERMINAL
+                and self._pressed_hit.terminal_kind == "terminal_block"
+                and self._terminal_block_drag_item is not None
+            ):
+                commit = getattr(
+                    self._terminal_block_drag_item, "commit_drag_position", None
+                )
+                if callable(commit):
+                    commit()
+            elif self._pressed_hit.kind == CanvasHitKind.NONE and self._pressed_object_id is None:
                 self._box_select(self._pressed_scene_position, end, self._event_modifiers(event))
             elif self._pressed_hit.kind == CanvasHitKind.NODE and self._is_selected(self._pressed_object_id):
                 if self._insertion_active and self._insertion_tool is not None:
@@ -934,6 +973,26 @@ class SelectTool(ToolBase):
         self._route_edit_item = None
         self._route_edit_bend_index = None
         self._route_edit_position = None
+        self._terminal_block_drag_item = None
+        self._terminal_block_drag_origin = None
+
+    def _terminal_block_annotation_item(self, object_id: Any) -> Any | None:
+        """Resolve the selected terminal-block annotation by its stable presentation identity."""
+        if not isinstance(object_id, str) or not object_id:
+            return None
+        scene = self._scene()
+        items_method = getattr(scene, "items", None) if scene is not None else None
+        if not callable(items_method):
+            return None
+        for item in tuple(items_method()):
+            if (
+                getattr(item, "object_id", None) == object_id
+                and getattr(item, "terminal_selection_kind", None) == "terminal_block"
+                and callable(getattr(item, "commit_drag_position", None))
+                and callable(getattr(item, "setPos", None))
+            ):
+                return item
+        return None
 
     def get_state(self) -> dict[str, Any]:
         state = super().get_state()
