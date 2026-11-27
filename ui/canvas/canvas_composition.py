@@ -693,6 +693,9 @@ class CanvasComposition:
         self.sld_controller.bind_presentation_refresh_handler(
             self._presentation_refresh_callback,
         )
+        self.sld_canvas_render_system.bind_terminal_block_layout_handler(
+            self.sld_controller.set_instrumentation_terminal_block_layout,
+        )
 
     def refresh_active_document(self):
         """Reproject the active document after a presentation-only route edit."""
