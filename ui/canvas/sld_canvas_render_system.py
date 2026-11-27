@@ -70,8 +70,12 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setToolTip("Drag to reposition this terminal block and its terminal labels.")
 
-    def mousePressEvent(self, event: Any) -> None:
+    def begin_drag(self) -> None:
+        """Capture the last persisted position before SelectTool moves the label."""
         self._position_before_drag = self.pos()
+
+    def mousePressEvent(self, event: Any) -> None:
+        self.begin_drag()
         super().mousePressEvent(event)
 
     def commit_drag_position(self) -> bool:
