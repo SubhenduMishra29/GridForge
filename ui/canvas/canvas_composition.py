@@ -684,10 +684,15 @@ class CanvasComposition:
     draft_sld_projection: DraftSLDProjection | None = None
     sld_inspector: Any = None
     _disposed: bool = False
+    _presentation_refresh_callback: Any = None
 
     def __post_init__(self) -> None:
         self.surface.bind_composition(self)
         self.route_edit_controller.bind_refresh_callback(self.refresh_active_document)
+        self._presentation_refresh_callback = self.refresh_active_document
+        self.sld_controller.bind_presentation_refresh_handler(
+            self._presentation_refresh_callback,
+        )
 
     def refresh_active_document(self):
         """Reproject the active document after a presentation-only route edit."""
@@ -750,6 +755,9 @@ class CanvasComposition:
         # project-state cleanup still cancels interaction and clears selection
         # and preview state without invoking renderer.clear() a second time.
         self._clear_project_state(clear_sld_graphics=False)
+        self.sld_controller.unbind_presentation_refresh_handler(
+            self._presentation_refresh_callback,
+        )
         failures: list[tuple[str, BaseException]] = []
         if self.draft_sld_projection is not None:
             self._run_cleanup(
