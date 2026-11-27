@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from ui.core.qt import QApplication, QEventLoop, QSplashScreen, Qt, QTimer
+from ui.core.qt import QApplication, QEventLoop, QPixmap, QSplashScreen, Qt, QTimer
 
 from .branding import BrandingAssetError, BrandingService
 
@@ -42,7 +42,7 @@ class StartupSplash:
         )
         self._splash.setWindowTitle(branding.PRODUCT_NAME)
 
-    def _fit_to_available_screen(self, pixmap):
+    def _fit_to_available_screen(self, pixmap: QPixmap) -> QPixmap:
         """Constrain splash artwork to the primary display without distortion."""
         screen = self._application.primaryScreen()
         if screen is None:
