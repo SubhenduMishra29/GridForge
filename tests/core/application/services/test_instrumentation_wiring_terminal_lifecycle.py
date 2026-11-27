@@ -258,3 +258,28 @@ def test_terminal_record_update_requires_a_monotonic_revision():
 
     with pytest.raises(ValueError, match="revision must advance"):
         service.create_replace_command(candidate)
+
+
+def test_retired_terminal_history_is_immutable():
+    from dataclasses import replace
+
+    block = TerminalBlock(
+        id="tb-retired-immutable", tag="TB-RETIRED-IMMUTABLE",
+        panel_id="PANEL-1", location="MCC-1", terminal_count=1,
+        lifecycle_status="INSTALLED",
+    )
+    point = TerminalPoint(
+        id="tp-retired-immutable", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+        lifecycle_status="RETIRED", revision=2,
+    )
+    service = _service(InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(point,),
+    ))
+    changed = replace(point, designation="X1:1-CORRECTED", revision=3)
+    candidate = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(changed,),
+    )
+
+    with pytest.raises(ValueError, match="immutable after it is RETIRED"):
+        service.create_replace_command(candidate)
