@@ -7022,3 +7022,5 @@ Canvas refresh lifecycle correction:
 - Static source reconciliation only. No tests, CI, import smoke, GUI interaction, or save/reopen acceptance were executed. PR remains draft pending final review of callback lifecycle, renderer behavior, and any remaining #1203 requirements.
 
 - The canonical SelectTool dispatches canvas mouse events before Qt's graphics-item handlers; terminal-block dragging is therefore integrated into SelectTool using the hit's stable annotation identity. It moves only the terminal-block label and commits through the renderer item's explicit commit method; terminal-point labels remain non-movable and follow the refreshed block offset.
+
+- Input-path reconciliation: GraphicsView dispatches pointer events to InteractionManager/SelectTool before Qt's native scene-item handlers. SelectTool now resolves the terminal-block annotation by stable presentation identity, moves only that annotation during the drag, and invokes its explicit persistence commit on release; rejected commits restore the captured pre-drag position. Terminal-point selection remains click-only.
