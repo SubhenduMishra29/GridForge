@@ -6885,3 +6885,32 @@ Verification boundary:
   QGraphicsTextItem exports were confirmed in ui.core.qt.
 - Full-module imports, tests/CI and GUI interaction were not run.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Instrumentation wiring Application package exports
+Date: 2026-11-27
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-instrumentation-wiring-application-exports
+Issue: #1203 (supporting API-surface correction; not issue closure)
+
+Correction:
+- Exported InstrumentationWiringService, InstrumentationWiringServiceState,
+  and InstrumentationWiringCommandHandlers from core.application.
+- Exported InstrumentationWiringReadModel from core.application.
+- Kept the existing service implementation, command handlers, aggregate,
+  persistence and Core terminal ownership unchanged. No parallel wiring
+  authority or UI mutation path was introduced.
+
+Architecture:
+- Application remains the public command/service/read-model boundary.
+- Core remains authoritative for physical terminal and connectivity truth.
+- UI remains a projection and interaction layer.
+- No Qt/QGraphics dependency or ui/core/qt.py change is required.
+
+Verification boundary:
+- Changed-file content was committed on a dedicated branch and will be
+  fetched back for diff reconciliation before PR creation.
+- No tests/CI, full imports, GUI interaction or save/reopen were run.
+- A package import smoke check remains outstanding; no issue closure claimed.
+======================================================================
