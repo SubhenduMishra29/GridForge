@@ -94,6 +94,9 @@ class SLDCanvasAnnotation:
     layer_locked: bool = False
     priority: int = 100
     selection_kind: str | None = None
+    layout_identity: str | None = None
+    anchor_x: float | None = None
+    anchor_y: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +308,9 @@ class SLDCanvasProjection:
                     layer_locked=panel_node.layer_locked,
                     priority=25,
                     selection_kind="terminal_block",
+                    layout_identity=block.id,
+                    anchor_x=panel_node.x,
+                    anchor_y=panel_node.y,
                 ))
                 for point_index, point in enumerate(block.terminal_points):
                     point_text = (
