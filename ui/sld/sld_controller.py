@@ -673,6 +673,10 @@ class SLDController:
         matches = tuple(item for item in read_model.terminal_blocks if str(item.get("id", "")) == block_id)
         if len(matches) != 1:
             raise ValueError("Terminal-block layout target is not uniquely present in the active Application inventory.")
+        panel_id = str(matches[0].get("panel_id", ""))
+        panel_nodes = tuple(node for node in document.model.nodes if node.equipment_id == panel_id)
+        if len(panel_nodes) != 1:
+            raise ValueError("Terminal-block layout requires exactly one panel node in the active SLD document.")
         document.set_instrumentation_terminal_block_layout(
             block_id, offset_x=offset_x, offset_y=offset_y, visible=visible,
         )
@@ -685,6 +689,10 @@ class SLDController:
         matches = tuple(item for item in read_model.terminal_blocks if str(item.get("id", "")) == block_id)
         if len(matches) != 1:
             raise ValueError("Terminal-block layout target is not uniquely present in the active Application inventory.")
+        panel_id = str(matches[0].get("panel_id", ""))
+        panel_nodes = tuple(node for node in document.model.nodes if node.equipment_id == panel_id)
+        if len(panel_nodes) != 1:
+            raise ValueError("Terminal-block layout requires exactly one panel node in the active SLD document.")
         document.clear_instrumentation_terminal_block_layout(block_id)
         self._state.mark_dirty()
 
