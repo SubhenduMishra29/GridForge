@@ -571,7 +571,8 @@ class InstrumentationWiringService:
         replacement = command.payload["replacement_inventory"]
         if self._inventory is not expected:
             raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
-        self._validate_terminal_lifecycle_revision(expected, replacement)
+        if not command.payload["allow_terminal_lifecycle_rollback"]:
+            self._validate_terminal_lifecycle_revision(expected, replacement)
         self._validate_inventory_terminals(network, replacement)
         if self._inventory_validator is not None:
             self._inventory_validator(replacement)
