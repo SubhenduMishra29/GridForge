@@ -200,3 +200,31 @@ def test_activation_ignores_retired_hop_endpoints_missing_from_live_terminal_inv
 
     service = _service(inventory, network=network)
     assert service.inventory.connection_hops == (retired_hop,)
+
+
+def test_terminal_retirement_inverse_restores_prior_lifecycle_state():
+    from core.application.transaction import Transaction
+
+    block = TerminalBlock(
+        id="tb-undo-retire", tag="TB-UNDO-RETIRE",
+        panel_id="PANEL-1", location="MCC-1", terminal_count=1,
+        lifecycle_status="INSTALLED",
+    )
+    point = TerminalPoint(
+        id="tp-undo-retire", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="INSTALLED",
+    )
+    network = SimpleNamespace(get_by_identity=lambda _identity: None)
+    service = _service(InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(point,),
+    ), network=network)
+    context = SimpleNamespace(network=network)
+
+    command = service.create_retire_terminal_point_command(point.id)
+    service.execute(command, context, Transaction())
+    assert service.inventory.terminal_points[0].lifecycle_status == "RETIRED"
+
+    inverse = command.inverse()
+    assert inverse.payload["allow_terminal_lifecycle_rollback"] is True
+    service.execute(inverse, context, Transaction())
+    assert service.inventory.terminal_points[0].lifecycle_status == "INSTALLED"
