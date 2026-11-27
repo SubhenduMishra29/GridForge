@@ -878,8 +878,19 @@ class PropertiesPanelWidget(QWidget):
                 item for item in inventory.terminal_points
                 if str(item.get("id", "")) == point_id
             )
-            if len(points) == 1:
-                block_id = str(points[0].get("terminal_block_id", ""))
+            if len(points) != 1:
+                layout.addRow(QLabel(
+                    "Selected terminal point is missing or ambiguous in the active Application inventory.",
+                    self,
+                ))
+                return True
+            block_id = str(points[0].get("terminal_block_id", ""))
+            if not block_id:
+                layout.addRow(QLabel(
+                    "Selected terminal point has no canonical terminal-block identity.",
+                    self,
+                ))
+                return True
         if not block_id:
             return False
         try:
