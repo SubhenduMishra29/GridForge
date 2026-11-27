@@ -6989,16 +6989,20 @@ Correction:
   historical identities. Active capacity and terminal-number/designation
   uniqueness are evaluated against active points, allowing a replacement
   identity to occupy the same terminal position without deleting history.
+- Added TerminalPoint.revision and persisted it under instrumentation-wiring
+  schema 7. Existing schema-6 payloads remain readable and default missing
+  terminal-point revisions to 1.
 - Added Application retirement-command preparation for one terminal point or
   an entire block. Block retirement transitions its still-active child points
-  atomically in the candidate inventory; the existing command/transaction path
-  applies the complete inventory replacement.
+  atomically in the candidate inventory; terminal block/point revisions advance
+  with each record change and the existing command/transaction path applies
+  the complete inventory replacement.
 - Added lifecycle revision guards: installed/retired/replaced terminal
-  identities cannot be deleted, and terminal lifecycle cannot regress or be
-  reactivated through forward commands. The typed inventory command marks its
-  inverse explicitly so normal undo can restore the pre-retirement snapshot.
-  Active route/accessory/binding dependencies must be reconciled before
-  retirement succeeds.
+  identities cannot be deleted, record edits must advance revision, and
+  terminal lifecycle cannot regress or be reactivated through forward
+  commands. The typed inventory command marks its inverse explicitly so
+  normal undo restores the prior status and revision. Active route/accessory/
+  binding dependencies must be reconciled before retirement succeeds.
 - Application Core-terminal validation now excludes RETIRED/REPLACED hop
   snapshots from live endpoint resolution while preserving those snapshots
   in history.
