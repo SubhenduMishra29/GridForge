@@ -139,6 +139,8 @@ class SLDCanvasRenderSystem:
         if not math.isfinite(annotation_min_zoom) or annotation_min_zoom <= 0.0:
             raise ValueError("annotation_min_zoom must be finite and greater than zero.")
         self._annotation_min_zoom = annotation_min_zoom
+        self._annotation_density = "standard"
+        self._annotation_density_max_priority = 30
         self._zoom_level = 1.0
         self._annotations_zoom_visible = self._zoom_level >= self._annotation_min_zoom
         self._navigation_controller: Any = None
@@ -227,6 +229,22 @@ class SLDCanvasRenderSystem:
         if annotations_visible_at_zoom == self._annotations_zoom_visible:
             return
         self._annotations_zoom_visible = annotations_visible_at_zoom
+        self._reflow_annotation_layout()
+
+    @property
+    def annotation_density(self) -> str:
+        """Current transient label-density preset."""
+        return self._annotation_density
+
+    def set_annotation_density(self, density: str) -> None:
+        """Apply a presentation-only annotation density without changing document data."""
+        limits = {"minimal": 25, "standard": 30, "all": 100}
+        if not isinstance(density, str) or density not in limits:
+            raise ValueError("annotation density must be 'minimal', 'standard', or 'all'.")
+        if density == self._annotation_density:
+            return
+        self._annotation_density = density
+        self._annotation_density_max_priority = limits[density]
         self._reflow_annotation_layout()
 
     def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
@@ -1108,7 +1126,11 @@ class SLDCanvasRenderSystem:
             if item is None:
                 continue
             base_visible = self._annotation_base_visibility.get(render_id, False)
-            if not base_visible or self._zoom_level < self._annotation_min_zoom:
+            if (
+                not base_visible
+                or self._zoom_level < self._annotation_min_zoom
+                or self._annotation_priorities[render_id] > self._annotation_density_max_priority
+            ):
                 item.setScale(1.0)
                 item.setVisible(False)
                 continue
