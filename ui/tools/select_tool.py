@@ -103,6 +103,11 @@ class SelectTool(ToolBase):
                 self._pressed_hit.object_id
             )
             if self._terminal_block_drag_item is not None:
+                begin_drag = getattr(
+                    self._terminal_block_drag_item, "begin_drag", None
+                )
+                if callable(begin_drag):
+                    begin_drag()
                 position = self._terminal_block_drag_item.pos()
                 self._terminal_block_drag_origin = (
                     float(position.x()), float(position.y())
