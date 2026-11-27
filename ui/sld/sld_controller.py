@@ -659,6 +659,35 @@ class SLDController:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
 
+    def set_instrumentation_terminal_block_layout(
+        self,
+        block_id: str,
+        *,
+        offset_x: float,
+        offset_y: float,
+        visible: bool = True,
+    ) -> None:
+        """Persist one terminal-block SLD layout after canonical identity resolution."""
+        document = self._require_active_document()
+        read_model = self.application.read_instrumentation_wiring()
+        matches = tuple(item for item in read_model.terminal_blocks if str(item.get("id", "")) == block_id)
+        if len(matches) != 1:
+            raise ValueError("Terminal-block layout target is not uniquely present in the active Application inventory.")
+        document.set_instrumentation_terminal_block_layout(
+            block_id, offset_x=offset_x, offset_y=offset_y, visible=visible,
+        )
+        self._state.mark_dirty()
+
+    def clear_instrumentation_terminal_block_layout(self, block_id: str) -> None:
+        """Restore the default panel-relative layout for one terminal block."""
+        document = self._require_active_document()
+        read_model = self.application.read_instrumentation_wiring()
+        matches = tuple(item for item in read_model.terminal_blocks if str(item.get("id", "")) == block_id)
+        if len(matches) != 1:
+            raise ValueError("Terminal-block layout target is not uniquely present in the active Application inventory.")
+        document.clear_instrumentation_terminal_block_layout(block_id)
+        self._state.mark_dirty()
+
     def set_instrumentation_wiring_route(
         self,
         carrier_kind: str,
