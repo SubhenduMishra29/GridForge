@@ -74,8 +74,8 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
         self._position_before_drag = self.pos()
         super().mousePressEvent(event)
 
-    def mouseReleaseEvent(self, event: Any) -> None:
-        super().mouseReleaseEvent(event)
+    def commit_drag_position(self) -> bool:
+        """Persist the current graphics position as panel-relative SLD metadata."""
         position = self.pos()
         try:
             self._on_commit(
@@ -89,6 +89,13 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
                 "Unable to persist terminal-block SLD layout for %s",
                 self._layout_identity,
             )
+            return False
+        self._position_before_drag = self.pos()
+        return True
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        super().mouseReleaseEvent(event)
+        self.commit_drag_position()
 
 
 class SLDCanvasRenderSystem:
