@@ -6951,3 +6951,12 @@ Verification boundary:
 - Issue #1203 remains open; this tranche addresses only hop replacement
   lineage, not full route authoring or end-to-end acceptance.
 ======================================================================
+
+Core invariant follow-up:
+- InstrumentationWiringInventory now rejects replacement lineage that crosses
+  carrier identity, points to a predecessor not marked REPLACED, gives one
+  predecessor multiple direct replacements, or contains a lineage cycle.
+- These checks keep the replacement chain canonical in Core even when an
+  inventory is assembled outside the route-revision service.
+- Static source review only; runtime/import, tests/CI and persistence round-trip
+  remain unverified. Issue #1203 remains open.
