@@ -315,7 +315,10 @@ class ReadOnlySLDViewport(QWidget):
         """Render committed presentation data without tools, selection, or snapping."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._projection.project(document.model, document.annotation_blocks, document.layers)
+        snapshot = self._projection.project(
+            document.model, document.annotation_blocks, document.layers,
+            terminal_block_layouts=document.instrumentation_terminal_block_layouts(),
+        )
         horizontal = self._view.horizontalScrollBar()
         vertical = self._view.verticalScrollBar()
         horizontal_blocked = horizontal.blockSignals(True)
