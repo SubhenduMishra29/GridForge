@@ -48,6 +48,49 @@ class RenderDiagnostic:
     realization_stage: str = "node_realization"
 
 
+class _TerminalBlockAnnotationItem(QGraphicsTextItem):
+    """Movable SLD-only terminal-block label with a stable layout commit identity."""
+
+    def __init__(
+        self,
+        text: str,
+        *,
+        layout_identity: str,
+        anchor_x: float,
+        anchor_y: float,
+        on_commit: Callable[..., None],
+    ) -> None:
+        super().__init__(text)
+        self._layout_identity = layout_identity
+        self._anchor_x = float(anchor_x)
+        self._anchor_y = float(anchor_y)
+        self._on_commit = on_commit
+        self._position_before_drag = self.pos()
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setToolTip("Drag to reposition this terminal block and its terminal labels.")
+
+    def mousePressEvent(self, event: Any) -> None:
+        self._position_before_drag = self.pos()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        super().mouseReleaseEvent(event)
+        position = self.pos()
+        try:
+            self._on_commit(
+                self._layout_identity,
+                offset_x=float(position.x()) - self._anchor_x,
+                offset_y=float(position.y()) - self._anchor_y,
+            )
+        except Exception:
+            self.setPos(self._position_before_drag)
+            _LOGGER.exception(
+                "Unable to persist terminal-block SLD layout for %s",
+                self._layout_identity,
+            )
+
+
 class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
@@ -115,6 +158,7 @@ class SLDCanvasRenderSystem:
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
         self._route_edit_controller: Any = None
+        self._terminal_block_layout_handler: Callable[..., None] | None = None
         # Track only connections established by this renderer. Qt may emit a
         # RuntimeWarning (rather than raising) when disconnecting an absent slot.
         self._route_edit_bound_items: dict[int, Any] = {}
@@ -374,6 +418,12 @@ class SLDCanvasRenderSystem:
             refresh = getattr(item, "_refresh_pen", None)
             if callable(refresh):
                 refresh()
+
+    def bind_terminal_block_layout_handler(self, handler: Callable[..., None] | None) -> None:
+        """Bind the SLDController presentation-layout command used by block labels."""
+        if handler is not None and not callable(handler):
+            raise TypeError("terminal-block layout handler must be callable or None.")
+        self._terminal_block_layout_handler = handler
 
     def bind_route_edit_controller(self, controller: Any) -> None:
         """Bind the existing route-edit controller to realized connection items."""
@@ -993,7 +1043,22 @@ class SLDCanvasRenderSystem:
                 continue
             previous_items = self._items.get(render_id, ())
             previous_item = previous_items[0] if previous_items else None
-            item = QGraphicsTextItem(annotation.text)
+            if (
+                annotation.selection_kind == "terminal_block"
+                and annotation.layout_identity
+                and annotation.anchor_x is not None
+                and annotation.anchor_y is not None
+                and self._terminal_block_layout_handler is not None
+            ):
+                item = _TerminalBlockAnnotationItem(
+                    annotation.text,
+                    layout_identity=annotation.layout_identity,
+                    anchor_x=annotation.anchor_x,
+                    anchor_y=annotation.anchor_y,
+                    on_commit=self._terminal_block_layout_handler,
+                )
+            else:
+                item = QGraphicsTextItem(annotation.text)
             if annotation.selection_kind is not None:
                 # Terminal block/point labels represent stable Application
                 # identities and participate in the canonical SelectTool hit path.
@@ -1071,6 +1136,7 @@ class SLDCanvasRenderSystem:
             annotation.text, annotation.visible, annotation.layer_id,
             annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
             annotation.layer_locked, annotation.priority, annotation.selection_kind,
+            annotation.layout_identity, annotation.anchor_x, annotation.anchor_y,
         ))
 
     @staticmethod
@@ -1397,6 +1463,7 @@ class SLDCanvasRenderSystem:
         self._unbind_navigation_controller()
         self.clear()
         self._unbind_route_edit_controller()
+        self._terminal_block_layout_handler = None
 
 
 __all__ = ["RenderDiagnostic", "SLDCanvasRenderSystem"]
