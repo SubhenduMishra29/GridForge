@@ -6909,8 +6909,8 @@ Architecture:
 - No Qt/QGraphics dependency or ui/core/qt.py change is required.
 
 Verification boundary:
-- Changed-file content was committed on a dedicated branch and will be
-  fetched back for diff reconciliation before PR creation.
+- Changed-file content was committed on a dedicated branch and fetched back
+  for exact-content reconciliation before PR creation.
 - No tests/CI, full imports, GUI interaction or save/reopen were run.
 - A package import smoke check remains outstanding; no issue closure claimed.
 ======================================================================
