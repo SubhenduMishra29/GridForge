@@ -46,6 +46,7 @@ def test_retire_terminal_point_prepares_one_atomic_inventory_command():
     replacement = command.payload["replacement_inventory"]
     assert replacement.terminal_points[0].id == point.id
     assert replacement.terminal_points[0].lifecycle_status == "RETIRED"
+    assert replacement.terminal_points[0].revision == point.revision + 1
 
 
 def test_retire_terminal_block_retires_child_points_in_the_same_command():
@@ -72,9 +73,11 @@ def test_retire_terminal_block_retires_child_points_in_the_same_command():
     command = service.create_retire_terminal_block_command(block.id)
     replacement = command.payload["replacement_inventory"]
     assert replacement.terminal_blocks[0].lifecycle_status == "RETIRED"
+    assert replacement.terminal_blocks[0].revision == block.revision + 1
     assert tuple(item.lifecycle_status for item in replacement.terminal_points) == (
         "RETIRED", "RETIRED",
     )
+    assert tuple(item.revision for item in replacement.terminal_points) == (2, 2)
 
 
 def test_terminal_retirement_fails_until_active_routes_are_reconciled():
@@ -223,8 +226,35 @@ def test_terminal_retirement_inverse_restores_prior_lifecycle_state():
     command = service.create_retire_terminal_point_command(point.id)
     service.execute(command, context, Transaction())
     assert service.inventory.terminal_points[0].lifecycle_status == "RETIRED"
+    assert service.inventory.terminal_points[0].revision == 2
 
     inverse = command.inverse()
     assert inverse.payload["allow_terminal_lifecycle_rollback"] is True
     service.execute(inverse, context, Transaction())
     assert service.inventory.terminal_points[0].lifecycle_status == "INSTALLED"
+    assert service.inventory.terminal_points[0].revision == 1
+
+
+
+def test_terminal_record_update_requires_a_monotonic_revision():
+    from dataclasses import replace
+
+    block = TerminalBlock(
+        id="tb-revision-guard", tag="TB-REVISION-GUARD",
+        panel_id="PANEL-1", location="MCC-1", terminal_count=1,
+        lifecycle_status="INSTALLED",
+    )
+    point = TerminalPoint(
+        id="tp-revision-guard", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="INSTALLED",
+    )
+    service = _service(InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(point,),
+    ))
+    changed_without_revision = replace(point, designation="X1:2")
+    candidate = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(changed_without_revision,),
+    )
+
+    with pytest.raises(ValueError, match="revision must advance"):
+        service.create_replace_command(candidate)
