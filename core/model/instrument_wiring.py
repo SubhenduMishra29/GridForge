@@ -689,11 +689,46 @@ class InstrumentationWiringInventory:
                     f"Active physical connection hop '{hop.id}' endpoints are not an adjacent "
                     "segment of its carrier terminal path."
                 )
-            if hop.supersedes_hop_id is not None and hop.supersedes_hop_id not in hop_by_id:
-                raise ValueError(
-                    f"Physical connection hop '{hop.id}' supersedes missing hop "
-                    f"'{hop.supersedes_hop_id}'."
-                )
+            if hop.supersedes_hop_id is not None:
+                predecessor = hop_by_id.get(hop.supersedes_hop_id)
+                if predecessor is None:
+                    raise ValueError(
+                        f"Physical connection hop '{hop.id}' supersedes missing hop "
+                        f"'{hop.supersedes_hop_id}'."
+                    )
+                if (
+                    predecessor.carrier_kind is not hop.carrier_kind
+                    or predecessor.carrier_id != hop.carrier_id
+                ):
+                    raise ValueError(
+                        f"Physical connection hop '{hop.id}' can supersede only a hop "
+                        "from the same carrier."
+                    )
+                if predecessor.lifecycle_status != "REPLACED":
+                    raise ValueError(
+                        f"Superseded physical connection hop '{predecessor.id}' "
+                        "must have REPLACED lifecycle status."
+                    )
+
+        superseded_hop_ids = [
+            hop.supersedes_hop_id
+            for hop in self.connection_hops
+            if hop.supersedes_hop_id is not None
+        ]
+        if len(superseded_hop_ids) != len(set(superseded_hop_ids)):
+            raise ValueError(
+                "A physical connection hop can have only one direct replacement."
+            )
+
+        for hop in self.connection_hops:
+            visited = {hop.id}
+            predecessor_id = hop.supersedes_hop_id
+            while predecessor_id is not None:
+                if predecessor_id in visited:
+                    raise ValueError("Physical connection hop replacement lineage cannot contain cycles.")
+                visited.add(predecessor_id)
+                predecessor_id = hop_by_id[predecessor_id].supersedes_hop_id
+
 
         signal_ids = {item.id for item in self.signals}
         carrier_ids = (

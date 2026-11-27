@@ -6914,3 +6914,56 @@ Verification boundary:
 - No tests/CI, full imports, GUI interaction or save/reopen were run.
 - A package import smoke check remains outstanding; no issue closure claimed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Physical connection-hop replacement lineage
+Date: 2026-11-27
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-connection-hop-replacement-lineage
+Issue: #1203
+
+Correction:
+- Extended InstrumentationWiringService route-revision preparation with an
+  optional explicit supersedes_hop_ids sequence aligned to newly introduced
+  route segments.
+- Each supplied predecessor must be an active hop belonging to the same
+  carrier, must not be retained by the revised route, and may be superseded
+  only once in a route revision.
+- New PhysicalConnectionHop records persist supersedes_hop_id; prior hops
+  explicitly named by the caller transition to REPLACED, while other removed
+  active hops remain RETIRED.
+- Existing callers remain source-compatible: omitted lineage is represented
+  as None for each new hop. No predecessor identity is inferred.
+
+Architecture:
+- Core PhysicalConnectionHop remains the canonical owner of stable physical
+  hop identity and lineage.
+- Application prepares the immutable inventory replacement and applies it
+  through the existing transaction/command boundary.
+- No UI, Qt, QGraphics or second connectivity authority introduced.
+
+Verification boundary:
+- Changed service source fetched back from the dedicated branch.
+- Static diff, full syntax/import verification, tests/CI and persistence
+  round-trip were not run. The caller must explicitly provide lineage where
+  an engineering predecessor relationship is known.
+- Issue #1203 remains open; this tranche addresses only hop replacement
+  lineage, not full route authoring or end-to-end acceptance.
+======================================================================
+
+Core invariant follow-up:
+- InstrumentationWiringInventory now rejects replacement lineage that crosses
+  carrier identity, points to a predecessor not marked REPLACED, gives one
+  predecessor multiple direct replacements, or contains a lineage cycle.
+- These checks keep the replacement chain canonical in Core even when an
+  inventory is assembled outside the route-revision service.
+- Static source review only; runtime/import, tests/CI and persistence round-trip
+  remain unverified. Issue #1203 remains open.
+
+Regression coverage follow-up:
+- Added route-revision regression cases for explicit predecessor mapping,
+  REPLACED versus RETIRED lifecycle transitions, preserved-hop identity, and
+  rejection of preserved or unknown predecessor IDs.
+- Test source is authored only; it has not been executed. No CI or issue
+  acceptance claim is made.
