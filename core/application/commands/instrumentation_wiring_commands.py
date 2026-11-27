@@ -23,6 +23,7 @@ class SetInstrumentationWiringInventoryCommand(ReversibleCommand):
         command_id: UUID | None = None,
         correlation_id: UUID | None = None,
         causation_id: UUID | None = None,
+        allow_terminal_lifecycle_rollback: bool = False,
     ) -> None:
         if not isinstance(expected_inventory, InstrumentationWiringInventory):
             raise TypeError("expected_inventory must be an InstrumentationWiringInventory.")
@@ -30,11 +31,14 @@ class SetInstrumentationWiringInventoryCommand(ReversibleCommand):
             raise TypeError("replacement_inventory must be an InstrumentationWiringInventory.")
         if expected_inventory == replacement_inventory:
             raise ValueError("Replacement inventory must differ from the expected inventory.")
+        if not isinstance(allow_terminal_lifecycle_rollback, bool):
+            raise TypeError("allow_terminal_lifecycle_rollback must be a boolean.")
         super().__init__(
             command_type=SET_INSTRUMENTATION_WIRING_INVENTORY,
             payload={
                 "expected_inventory": expected_inventory,
                 "replacement_inventory": replacement_inventory,
+                "allow_terminal_lifecycle_rollback": allow_terminal_lifecycle_rollback,
             },
             command_id=command_id or uuid4(),
             correlation_id=correlation_id,
@@ -47,6 +51,7 @@ class SetInstrumentationWiringInventoryCommand(ReversibleCommand):
             replacement_inventory=self.payload["expected_inventory"],
             correlation_id=self.correlation_id,
             causation_id=self.command_id,
+            allow_terminal_lifecycle_rollback=True,
         )
 
 
