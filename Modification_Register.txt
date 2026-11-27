@@ -7000,3 +7000,15 @@ UI integration follow-up:
 - Existing engineering parameter Apply remains disabled for terminal blocks and
   terminal points. Layout changes use the SLDController presentation API only.
 - Static source reconciliation only; no GUI/runtime execution or test/CI run.
+
+Canvas refresh lifecycle correction:
+- Terminal-block layout Apply/Reset previously changed persisted SLDDocument
+  metadata and marked the document dirty but did not reproject the live canvas.
+- Bound SLDController's presentation-only layout mutations to the owning
+  CanvasComposition.refresh_active_document callback. The composition retains
+  and releases the exact callback during its lifecycle; no scene or Qt object
+  enters Core.
+- The refresh path now supports compositions without DraftSLDProjection by
+  presenting an empty draft snapshot while still resolving the active
+  Application instrumentation projection.
+- Static source reconciliation only; no GUI/runtime interaction or tests run.
