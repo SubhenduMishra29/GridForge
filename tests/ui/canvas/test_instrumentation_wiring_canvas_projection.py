@@ -1,3 +1,5 @@
+import pytest
+
 """Canvas hand-off for the read-only physical instrumentation wiring projection."""
 
 from core.application.read_models import InstrumentationWiringReadModel
