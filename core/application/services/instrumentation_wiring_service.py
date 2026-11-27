@@ -123,10 +123,11 @@ class InstrumentationWiringService:
         for wire in inventory.panel_wires:
             references.extend(wire.terminal_path)
         for hop in inventory.connection_hops:
-            references.extend((hop.from_terminal, hop.to_terminal))
+            if hop.lifecycle_status in {"PLANNED", "INSTALLED"}:
+                references.extend((hop.from_terminal, hop.to_terminal))
         references.extend(binding.endpoint.physical_terminal for binding in inventory.endpoint_bindings)
         terminal_points = {item.id: item for item in inventory.terminal_points}
-        terminal_block_ids = {item.id for item in inventory.terminal_blocks}
+        terminal_blocks = {item.id: item for item in inventory.terminal_blocks}
         seen: set[tuple[str, str, str | None]] = set()
         for reference in references:
             identity = reference.canonical_identity
@@ -147,8 +148,17 @@ class InstrumentationWiringService:
                     raise ValueError(
                         f"Terminal point '{reference.terminal_point_id}' does not match its wiring terminal reference."
                     )
+                block = terminal_blocks.get(reference.equipment_id)
+                if block is None or block.lifecycle_status not in {"PLANNED", "INSTALLED"}:
+                    raise ValueError(
+                        f"Terminal point '{reference.terminal_point_id}' belongs to a non-active terminal block."
+                    )
+                if point.lifecycle_status not in {"PLANNED", "INSTALLED"}:
+                    raise ValueError(
+                        f"Terminal point '{reference.terminal_point_id}' is not active."
+                    )
                 continue
-            if reference.equipment_id in terminal_block_ids:
+            if reference.equipment_id in terminal_blocks:
                 raise ValueError(
                     f"Terminal block reference '{reference.equipment_id}:{reference.terminal_role}' "
                     "must carry a stable terminal_point_id."
@@ -272,6 +282,73 @@ class InstrumentationWiringService:
             raise KeyError(f"Instrumentation wiring record {record.id!r} does not exist uniquely.")
         records[matches[0]] = record
         return self.create_replace_command(replace(self._inventory, **{field: tuple(records)}))
+
+    def create_retire_terminal_point_command(
+        self, terminal_point_id: str
+    ) -> SetInstrumentationWiringInventoryCommand:
+        """Prepare an atomic terminal-point retirement after dependency reconciliation.
+
+        Active cable/wire routes, hops, endpoint bindings and accessories must be
+        reconciled in the same canonical inventory before the retirement can be
+        accepted. Retired/replaced records remain addressable as history.
+        """
+        if (
+            not isinstance(terminal_point_id, str)
+            or not terminal_point_id.strip()
+            or terminal_point_id != terminal_point_id.strip()
+        ):
+            raise ValueError("terminal_point_id must be a canonical non-empty string.")
+        matches = [
+            item for item in self._inventory.terminal_points
+            if item.id == terminal_point_id
+        ]
+        if len(matches) != 1:
+            raise KeyError(f"Terminal point '{terminal_point_id}' does not exist uniquely.")
+        point = matches[0]
+        if point.lifecycle_status in {"RETIRED", "REPLACED"}:
+            raise ValueError(
+                f"Terminal point '{terminal_point_id}' is already {point.lifecycle_status}."
+            )
+        return self.create_update_record_command(
+            replace(point, lifecycle_status="RETIRED")
+        )
+
+    def create_retire_terminal_block_command(
+        self, terminal_block_id: str
+    ) -> SetInstrumentationWiringInventoryCommand:
+        """Retire a block and all still-active points as one inventory command."""
+        if (
+            not isinstance(terminal_block_id, str)
+            or not terminal_block_id.strip()
+            or terminal_block_id != terminal_block_id.strip()
+        ):
+            raise ValueError("terminal_block_id must be a canonical non-empty string.")
+        matches = [
+            item for item in self._inventory.terminal_blocks
+            if item.id == terminal_block_id
+        ]
+        if len(matches) != 1:
+            raise KeyError(f"Terminal block '{terminal_block_id}' does not exist uniquely.")
+        block = matches[0]
+        if block.lifecycle_status in {"RETIRED", "REPLACED"}:
+            raise ValueError(
+                f"Terminal block '{terminal_block_id}' is already {block.lifecycle_status}."
+            )
+        blocks = tuple(
+            replace(item, lifecycle_status="RETIRED")
+            if item.id == terminal_block_id else item
+            for item in self._inventory.terminal_blocks
+        )
+        points = tuple(
+            replace(item, lifecycle_status="RETIRED")
+            if item.terminal_block_id == terminal_block_id
+            and item.lifecycle_status in {"PLANNED", "INSTALLED"}
+            else item
+            for item in self._inventory.terminal_points
+        )
+        return self.create_replace_command(
+            replace(self._inventory, terminal_blocks=blocks, terminal_points=points)
+        )
 
     def create_remove_record_command(self, record_type: type, record_id: str) -> SetInstrumentationWiringInventoryCommand:
         """Prepare a removal; dependent records must be removed before their owner."""
@@ -426,10 +503,51 @@ class InstrumentationWiringService:
         )
         return self.create_replace_command(replacement)
 
+    @staticmethod
+    def _validate_terminal_lifecycle_revision(
+        current: InstrumentationWiringInventory,
+        replacement: InstrumentationWiringInventory,
+    ) -> None:
+        """Prevent terminal history deletion and lifecycle reactivation."""
+        transitions = {
+            "PLANNED": {"PLANNED", "INSTALLED", "RETIRED", "REPLACED"},
+            "INSTALLED": {"INSTALLED", "RETIRED", "REPLACED"},
+            "RETIRED": {"RETIRED"},
+            "REPLACED": {"REPLACED"},
+        }
+        collections = (
+            ("terminal_blocks", "Terminal block"),
+            ("terminal_points", "Terminal point"),
+        )
+        for field, label in collections:
+            previous_by_id = {
+                item.id: item for item in getattr(current, field)
+            }
+            next_by_id = {
+                item.id: item for item in getattr(replacement, field)
+            }
+            for record_id, previous in previous_by_id.items():
+                candidate = next_by_id.get(record_id)
+                if candidate is None:
+                    if previous.lifecycle_status != "PLANNED":
+                        raise ValueError(
+                            f"{label} '{record_id}' cannot be removed after it leaves PLANNED; retire it instead."
+                        )
+                    continue
+                allowed = transitions[previous.lifecycle_status]
+                if candidate.lifecycle_status not in allowed:
+                    raise ValueError(
+                        f"{label} '{record_id}' cannot transition from "
+                        f"{previous.lifecycle_status} to {candidate.lifecycle_status}."
+                    )
+
     def create_replace_command(
         self, replacement: InstrumentationWiringInventory
     ) -> SetInstrumentationWiringInventoryCommand:
         """Capture the current snapshot as a stale-state precondition."""
+        if not isinstance(replacement, InstrumentationWiringInventory):
+            raise TypeError("replacement must be an InstrumentationWiringInventory.")
+        self._validate_terminal_lifecycle_revision(self._inventory, replacement)
         return SetInstrumentationWiringInventoryCommand(
             expected_inventory=self._inventory,
             replacement_inventory=replacement,
@@ -453,6 +571,7 @@ class InstrumentationWiringService:
         replacement = command.payload["replacement_inventory"]
         if self._inventory is not expected:
             raise ValueError("Instrumentation wiring inventory changed since the command was prepared.")
+        self._validate_terminal_lifecycle_revision(expected, replacement)
         self._validate_inventory_terminals(network, replacement)
         if self._inventory_validator is not None:
             self._inventory_validator(replacement)
