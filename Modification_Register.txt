@@ -6960,3 +6960,10 @@ Core invariant follow-up:
   inventory is assembled outside the route-revision service.
 - Static source review only; runtime/import, tests/CI and persistence round-trip
   remain unverified. Issue #1203 remains open.
+
+Regression coverage follow-up:
+- Added route-revision regression cases for explicit predecessor mapping,
+  REPLACED versus RETIRED lifecycle transitions, preserved-hop identity, and
+  rejection of preserved or unknown predecessor IDs.
+- Test source is authored only; it has not been executed. No CI or issue
+  acceptance claim is made.
