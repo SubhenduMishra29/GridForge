@@ -169,11 +169,13 @@ class TerminalPoint:
     side: Optional[str] = None
     manufacturer_designation: Optional[str] = None
     lifecycle_status: str = "PLANNED"
+    revision: int = 1
 
     def __post_init__(self) -> None:
         for name in ("id", "terminal_block_id", "terminal_number", "designation", "function"):
             object.__setattr__(self, name, _required_text(getattr(self, name), name))
         object.__setattr__(self, "lifecycle_status", _lifecycle_status(self.lifecycle_status))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
         object.__setattr__(self, "function", self.function.upper())
         for name in ("side", "manufacturer_designation"):
             object.__setattr__(self, name, _optional_text(getattr(self, name), name))
