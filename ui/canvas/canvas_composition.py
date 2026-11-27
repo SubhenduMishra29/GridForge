@@ -536,7 +536,10 @@ class SLDCanvasSurface(QWidget):
         """Present the Application-authoritative SLD document on this surface."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
+        snapshot = self._sld_canvas_projection.project(
+            document.model, document.annotation_blocks, document.layers,
+            terminal_block_layouts=document.instrumentation_terminal_block_layouts(),
+        )
         self._sld_canvas_render_system.synchronize(snapshot)
         self._document_id = document.document_id
         self._sld_canvas_snapshot = snapshot
@@ -571,6 +574,7 @@ class SLDCanvasSurface(QWidget):
             document.annotation_blocks,
             document.layers,
             instrumentation_wiring=instrumentation_wiring,
+            terminal_block_layouts=document.instrumentation_terminal_block_layouts(),
         )
         layered_draft = DraftSLDCanvasSnapshot(
             nodes=draft_snapshot.nodes,
