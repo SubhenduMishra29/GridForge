@@ -477,7 +477,13 @@ def test_terminal_lifecycle_statuses_are_normalized_and_unknown_values_rejected(
     )
     assert block.lifecycle_status == "INSTALLED"
     assert point.lifecycle_status == "PLANNED"
+    assert point.revision == 1
 
+    with pytest.raises(ValueError, match="revision must be a positive integer"):
+        TerminalPoint(
+            id="tp-invalid-revision", terminal_block_id=block.id,
+            terminal_number="2", designation="X1:2", revision=0,
+        )
     with pytest.raises(ValueError, match="lifecycle_status must be"):
         TerminalBlock(
             id="tb-invalid-status", tag="TB-INVALID", panel_id="PANEL-1",
