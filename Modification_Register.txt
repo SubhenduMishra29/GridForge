@@ -6998,11 +6998,12 @@ Correction:
   with each record change and the existing command/transaction path applies
   the complete inventory replacement.
 - Added lifecycle revision guards: installed/retired/replaced terminal
-  identities cannot be deleted, record edits must advance revision, and
-  terminal lifecycle cannot regress or be reactivated through forward
-  commands. The typed inventory command marks its inverse explicitly so
-  normal undo restores the prior status and revision. Active route/accessory/
-  binding dependencies must be reconciled before retirement succeeds.
+  identities cannot be deleted, record edits must advance revision,
+  retired/replaced terminal records are immutable, and terminal lifecycle
+  cannot regress or be reactivated through forward commands. The typed
+  inventory command marks its inverse explicitly so normal undo restores the
+  prior status and revision. Active route/accessory/binding dependencies must
+  be reconciled before retirement succeeds.
 - Application Core-terminal validation now excludes RETIRED/REPLACED hop
   snapshots from live endpoint resolution while preserving those snapshots
   in history.
