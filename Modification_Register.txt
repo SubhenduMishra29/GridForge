@@ -7020,3 +7020,5 @@ Canvas refresh lifecycle correction:
 - Bound the renderer callback through CanvasComposition and the existing SLDController presentation-refresh lifecycle. A failed persistence callback restores the pre-drag position and records a renderer log.
 - Added presentation-only annotation density presets (Minimal, Standard, All) to the SLD header. Density filters by annotation priority and does not mutate persisted document metadata or Application/Core records.
 - Static source reconciliation only. No tests, CI, import smoke, GUI interaction, or save/reopen acceptance were executed. PR remains draft pending final review of callback lifecycle, renderer behavior, and any remaining #1203 requirements.
+
+- The canonical SelectTool dispatches canvas mouse events before Qt's graphics-item handlers; terminal-block dragging is therefore integrated into SelectTool using the hit's stable annotation identity. It moves only the terminal-block label and commits through the renderer item's explicit commit method; terminal-point labels remain non-movable and follow the refreshed block offset.
