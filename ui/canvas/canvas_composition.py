@@ -700,8 +700,11 @@ class CanvasComposition:
         if document is None:
             return None
         if self.draft_sld_projection is None:
-            raise RuntimeError("CanvasComposition requires DraftSLDProjection to refresh the active document.")
-        draft_snapshot = self.draft_sld_projection.project()
+            draft_snapshot = DraftSLDCanvasSnapshot(
+                nodes=(), connections=(), layers=document.layers,
+            )
+        else:
+            draft_snapshot = self.draft_sld_projection.project()
         wiring_projection = self.sld_controller.read_instrumentation_wiring_projection()
         return self.surface.present_composite_document(
             document,
