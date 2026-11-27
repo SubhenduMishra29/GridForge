@@ -443,6 +443,23 @@ class SLDCanvasSurface(QWidget):
         zoom_in.clicked.connect(self._zoom_in_callback)
         header_layout.addWidget(zoom_in)
 
+        density_combo = QComboBox(header)
+        density_combo.setObjectName("SLDAnnotationDensity")
+        density_combo.setToolTip("Choose how much annotation detail is shown on the SLD.")
+        density_combo.addItem("Labels: Minimal", "minimal")
+        density_combo.addItem("Labels: Standard", "standard")
+        density_combo.addItem("Labels: All", "all")
+        density_combo.setCurrentIndex(density_combo.findData(
+            sld_canvas_render_system.annotation_density
+        ))
+        self._annotation_density_combo = density_combo
+        self._density_changed_callback = (
+            lambda _index: sld_canvas_render_system.set_annotation_density(
+                density_combo.currentData()
+            )
+        )
+        density_combo.currentIndexChanged.connect(self._density_changed_callback)
+        header_layout.addWidget(density_combo)
 
         root.addWidget(header)
 
@@ -489,6 +506,16 @@ class SLDCanvasSurface(QWidget):
                 controller.remove_zoom_changed_listener(self._zoom_changed_listener)
             except Exception:
                 _LOGGER.exception("Failed to detach SLD surface zoom readout listener")
+
+        density_combo = getattr(self, "_annotation_density_combo", None)
+        density_callback = getattr(self, "_density_changed_callback", None)
+        self._annotation_density_combo = None
+        self._density_changed_callback = None
+        if density_combo is not None and density_callback is not None:
+            try:
+                density_combo.currentIndexChanged.disconnect(density_callback)
+            except Exception:
+                _LOGGER.exception("Failed to disconnect SLD annotation density callback")
 
         # Disconnect the exact zoom slots installed by this surface so a
         # retained editor cannot keep the disposed NavigationController alive.
