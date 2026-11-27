@@ -6991,3 +6991,12 @@ Verification boundary:
   visibility and invalid layout values; tests have not been executed.
 - Static source reconciliation only. GUI drag/edit interaction and project
   save/reopen acceptance remain outstanding. Issue #1203 remains open.
+
+UI integration follow-up:
+- Properties inspector now exposes terminal-block offset, visibility, Apply and
+  Reset controls when a canonical terminal block or one of its terminal points
+  is selected. A terminal-point selection resolves its parent block through the
+  active Application inventory; ambiguous/missing identities remain read-only.
+- Existing engineering parameter Apply remains disabled for terminal blocks and
+  terminal points. Layout changes use the SLDController presentation API only.
+- Static source reconciliation only; no GUI/runtime execution or test/CI run.
