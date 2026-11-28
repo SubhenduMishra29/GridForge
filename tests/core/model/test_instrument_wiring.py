@@ -601,3 +601,70 @@ def test_non_removed_terminal_accessory_cannot_reference_a_retired_point():
             terminal_blocks=(block,), terminal_points=(point,),
             terminal_accessories=(accessory,),
         )
+
+
+def test_ct_secondary_circuit_requires_distinct_s1_s2_routes_and_explicit_shorting_pair():
+    from core.model.instrument_wiring import (
+        CTSecondaryCircuit, CTSecondaryCircuitState, TerminalAccessory,
+        TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint,
+    )
+
+    cable = CableAssembly(id="ct-cable", tag="C-CT-1", service="CT secondary", core_count=2)
+    block = TerminalBlock(
+        id="ct-tb", tag="TB-CT-1", panel_id="PANEL-1",
+        location="Protection marshalling", terminal_count=2,
+    )
+    point_s1 = TerminalPoint(id="ct-point-s1", terminal_block_id=block.id, terminal_number="1", designation="S1-LINK")
+    point_s2 = TerminalPoint(id="ct-point-s2", terminal_block_id=block.id, terminal_number="2", designation="S2-LINK")
+    shorting = TerminalAccessory(
+        id="ct-short", tag="TB-CT-1-SHORT", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.SHORTING_LINK, state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_s1.id, point_s2.id),
+        conductive_pairs=((point_s1.id, point_s2.id),),
+    )
+    s1 = terminal("CT-1", "S1", "S1")
+    s2 = terminal("CT-1", "S2", "S2")
+    core_s1 = CableCore(
+        id="ct-core-s1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(s1, WiringTerminalReference(block.id, "1", "S1-LINK", point_s1.id)),
+    )
+    core_s2 = CableCore(
+        id="ct-core-s2", cable_id=cable.id, core_number=2,
+        role=WiringConductorRole.RETURN,
+        terminal_path=(s2, WiringTerminalReference(block.id, "2", "S2-LINK", point_s2.id)),
+    )
+    circuit = CTSecondaryCircuit(
+        id="ct-circuit-a", ct_id="CT-1", phase="A",
+        s1_terminal=s1, s2_terminal=s2,
+        s1_carrier_ids=(core_s1.id,), s2_carrier_ids=(core_s2.id,),
+        shorting_accessory_id=shorting.id,
+        shorting_s1_terminal_point_id=point_s1.id,
+        shorting_s2_terminal_point_id=point_s2.id,
+        secondary_state=CTSecondaryCircuitState.OPEN,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core_s1, core_s2),
+        terminal_blocks=(block,), terminal_points=(point_s1, point_s2),
+        terminal_accessories=(shorting,), ct_secondary_circuits=(circuit,),
+    )
+    assert inventory.ct_secondary_circuits == (circuit,)
+
+    from dataclasses import replace
+    with pytest.raises(ValueError, match="does not terminate at its declared shorting-link terminal point"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core_s1, core_s2),
+            terminal_blocks=(block,), terminal_points=(point_s1, point_s2),
+            terminal_accessories=(shorting,),
+            ct_secondary_circuits=(replace(circuit, shorting_s1_terminal_point_id=point_s2.id),),
+        )
+
+    with pytest.raises(ValueError, match="S1 reference"):
+        CTSecondaryCircuit(
+            id="ct-invalid", ct_id="CT-1", phase="A",
+            s1_terminal=s2, s2_terminal=s1,
+            s1_carrier_ids=(core_s1.id,), s2_carrier_ids=(core_s2.id,),
+            shorting_accessory_id=shorting.id,
+            shorting_s1_terminal_point_id=point_s1.id,
+            shorting_s2_terminal_point_id=point_s2.id,
+        )

@@ -7137,3 +7137,43 @@ Verification:
 - Source-level integration only. No tests, imports, CI, GUI or save/reopen
   runtime was executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — CT Secondary Circuit Identity and Safety Validation
+Date: 2026-11-28
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-ct-secondary-circuit-safety-mainline
+Issue: #1203 (coordination: #1198)
+
+Correction:
+- Added immutable CTSecondaryCircuit and CTSecondaryCircuitState records for
+  explicit CT S1/S2 terminal identity, independent carrier routes, shorting
+  link and optional test-disconnect references, phase and declared circuit state.
+- Inventory validation now checks exact S1/S2 roles, distinct carrier sets,
+  carrier existence and terminal-path continuity, shorting-link type and
+  explicit conductive S1/S2 terminal-point pair, and optional test-disconnect
+  accessory identity.
+- Application activation and inventory replacement validate the exact Core CT
+  identity and fail closed for an in-service CT with UNKNOWN/ISOLATED secondary
+  state, an OPEN secondary without a CLOSED shorting link, or normal CLOSED
+  service without the shorting link explicitly OPEN.
+- Added detached Application read-model projection and generic record add/update
+  lifecycle support for CT secondary circuit records.
+- Extended instrumentation wiring persistence to schema 8; schemas 2–7 remain
+  readable without inferring CT circuit records.
+- Added model and persistence regression-test source for S1/S2 identity and
+  schema-8 round-trip/schema-7 compatibility.
+
+Boundary:
+- CT ratio, burden, rated current, polarity and instrument nameplate remain on
+  the canonical Core CurrentTransformer. This record does not duplicate them.
+- This is a physical secondary-circuit safety slice, not completion of #1198 or
+  #1203. PT/CVT secondary circuit validation, CT test procedure semantics,
+  complete relay input binding and end-to-end save/reopen acceptance remain
+  separate work.
+
+Verification:
+- Source-level integration/reconciliation only. Tests, imports, CI, GUI and
+  project save/reopen were not executed.
+======================================================================

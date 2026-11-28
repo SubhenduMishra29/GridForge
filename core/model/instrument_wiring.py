@@ -592,6 +592,62 @@ class WiringTagPolicy:
         return tag, WiringTagPolicy(updated)
 
 
+class CTSecondaryCircuitState(str, Enum):
+    """Declared physical state of an instrument CT secondary circuit."""
+
+    CLOSED = "CLOSED"
+    OPEN = "OPEN"
+    ISOLATED = "ISOLATED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class CTSecondaryCircuit:
+    """Explicit CT S1/S2 secondary wiring and shorting/test arrangement.
+
+    CT ratio, burden, rated current and physical polarity remain authoritative
+    on the Core CurrentTransformer. This record only identifies the phase,
+    physical secondary routes and the declared shorting/test facility.
+    """
+
+    id: str
+    ct_id: str
+    phase: str
+    s1_terminal: WiringTerminalReference
+    s2_terminal: WiringTerminalReference
+    s1_carrier_ids: tuple[str, ...]
+    s2_carrier_ids: tuple[str, ...]
+    shorting_accessory_id: str
+    shorting_s1_terminal_point_id: str
+    shorting_s2_terminal_point_id: str
+    secondary_state: CTSecondaryCircuitState = CTSecondaryCircuitState.UNKNOWN
+    test_disconnect_accessory_id: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        for name in ("id", "ct_id", "phase", "shorting_accessory_id",
+                     "shorting_s1_terminal_point_id", "shorting_s2_terminal_point_id"):
+            object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        if not isinstance(self.s1_terminal, WiringTerminalReference) or not isinstance(self.s2_terminal, WiringTerminalReference):
+            raise TypeError("CT S1/S2 terminals must be WiringTerminalReference values.")
+        if (self.s1_terminal.equipment_id, self.s1_terminal.terminal_role) != (self.ct_id, "S1"):
+            raise ValueError("CT secondary S1 reference must resolve to the owning CT's S1 terminal.")
+        if (self.s2_terminal.equipment_id, self.s2_terminal.terminal_role) != (self.ct_id, "S2"):
+            raise ValueError("CT secondary S2 reference must resolve to the owning CT's S2 terminal.")
+        if self.s1_terminal.identity == self.s2_terminal.identity:
+            raise ValueError("CT secondary S1 and S2 terminals must be distinct.")
+        for name in ("s1_carrier_ids", "s2_carrier_ids"):
+            values = tuple(_required_text(value, name) for value in getattr(self, name))
+            if not values or len(values) != len(set(values)):
+                raise ValueError(f"{name} must contain non-empty unique carrier IDs.")
+            object.__setattr__(self, name, values)
+        if set(self.s1_carrier_ids) & set(self.s2_carrier_ids):
+            raise ValueError("CT S1 and S2 routes must not reuse the same physical carrier.")
+        if not isinstance(self.secondary_state, CTSecondaryCircuitState):
+            raise TypeError("secondary_state must be a CTSecondaryCircuitState.")
+        object.__setattr__(self, "test_disconnect_accessory_id",
+                           _optional_text(self.test_disconnect_accessory_id, "test_disconnect_accessory_id"))
+
+
 @dataclass(frozen=True, slots=True)
 class InstrumentationWiringInventory:
     """Validated project-level snapshot of instrumentation wiring records.
@@ -611,6 +667,7 @@ class InstrumentationWiringInventory:
     terminal_points: tuple[TerminalPoint, ...] = ()
     terminal_accessories: tuple[TerminalAccessory, ...] = ()
     endpoint_bindings: tuple[SignalEndpointBinding, ...] = ()
+    ct_secondary_circuits: tuple[CTSecondaryCircuit, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.tag_policy, WiringTagPolicy):
@@ -626,6 +683,7 @@ class InstrumentationWiringInventory:
             ("terminal_blocks", self.terminal_blocks, TerminalBlock),
             ("terminal_points", self.terminal_points, TerminalPoint),
             ("terminal_accessories", self.terminal_accessories, TerminalAccessory),
+            ("ct_secondary_circuits", self.ct_secondary_circuits, CTSecondaryCircuit),
         )
         for name, values, expected_type in collections:
             values = tuple(values)
@@ -895,6 +953,60 @@ class InstrumentationWiringInventory:
                         f"Terminal accessory '{accessory.id}' must be REMOVED before any referenced terminal point is retired or replaced."
                     )
 
+
+        carrier_by_id = {item.id: item for item in self.cores}
+        carrier_by_id.update({item.id: item for item in self.panel_wires})
+        accessory_by_id = {item.id: item for item in self.terminal_accessories}
+        point_by_id = {item.id: item for item in self.terminal_points}
+        ct_phases: set[tuple[str, str]] = set()
+        for circuit in self.ct_secondary_circuits:
+            phase_key = (circuit.ct_id, circuit.phase)
+            if phase_key in ct_phases:
+                raise ValueError(f"CT '{circuit.ct_id}' has duplicate secondary circuit phase '{circuit.phase}'.")
+            ct_phases.add(phase_key)
+            for carrier_id in circuit.s1_carrier_ids + circuit.s2_carrier_ids:
+                if carrier_id not in carrier_by_id:
+                    raise ValueError(f"CT secondary circuit '{circuit.id}' references missing carrier '{carrier_id}'.")
+            for route_name, carrier_ids, source_terminal, target_point_id in (
+                ("S1", circuit.s1_carrier_ids, circuit.s1_terminal, circuit.shorting_s1_terminal_point_id),
+                ("S2", circuit.s2_carrier_ids, circuit.s2_terminal, circuit.shorting_s2_terminal_point_id),
+            ):
+                route = [carrier_by_id[item] for item in carrier_ids]
+                if any(len(carrier.terminal_path) < 2 for carrier in route):
+                    raise ValueError(f"CT secondary {route_name} route '{circuit.id}' contains a carrier without a complete terminal path.")
+                first_path = route[0].terminal_path
+                if source_terminal.canonical_identity not in {
+                    first_path[0].canonical_identity, first_path[-1].canonical_identity
+                }:
+                    raise ValueError(f"CT secondary {route_name} route '{circuit.id}' must start at an endpoint of its exact CT terminal.")
+                for left, right in zip(route, route[1:]):
+                    left_ends = {left.terminal_path[0].canonical_identity, left.terminal_path[-1].canonical_identity}
+                    right_ends = {right.terminal_path[0].canonical_identity, right.terminal_path[-1].canonical_identity}
+                    if not left_ends.intersection(right_ends):
+                        raise ValueError(f"CT secondary {route_name} carrier chain '{circuit.id}' is discontinuous.")
+                final_path = route[-1].terminal_path
+                if not any(
+                    reference.terminal_point_id == target_point_id
+                    for reference in (final_path[0], final_path[-1])
+                ):
+                    raise ValueError(
+                        f"CT secondary {route_name} route '{circuit.id}' does not terminate at its declared shorting-link terminal point."
+                    )
+            accessory = accessory_by_id.get(circuit.shorting_accessory_id)
+            if accessory is None or accessory.kind is not TerminalAccessoryKind.SHORTING_LINK:
+                raise ValueError(f"CT secondary circuit '{circuit.id}' requires a registered SHORTING_LINK accessory.")
+            short_pair = tuple(sorted((circuit.shorting_s1_terminal_point_id, circuit.shorting_s2_terminal_point_id)))
+            if short_pair not in accessory.conductive_pairs:
+                raise ValueError(f"CT secondary circuit '{circuit.id}' shorting accessory does not explicitly bridge its declared S1/S2 points.")
+            if any(point_id not in point_by_id for point_id in short_pair):
+                raise ValueError(f"CT secondary circuit '{circuit.id}' shorting arrangement references a missing terminal point.")
+            if any(point_by_id[point_id].terminal_block_id != accessory.terminal_block_id for point_id in short_pair):
+                raise ValueError(f"CT secondary circuit '{circuit.id}' shorting points must belong to the accessory terminal block.")
+            if circuit.test_disconnect_accessory_id is not None:
+                test_accessory = accessory_by_id.get(circuit.test_disconnect_accessory_id)
+                if test_accessory is None or test_accessory.kind is not TerminalAccessoryKind.TEST_DISCONNECT:
+                    raise ValueError(f"CT secondary circuit '{circuit.id}' references an invalid test-disconnect accessory.")
+
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:
         tags = [record.tag for record in records]
@@ -921,6 +1033,8 @@ __all__ = [
     "TerminalBlock",
     "TerminalPoint",
     "TerminalAccessory",
+    "CTSecondaryCircuitState",
+    "CTSecondaryCircuit",
     "WiringTagSeries",
     "WiringTagPolicy",
     "InstrumentationWiringInventory",
