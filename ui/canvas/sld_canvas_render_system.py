@@ -113,6 +113,37 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
         self.commit_drag_position()
 
 
+
+class _SignalProvenanceItem(QGraphicsTextItem):
+    """Transient SLD label that navigates to one exact resolved signal consumer."""
+
+    def __init__(
+        self,
+        text: str,
+        detail: str,
+        target: dict[str, Any],
+        navigate: Callable[[dict[str, Any]], Any],
+    ) -> None:
+        super().__init__(str(text))
+        self._target = dict(target)
+        self._navigate = navigate
+        self.setToolTip(
+            str(detail) + "\nDouble-click to open the canonical Control or Protection endpoint."
+        )
+        self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
+
+    def mouseDoubleClickEvent(self, event: Any) -> None:
+        try:
+            result = self._navigate(dict(self._target))
+            message = getattr(result, "message", None)
+            if message:
+                self.setToolTip(str(message))
+        except Exception as exc:
+            self.setToolTip(f"Endpoint navigation failed: {type(exc).__name__}: {exc}")
+            _LOGGER.exception("SLD signal-provenance navigation failed")
+        event.accept()
+
+
 class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
@@ -170,7 +201,11 @@ class SLDCanvasRenderSystem:
         self._annotation_priorities: dict[str, int] = {}
         self._items: dict[str, tuple[Any, ...]] = {}
         self._instrumentation_connection_metadata: dict[str, tuple[str, frozenset[str], frozenset[str]]] = {}
+        self._connection_label_signal_ids: dict[str, tuple[str, ...]] = {}
         self._highlighted_instrumentation_ids: set[str] = set()
+        self._signal_provenance_provider: Callable[[], dict[str, tuple[dict[str, Any], ...]]] | None = None
+        self._provenance_navigation_callback: Callable[[dict[str, Any]], Any] | None = None
+        self._provenance_items: dict[str, tuple[Any, ...]] = {}
         self._render_signatures: dict[str, str] = {}
         self._unsupported_presentations: dict[str, str] = {}
         self._unsupported_connections: dict[str, str] = {}
@@ -303,6 +338,92 @@ class SLDCanvasRenderSystem:
     def selection_manager(self) -> Any:
         """Return the canonical selection projection dependency, if bound."""
         return self._selection_manager
+
+
+    def set_provenance_navigation_callback(
+        self,
+        callback: Callable[[dict[str, Any]], Any] | None,
+    ) -> None:
+        """Bind host-owned navigation for exact SLD signal-consumer labels."""
+        if callback is not None and not callable(callback):
+            raise TypeError("provenance navigation callback must be callable or None.")
+        self._provenance_navigation_callback = callback
+        self._refresh_signal_provenance_items()
+
+    def set_signal_provenance_provider(
+        self,
+        provider: Callable[[], dict[str, tuple[dict[str, Any], ...]]] | None,
+    ) -> None:
+        """Bind a read-only provider of resolved Control/Protection consumers."""
+        if provider is not None and not callable(provider):
+            raise TypeError("signal provenance provider must be callable or None.")
+        self._signal_provenance_provider = provider
+        self._refresh_signal_provenance_items()
+
+    def _clear_signal_provenance_items(self) -> None:
+        for labels in tuple(self._provenance_items.values()):
+            for label in labels:
+                try:
+                    if label is not None and label.scene() is self._scene:
+                        self._scene.removeItem(label)
+                except RuntimeError:
+                    _LOGGER.debug("A stale SLD signal-provenance label was already destroyed.")
+        self._provenance_items.clear()
+
+    def _refresh_signal_provenance_items(self) -> None:
+        """Rebuild transient route labels from the current resolved endpoint snapshot."""
+        self._clear_signal_provenance_items()
+        provider = self._signal_provenance_provider
+        navigate = self._provenance_navigation_callback
+        if not callable(provider) or not callable(navigate):
+            return
+        try:
+            targets = provider()
+        except Exception:
+            _LOGGER.exception("Unable to read current SLD signal-provenance targets")
+            return
+        if not isinstance(targets, dict):
+            _LOGGER.error("Signal-provenance provider returned a non-mapping value")
+            return
+
+        for connection_id, signal_ids in self._connection_label_signal_ids.items():
+            route_items = self._items.get(connection_id, ())
+            if not route_items:
+                continue
+            route_item = route_items[0]
+            try:
+                if not route_item.isVisible():
+                    continue
+                bounds = route_item.sceneBoundingRect()
+                if not bounds.isValid() or bounds.isNull():
+                    continue
+            except (AttributeError, RuntimeError, TypeError, ValueError):
+                continue
+
+            labels: list[Any] = []
+            row = 0
+            for signal_id in signal_ids:
+                for target in targets.get(signal_id, ()):
+                    if not isinstance(target, dict):
+                        continue
+                    label_text = str(target.get("label") or "").strip()
+                    detail = str(target.get("detail") or "").strip()
+                    if not label_text or not detail:
+                        continue
+                    label = _SignalProvenanceItem(label_text, detail, target, navigate)
+                    label.setPos(
+                        float(bounds.center().x()) + 6.0,
+                        float(bounds.center().y()) - 12.0 + row * 15.0,
+                    )
+                    label.setScale(0.65)
+                    label.setOpacity(float(route_item.opacity()))
+                    label.setVisible(bool(route_item.isVisible()))
+                    label.setZValue(float(route_item.zValue()) + 0.5)
+                    self._scene.addItem(label)
+                    labels.append(label)
+                    row += 1
+            if labels:
+                self._provenance_items[connection_id] = tuple(labels)
 
     def clear_instrumentation_highlight(self) -> None:
         """Remove only the transient highlight applied to projected physical routes."""
@@ -540,6 +661,7 @@ class SLDCanvasRenderSystem:
         if not isinstance(draft, DraftSLDCanvasSnapshot):
             raise TypeError("CompositeSLDCanvasSnapshot.draft must be a DraftSLDCanvasSnapshot")
         self.clear_instrumentation_highlight()
+        self._clear_signal_provenance_items()
         self._instrumentation_connection_metadata = {
             connection.connection_id: (
                 str(connection.properties.get("carrier_id") or ""),
@@ -560,6 +682,17 @@ class SLDCanvasRenderSystem:
             for connection in committed.connections
             if connection.projection_source == "instrumentation_wiring"
             and connection.properties.get("carrier_id")
+        }
+        self._connection_label_signal_ids = {
+            connection.connection_id: tuple(
+                str(value).strip()
+                for value in (connection.properties.get("signal_ids") or ())
+                if value is not None and str(value).strip()
+            )
+            for connection in committed.connections
+            if connection.projection_source == "instrumentation_wiring"
+            and connection.properties.get("carrier_id")
+            and connection.properties.get("segment_index", 1) == 1
         }
         sync_started = perf_counter()
         sync_metrics: dict[str, object] = {
@@ -1129,6 +1262,7 @@ class SLDCanvasRenderSystem:
             reconcile_selection = getattr(self._selection_manager, "sync_graphics", None)
             if callable(reconcile_selection):
                 reconcile_selection(scene=self._scene)
+        self._refresh_signal_provenance_items()
         sync_metrics["realized_item_count"] = len(self._items)
         sync_metrics["synchronize_seconds"] = max(0.0, perf_counter() - sync_started)
         self._last_sync_metrics = sync_metrics
@@ -1485,7 +1619,9 @@ class SLDCanvasRenderSystem:
     def clear(self) -> None:
         """Clear every tracked realization even if individual cleanup steps fail."""
         self.clear_instrumentation_highlight()
+        self._clear_signal_provenance_items()
         self._instrumentation_connection_metadata.clear()
+        self._connection_label_signal_ids.clear()
         for item_id in tuple(self._items):
             self._remove_realized(item_id)
         if self._snap_system is not None and callable(getattr(self._snap_system, "clear_candidates", None)):

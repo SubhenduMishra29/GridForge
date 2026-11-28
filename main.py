@@ -1177,14 +1177,39 @@ def _build_application_impl(
             selected_ids=(),
         )
 
-    # Cross-canvas navigation is a UI composition service. It resolves
-    # exact Application endpoint identities, then asks the canonical SLD
-    # projection to highlight matching transient physical route segments.
+    # Cross-canvas navigation is a UI composition service. The same
+    # Application endpoint identities drive Control/Protection -> SLD route
+    # highlighting and SLD -> exact consumer navigation; no canvas owns wiring.
+    def _activate_instrumentation_consumer(editor_id: str) -> None:
+        if editor_id == "control":
+            _activate_workspace(CONTROL_WORKSPACE_ID, "control")
+        elif editor_id == "protection":
+            _activate_workspace(PROTECTION_WORKSPACE_ID, "protection")
+        else:
+            raise ValueError(f"Unsupported instrumentation consumer editor: {editor_id!r}")
+
+    def _refresh_instrumentation_consumer(editor_id: str) -> None:
+        if editor_id == "control":
+            control_workspace.refresh()
+        elif editor_id == "protection":
+            protection_workspace.refresh()
+        else:
+            raise ValueError(f"Unsupported instrumentation consumer editor: {editor_id!r}")
+
     instrumentation_wiring_navigator = InstrumentationWiringNavigator(
         application=gridforge_application,
         activate_sld=lambda: _activate_workspace(SLD_WORKSPACE_ID, "sld"),
         refresh_sld=canvas_composition.refresh_active_document,
         surface=canvas_composition.surface,
+        activate_editor=_activate_instrumentation_consumer,
+        refresh_editor=_refresh_instrumentation_consumer,
+        select_object=canvas_composition.selection_manager.select_single,
+    )
+    canvas_composition.sld_canvas_render_system.set_signal_provenance_provider(
+        instrumentation_wiring_navigator.provenance_targets
+    )
+    canvas_composition.sld_canvas_render_system.set_provenance_navigation_callback(
+        instrumentation_wiring_navigator.navigate_to_consumer
     )
     control_workspace.bind_instrumentation_navigator(instrumentation_wiring_navigator)
     protection_workspace.bind_instrumentation_navigator(instrumentation_wiring_navigator)
