@@ -82,8 +82,9 @@ def build_instrumentation_wiring_schedules(
                 "signal_ids": tuple(sorted(signal_ids_by_carrier.get((kind, carrier_id), ()))),
                 "signal_tags": tuple(sorted(signal_tags_by_carrier.get((kind, carrier_id), ()))),
                 "source_channel_ids": tuple(sorted({
-                    str(item["source_channel_id"])
-                    for item in binding_records if item.get("source_channel_id") is not None
+                    str(signals[signal_id]["measurement_channel_id"])
+                    for signal_id in signal_ids_by_carrier.get((kind, carrier_id), ())
+                    if signals.get(signal_id, {}).get("measurement_channel_id") is not None
                 })),
                 "directions": tuple(sorted({str(item.get("direction", "BIDIRECTIONAL")) for item in binding_records})),
             }
@@ -102,8 +103,9 @@ def build_instrumentation_wiring_schedules(
                 "signal_ids": tuple(sorted(signal_ids_by_carrier.get((kind, carrier_id), ()))),
                 "signal_tags": tuple(sorted(signal_tags_by_carrier.get((kind, carrier_id), ()))),
                 "source_channel_ids": tuple(sorted({
-                    str(item["source_channel_id"])
-                    for item in binding_records if item.get("source_channel_id") is not None
+                    str(signals[signal_id]["measurement_channel_id"])
+                    for signal_id in signal_ids_by_carrier.get((kind, carrier_id), ())
+                    if signals.get(signal_id, {}).get("measurement_channel_id") is not None
                 })),
                 "directions": tuple(sorted({str(item.get("direction", "BIDIRECTIONAL")) for item in binding_records})),
             }
@@ -337,8 +339,16 @@ def build_instrumentation_wiring_schedules(
                 "resolution_status": getattr(resolution, "status", "UNRESOLVED"),
                 "diagnostics": tuple(getattr(resolution, "diagnostics", ("No active endpoint resolution is available.",))),
             })
-        sources = tuple(
-            row for row in endpoint_rows if row["endpoint_kind"] == "MEASUREMENT_CHANNEL"
+        channel_id = signal.get("measurement_channel_id")
+        sources = (
+            ({
+                "endpoint_kind": "MEASUREMENT_CHANNEL",
+                "endpoint_id": channel_id,
+                "signal_id": signal_id,
+                "resolution_status": "RESOLVED" if channel_id else "UNRESOLVED",
+                "diagnostics": () if channel_id else ("Signal has no explicit MeasurementChannel source identity.",),
+            },)
+            if channel_id else ()
         )
         consumers = tuple(
             row for row in endpoint_rows if row["endpoint_kind"] in {"CONTROL_INPUT", "PROTECTION_INPUT"}
@@ -364,7 +374,9 @@ def build_instrumentation_wiring_schedules(
             "carriers": signal_carriers,
             "resolution_status": "RESOLVED" if all_resolved else "UNRESOLVED",
             "diagnostics": tuple(
-                diagnostic for item in endpoint_rows for diagnostic in item["diagnostics"]
+                diagnostic
+                for item in (*sources, *endpoint_rows)
+                for diagnostic in item["diagnostics"]
             ),
         })
 
