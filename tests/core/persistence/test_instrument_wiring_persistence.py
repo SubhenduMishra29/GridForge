@@ -459,7 +459,7 @@ def test_terminal_point_revision_round_trips_schema_seven_and_defaults_for_schem
     )
 
     payload = serialize_instrumentation_wiring(inventory)
-    assert payload["schema"] == 7
+    assert payload["schema"] == 8
     assert payload["terminal_points"][0]["revision"] == 7
     assert deserialize_instrumentation_wiring(payload) == inventory
 
@@ -472,3 +472,59 @@ def test_terminal_point_revision_round_trips_schema_seven_and_defaults_for_schem
     restored_legacy = deserialize_instrumentation_wiring(legacy_schema_six)
     assert restored_legacy.terminal_points[0].revision == 1
     assert restored_legacy.terminal_points[0].lifecycle_status == "RETIRED"
+
+
+def test_ct_secondary_circuit_schema_eight_round_trip_and_schema_seven_compatibility():
+    from core.model.instrument_wiring import (
+        CTSecondaryCircuit, CTSecondaryCircuitState, TerminalAccessory,
+        TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint,
+        WiringTerminalReference,
+    )
+
+    cable = CableAssembly(id="ct-persist-cable", tag="C-CT-PERSIST", service="CT secondary", core_count=2)
+    block = TerminalBlock(
+        id="ct-persist-tb", tag="TB-CT-PERSIST", panel_id="PANEL-1",
+        location="Protection marshalling", terminal_count=2,
+    )
+    point_s1 = TerminalPoint(id="ct-persist-s1", terminal_block_id=block.id, terminal_number="1", designation="S1-LINK")
+    point_s2 = TerminalPoint(id="ct-persist-s2", terminal_block_id=block.id, terminal_number="2", designation="S2-LINK")
+    accessory = TerminalAccessory(
+        id="ct-persist-short", tag="TB-CT-PERSIST-SHORT", terminal_block_id=block.id,
+        kind=TerminalAccessoryKind.SHORTING_LINK, state=TerminalAccessoryState.CLOSED,
+        terminal_point_ids=(point_s1.id, point_s2.id),
+        conductive_pairs=((point_s1.id, point_s2.id),),
+    )
+    s1 = WiringTerminalReference("CT-PERSIST", "S1", "S1")
+    s2 = WiringTerminalReference("CT-PERSIST", "S2", "S2")
+    core_s1 = CableCore(
+        id="ct-persist-core-s1", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL,
+        terminal_path=(s1, WiringTerminalReference(block.id, "1", point_s1.designation, point_s1.id)),
+    )
+    core_s2 = CableCore(
+        id="ct-persist-core-s2", cable_id=cable.id, core_number=2,
+        role=WiringConductorRole.RETURN,
+        terminal_path=(s2, WiringTerminalReference(block.id, "2", point_s2.designation, point_s2.id)),
+    )
+    circuit = CTSecondaryCircuit(
+        id="ct-persist-circuit", ct_id="CT-PERSIST", phase="A",
+        s1_terminal=s1, s2_terminal=s2,
+        s1_carrier_ids=(core_s1.id,), s2_carrier_ids=(core_s2.id,),
+        shorting_accessory_id=accessory.id,
+        shorting_s1_terminal_point_id=point_s1.id,
+        shorting_s2_terminal_point_id=point_s2.id,
+        secondary_state=CTSecondaryCircuitState.OPEN,
+    )
+    inventory = InstrumentationWiringInventory(
+        cables=(cable,), cores=(core_s1, core_s2),
+        terminal_blocks=(block,), terminal_points=(point_s1, point_s2),
+        terminal_accessories=(accessory,), ct_secondary_circuits=(circuit,),
+    )
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 8
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+    legacy = serialize_instrumentation_wiring(sample_inventory())
+    legacy["schema"] = 7
+    legacy.pop("ct_secondary_circuits")
+    assert deserialize_instrumentation_wiring(legacy) == sample_inventory()
