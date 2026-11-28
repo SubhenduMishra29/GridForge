@@ -1024,6 +1024,35 @@ class MeasurementChannelReadModel:
         object.__setattr__(self, "value", _freeze(self.value))
 
 
+@dataclass(frozen=True, slots=True)
+class InstrumentationWiringSchedulesReadModel:
+    """Immutable, detached engineering schedules derived from canonical wiring."""
+
+    project_id: str
+    activation_generation: int
+    cable_schedule: tuple[Mapping[str, Any], ...] = ()
+    core_schedule: tuple[Mapping[str, Any], ...] = ()
+    terminal_plan: tuple[Mapping[str, Any], ...] = ()
+    instrument_loop_schedule: tuple[Mapping[str, Any], ...] = ()
+    interconnection_list: tuple[Mapping[str, Any], ...] = ()
+    point_to_point_list: tuple[Mapping[str, Any], ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.project_id, str) or not self.project_id.strip():
+            raise ValueError("project_id must be a non-empty string.")
+        if isinstance(self.activation_generation, bool) or not isinstance(self.activation_generation, int) or self.activation_generation < 1:
+            raise ValueError("activation_generation must be a positive integer.")
+        for name in (
+            "cable_schedule", "core_schedule", "terminal_plan",
+            "instrument_loop_schedule", "interconnection_list",
+            "point_to_point_list",
+        ):
+            values = tuple(getattr(self, name))
+            if any(not isinstance(item, Mapping) for item in values):
+                raise TypeError(f"{name} must contain mappings.")
+            object.__setattr__(self, name, tuple(_freeze(item) for item in values))
+
+
 __all__ = [
     "ConfigurationReviewReadModel",
     "ElementReadModel",
@@ -1031,6 +1060,7 @@ __all__ = [
     "NetworkReadModel",
     "SimpleWireReadModel",
     "InstrumentationWiringReadModel",
+    "InstrumentationWiringSchedulesReadModel",
     "ProtectionReadModel",
     "MeasurementChannelReadModel",
     "MeasurementChannelConfigurationReadModel",

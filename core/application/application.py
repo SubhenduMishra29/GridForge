@@ -5675,6 +5675,17 @@ class Application:
             raise RuntimeError("Application instrumentation wiring service is not configured.")
         return service.read_model()
 
+    def read_instrumentation_wiring_schedules(self):
+        """Build schedules from one locked active-project wiring snapshot."""
+        from core.application.instrumentation_wiring_schedules import (
+            build_instrumentation_wiring_schedules,
+        )
+
+        with self._execution_lock:
+            wiring = self.read_instrumentation_wiring()
+            resolutions = self.resolve_instrumentation_signal_endpoints()
+            return build_instrumentation_wiring_schedules(wiring, resolutions)
+
     def resolve_instrumentation_signal_endpoints(self) -> tuple[SignalEndpointResolutionReadModel, ...]:
         """Resolve persisted wiring endpoints against one active project snapshot.
 
