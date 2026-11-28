@@ -7213,3 +7213,58 @@ Verification:
 - Source-level integration/reconciliation only. Tests, imports, CI, GUI,
   hardware and project save/reopen were not executed.
 ======================================================================
+
+======================================================================
+
+GridForge V2 — SLD-to-Control/Protection physical wiring navigation
+Date: 2026-11-28
+Issue: #1203
+Branch: fix/issue-1203-sld-to-consumer-navigation
+
+Finding:
+- Current cross-canvas navigation resolves Control/Protection endpoints and
+  highlights their matching physical SLD carrier segments, but SLD physical
+  routes do not expose the corresponding resolved consumers for reverse
+  navigation.
+- The old #1207 integration branch contains an unintegrated label prototype,
+  but its renderer and composition wiring are not compatible with current main.
+  The prototype was not copied wholesale.
+
+Correction:
+- Added transient, read-only SLD route labels for the first projected segment
+  of each physical carrier. Labels are sourced only from current Application
+  endpoint-resolution read models.
+- Double-clicking a label revalidates the exact signal, binding, endpoint,
+  owner and port identity, then activates and refreshes the owning Control or
+  Protection editor and selects its canonical UI object.
+- Only RESOLVED endpoints with current project activation identity and a
+  non-empty physical carrier path are offered. Stale or unresolved bindings
+  are not navigable.
+- Existing Control/Protection-to-SLD route highlighting remains unchanged.
+- No cable, core, terminal, signal, topology or canvas-owned engineering
+  records are created or mutated.
+
+Architecture:
+- Core and Application remain unchanged and authoritative for electrical and
+  signal truth.
+- The navigator is a UI composition service over detached Application reads.
+- SLD labels are transient presentation items and use ui.core.qt.
+- No Qt/QGraphics dependency enters Core; no new public package exports are
+  required.
+
+Verification:
+- Static source reconciliation against current main and the old #1207 branch.
+- ui/core/qt.py already exports QGraphicsTextItem and Qt; no compatibility
+  layer modification is required.
+- No __init__.py export changes.
+- Regression source added; tests, CI, imports, GUI interaction and project
+  save/reopen were not run, as instructed.
+
+Remaining #1203 acceptance:
+- Full route authoring and end-to-end instrument-to-relay/PLC save/reopen
+  acceptance; generated schedules and cross-canvas navigation must still be
+  verified in a running application.
+- Instrument-specific conductor, receiver, CT/PT/RTD/thermocouple and
+  communication safety coverage must be reconciled against #1198–#1201.
+- Keep #1203 open until the remaining engineering acceptance evidence is
+  implemented and verified.
