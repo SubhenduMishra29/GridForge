@@ -7137,3 +7137,30 @@ Verification:
 - Source-level integration only. No tests, imports, CI, GUI or save/reopen
   runtime was executed.
 ======================================================================
+======================================================================
+GridForge V2 — Traceable temperature calibration evidence contracts
+Date: 2026-11-28
+Repository: SubhenduMishra29/GridForge
+Branch: feature/temperature-calibration-contracts-2026-11-28
+Base: 136b27aa9cd9e25603d0bb9a02c81722dd0ba8c6
+
+Contribution to issue #1200:
+- Added immutable raw-to-engineering calibration point and calibration record
+  contracts with stable IDs, instrument ownership, revision, explicit units,
+  calibration standard, ISO-8601 calibration/expiry timestamps and optional
+  expanded uncertainty.
+- Enforced finite values, strictly increasing raw inputs, monotonic engineering
+  outputs, at least two points, valid time ordering and non-negative uncertainty.
+- Linked optional calibration_id from a temperature instrument and validated
+  reciprocal ownership and engineering output-unit agreement in the inventory.
+- Extended the temperature inventory codec with an optional calibrations array;
+  existing schema-1 payloads without this field remain readable.
+- No calibration values, transfer curves, sensor type, uncertainty or validity
+  periods are inferred. This is evidence/configuration only; it does not execute
+  interpolation, acquire hardware data or publish MeasurementChannels.
+
+Verification:
+- Static source review and fetch-back only. No tests, imports, runtime, hardware,
+  GUI, startup or CI were executed.
+======================================================================
+
