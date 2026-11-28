@@ -94,7 +94,12 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
                 offset_y=float(position.y()) - self._anchor_y,
             )
         except Exception:
-            self.setPos(previous_position)
+            try:
+                self.setPos(previous_position)
+            except RuntimeError:
+                # A failing refresh may already have replaced the graphics item.
+                # In that case the active scene projection owns the visible state.
+                pass
             self._position_before_drag = previous_position
             _LOGGER.exception(
                 "Unable to persist terminal-block SLD layout for %s",
