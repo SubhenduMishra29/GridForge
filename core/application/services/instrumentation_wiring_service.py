@@ -18,7 +18,7 @@ from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
     SignalCarrierBinding, SignalDefinition, SignalEndpointBinding, PhysicalConnectionHop,
     TerminalBlock, TerminalPoint, TerminalAccessory,
-    CTSecondaryCircuitState,
+    CTSecondaryCircuitState, CTSecondaryCircuit,
     TerminalAccessoryState,
 )
 
