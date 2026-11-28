@@ -7105,3 +7105,35 @@ Verification boundary:
 - Source-level reconciliation only. No Qt interaction, tests, imports or GUI
   runtime were executed. PR #1272 remains subject to final merge reconciliation.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Canonical Instrumentation Engineering Schedules
+Date: 2026-11-28
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-engineering-schedules-mainline
+Issue: #1203
+
+Correction:
+- Added an immutable Application schedule read model and a read-only builder
+  derived exclusively from the detached canonical InstrumentationWiringReadModel.
+- Added cable, core, terminal-block/terminal, instrument-loop,
+  interconnection and point-to-point schedule projections.
+- Joined signal tags and endpoint resolution diagnostics by stable IDs;
+  unresolved or missing endpoint resolution remains explicitly unresolved.
+- Included terminal accessory state and conductive-pair information in
+  interconnection/point-to-point output.
+- Preserved unspecified engineering properties as None; no cable sizes,
+  construction, lengths, ratings, terminal assignments or routes are inferred.
+- Exported the schedule builder and read model through core.application.
+
+Boundary:
+- This adds generated read-side schedules only. It does not create a second
+  editable schedule store or change Core physical connectivity.
+- It does not complete all #1203 acceptance criteria, including full physical
+  route authoring, cross-canvas selection/highlighting and save/reopen proof.
+
+Verification:
+- Source-level integration only. No tests, imports, CI, GUI or save/reopen
+  runtime was executed.
+======================================================================
