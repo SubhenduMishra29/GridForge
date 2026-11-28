@@ -427,6 +427,7 @@ def test_schema_four_instrumentation_wiring_remains_readable_after_current_schem
     payload.pop("terminal_blocks")
     payload.pop("terminal_points")
     payload.pop("terminal_accessories")
+    payload.pop("ct_secondary_circuits")
     for core in payload["cores"]:
         for terminal in core.get("terminal_path", []):
             terminal.pop("terminal_point_id", None)
