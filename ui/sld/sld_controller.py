@@ -68,6 +68,7 @@ class SLDController:
         self._application = application
         self._workspace_lifecycle = workspace_lifecycle
         self._document_activation_handler = None
+        self._presentation_refresh_handler = None
         self._active_layer_by_document: dict[str, str] = {}
         if self._application is not None:
             self._application.event_bus.subscribe(ProjectLoaded, self._on_project_loaded)
@@ -102,6 +103,26 @@ class SLDController:
                 "SLDController is already bound to a different ProjectWorkspaceLifecycle."
             )
         self._workspace_lifecycle = lifecycle
+
+    def bind_presentation_refresh_handler(self, handler: Any) -> None:
+        """Bind the canonical canvas refresh used after SLD-only presentation edits."""
+        if not callable(handler):
+            raise TypeError("presentation refresh handler must be callable.")
+        if self._presentation_refresh_handler is handler:
+            return
+        if self._presentation_refresh_handler is not None:
+            raise RuntimeError("A presentation refresh handler is already bound.")
+        self._presentation_refresh_handler = handler
+
+    def unbind_presentation_refresh_handler(self, handler: Any) -> None:
+        """Release only the refresh handler installed by the owning canvas composition."""
+        if self._presentation_refresh_handler is handler:
+            self._presentation_refresh_handler = None
+
+    def _refresh_presentation(self) -> None:
+        handler = self._presentation_refresh_handler
+        if handler is not None:
+            handler()
 
     def bind_document_activation_handler(self, handler: Any) -> None:
         """Bind document activation to the coordinated workspace transaction.
@@ -254,6 +275,7 @@ class SLDController:
         self._active_layer_by_document.clear()
         self._state.reset()
         self._document_activation_handler = None
+        self._presentation_refresh_handler = None
 
     @property
     def document_count(self) -> int:
@@ -658,6 +680,45 @@ class SLDController:
         if not result.success:
             raise RuntimeError(result.message)
         self._state.mark_dirty()
+
+    def set_instrumentation_terminal_block_layout(
+        self,
+        block_id: str,
+        *,
+        offset_x: float,
+        offset_y: float,
+        visible: bool = True,
+    ) -> None:
+        """Persist one terminal-block SLD layout after canonical identity resolution."""
+        document = self._require_active_document()
+        read_model = self.application.read_instrumentation_wiring()
+        matches = tuple(item for item in read_model.terminal_blocks if str(item.get("id", "")) == block_id)
+        if len(matches) != 1:
+            raise ValueError("Terminal-block layout target is not uniquely present in the active Application inventory.")
+        panel_id = str(matches[0].get("panel_id", ""))
+        panel_nodes = tuple(node for node in document.model.nodes if node.equipment_id == panel_id)
+        if len(panel_nodes) != 1:
+            raise ValueError("Terminal-block layout requires exactly one panel node in the active SLD document.")
+        document.set_instrumentation_terminal_block_layout(
+            block_id, offset_x=offset_x, offset_y=offset_y, visible=visible,
+        )
+        self._state.mark_dirty()
+        self._refresh_presentation()
+
+    def clear_instrumentation_terminal_block_layout(self, block_id: str) -> None:
+        """Restore the default panel-relative layout for one terminal block."""
+        document = self._require_active_document()
+        read_model = self.application.read_instrumentation_wiring()
+        matches = tuple(item for item in read_model.terminal_blocks if str(item.get("id", "")) == block_id)
+        if len(matches) != 1:
+            raise ValueError("Terminal-block layout target is not uniquely present in the active Application inventory.")
+        panel_id = str(matches[0].get("panel_id", ""))
+        panel_nodes = tuple(node for node in document.model.nodes if node.equipment_id == panel_id)
+        if len(panel_nodes) != 1:
+            raise ValueError("Terminal-block layout requires exactly one panel node in the active SLD document.")
+        document.clear_instrumentation_terminal_block_layout(block_id)
+        self._state.mark_dirty()
+        self._refresh_presentation()
 
     def set_instrumentation_wiring_route(
         self,

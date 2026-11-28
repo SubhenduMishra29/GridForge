@@ -315,7 +315,10 @@ class ReadOnlySLDViewport(QWidget):
         """Render committed presentation data without tools, selection, or snapping."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._projection.project(document.model, document.annotation_blocks, document.layers)
+        snapshot = self._projection.project(
+            document.model, document.annotation_blocks, document.layers,
+            terminal_block_layouts=document.instrumentation_terminal_block_layouts(),
+        )
         horizontal = self._view.horizontalScrollBar()
         vertical = self._view.verticalScrollBar()
         horizontal_blocked = horizontal.blockSignals(True)
@@ -440,6 +443,23 @@ class SLDCanvasSurface(QWidget):
         zoom_in.clicked.connect(self._zoom_in_callback)
         header_layout.addWidget(zoom_in)
 
+        density_combo = QComboBox(header)
+        density_combo.setObjectName("SLDAnnotationDensity")
+        density_combo.setToolTip("Choose how much annotation detail is shown on the SLD.")
+        density_combo.addItem("Labels: Minimal", "minimal")
+        density_combo.addItem("Labels: Standard", "standard")
+        density_combo.addItem("Labels: All", "all")
+        density_combo.setCurrentIndex(density_combo.findData(
+            sld_canvas_render_system.annotation_density
+        ))
+        self._annotation_density_combo = density_combo
+        self._density_changed_callback = (
+            lambda _index: sld_canvas_render_system.set_annotation_density(
+                density_combo.currentData()
+            )
+        )
+        density_combo.currentIndexChanged.connect(self._density_changed_callback)
+        header_layout.addWidget(density_combo)
 
         root.addWidget(header)
 
@@ -486,6 +506,16 @@ class SLDCanvasSurface(QWidget):
                 controller.remove_zoom_changed_listener(self._zoom_changed_listener)
             except Exception:
                 _LOGGER.exception("Failed to detach SLD surface zoom readout listener")
+
+        density_combo = getattr(self, "_annotation_density_combo", None)
+        density_callback = getattr(self, "_density_changed_callback", None)
+        self._annotation_density_combo = None
+        self._density_changed_callback = None
+        if density_combo is not None and density_callback is not None:
+            try:
+                density_combo.currentIndexChanged.disconnect(density_callback)
+            except Exception:
+                _LOGGER.exception("Failed to disconnect SLD annotation density callback")
 
         # Disconnect the exact zoom slots installed by this surface so a
         # retained editor cannot keep the disposed NavigationController alive.
@@ -536,7 +566,10 @@ class SLDCanvasSurface(QWidget):
         """Present the Application-authoritative SLD document on this surface."""
         if not isinstance(document, SLDDocument):
             raise TypeError("document must be an SLDDocument.")
-        snapshot = self._sld_canvas_projection.project(document.model, document.annotation_blocks, document.layers)
+        snapshot = self._sld_canvas_projection.project(
+            document.model, document.annotation_blocks, document.layers,
+            terminal_block_layouts=document.instrumentation_terminal_block_layouts(),
+        )
         self._sld_canvas_render_system.synchronize(snapshot)
         self._document_id = document.document_id
         self._sld_canvas_snapshot = snapshot
@@ -571,6 +604,7 @@ class SLDCanvasSurface(QWidget):
             document.annotation_blocks,
             document.layers,
             instrumentation_wiring=instrumentation_wiring,
+            terminal_block_layouts=document.instrumentation_terminal_block_layouts(),
         )
         layered_draft = DraftSLDCanvasSnapshot(
             nodes=draft_snapshot.nodes,
@@ -677,10 +711,18 @@ class CanvasComposition:
     draft_sld_projection: DraftSLDProjection | None = None
     sld_inspector: Any = None
     _disposed: bool = False
+    _presentation_refresh_callback: Any = None
 
     def __post_init__(self) -> None:
         self.surface.bind_composition(self)
         self.route_edit_controller.bind_refresh_callback(self.refresh_active_document)
+        self._presentation_refresh_callback = self.refresh_active_document
+        self.sld_controller.bind_presentation_refresh_handler(
+            self._presentation_refresh_callback,
+        )
+        self.sld_canvas_render_system.bind_terminal_block_layout_handler(
+            self.sld_controller.set_instrumentation_terminal_block_layout,
+        )
 
     def refresh_active_document(self):
         """Reproject the active document after a presentation-only route edit."""
@@ -688,8 +730,11 @@ class CanvasComposition:
         if document is None:
             return None
         if self.draft_sld_projection is None:
-            raise RuntimeError("CanvasComposition requires DraftSLDProjection to refresh the active document.")
-        draft_snapshot = self.draft_sld_projection.project()
+            draft_snapshot = DraftSLDCanvasSnapshot(
+                nodes=(), connections=(), layers=document.layers,
+            )
+        else:
+            draft_snapshot = self.draft_sld_projection.project()
         wiring_projection = self.sld_controller.read_instrumentation_wiring_projection()
         return self.surface.present_composite_document(
             document,
@@ -743,6 +788,9 @@ class CanvasComposition:
         # project-state cleanup still cancels interaction and clears selection
         # and preview state without invoking renderer.clear() a second time.
         self._clear_project_state(clear_sld_graphics=False)
+        self.sld_controller.unbind_presentation_refresh_handler(
+            self._presentation_refresh_callback,
+        )
         failures: list[tuple[str, BaseException]] = []
         if self.draft_sld_projection is not None:
             self._run_cleanup(

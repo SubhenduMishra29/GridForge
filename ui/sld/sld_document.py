@@ -14,6 +14,7 @@ presentation geometry. It never owns authoritative electrical truth.
 from __future__ import annotations
 
 from collections.abc import Callable
+import math
 from typing import Any, Dict, Mapping, Optional
 
 from ui.workspace.document import Document
@@ -305,6 +306,74 @@ class SLDDocument(Document):
         del routes[key]
         self.set_metadata(self.INSTRUMENTATION_WIRING_ROUTES_KEY, routes)
 
+    INSTRUMENTATION_TERMINAL_BLOCK_LAYOUTS_KEY = "instrumentation_terminal_block_layouts"
+
+    def instrumentation_terminal_block_layouts(self) -> Dict[str, Dict[str, Any]]:
+        """Return detached SLD-only terminal-block offsets and visibility."""
+        raw = self.metadata.get(self.INSTRUMENTATION_TERMINAL_BLOCK_LAYOUTS_KEY, {})
+        if not isinstance(raw, Mapping):
+            raise ValueError("SLD instrumentation terminal-block layouts must be a mapping.")
+        normalized: Dict[str, Dict[str, Any]] = {}
+        for block_id, value in raw.items():
+            if not isinstance(block_id, str) or not block_id or block_id != block_id.strip():
+                raise ValueError("Terminal-block layout keys must be canonical non-empty IDs.")
+            if not isinstance(value, Mapping):
+                raise ValueError("Terminal-block layout values must be mappings.")
+            offset_x = value.get("offset_x", 70.0)
+            offset_y = value.get("offset_y", 60.0)
+            visible = value.get("visible", True)
+            if (
+                isinstance(offset_x, bool) or not isinstance(offset_x, (int, float))
+                or not math.isfinite(float(offset_x))
+                or isinstance(offset_y, bool) or not isinstance(offset_y, (int, float))
+                or not math.isfinite(float(offset_y))
+            ):
+                raise ValueError("Terminal-block layout offsets must be finite numbers.")
+            if not isinstance(visible, bool):
+                raise ValueError("Terminal-block layout visibility must be boolean.")
+            normalized[block_id] = {
+                "offset_x": float(offset_x),
+                "offset_y": float(offset_y),
+                "visible": visible,
+            }
+        return normalized
+
+    def set_instrumentation_terminal_block_layout(
+        self,
+        block_id: str,
+        *,
+        offset_x: float,
+        offset_y: float,
+        visible: bool = True,
+    ) -> None:
+        """Persist one terminal-block annotation layout in this SLD document only."""
+        if not isinstance(block_id, str) or not block_id or block_id != block_id.strip():
+            raise ValueError("block_id must be a canonical non-empty string.")
+        if (
+            isinstance(offset_x, bool) or not isinstance(offset_x, (int, float))
+            or not math.isfinite(float(offset_x))
+            or isinstance(offset_y, bool) or not isinstance(offset_y, (int, float))
+            or not math.isfinite(float(offset_y))
+        ):
+            raise ValueError("Terminal-block layout offsets must be finite numbers.")
+        if not isinstance(visible, bool):
+            raise ValueError("visible must be boolean.")
+        layouts = self.instrumentation_terminal_block_layouts()
+        layouts[block_id] = {
+            "offset_x": float(offset_x),
+            "offset_y": float(offset_y),
+            "visible": visible,
+        }
+        self.set_metadata(self.INSTRUMENTATION_TERMINAL_BLOCK_LAYOUTS_KEY, layouts)
+
+    def clear_instrumentation_terminal_block_layout(self, block_id: str) -> None:
+        """Remove one SLD-only layout override and restore projection defaults."""
+        layouts = self.instrumentation_terminal_block_layouts()
+        if block_id not in layouts:
+            return
+        del layouts[block_id]
+        self.set_metadata(self.INSTRUMENTATION_TERMINAL_BLOCK_LAYOUTS_KEY, layouts)
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the SLD document and its structural model."""
         return {
@@ -351,6 +420,8 @@ class SLDDocument(Document):
         self._annotation_blocks.clear()
         if self.instrumentation_wiring_routes():
             self.set_metadata(self.INSTRUMENTATION_WIRING_ROUTES_KEY, {})
+        if self.instrumentation_terminal_block_layouts():
+            self.set_metadata(self.INSTRUMENTATION_TERMINAL_BLOCK_LAYOUTS_KEY, {})
         self.mark_modified()
 
     def __repr__(self) -> str:
