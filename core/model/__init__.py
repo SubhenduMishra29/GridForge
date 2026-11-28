@@ -80,6 +80,7 @@ from .temperature_instrument import (
     TemperatureTerminalMapping, TemperatureReceiverInputKind, TemperatureReceiverInput,
     TemperatureAlarmTripBinding, TemperatureThermocoupleCableClass,
     TemperatureThermocoupleCableSpec, TemperatureInstrumentInventory,
+    TemperatureCalibrationPoint, TemperatureCalibrationRecord,
 )
 
 __all__ = (
