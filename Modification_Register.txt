@@ -7024,3 +7024,24 @@ Canvas refresh lifecycle correction:
 - The canonical SelectTool dispatches canvas mouse events before Qt's graphics-item handlers; terminal-block dragging is therefore integrated into SelectTool using the hit's stable annotation identity. It moves only the terminal-block label and commits through the renderer item's explicit commit method; terminal-point labels remain non-movable and follow the refreshed block offset.
 
 - Input-path reconciliation: GraphicsView dispatches pointer events to InteractionManager/SelectTool before Qt's native scene-item handlers. SelectTool now resolves the terminal-block annotation by stable presentation identity, moves only that annotation during the drag, and invokes its explicit persistence commit on release; rejected commits restore the captured pre-drag position. Terminal-point selection remains click-only.
+
+
+======================================================================
+GridForge V2 — Terminal-block drag commit callback lifetime correction
+Date: 2026-11-28
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-terminal-block-layout-visibility
+PR: #1272
+
+Correction:
+- Terminal-block drag commit captures the accepted graphics position before
+  invoking the controller callback. The callback synchronously refreshes the
+  canvas and may replace the old graphics item; the success path no longer
+  dereferences that item after the callback returns.
+- Failed persistence restores the prior drag position when the graphics item
+  remains alive and tolerates a refresh that already replaced the item.
+
+Verification boundary:
+- Source-level reconciliation only. No Qt interaction, tests, imports or GUI
+  runtime were executed. PR #1272 remains subject to final merge reconciliation.
+======================================================================
