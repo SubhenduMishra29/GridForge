@@ -7177,3 +7177,39 @@ Verification:
 - Source-level integration/reconciliation only. Tests, imports, CI, GUI and
   project save/reopen were not executed.
 ======================================================================
+
+
+======================================================================
+GridForge V2 — Traceable Temperature Calibration Evidence
+Date: 2026-11-28
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1200-temperature-calibration-evidence-mainline
+Issue: #1200
+
+Correction:
+- Added immutable TemperatureCalibrationPoint and TemperatureCalibrationRecord
+  contracts with stable IDs, instrument ownership, revision, raw/output units,
+  calibration standard, timezone-qualified calibration/expiry timestamps and
+  optional expanded uncertainty.
+- Enforced finite non-boolean values, strictly increasing raw input points,
+  strictly monotonic engineering outputs, minimum point count, timestamp
+  ordering and non-negative uncertainty.
+- Added optional calibration_id to TemperatureInstrument and reciprocal
+  instrument/calibration ownership plus engineering output-unit validation.
+- Extended the existing temperature inventory codec with an optional
+  calibrations collection; schema-1 payloads without the field remain readable.
+- Exported the calibration evidence model types.
+- Added model and persistence regression-test source for validation,
+  instrument ownership, round-trip and legacy payload compatibility.
+
+Boundary:
+- Calibration evidence is configuration/provenance only. It does not perform
+  interpolation, sensor transfer physics, cold-junction or lead compensation,
+  filtering, hardware acquisition, quality evaluation or MeasurementChannel
+  publication. Trusted MeasurementChannel ingress remains authoritative.
+- No calibration values or sensor characteristics are inferred.
+
+Verification:
+- Source-level integration/reconciliation only. Tests, imports, CI, GUI,
+  hardware and project save/reopen were not executed.
+======================================================================
