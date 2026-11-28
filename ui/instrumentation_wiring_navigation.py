@@ -144,6 +144,8 @@ class InstrumentationWiringNavigator:
                 f"Port {port} | Physical carriers: {', '.join(carrier_ids)}"
             )
             targets.setdefault(signal_id, []).append({
+                "project_id": project_id,
+                "activation_generation": generation,
                 "signal_id": signal_id,
                 "binding_id": binding_id,
                 "endpoint_kind": endpoint_kind,
@@ -170,8 +172,9 @@ class InstrumentationWiringNavigator:
         if not isinstance(target, Mapping):
             return WiringNavigationResult(False, "Signal consumer target is invalid.")
         required = (
-            "signal_id", "binding_id", "endpoint_kind", "endpoint_id",
-            "owner_id", "port", "target_editor", "target_object_id",
+            "project_id", "activation_generation", "signal_id", "binding_id",
+            "endpoint_kind", "endpoint_id", "owner_id", "port",
+            "target_editor", "target_object_id",
         )
         values = {key: str(target.get(key) or "").strip() for key in required}
         if any(not value for value in values.values()):
@@ -197,6 +200,11 @@ class InstrumentationWiringNavigator:
         identity = self._active_project_identity()
         if identity is None:
             return WiringNavigationResult(False, "Instrumentation wiring navigation requires an active project.")
+        if (
+            values["project_id"] != identity[0]
+            or values["activation_generation"] != str(identity[1])
+        ):
+            return WiringNavigationResult(False, "Signal consumer label belongs to a previous project activation.")
         resolver = getattr(self._application, "resolve_instrumentation_signal_endpoints", None)
         if not callable(resolver):
             return WiringNavigationResult(False, "Application signal-endpoint resolution is unavailable.")

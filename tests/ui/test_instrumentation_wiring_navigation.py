@@ -157,3 +157,24 @@ def test_sld_protection_consumer_navigation_selects_protection_element_owner():
         ("refresh", "protection"),
         ("select", "protection-element-2"),
     ]
+
+
+def test_sld_consumer_navigation_rejects_target_from_previous_project_activation():
+    application = _Application((_resolution(),))
+    calls = []
+    navigator = InstrumentationWiringNavigator(
+        application=application,
+        activate_sld=lambda: None,
+        refresh_sld=lambda: None,
+        surface=_Surface(),
+        activate_editor=lambda editor: calls.append(("activate", editor)),
+        select_object=lambda object_id: calls.append(("select", object_id)),
+    )
+    target = navigator.provenance_targets()["signal-1"][0]
+    application.project_lifecycle.activation_generation = 8
+    application.resolutions = (_resolution(generation=8),)
+
+    result = navigator.navigate_to_consumer(target)
+
+    assert result.success is False
+    assert calls == []
