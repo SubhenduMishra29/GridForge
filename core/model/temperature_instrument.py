@@ -7,6 +7,7 @@ inputs; this module does not invent wiring, ranges, thresholds or settings.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from math import isfinite
 import re
@@ -220,6 +221,7 @@ class TemperatureInstrument:
     sensor_input_mappings: tuple[TemperatureTerminalMapping, ...] = ()
     receiver_input_id: Optional[str] = None
     thermocouple_type: Optional[str] = None
+    calibration_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field in ("id", "tag", "asset_id", "location", "sensor_equipment_id"):
@@ -231,7 +233,7 @@ class TemperatureInstrument:
         ):
             if not isinstance(getattr(self, field), enum_type):
                 raise TypeError(f"{field} must be a {enum_type.__name__}.")
-        for field in ("sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "receiver_input_id", "thermocouple_type"):
+        for field in ("sensor_configuration", "interface_equipment_id", "measurement_channel_id", "unit", "receiver_input_id", "thermocouple_type", "calibration_id"):
             object.__setattr__(self, field, _optional(getattr(self, field), field))
         if self.thermocouple_type is not None:
             object.__setattr__(self, "thermocouple_type", self.thermocouple_type.upper())
@@ -376,6 +378,65 @@ class TemperatureAlarmTripBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class TemperatureCalibrationPoint:
+    """One explicit raw-input to engineering-output calibration pair."""
+    raw_value: float
+    engineering_value: float
+
+    def __post_init__(self) -> None:
+        raw = _number(self.raw_value, "raw_value")
+        engineering = _number(self.engineering_value, "engineering_value")
+        if raw is None or engineering is None:
+            raise ValueError("Calibration point values must be finite numbers.")
+        object.__setattr__(self, "raw_value", raw)
+        object.__setattr__(self, "engineering_value", engineering)
+
+
+@dataclass(frozen=True, slots=True)
+class TemperatureCalibrationRecord:
+    """Traceable calibration evidence; it does not itself acquire or transform samples."""
+    id: str
+    instrument_id: str
+    revision: str
+    input_unit: str
+    output_unit: str
+    points: tuple[TemperatureCalibrationPoint, ...]
+    calibration_standard: str
+    calibrated_at: str
+    valid_until: Optional[str] = None
+    expanded_uncertainty: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        for field in ("id", "instrument_id", "revision", "input_unit", "output_unit",
+                      "calibration_standard", "calibrated_at"):
+            object.__setattr__(self, field, _text(getattr(self, field), field))
+        if self.valid_until is not None:
+            object.__setattr__(self, "valid_until", _text(self.valid_until, "valid_until"))
+        try:
+            calibrated = datetime.fromisoformat(self.calibrated_at.replace("Z", "+00:00"))
+            expiry = datetime.fromisoformat(self.valid_until.replace("Z", "+00:00")) if self.valid_until else None
+        except ValueError as exc:
+            raise ValueError("Calibration timestamps must use ISO-8601 format.") from exc
+        if expiry is not None and expiry <= calibrated:
+            raise ValueError("valid_until must be later than calibrated_at.")
+        points = tuple(self.points)
+        if len(points) < 2 or any(not isinstance(item, TemperatureCalibrationPoint) for item in points):
+            raise ValueError("A calibration requires at least two typed calibration points.")
+        raw_values = [item.raw_value for item in points]
+        if any(right <= left for left, right in zip(raw_values, raw_values[1:])):
+            raise ValueError("Calibration raw input points must be strictly increasing.")
+        outputs = [item.engineering_value for item in points]
+        deltas = [right - left for left, right in zip(outputs, outputs[1:])]
+        if not (all(value > 0 for value in deltas) or all(value < 0 for value in deltas)):
+            raise ValueError("Calibration engineering outputs must be strictly monotonic.")
+        uncertainty = _number(self.expanded_uncertainty, "expanded_uncertainty")
+        if uncertainty is not None and uncertainty < 0:
+            raise ValueError("expanded_uncertainty cannot be negative.")
+        object.__setattr__(self, "points", points)
+        object.__setattr__(self, "expanded_uncertainty", uncertainty)
+
+
+@dataclass(frozen=True, slots=True)
 class TemperatureInstrumentInventory:
     """Immutable service-specific inventory; no implicit legacy classification."""
 
@@ -384,6 +445,7 @@ class TemperatureInstrumentInventory:
     receiver_inputs: tuple[TemperatureReceiverInput, ...] = ()
     alarm_trip_bindings: tuple[TemperatureAlarmTripBinding, ...] = ()
     thermocouple_cable_specs: tuple[TemperatureThermocoupleCableSpec, ...] = ()
+    calibrations: tuple[TemperatureCalibrationRecord, ...] = ()
 
     def __post_init__(self) -> None:
         groups = (
@@ -392,6 +454,7 @@ class TemperatureInstrumentInventory:
             ("receiver_inputs", self.receiver_inputs, TemperatureReceiverInput),
             ("alarm_trip_bindings", self.alarm_trip_bindings, TemperatureAlarmTripBinding),
             ("thermocouple_cable_specs", self.thermocouple_cable_specs, TemperatureThermocoupleCableSpec),
+            ("calibrations", self.calibrations, TemperatureCalibrationRecord),
         )
         all_ids: list[str] = []
         for name, values, expected in groups:
@@ -407,6 +470,7 @@ class TemperatureInstrumentInventory:
             raise ValueError("Temperature instrument records must have globally unique IDs.")
         instruments = {item.id: item for item in self.instruments}
         interfaces = {item.id: item for item in self.interfaces}
+        calibrations = {item.id: item for item in self.calibrations}
         receiver_inputs = {item.id: item for item in self.receiver_inputs}
         receiver_channel_keys = [
             (item.module_equipment_id, item.channel_designation)
@@ -420,6 +484,17 @@ class TemperatureInstrumentInventory:
         interface_tags = [item.tag for item in self.interfaces]
         if len(interface_tags) != len(set(interface_tags)):
             raise ValueError("Temperature interface tags must be unique within this inventory.")
+        for instrument in self.instruments:
+            if instrument.calibration_id is not None:
+                calibration = calibrations.get(instrument.calibration_id)
+                if calibration is None or calibration.instrument_id != instrument.id:
+                    raise ValueError(f"Temperature instrument '{instrument.id}' references missing or mismatched calibration evidence.")
+                if calibration.output_unit != (instrument.unit or ""):
+                    raise ValueError(f"Temperature instrument '{instrument.id}' calibration output unit does not match its engineering unit.")
+        for calibration in self.calibrations:
+            instrument = instruments.get(calibration.instrument_id)
+            if instrument is None or instrument.calibration_id != calibration.id:
+                raise ValueError(f"Calibration '{calibration.id}' is not referenced by its owning temperature instrument.")
         for instrument in self.instruments:
             if instrument.sensor_technology is TemperatureSensorTechnology.THERMOCOUPLE and instrument.sensor_input_mappings and not instrument.thermocouple_type:
                 raise ValueError(f"Temperature instrument '{instrument.id}' has mapped thermocouple pins but no explicit thermocouple_type.")
