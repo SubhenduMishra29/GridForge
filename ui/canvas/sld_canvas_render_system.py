@@ -85,6 +85,7 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
         # replace/delete this graphics item. Capture the accepted position
         # before crossing that callback boundary; do not dereference the item
         # after a successful callback.
+        previous_position = self._position_before_drag
         self._position_before_drag = position
         try:
             self._on_commit(
@@ -93,7 +94,8 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
                 offset_y=float(position.y()) - self._anchor_y,
             )
         except Exception:
-            self.setPos(self._position_before_drag)
+            self.setPos(previous_position)
+            self._position_before_drag = previous_position
             _LOGGER.exception(
                 "Unable to persist terminal-block SLD layout for %s",
                 self._layout_identity,
