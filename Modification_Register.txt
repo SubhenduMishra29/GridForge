@@ -6967,3 +6967,63 @@ Regression coverage follow-up:
   rejection of preserved or unknown predecessor IDs.
 - Test source is authored only; it has not been executed. No CI or issue
   acceptance claim is made.
+
+
+
+======================================================================
+GridForge V2 — Terminal block and terminal point lifecycle integrity
+Date: 2026-11-27
+Repository: SubhenduMishra29/GridForge
+Branch: fix/issue-1203-terminal-lifecycle-integrity
+Issue: #1203 (focused lifecycle correction; not issue closure)
+
+Correction:
+- Normalized and validated lifecycle_status on TerminalBlock, TerminalPoint,
+  CableAssembly and PhysicalConnectionHop against the same explicit states:
+  PLANNED, INSTALLED, RETIRED and REPLACED.
+- Core inventory validation now prevents active terminal points under retired
+  or replaced blocks, active routes/bindings from referencing retired terminal
+  points, and non-removed accessories from referencing retired terminal
+  points or blocks.
+- Retired/replaced terminal points remain in the canonical inventory as
+  historical identities. Active capacity and terminal-number/designation
+  uniqueness are evaluated against active points, allowing a replacement
+  identity to occupy the same terminal position without deleting history.
+- Added TerminalPoint.revision and persisted it under instrumentation-wiring
+  schema 7. Existing schema-6 payloads remain readable and default missing
+  terminal-point revisions to 1.
+- Added Application retirement-command preparation for one terminal point or
+  an entire block. Block retirement transitions its still-active child points
+  atomically in the candidate inventory; terminal block/point revisions advance
+  with each record change and the existing command/transaction path applies
+  the complete inventory replacement.
+- Added lifecycle revision guards: installed/retired/replaced terminal
+  identities cannot be deleted, record edits must advance revision,
+  retired/replaced terminal records are immutable, and terminal lifecycle
+  cannot regress or be reactivated through forward commands. The typed
+  inventory command marks its inverse explicitly so normal undo restores the
+  prior status and revision. Active route/accessory/binding dependencies must
+  be reconciled before retirement succeeds.
+- Application Core-terminal validation now excludes RETIRED/REPLACED hop
+  snapshots from live endpoint resolution while preserving those snapshots
+  in history.
+
+Architecture:
+- Core remains the owner of terminal lifecycle truth and connectivity
+  invariants; Application prepares and applies one immutable inventory
+  replacement; UI remains a projection.
+- No Qt/QGraphics dependency, second wiring authority, package-export change
+  or ui/core/qt.py change was introduced.
+
+Verification boundary:
+- Regression source covers status normalization, lifecycle consistency,
+  retired-point route/accessory rejection, terminal-position replacement,
+  atomic block retirement, dependency rejection, history retention and
+  retired-hop activation.
+- Changed source was prepared from the current main baseline and fetched back
+  from the dedicated branch for source reconciliation.
+- No tests/CI, full-module imports, GUI interaction or save/reopen run.
+- Issue #1203 remains open because end-to-end authoring, cross-canvas trace,
+  schedules, domain-specific wiring safety, persistence acceptance and
+  protection integration remain broader outstanding requirements.
+======================================================================

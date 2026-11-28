@@ -13,6 +13,7 @@ from core.model.instrument_wiring import (
     WiringTagSeries, WiringTagPolicy,
 )
 from core.persistence.instrument_wiring_serializer import (
+    WIRING_SCHEMA_VERSION,
     InstrumentationWiringSerializationError,
     deserialize_instrumentation_wiring,
     serialize_instrumentation_wiring,
@@ -364,7 +365,7 @@ def test_inventory_rejects_two_signals_claiming_one_measurement_channel():
 
 
 
-def test_terminal_block_inventory_round_trips_schema_five_without_losing_point_identity():
+def test_terminal_block_inventory_round_trips_current_schema_without_losing_point_identity():
     from core.model.instrument_wiring import (
         CableAssembly,
         CableCore,
@@ -414,14 +415,15 @@ def test_terminal_block_inventory_round_trips_schema_five_without_losing_point_i
         terminal_accessories=(accessory,),
     )
     payload = serialize_instrumentation_wiring(inventory)
-    assert payload["schema"] == 5
+    assert payload["schema"] == WIRING_SCHEMA_VERSION
     restored = deserialize_instrumentation_wiring(payload)
     assert restored == inventory
 
 
-def test_schema_four_instrumentation_wiring_remains_readable_after_schema_five_upgrade():
+def test_schema_four_instrumentation_wiring_remains_readable_after_current_schema_upgrade():
     payload = serialize_instrumentation_wiring(sample_inventory())
     payload["schema"] = 4
+    payload.pop("endpoint_bindings")
     payload.pop("terminal_blocks")
     payload.pop("terminal_points")
     payload.pop("terminal_accessories")
@@ -436,3 +438,37 @@ def test_schema_four_instrumentation_wiring_remains_readable_after_schema_five_u
         hop["to_terminal"].pop("terminal_point_id", None)
 
     assert deserialize_instrumentation_wiring(payload) == sample_inventory()
+
+
+
+def test_terminal_point_revision_round_trips_schema_seven_and_defaults_for_schema_six():
+    from core.model.instrument_wiring import TerminalBlock, TerminalPoint
+
+    block = TerminalBlock(
+        id="tb-revision-persist", tag="TB-REVISION-PERSIST",
+        panel_id="PANEL-REV", location="MCC-REV", terminal_count=1,
+        revision=4, lifecycle_status="INSTALLED",
+    )
+    point = TerminalPoint(
+        id="tp-revision-persist", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1",
+        lifecycle_status="RETIRED", revision=7,
+    )
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(point,),
+    )
+
+    payload = serialize_instrumentation_wiring(inventory)
+    assert payload["schema"] == 7
+    assert payload["terminal_points"][0]["revision"] == 7
+    assert deserialize_instrumentation_wiring(payload) == inventory
+
+    legacy_schema_six = dict(payload)
+    legacy_schema_six["schema"] = 6
+    legacy_schema_six["terminal_points"] = [
+        {key: value for key, value in item.items() if key != "revision"}
+        for item in payload["terminal_points"]
+    ]
+    restored_legacy = deserialize_instrumentation_wiring(legacy_schema_six)
+    assert restored_legacy.terminal_points[0].revision == 1
+    assert restored_legacy.terminal_points[0].lifecycle_status == "RETIRED"

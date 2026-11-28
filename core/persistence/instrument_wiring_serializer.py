@@ -13,7 +13,7 @@ from core.model.instrument_wiring import (
     TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint, TerminalAccessory,
 )
 
-WIRING_SCHEMA_VERSION = 6
+WIRING_SCHEMA_VERSION = 7
 
 
 class InstrumentationWiringSerializationError(ValueError):
@@ -140,6 +140,7 @@ def serialize_instrumentation_wiring(
                 "function": item.function, "side": item.side,
                 "manufacturer_designation": item.manufacturer_designation,
                 "lifecycle_status": item.lifecycle_status,
+                "revision": item.revision,
             }
             for item in inventory.terminal_points
         ],
@@ -192,7 +193,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
     if not isinstance(data, Mapping):
         raise InstrumentationWiringSerializationError("Instrumentation wiring payload must be an object.")
     schema = data.get("schema")
-    if isinstance(schema, bool) or schema not in {2, 3, 4, 5, WIRING_SCHEMA_VERSION}:
+    if isinstance(schema, bool) or schema not in {2, 3, 4, 5, 6, WIRING_SCHEMA_VERSION}:
         raise InstrumentationWiringSerializationError(
             f"Unsupported instrumentation wiring schema {schema!r}."
         )
@@ -220,6 +221,11 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
             raise InstrumentationWiringSerializationError(f"Instrumentation wiring {key} must be an array of objects.")
 
     try:
+        terminal_point_optional_fields = {
+            "function", "side", "manufacturer_designation", "lifecycle_status",
+        }
+        if schema >= 7:
+            terminal_point_optional_fields.add("revision")
         _field_contracts = (
             ("cables", {"id", "tag", "service", "core_count"}, {"cable_type", "conductor_material", "cross_section_mm2", "rated_voltage_v", "length_m", "from_location", "to_location", "revision", "lifecycle_status"}, "Cable assembly"),
             ("cores", {"id", "cable_id", "core_number", "role"}, {"terminal_path", "colour", "pair_id", "core_tag", "conductor_material", "thermocouple_type", "thermocouple_polarity", "revision"}, "Cable core"),
@@ -241,7 +247,7 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                 ("terminal_blocks", {"id", "tag", "panel_id", "location", "terminal_count"},
                  {"terminal_type", "manufacturer", "part_number", "revision", "lifecycle_status"}, "Terminal block"),
                 ("terminal_points", {"id", "terminal_block_id", "terminal_number", "designation"},
-                 {"function", "side", "manufacturer_designation", "lifecycle_status"}, "Terminal point"),
+                 terminal_point_optional_fields, "Terminal point"),
                 ("terminal_accessories", {"id", "tag", "terminal_block_id", "kind", "state", "terminal_point_ids"},
                  {"conductive_pairs", "rated_voltage_v", "rated_current_a", "manufacturer", "part_number"}, "Terminal accessory"),
             )

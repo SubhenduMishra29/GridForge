@@ -33,6 +33,19 @@ def _positive_int(value: int, field: str) -> int:
     return value
 
 
+_LIFECYCLE_STATUSES = frozenset({"PLANNED", "INSTALLED", "RETIRED", "REPLACED"})
+_ACTIVE_LIFECYCLE_STATUSES = frozenset({"PLANNED", "INSTALLED"})
+
+
+def _lifecycle_status(value: str, field: str = "lifecycle_status") -> str:
+    status = _required_text(value, field).upper()
+    if status not in _LIFECYCLE_STATUSES:
+        raise ValueError(
+            f"{field} must be PLANNED, INSTALLED, RETIRED or REPLACED."
+        )
+    return status
+
+
 def _non_negative_finite(value: Optional[float], field: str) -> Optional[float]:
     if value is None:
         return None
@@ -135,8 +148,9 @@ class TerminalBlock:
     lifecycle_status: str = "PLANNED"
 
     def __post_init__(self) -> None:
-        for name in ("id", "tag", "panel_id", "location", "lifecycle_status"):
+        for name in ("id", "tag", "panel_id", "location"):
             object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        object.__setattr__(self, "lifecycle_status", _lifecycle_status(self.lifecycle_status))
         object.__setattr__(self, "terminal_count", _positive_int(self.terminal_count, "terminal_count"))
         object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
         for name in ("terminal_type", "manufacturer", "part_number"):
@@ -155,10 +169,13 @@ class TerminalPoint:
     side: Optional[str] = None
     manufacturer_designation: Optional[str] = None
     lifecycle_status: str = "PLANNED"
+    revision: int = 1
 
     def __post_init__(self) -> None:
-        for name in ("id", "terminal_block_id", "terminal_number", "designation", "function", "lifecycle_status"):
+        for name in ("id", "terminal_block_id", "terminal_number", "designation", "function"):
             object.__setattr__(self, name, _required_text(getattr(self, name), name))
+        object.__setattr__(self, "lifecycle_status", _lifecycle_status(self.lifecycle_status))
+        object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
         object.__setattr__(self, "function", self.function.upper())
         for name in ("side", "manufacturer_designation"):
             object.__setattr__(self, name, _optional_text(getattr(self, name), name))
@@ -243,8 +260,9 @@ class CableAssembly:
     lifecycle_status: str = "PLANNED"
 
     def __post_init__(self) -> None:
-        for field in ("id", "tag", "service", "lifecycle_status"):
+        for field in ("id", "tag", "service"):
             object.__setattr__(self, field, _required_text(getattr(self, field), field))
+        object.__setattr__(self, "lifecycle_status", _lifecycle_status(self.lifecycle_status))
         object.__setattr__(self, "core_count", _positive_int(self.core_count, "core_count"))
         for field in ("cable_type", "conductor_material", "from_location", "to_location"):
             object.__setattr__(self, field, _optional_text(getattr(self, field), field))
@@ -495,10 +513,7 @@ class PhysicalConnectionHop:
             raise ValueError("Physical connection hops require a cable-core or panel-wire carrier.")
         object.__setattr__(self, "carrier_id", _required_text(self.carrier_id, "carrier_id"))
         object.__setattr__(self, "revision", _positive_int(self.revision, "revision"))
-        status = _required_text(self.lifecycle_status, "lifecycle_status").upper()
-        if status not in {"PLANNED", "INSTALLED", "RETIRED", "REPLACED"}:
-            raise ValueError("lifecycle_status must be PLANNED, INSTALLED, RETIRED or REPLACED.")
-        object.__setattr__(self, "lifecycle_status", status)
+        object.__setattr__(self, "lifecycle_status", _lifecycle_status(self.lifecycle_status))
         object.__setattr__(self, "supersedes_hop_id", _optional_text(self.supersedes_hop_id, "supersedes_hop_id"))
         if self.supersedes_hop_id == self.id:
             raise ValueError("A physical connection hop cannot supersede itself.")
@@ -772,20 +787,37 @@ class InstrumentationWiringInventory:
                 raise ValueError(
                     f"Terminal point '{point.id}' references missing terminal block '{point.terminal_block_id}'."
                 )
+            if (
+                block.lifecycle_status not in _ACTIVE_LIFECYCLE_STATUSES
+                and point.lifecycle_status in _ACTIVE_LIFECYCLE_STATUSES
+            ):
+                raise ValueError(
+                    f"Terminal point '{point.id}' cannot be active while terminal block "
+                    f"'{block.id}' is {block.lifecycle_status}."
+                )
+            if block.lifecycle_status == "PLANNED" and point.lifecycle_status == "INSTALLED":
+                raise ValueError(
+                    f"Terminal point '{point.id}' cannot be INSTALLED while terminal block "
+                    f"'{block.id}' is still PLANNED."
+                )
+            # Retired/replaced terminal points remain in the inventory as history.
+            # Capacity and designation uniqueness apply to the current active positions.
+            if point.lifecycle_status not in _ACTIVE_LIFECYCLE_STATUSES:
+                continue
             terminal_point_counts[block.id] = terminal_point_counts.get(block.id, 0) + 1
             if terminal_point_counts[block.id] > block.terminal_count:
                 raise ValueError(
-                    f"Terminal block '{block.id}' has more terminal points than its declared terminal_count."
+                    f"Terminal block '{block.id}' has more active terminal points than its declared terminal_count."
                 )
             number_key = (point.terminal_block_id, point.terminal_number)
             designation_key = (point.terminal_block_id, point.designation)
             if number_key in terminal_numbers:
                 raise ValueError(
-                    f"Terminal block '{block.id}' has duplicate terminal number {point.terminal_number!r}."
+                    f"Terminal block '{block.id}' has duplicate active terminal number {point.terminal_number!r}."
                 )
             if designation_key in terminal_designations:
                 raise ValueError(
-                    f"Terminal block '{block.id}' has duplicate terminal designation {point.designation!r}."
+                    f"Terminal block '{block.id}' has duplicate active terminal designation {point.designation!r}."
                 )
             terminal_numbers.add(number_key)
             terminal_designations.add(designation_key)
@@ -825,19 +857,43 @@ class InstrumentationWiringInventory:
                 raise ValueError(
                     f"Terminal reference '{reference.terminal_point_id}' does not match its canonical terminal point record."
                 )
+            block = terminal_blocks_by_id.get(reference.equipment_id)
+            if block is None:
+                raise ValueError(
+                    f"Terminal reference '{reference.terminal_point_id}' has no canonical terminal block."
+                )
+            if block.lifecycle_status not in _ACTIVE_LIFECYCLE_STATUSES:
+                raise ValueError(
+                    f"Terminal reference '{reference.terminal_point_id}' belongs to non-active "
+                    f"terminal block '{block.id}'."
+                )
+            if point.lifecycle_status not in _ACTIVE_LIFECYCLE_STATUSES:
+                raise ValueError(
+                    f"Terminal reference '{reference.terminal_point_id}' points to a non-active terminal point."
+                )
 
         for accessory in self.terminal_accessories:
-            if accessory.terminal_block_id not in terminal_blocks_by_id:
+            block = terminal_blocks_by_id.get(accessory.terminal_block_id)
+            if block is None:
                 raise ValueError(
                     f"Terminal accessory '{accessory.id}' references missing terminal block '{accessory.terminal_block_id}'."
                 )
             if any(point_id not in terminal_points_by_id for point_id in accessory.terminal_point_ids):
                 raise ValueError(f"Terminal accessory '{accessory.id}' references a missing terminal point.")
-            if any(
-                terminal_points_by_id[point_id].terminal_block_id != accessory.terminal_block_id
-                for point_id in accessory.terminal_point_ids
-            ):
+            accessory_points = tuple(
+                terminal_points_by_id[point_id] for point_id in accessory.terminal_point_ids
+            )
+            if any(point.terminal_block_id != accessory.terminal_block_id for point in accessory_points):
                 raise ValueError(f"Terminal accessory '{accessory.id}' references a terminal point from another block.")
+            if accessory.state is not TerminalAccessoryState.REMOVED:
+                if block.lifecycle_status not in _ACTIVE_LIFECYCLE_STATUSES:
+                    raise ValueError(
+                        f"Terminal accessory '{accessory.id}' must be REMOVED before its terminal block is retired or replaced."
+                    )
+                if any(point.lifecycle_status not in _ACTIVE_LIFECYCLE_STATUSES for point in accessory_points):
+                    raise ValueError(
+                        f"Terminal accessory '{accessory.id}' must be REMOVED before any referenced terminal point is retired or replaced."
+                    )
 
     @staticmethod
     def _validate_unique_tags(records: tuple, label: str) -> None:

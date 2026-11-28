@@ -461,3 +461,143 @@ def test_retired_hop_keeps_historical_terminal_reference_after_terminal_replacem
         terminal_blocks=(live_block,), terminal_points=(live_point,),
     )
     assert inventory.connection_hops == (retired,)
+
+
+
+def test_terminal_lifecycle_statuses_are_normalized_and_unknown_values_rejected():
+    from core.model.instrument_wiring import TerminalBlock, TerminalPoint
+
+    block = TerminalBlock(
+        id="tb-status", tag="TB-STATUS", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=1, lifecycle_status="installed",
+    )
+    point = TerminalPoint(
+        id="tp-status", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="planned",
+    )
+    assert block.lifecycle_status == "INSTALLED"
+    assert point.lifecycle_status == "PLANNED"
+    assert point.revision == 1
+
+    with pytest.raises(ValueError, match="revision must be a positive integer"):
+        TerminalPoint(
+            id="tp-invalid-revision", terminal_block_id=block.id,
+            terminal_number="2", designation="X1:2", revision=0,
+        )
+    with pytest.raises(ValueError, match="lifecycle_status must be"):
+        TerminalBlock(
+            id="tb-invalid-status", tag="TB-INVALID", panel_id="PANEL-1",
+            location="MCC-1", terminal_count=1, lifecycle_status="COMMISSIONED",
+        )
+    with pytest.raises(ValueError, match="lifecycle_status must be"):
+        TerminalPoint(
+            id="tp-invalid-status", terminal_block_id="tb-status",
+            terminal_number="1", designation="X1:1", lifecycle_status="COMMISSIONED",
+        )
+
+
+def test_retired_terminal_block_cannot_retain_active_terminal_points():
+    from core.model.instrument_wiring import (
+        InstrumentationWiringInventory, TerminalBlock, TerminalPoint,
+    )
+
+    block = TerminalBlock(
+        id="tb-retired-parent", tag="TB-RETIRED-PARENT", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=1, lifecycle_status="RETIRED",
+    )
+    point = TerminalPoint(
+        id="tp-active-child", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="PLANNED",
+    )
+    with pytest.raises(ValueError, match="cannot be active while terminal block"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=(point,),
+        )
+
+
+def test_active_route_cannot_reference_a_retired_terminal_point():
+    from core.model.instrument_wiring import (
+        CableAssembly, CableCore, InstrumentationWiringInventory,
+        TerminalBlock, TerminalPoint, WiringConductorRole,
+        WiringTerminalReference,
+    )
+
+    block = TerminalBlock(
+        id="tb-route-retired", tag="TB-ROUTE-RETIRED", panel_id="PANEL-1",
+        location="MCC-1", terminal_count=1, lifecycle_status="INSTALLED",
+    )
+    point = TerminalPoint(
+        id="tp-route-retired", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="RETIRED",
+    )
+    reference = WiringTerminalReference(
+        block.id, point.terminal_number, point.designation,
+        terminal_point_id=point.id,
+    )
+    device = WiringTerminalReference("DEVICE-1", "AI+", "AI+")
+    cable = CableAssembly(
+        id="cable-retired-point", tag="C-RETIRED-POINT",
+        service="signal", core_count=1,
+    )
+    core = CableCore(
+        id="core-retired-point", cable_id=cable.id, core_number=1,
+        role=WiringConductorRole.SIGNAL, terminal_path=(device, reference),
+    )
+
+    with pytest.raises(ValueError, match="non-active terminal point"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core,),
+            terminal_blocks=(block,), terminal_points=(point,),
+        )
+
+
+def test_retired_terminal_point_can_be_replaced_at_the_same_active_position():
+    from core.model.instrument_wiring import (
+        InstrumentationWiringInventory, TerminalBlock, TerminalPoint,
+    )
+
+    block = TerminalBlock(
+        id="tb-position-history", tag="TB-POSITION-HISTORY",
+        panel_id="PANEL-1", location="MCC-1", terminal_count=1,
+        lifecycle_status="INSTALLED",
+    )
+    retired = TerminalPoint(
+        id="tp-position-old", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="RETIRED",
+    )
+    replacement = TerminalPoint(
+        id="tp-position-new", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="INSTALLED",
+    )
+
+    inventory = InstrumentationWiringInventory(
+        terminal_blocks=(block,), terminal_points=(retired, replacement),
+    )
+    assert inventory.terminal_points == (retired, replacement)
+
+
+def test_non_removed_terminal_accessory_cannot_reference_a_retired_point():
+    from core.model.instrument_wiring import (
+        InstrumentationWiringInventory, TerminalAccessory,
+        TerminalAccessoryKind, TerminalAccessoryState, TerminalBlock, TerminalPoint,
+    )
+
+    block = TerminalBlock(
+        id="tb-accessory-retired", tag="TB-ACCESSORY-RETIRED",
+        panel_id="PANEL-1", location="MCC-1", terminal_count=1,
+        lifecycle_status="INSTALLED",
+    )
+    point = TerminalPoint(
+        id="tp-accessory-retired", terminal_block_id=block.id,
+        terminal_number="1", designation="X1:1", lifecycle_status="RETIRED",
+    )
+    accessory = TerminalAccessory(
+        id="acc-accessory-retired", tag="ACC-ACCESSORY-RETIRED",
+        terminal_block_id=block.id, kind=TerminalAccessoryKind.OTHER,
+        state=TerminalAccessoryState.UNKNOWN, terminal_point_ids=(point.id,),
+    )
+    with pytest.raises(ValueError, match="must be REMOVED"):
+        InstrumentationWiringInventory(
+            terminal_blocks=(block,), terminal_points=(point,),
+            terminal_accessories=(accessory,),
+        )
