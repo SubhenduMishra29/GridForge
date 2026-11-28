@@ -48,6 +48,71 @@ class RenderDiagnostic:
     realization_stage: str = "node_realization"
 
 
+class _TerminalBlockAnnotationItem(QGraphicsTextItem):
+    """Movable SLD-only terminal-block label with a stable layout commit identity."""
+
+    def __init__(
+        self,
+        text: str,
+        *,
+        layout_identity: str,
+        anchor_x: float,
+        anchor_y: float,
+        on_commit: Callable[..., None],
+    ) -> None:
+        super().__init__(text)
+        self._layout_identity = layout_identity
+        self._anchor_x = float(anchor_x)
+        self._anchor_y = float(anchor_y)
+        self._on_commit = on_commit
+        self._position_before_drag = self.pos()
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
+        self.setToolTip("Drag to reposition this terminal block and its terminal labels.")
+
+    def begin_drag(self) -> None:
+        """Capture the last persisted position before SelectTool moves the label."""
+        self._position_before_drag = self.pos()
+
+    def mousePressEvent(self, event: Any) -> None:
+        self.begin_drag()
+        super().mousePressEvent(event)
+
+    def commit_drag_position(self) -> bool:
+        """Persist the current graphics position as panel-relative SLD metadata."""
+        position = self.pos()
+        # The commit callback synchronously refreshes the canvas and may
+        # replace/delete this graphics item. Capture the accepted position
+        # before crossing that callback boundary; do not dereference the item
+        # after a successful callback.
+        previous_position = self._position_before_drag
+        self._position_before_drag = position
+        try:
+            self._on_commit(
+                self._layout_identity,
+                offset_x=float(position.x()) - self._anchor_x,
+                offset_y=float(position.y()) - self._anchor_y,
+            )
+        except Exception:
+            try:
+                self.setPos(previous_position)
+            except RuntimeError:
+                # A failing refresh may already have replaced the graphics item.
+                # In that case the active scene projection owns the visible state.
+                pass
+            self._position_before_drag = previous_position
+            _LOGGER.exception(
+                "Unable to persist terminal-block SLD layout for %s",
+                self._layout_identity,
+            )
+            return False
+        return True
+
+    def mouseReleaseEvent(self, event: Any) -> None:
+        super().mouseReleaseEvent(event)
+        self.commit_drag_position()
+
+
 class SLDCanvasRenderSystem:
     """Render an SLD snapshot using explicitly composed dependencies."""
 
@@ -96,6 +161,8 @@ class SLDCanvasRenderSystem:
         if not math.isfinite(annotation_min_zoom) or annotation_min_zoom <= 0.0:
             raise ValueError("annotation_min_zoom must be finite and greater than zero.")
         self._annotation_min_zoom = annotation_min_zoom
+        self._annotation_density = "standard"
+        self._annotation_density_max_priority = 30
         self._zoom_level = 1.0
         self._annotations_zoom_visible = self._zoom_level >= self._annotation_min_zoom
         self._navigation_controller: Any = None
@@ -115,6 +182,7 @@ class SLDCanvasRenderSystem:
         self._connection_router = ConnectionRouter()
         self._endpoint_resolver = SLDEndpointResolver()
         self._route_edit_controller: Any = None
+        self._terminal_block_layout_handler: Callable[..., None] | None = None
         # Track only connections established by this renderer. Qt may emit a
         # RuntimeWarning (rather than raising) when disconnecting an absent slot.
         self._route_edit_bound_items: dict[int, Any] = {}
@@ -183,6 +251,22 @@ class SLDCanvasRenderSystem:
         if annotations_visible_at_zoom == self._annotations_zoom_visible:
             return
         self._annotations_zoom_visible = annotations_visible_at_zoom
+        self._reflow_annotation_layout()
+
+    @property
+    def annotation_density(self) -> str:
+        """Current transient label-density preset."""
+        return self._annotation_density
+
+    def set_annotation_density(self, density: str) -> None:
+        """Apply a presentation-only annotation density without changing document data."""
+        limits = {"minimal": 25, "standard": 30, "all": 100}
+        if not isinstance(density, str) or density not in limits:
+            raise ValueError("annotation density must be 'minimal', 'standard', or 'all'.")
+        if density == self._annotation_density:
+            return
+        self._annotation_density = density
+        self._annotation_density_max_priority = limits[density]
         self._reflow_annotation_layout()
 
     def bind_diagnostic_sink(self, sink: Callable[[RenderDiagnostic], None] | None) -> None:
@@ -374,6 +458,12 @@ class SLDCanvasRenderSystem:
             refresh = getattr(item, "_refresh_pen", None)
             if callable(refresh):
                 refresh()
+
+    def bind_terminal_block_layout_handler(self, handler: Callable[..., None] | None) -> None:
+        """Bind the SLDController presentation-layout command used by block labels."""
+        if handler is not None and not callable(handler):
+            raise TypeError("terminal-block layout handler must be callable or None.")
+        self._terminal_block_layout_handler = handler
 
     def bind_route_edit_controller(self, controller: Any) -> None:
         """Bind the existing route-edit controller to realized connection items."""
@@ -993,7 +1083,22 @@ class SLDCanvasRenderSystem:
                 continue
             previous_items = self._items.get(render_id, ())
             previous_item = previous_items[0] if previous_items else None
-            item = QGraphicsTextItem(annotation.text)
+            if (
+                annotation.selection_kind == "terminal_block"
+                and annotation.layout_identity
+                and annotation.anchor_x is not None
+                and annotation.anchor_y is not None
+                and self._terminal_block_layout_handler is not None
+            ):
+                item = _TerminalBlockAnnotationItem(
+                    annotation.text,
+                    layout_identity=annotation.layout_identity,
+                    anchor_x=annotation.anchor_x,
+                    anchor_y=annotation.anchor_y,
+                    on_commit=self._terminal_block_layout_handler,
+                )
+            else:
+                item = QGraphicsTextItem(annotation.text)
             if annotation.selection_kind is not None:
                 # Terminal block/point labels represent stable Application
                 # identities and participate in the canonical SelectTool hit path.
@@ -1043,7 +1148,11 @@ class SLDCanvasRenderSystem:
             if item is None:
                 continue
             base_visible = self._annotation_base_visibility.get(render_id, False)
-            if not base_visible or self._zoom_level < self._annotation_min_zoom:
+            if (
+                not base_visible
+                or self._zoom_level < self._annotation_min_zoom
+                or self._annotation_priorities[render_id] > self._annotation_density_max_priority
+            ):
                 item.setScale(1.0)
                 item.setVisible(False)
                 continue
@@ -1071,6 +1180,7 @@ class SLDCanvasRenderSystem:
             annotation.text, annotation.visible, annotation.layer_id,
             annotation.layer_visible, annotation.layer_opacity, annotation.layer_order,
             annotation.layer_locked, annotation.priority, annotation.selection_kind,
+            annotation.layout_identity, annotation.anchor_x, annotation.anchor_y,
         ))
 
     @staticmethod
@@ -1397,6 +1507,7 @@ class SLDCanvasRenderSystem:
         self._unbind_navigation_controller()
         self.clear()
         self._unbind_route_edit_controller()
+        self._terminal_block_layout_handler = None
 
 
 __all__ = ["RenderDiagnostic", "SLDCanvasRenderSystem"]
