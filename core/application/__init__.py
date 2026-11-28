@@ -51,6 +51,7 @@ from .project_transition import ProjectTransitionDecision, ProjectTransitionRequ
 from .recovery import ApplicationRecoveryStatus, ApplicationRecoveryComposition
 from .project_presentation import ProjectPresentationCollection
 from .instrumentation_wiring_endpoint_resolver import resolve_signal_endpoint_bindings
+from .instrumentation_wiring_schedules import build_instrumentation_wiring_schedules
 from .read_models import (
     ConfigurationReviewReadModel,
     InstrumentationWiringReadModel,
@@ -155,6 +156,8 @@ __all__ = [
     "MeasurementChannelConfigurationReadModel",
     "SignalEndpointResolutionReadModel",
     "resolve_signal_endpoint_bindings",
+    "build_instrumentation_wiring_schedules",
+    "InstrumentationWiringSchedulesReadModel",
     "ConfigurationReviewReadModel",
     "ElementReadModel",
     "NetworkReadModel",
