@@ -423,9 +423,19 @@ def test_temperature_calibration_evidence_is_typed_monotonic_and_owned_by_instru
         input_mode=TemperatureInputMode.DIRECT_SENSOR,
         unit="degF", calibration_id="cal-1",
     )
+    mismatched_calibration = TemperatureCalibrationRecord(
+        id="cal-2", instrument_id=mismatched.id, revision="REV-A",
+        input_unit="ohm", output_unit="degC",
+        points=(
+            TemperatureCalibrationPoint(100.0, 0.0),
+            TemperatureCalibrationPoint(138.5, 100.0),
+        ),
+        calibration_standard="LAB-CERT-2026-002",
+        calibrated_at="2026-10-01T09:00:00+05:30",
+    )
     with pytest.raises(ValueError, match="output unit does not match"):
         TemperatureInstrumentInventory(
-            instruments=(mismatched,), calibrations=(calibration,),
+            instruments=(mismatched,), calibrations=(mismatched_calibration,),
         )
 
 
