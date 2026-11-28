@@ -18,6 +18,8 @@ from core.model.instrument_wiring import (
     CableAssembly, CableCore, InstrumentationWiringInventory, PanelWire,
     SignalCarrierBinding, SignalDefinition, SignalEndpointBinding, PhysicalConnectionHop,
     TerminalBlock, TerminalPoint, TerminalAccessory,
+    CTSecondaryCircuitState,
+    TerminalAccessoryState,
 )
 
 
@@ -115,6 +117,44 @@ class InstrumentationWiringService:
                 f"resolved to {len(matches)} Core terminals; exactly one is required."
             )
 
+
+    @staticmethod
+    def _validate_ct_secondary_circuits(network: Any, inventory: InstrumentationWiringInventory) -> None:
+        """Fail closed for unsafe in-service CT secondary editing states."""
+        accessories = {item.id: item for item in inventory.terminal_accessories}
+        for circuit in inventory.ct_secondary_circuits:
+            try:
+                ct = network.get_by_identity(circuit.ct_id)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"CT secondary circuit '{circuit.id}' references CT '{circuit.ct_id}' which is not registered."
+                ) from exc
+            if getattr(ct, "id", None) != circuit.ct_id or getattr(ct, "element_type", None) != "CT":
+                raise ValueError(
+                    f"CT secondary circuit '{circuit.id}' must reference the exact Core CurrentTransformer identity."
+                )
+            if not bool(getattr(ct, "in_service", False)):
+                continue
+            if circuit.secondary_state is CTSecondaryCircuitState.UNKNOWN:
+                raise ValueError(
+                    f"In-service CT '{circuit.ct_id}' has UNKNOWN secondary state; resolve the physical circuit before activation."
+                )
+            if circuit.secondary_state is CTSecondaryCircuitState.ISOLATED:
+                raise ValueError(
+                    f"In-service CT '{circuit.ct_id}' cannot have an ISOLATED secondary circuit."
+                )
+            shorting = accessories[circuit.shorting_accessory_id]
+            if circuit.secondary_state is CTSecondaryCircuitState.OPEN:
+                if shorting.state is not TerminalAccessoryState.CLOSED:
+                    raise ValueError(
+                        f"In-service CT '{circuit.ct_id}' secondary is OPEN without a CLOSED, explicitly bridged shorting link."
+                    )
+            elif circuit.secondary_state is CTSecondaryCircuitState.CLOSED:
+                if shorting.state is not TerminalAccessoryState.OPEN:
+                    raise ValueError(
+                        f"In-service CT '{circuit.ct_id}' normal CLOSED secondary service requires the shorting link to be explicitly OPEN."
+                    )
+
     @classmethod
     def _validate_inventory_terminals(cls, network: Any, inventory: InstrumentationWiringInventory) -> None:
         references = []
@@ -126,6 +166,8 @@ class InstrumentationWiringService:
             if hop.lifecycle_status in {"PLANNED", "INSTALLED"}:
                 references.extend((hop.from_terminal, hop.to_terminal))
         references.extend(binding.endpoint.physical_terminal for binding in inventory.endpoint_bindings)
+        for circuit in inventory.ct_secondary_circuits:
+            references.extend((circuit.s1_terminal, circuit.s2_terminal))
         terminal_points = {item.id: item for item in inventory.terminal_points}
         terminal_blocks = {item.id: item for item in inventory.terminal_blocks}
         seen: set[tuple[str, str, str | None]] = set()
@@ -591,6 +633,7 @@ class InstrumentationWiringService:
         if not command.payload.get("allow_terminal_lifecycle_rollback", False):
             self._validate_terminal_lifecycle_revision(expected, replacement)
         self._validate_inventory_terminals(network, replacement)
+        self._validate_ct_secondary_circuits(network, replacement)
         if self._inventory_validator is not None:
             self._inventory_validator(replacement)
         self.validate_receiver_bindings(replacement)
@@ -663,6 +706,7 @@ class InstrumentationWiringService:
             if network is None or not callable(getattr(network, "get_by_identity", None)):
                 raise ValueError("An active project wiring inventory requires the canonical Core Network.")
             self._validate_inventory_terminals(network, candidate)
+            self._validate_ct_secondary_circuits(network, candidate)
             next_project_id = project_id.strip()
             next_generation = generation
             next_network = network
