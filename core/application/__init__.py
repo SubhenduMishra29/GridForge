@@ -55,6 +55,7 @@ from .instrumentation_wiring_schedules import build_instrumentation_wiring_sched
 from .read_models import (
     ConfigurationReviewReadModel,
     InstrumentationWiringReadModel,
+    InstrumentationWiringSchedulesReadModel,
     ElementReadModel,
     MeasurementChannelReadModel,
     MeasurementChannelConfigurationReadModel,
