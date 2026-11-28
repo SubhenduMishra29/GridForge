@@ -246,6 +246,7 @@ class InstrumentationWiringService:
             terminal_blocks=tuple(self._read_value(item) for item in inventory.terminal_blocks),
             terminal_points=tuple(self._read_value(item) for item in inventory.terminal_points),
             terminal_accessories=tuple(self._read_value(item) for item in inventory.terminal_accessories),
+            ct_secondary_circuits=tuple(self._read_value(item) for item in inventory.ct_secondary_circuits),
         )
 
     def allocate_tag(
@@ -287,6 +288,7 @@ class InstrumentationWiringService:
             TerminalBlock: "terminal_blocks",
             TerminalPoint: "terminal_points",
             TerminalAccessory: "terminal_accessories",
+            CTSecondaryCircuit: "ct_secondary_circuits",
         }
         try:
             return collections[record_type]
@@ -300,7 +302,7 @@ class InstrumentationWiringService:
             raise TypeError("tag_policy_inventory must be an InstrumentationWiringInventory.")
         for field in (
             "cables", "cores", "panel_wires", "signals", "signal_bindings", "endpoint_bindings", "connection_hops",
-            "terminal_blocks", "terminal_points", "terminal_accessories",
+            "terminal_blocks", "terminal_points", "terminal_accessories", "ct_secondary_circuits",
         ):
             if getattr(candidate, field) != getattr(self._inventory, field):
                 raise ValueError("Tag allocation candidate cannot contain record mutations.")
