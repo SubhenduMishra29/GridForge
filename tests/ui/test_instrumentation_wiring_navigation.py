@@ -125,3 +125,35 @@ def test_sld_consumer_navigation_fails_closed_after_endpoint_becomes_unresolved(
 
     assert result.success is False
     assert calls == []
+
+
+def test_sld_protection_consumer_navigation_selects_protection_element_owner():
+    application = _Application((
+        _resolution(
+            endpoint_kind="PROTECTION_INPUT",
+            endpoint_id="measurement-binding-2",
+            owner_id="protection-element-2",
+            port="phase_a",
+            binding_id="binding-2",
+        ),
+    ))
+    calls = []
+    navigator = InstrumentationWiringNavigator(
+        application=application,
+        activate_sld=lambda: None,
+        refresh_sld=lambda: None,
+        surface=_Surface(),
+        activate_editor=lambda editor: calls.append(("activate", editor)),
+        refresh_editor=lambda editor: calls.append(("refresh", editor)),
+        select_object=lambda object_id: calls.append(("select", object_id)),
+    )
+    target = navigator.provenance_targets()["signal-1"][0]
+
+    result = navigator.navigate_to_consumer(target)
+
+    assert result.success is True
+    assert calls == [
+        ("activate", "protection"),
+        ("refresh", "protection"),
+        ("select", "protection-element-2"),
+    ]
