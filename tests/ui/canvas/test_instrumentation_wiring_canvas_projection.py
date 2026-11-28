@@ -1,9 +1,12 @@
 """Canvas hand-off for the read-only physical instrumentation wiring projection."""
 
+import pytest
+
 from core.application.read_models import InstrumentationWiringReadModel
 from ui.canvas.sld_canvas_projection import SLDCanvasProjection
 from ui.sld.instrumentation_wiring_projection import SLDInstrumentationWiringAdapter
 from ui.sld.sld_model import SLDModel, SLDNode, SLDPresentationLayer
+from ui.sld.sld_document import SLDDocument
 
 
 def test_canvas_snapshot_contains_transient_physical_wiring_connections():
@@ -220,3 +223,68 @@ def test_terminal_block_projection_fails_closed_for_missing_panel_and_incomplete
     assert snapshot.annotations == ()
     assert any("panel PANEL-MISSING is absent" in item for item in snapshot.physical_wiring_diagnostics)
     assert any("declares 2 terminals but exposes 1" in item for item in snapshot.physical_wiring_diagnostics)
+
+
+def test_terminal_block_layout_offsets_and_visibility_are_projected_and_persisted():
+    model = SLDModel()
+    model.add_node(SLDNode(node_id="panel-layout-node", equipment_id="PANEL-LAYOUT"))
+    read_model = InstrumentationWiringReadModel(
+        project_id="project-layout",
+        activation_generation=1,
+        cables=(),
+        cores=(),
+        panel_wires=(),
+        signals=(),
+        signal_bindings=(),
+        tag_policy=(),
+        terminal_blocks=({
+            "id": "tb-layout", "tag": "TB-LAYOUT",
+            "panel_id": "PANEL-LAYOUT", "location": "MCC-LAYOUT",
+            "terminal_count": 2,
+        },),
+        terminal_points=(
+            {"id": "tp-layout-1", "terminal_block_id": "tb-layout",
+             "terminal_number": "1", "designation": "X1:1", "function": "FEED_THROUGH"},
+            {"id": "tp-layout-2", "terminal_block_id": "tb-layout",
+             "terminal_number": "2", "designation": "X1:2", "function": "FEED_THROUGH"},
+        ),
+    )
+    wiring = SLDInstrumentationWiringAdapter().project(read_model, model)
+    document = SLDDocument("sld-layout", project_id="project-layout")
+    document.set_instrumentation_terminal_block_layout(
+        "tb-layout", offset_x=135.5, offset_y=-42.0, visible=False,
+    )
+    restored = SLDDocument.from_dict(document.to_dict())
+    layouts = restored.instrumentation_terminal_block_layouts()
+    assert layouts == {
+        "tb-layout": {"offset_x": 135.5, "offset_y": -42.0, "visible": False},
+    }
+
+    snapshot = SLDCanvasProjection().project(
+        model,
+        instrumentation_wiring=wiring,
+        terminal_block_layouts=layouts,
+    )
+    block = next(item for item in snapshot.annotations if item.selection_kind == "terminal_block")
+    points = tuple(item for item in snapshot.annotations if item.selection_kind == "terminal_point")
+    assert (block.x, block.y, block.visible) == (135.5, -42.0, False)
+    assert {(item.x, item.y, item.visible) for item in points} == {
+        (135.5, -24.0, False),
+        (135.5, -8.0, False),
+    }
+    assert model.connection_count == 0
+
+    restored.clear_instrumentation_terminal_block_layout("tb-layout")
+    assert restored.instrumentation_terminal_block_layouts() == {}
+
+
+def test_terminal_block_layout_rejects_non_finite_offsets_and_non_boolean_visibility():
+    document = SLDDocument("sld-layout-invalid", project_id="project-layout")
+    with pytest.raises(ValueError, match="finite numbers"):
+        document.set_instrumentation_terminal_block_layout(
+            "tb-invalid", offset_x=float("nan"), offset_y=0.0,
+        )
+    with pytest.raises(ValueError, match="visible must be boolean"):
+        document.set_instrumentation_terminal_block_layout(
+            "tb-invalid", offset_x=0.0, offset_y=0.0, visible=1,
+        )
