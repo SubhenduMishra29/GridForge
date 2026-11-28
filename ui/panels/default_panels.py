@@ -806,7 +806,16 @@ class PropertiesPanelWidget(QWidget):
         controller = self._sld_controller
         document = getattr(controller, "active_document", None) if controller is not None else None
         node = self._selected_sld_node()
-        if document is None or node is None:
+        if document is None:
+            layout.addRow(QLabel("Select one SLD object to configure its presentation.", self))
+            self._refresh_inspector_tab_order()
+            return
+
+        if self._add_terminal_block_layout_controls(layout, controller, document):
+            self._refresh_inspector_tab_order()
+            return
+
+        if node is None:
             layout.addRow(QLabel("Select one SLD node to configure its data annotation.", self))
             self._refresh_inspector_tab_order()
             return
@@ -847,6 +856,119 @@ class PropertiesPanelWidget(QWidget):
         add_button.clicked.connect(lambda _checked=False, nid=node.node_id: self._add_sld_annotation(nid))
         layout.addRow(add_button)
         self._refresh_inspector_tab_order()
+
+    def _add_terminal_block_layout_controls(
+        self, layout: Any, controller: Any, document: Any,
+    ) -> bool:
+        """Expose persisted SLD layout controls for one canonical terminal selection."""
+        if len(self._sld_selection_ids) != 1:
+            return False
+        selected_id = self._sld_selection_ids[0]
+        block_id = None
+        if selected_id.startswith("__gf_terminal_block__:"):
+            block_id = selected_id.split(":", 1)[1]
+        elif selected_id.startswith("__gf_terminal_point__:"):
+            point_id = selected_id.split(":", 1)[1]
+            try:
+                inventory = controller.application.read_instrumentation_wiring()
+            except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+                layout.addRow(QLabel(f"Terminal layout unavailable: {exc}", self))
+                return True
+            points = tuple(
+                item for item in inventory.terminal_points
+                if str(item.get("id", "")) == point_id
+            )
+            if len(points) != 1:
+                layout.addRow(QLabel(
+                    "Selected terminal point is missing or ambiguous in the active Application inventory.",
+                    self,
+                ))
+                return True
+            block_id = str(points[0].get("terminal_block_id", ""))
+            if not block_id:
+                layout.addRow(QLabel(
+                    "Selected terminal point has no canonical terminal-block identity.",
+                    self,
+                ))
+                return True
+        if not block_id:
+            return False
+        try:
+            inventory = controller.application.read_instrumentation_wiring()
+            blocks = tuple(
+                item for item in inventory.terminal_blocks
+                if str(item.get("id", "")) == block_id
+            )
+            if len(blocks) != 1:
+                raise ValueError("Selected terminal block is missing or ambiguous in the active Application inventory.")
+            layouts = document.instrumentation_terminal_block_layouts()
+            values = layouts.get(block_id, {
+                "offset_x": 70.0, "offset_y": 60.0, "visible": True,
+            })
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            layout.addRow(QLabel(f"Terminal layout unavailable: {exc}", self))
+            return True
+
+        block = blocks[0]
+        layout.addRow(QLabel(
+            f"Terminal block: {block.get('tag', block_id)} · {block_id}", self,
+        ))
+        layout.addRow(QLabel(
+            f"Panel: {block.get('panel_id', '')} · Location: {block.get('location', '')}",
+            self,
+        ))
+        offset_x = QDoubleSpinBox(self)
+        offset_y = QDoubleSpinBox(self)
+        for control, key in ((offset_x, "offset_x"), (offset_y, "offset_y")):
+            control.setRange(-1000000.0, 1000000.0)
+            control.setDecimals(2)
+            control.setValue(float(values[key]))
+        visible = QCheckBox("Show terminal block and point labels", self)
+        visible.setChecked(bool(values["visible"]))
+        layout.addRow("Offset X", offset_x)
+        layout.addRow("Offset Y", offset_y)
+        layout.addRow(visible)
+        apply_button = QPushButton("Apply Terminal Layout", self)
+        apply_button.setObjectName("ApplyTerminalBlockLayout")
+        apply_button.clicked.connect(
+            lambda _checked=False, bid=block_id, ox=offset_x, oy=offset_y, vis=visible:
+                self._save_terminal_block_layout(bid, ox.value(), oy.value(), vis.isChecked())
+        )
+        reset_button = QPushButton("Reset Terminal Layout", self)
+        reset_button.setObjectName("ResetTerminalBlockLayout")
+        reset_button.clicked.connect(
+            lambda _checked=False, bid=block_id: self._reset_terminal_block_layout(bid)
+        )
+        layout.addRow(apply_button, reset_button)
+        return True
+
+    def _save_terminal_block_layout(
+        self, block_id: str, offset_x: float, offset_y: float, visible: bool,
+    ) -> None:
+        controller = self._sld_controller
+        if controller is None:
+            return
+        try:
+            controller.set_instrumentation_terminal_block_layout(
+                block_id, offset_x=offset_x, offset_y=offset_y, visible=visible,
+            )
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Terminal layout update rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
+
+    def _reset_terminal_block_layout(self, block_id: str) -> None:
+        controller = self._sld_controller
+        if controller is None:
+            return
+        try:
+            controller.clear_instrumentation_terminal_block_layout(block_id)
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
+            if self._validation_label is not None:
+                self._validation_label.setText(f"Terminal layout reset rejected: {exc}")
+            return
+        self._refresh_sld_annotation_controls()
 
     def _save_sld_annotation(
         self, block_id: str, fields_text: str, visible: bool, offset_x: float, offset_y: float
