@@ -81,6 +81,7 @@ from .temperature_instrument import (
     TemperatureTerminalMapping, TemperatureReceiverInputKind, TemperatureReceiverInput,
     TemperatureAlarmTripBinding, TemperatureThermocoupleCableClass,
     TemperatureThermocoupleCableSpec, TemperatureInstrumentInventory,
+    TemperatureCalibrationPoint, TemperatureCalibrationRecord,
 )
 
 __all__ = (
@@ -88,5 +89,5 @@ __all__ = (
     "Breaker", "Disconnector", "Fuse", "Load", "Generator", "SynchronousMachine", "SyncMachine", "Motor",
     "Shunt", "Capacitor", "Reactor", "Solar", "Battery", "Grid", "CTPolarity", "CurrentTransformer", "PT",
     "PotentialTransformer", "CVT", "Relay", "WiringTerminalReference", "WiringConductorRole", "SignalKind", "CarrierKind", "CableAssembly", "CableCore", "PanelWire", "SignalDefinition", "SignalCarrierBinding", "SignalEndpointKind", "SignalEndpointReference", "SignalEndpointBinding", "PhysicalConnectionHop", "TerminalAccessoryKind", "TerminalAccessoryState", "TerminalBlock", "TerminalPoint", "TerminalAccessory", "CTSecondaryCircuitState", "CTSecondaryCircuit", "WiringTagSeries", "WiringTagPolicy", "InstrumentationWiringInventory", "EndpointReference", "EndpointReferenceKind", "EquipmentType", "TemperatureService", "TemperatureSensorTechnology", "TemperatureInputMode", "TemperatureConsumerKind", "TemperatureInstrument", "TemperatureInterfaceDevice", "TemperatureTerminalMapping", "TemperatureReceiverInputKind", "TemperatureReceiverInput", "TemperatureThermocoupleCableClass", "TemperatureThermocoupleCableSpec",
-    "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory",
+    "TemperatureAlarmTripBinding", "TemperatureInstrumentInventory", "TemperatureCalibrationPoint", "TemperatureCalibrationRecord",
 )

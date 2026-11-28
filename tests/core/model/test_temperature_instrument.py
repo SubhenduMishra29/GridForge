@@ -387,3 +387,82 @@ def test_project_thermocouple_catalogue_rejects_duplicate_type_designation():
     )
     with pytest.raises(ValueError, match="duplicate type/designation"):
         TemperatureInstrumentInventory(thermocouple_cable_specs=(first, second))
+
+
+def test_temperature_calibration_evidence_is_typed_monotonic_and_owned_by_instrument():
+    from core.model import TemperatureCalibrationPoint, TemperatureCalibrationRecord
+
+    instrument = TemperatureInstrument(
+        id="temp-cal-1", tag="BTD-CAL-1", service=TemperatureService.BTD,
+        asset_id="motor-1", location="DE bearing", sensor_equipment_id="rtd-cal-1",
+        sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.DIRECT_SENSOR,
+        unit="degC", calibration_id="cal-1",
+    )
+    calibration = TemperatureCalibrationRecord(
+        id="cal-1", instrument_id=instrument.id, revision="REV-A",
+        input_unit="ohm", output_unit="degC",
+        points=(
+            TemperatureCalibrationPoint(100.0, 0.0),
+            TemperatureCalibrationPoint(138.5, 100.0),
+        ),
+        calibration_standard="LAB-CERT-2026-001",
+        calibrated_at="2026-10-01T09:00:00+05:30",
+        valid_until="2027-10-01T09:00:00+05:30",
+        expanded_uncertainty=0.25,
+    )
+    inventory = TemperatureInstrumentInventory(
+        instruments=(instrument,), calibrations=(calibration,),
+    )
+    assert inventory.calibrations == (calibration,)
+
+    mismatched = TemperatureInstrument(
+        id="temp-cal-2", tag="BTD-CAL-2", service=TemperatureService.BTD,
+        asset_id="motor-1", location="NDE bearing", sensor_equipment_id="rtd-cal-2",
+        sensor_technology=TemperatureSensorTechnology.RTD,
+        input_mode=TemperatureInputMode.DIRECT_SENSOR,
+        unit="degF", calibration_id="cal-1",
+    )
+    mismatched_calibration = TemperatureCalibrationRecord(
+        id="cal-2", instrument_id=mismatched.id, revision="REV-A",
+        input_unit="ohm", output_unit="degC",
+        points=(
+            TemperatureCalibrationPoint(100.0, 0.0),
+            TemperatureCalibrationPoint(138.5, 100.0),
+        ),
+        calibration_standard="LAB-CERT-2026-002",
+        calibrated_at="2026-10-01T09:00:00+05:30",
+    )
+    with pytest.raises(ValueError, match="output unit does not match"):
+        TemperatureInstrumentInventory(
+            instruments=(mismatched,), calibrations=(mismatched_calibration,),
+        )
+
+
+def test_temperature_calibration_rejects_invalid_points_uncertainty_and_naive_time():
+    from core.model import TemperatureCalibrationPoint, TemperatureCalibrationRecord
+
+    with pytest.raises(ValueError, match="not boolean"):
+        TemperatureCalibrationPoint(True, 20.0)
+    with pytest.raises(ValueError, match="strictly monotonic"):
+        TemperatureCalibrationRecord(
+            id="cal-nonmonotonic", instrument_id="temp-1", revision="A",
+            input_unit="ohm", output_unit="degC",
+            points=(TemperatureCalibrationPoint(100, 0), TemperatureCalibrationPoint(200, 0)),
+            calibration_standard="CERT-1", calibrated_at="2026-10-01T09:00:00Z",
+        )
+    with pytest.raises(ValueError, match="explicit UTC offset"):
+        TemperatureCalibrationRecord(
+            id="cal-naive", instrument_id="temp-1", revision="A",
+            input_unit="ohm", output_unit="degC",
+            points=(TemperatureCalibrationPoint(100, 0), TemperatureCalibrationPoint(200, 100)),
+            calibration_standard="CERT-1", calibrated_at="2026-10-01T09:00:00",
+        )
+    with pytest.raises(ValueError, match="cannot be negative"):
+        TemperatureCalibrationRecord(
+            id="cal-negative-uncertainty", instrument_id="temp-1", revision="A",
+            input_unit="ohm", output_unit="degC",
+            points=(TemperatureCalibrationPoint(100, 0), TemperatureCalibrationPoint(200, 100)),
+            calibration_standard="CERT-1", calibrated_at="2026-10-01T09:00:00Z",
+            expanded_uncertainty=-0.1,
+        )
