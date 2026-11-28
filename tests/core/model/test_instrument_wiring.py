@@ -650,6 +650,15 @@ def test_ct_secondary_circuit_requires_distinct_s1_s2_routes_and_explicit_shorti
     )
     assert inventory.ct_secondary_circuits == (circuit,)
 
+    from dataclasses import replace
+    with pytest.raises(ValueError, match="does not terminate at its declared shorting-link terminal point"):
+        InstrumentationWiringInventory(
+            cables=(cable,), cores=(core_s1, core_s2),
+            terminal_blocks=(block,), terminal_points=(point_s1, point_s2),
+            terminal_accessories=(shorting,),
+            ct_secondary_circuits=(replace(circuit, shorting_s1_terminal_point_id=point_s2.id),),
+        )
+
     with pytest.raises(ValueError, match="S1 reference"):
         CTSecondaryCircuit(
             id="ct-invalid", ct_id="CT-1", phase="A",
