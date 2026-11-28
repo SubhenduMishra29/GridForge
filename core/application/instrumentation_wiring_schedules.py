@@ -32,6 +32,11 @@ def build_instrumentation_wiring_schedules(
     """
     if not isinstance(wiring, InstrumentationWiringReadModel):
         raise TypeError("wiring must be an InstrumentationWiringReadModel.")
+    for resolution in endpoint_resolutions:
+        if getattr(resolution, "project_id", None) != wiring.project_id:
+            raise ValueError("Endpoint resolution belongs to a different project snapshot.")
+        if getattr(resolution, "activation_generation", None) != wiring.activation_generation:
+            raise ValueError("Endpoint resolution belongs to a different project activation generation.")
 
     cables = {str(item["id"]): item for item in wiring.cables}
     cores = {str(item["id"]): item for item in wiring.cores}
