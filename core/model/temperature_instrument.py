@@ -417,6 +417,8 @@ class TemperatureCalibrationRecord:
             expiry = datetime.fromisoformat(self.valid_until.replace("Z", "+00:00")) if self.valid_until else None
         except ValueError as exc:
             raise ValueError("Calibration timestamps must use ISO-8601 format.") from exc
+        if calibrated.utcoffset() is None or (expiry is not None and expiry.utcoffset() is None):
+            raise ValueError("Calibration timestamps must include an explicit UTC offset.")
         if expiry is not None and expiry <= calibrated:
             raise ValueError("valid_until must be later than calibrated_at.")
         points = tuple(self.points)
