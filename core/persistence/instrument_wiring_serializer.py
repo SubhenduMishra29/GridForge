@@ -288,6 +288,31 @@ def deserialize_instrumentation_wiring(data: Mapping[str, Any] | None) -> Instru
                     for pair in pairs
                 ):
                     raise InstrumentationWiringSerializationError("Terminal accessory conductive_pairs must be an array of two-string arrays.")
+        if schema >= 8:
+            for item in data["ct_secondary_circuits"]:
+                _check_record_fields(
+                    item,
+                    required={
+                        "id", "ct_id", "phase", "s1_terminal", "s2_terminal",
+                        "s1_carrier_ids", "s2_carrier_ids", "shorting_accessory_id",
+                        "shorting_s1_terminal_point_id", "shorting_s2_terminal_point_id",
+                    },
+                    optional={"secondary_state", "test_disconnect_accessory_id"},
+                    label="CT secondary circuit",
+                )
+                _terminal_from_dict(item["s1_terminal"], schema=schema)
+                _terminal_from_dict(item["s2_terminal"], schema=schema)
+                for field_name in ("s1_carrier_ids", "s2_carrier_ids"):
+                    values = item[field_name]
+                    if (
+                        not isinstance(values, list)
+                        or not values
+                        or any(not isinstance(value, str) or not value.strip() for value in values)
+                        or len(values) != len(set(values))
+                    ):
+                        raise InstrumentationWiringSerializationError(
+                            f"CT secondary circuit {field_name} must be a non-empty array of unique strings."
+                        )
         if schema >= 6:
             for item in data["endpoint_bindings"]:
                 endpoint = item.get("endpoint")
