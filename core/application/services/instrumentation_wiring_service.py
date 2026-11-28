@@ -674,6 +674,7 @@ class InstrumentationWiringService:
                 "terminal_blocks": len(replacement.terminal_blocks),
                 "terminal_points": len(replacement.terminal_points),
                 "terminal_accessories": len(replacement.terminal_accessories),
+                "ct_secondary_circuits": len(replacement.ct_secondary_circuits),
                 "endpoint_bindings": len(replacement.endpoint_bindings),
             },
         )
