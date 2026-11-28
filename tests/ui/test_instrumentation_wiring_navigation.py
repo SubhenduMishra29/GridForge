@@ -65,6 +65,7 @@ def test_provenance_targets_exposes_only_current_resolved_consumers():
         ),
         _resolution(endpoint_id="unresolved-component", status="UNRESOLVED", binding_id="binding-3"),
         _resolution(endpoint_id="stale-component", generation=6, binding_id="binding-4"),
+        _resolution(endpoint_id="ambiguous-component", status="AMBIGUOUS", binding_id="binding-5"),
     ))
     navigator = InstrumentationWiringNavigator(
         application=application,

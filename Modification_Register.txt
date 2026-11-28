@@ -7238,7 +7238,7 @@ Correction:
   owner and port identity, then activates and refreshes the owning Control or
   Protection editor and selects its canonical UI object.
 - Only RESOLVED endpoints with current project activation identity and a
-  non-empty physical carrier path are offered. Stale or unresolved bindings
+  non-empty physical carrier path are offered. Ambiguous, stale or unresolved bindings
   are not navigable.
 - Existing Control/Protection-to-SLD route highlighting remains unchanged.
 - No cable, core, terminal, signal, topology or canvas-owned engineering
