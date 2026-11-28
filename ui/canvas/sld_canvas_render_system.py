@@ -81,6 +81,11 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
     def commit_drag_position(self) -> bool:
         """Persist the current graphics position as panel-relative SLD metadata."""
         position = self.pos()
+        # The commit callback synchronously refreshes the canvas and may
+        # replace/delete this graphics item. Capture the accepted position
+        # before crossing that callback boundary; do not dereference the item
+        # after a successful callback.
+        self._position_before_drag = position
         try:
             self._on_commit(
                 self._layout_identity,
@@ -94,7 +99,6 @@ class _TerminalBlockAnnotationItem(QGraphicsTextItem):
                 self._layout_identity,
             )
             return False
-        self._position_before_drag = self.pos()
         return True
 
     def mouseReleaseEvent(self, event: Any) -> None:
