@@ -7027,3 +7027,81 @@ Verification boundary:
   schedules, domain-specific wiring safety, persistence acceptance and
   protection integration remain broader outstanding requirements.
 ======================================================================
+
+GridForge V2 — SLD terminal-block layout and visibility
+Date: 2026-11-27
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-terminal-block-layout-visibility
+Issue: #1203
+
+Correction:
+- Added SLDDocument metadata-backed, per-terminal-block presentation offsets
+  and visibility, validated as finite offsets and a strict boolean.
+- Added SLDController methods that resolve the stable terminal-block ID and
+  require exactly one corresponding panel node in the active SLD document
+  before changing document-owned layout.
+- SLDCanvasProjection applies the offsets to the block label and all terminal
+  point labels, and carries visibility to the rendered annotations.
+- CanvasComposition supplies each document's layout metadata to projection.
+- Layout remains presentation-only; Core terminal identity, cable topology
+  and Application wiring records are unchanged. No Qt item is added to Core.
+
+Verification boundary:
+- Regression source covers document serialization/restore, custom offsets,
+  visibility and invalid layout values; tests have not been executed.
+- Static source reconciliation only. GUI drag/edit interaction and project
+  save/reopen acceptance remain outstanding. Issue #1203 remains open.
+
+UI integration follow-up:
+- Properties inspector now exposes terminal-block offset, visibility, Apply and
+  Reset controls when a canonical terminal block or one of its terminal points
+  is selected. A terminal-point selection resolves its parent block through the
+  active Application inventory; ambiguous/missing identities remain read-only.
+- Existing engineering parameter Apply remains disabled for terminal blocks and
+  terminal points. Layout changes use the SLDController presentation API only.
+- Static source reconciliation only; no GUI/runtime execution or test/CI run.
+
+Canvas refresh lifecycle correction:
+- Terminal-block layout Apply/Reset previously changed persisted SLDDocument
+  metadata and marked the document dirty but did not reproject the live canvas.
+- Bound SLDController's presentation-only layout mutations to the owning
+  CanvasComposition.refresh_active_document callback. The composition retains
+  and releases the exact callback during its lifecycle; no scene or Qt object
+  enters Core.
+- The refresh path now supports compositions without DraftSLDProjection by
+  presenting an empty draft snapshot while still resolving the active
+  Application instrumentation projection.
+- Static source reconciliation only; no GUI/runtime interaction or tests run.
+
+
+2026-11-27 | PR #1272 | SLD terminal-block drag positioning and annotation density
+- Added stable terminal-block layout identity and panel-node anchor coordinates to the renderer-neutral SLD annotation projection. These values remain presentation metadata; no Core or Application electrical model was changed.
+- Terminal-block labels now use a dedicated movable graphics item. Drag release converts the final scene position into panel-relative offsets and commits through SLDController.set_instrumentation_terminal_block_layout; terminal-point labels are regenerated from the same persisted block offset.
+- Bound the renderer callback through CanvasComposition and the existing SLDController presentation-refresh lifecycle. A failed persistence callback restores the pre-drag position and records a renderer log.
+- Added presentation-only annotation density presets (Minimal, Standard, All) to the SLD header. Density filters by annotation priority and does not mutate persisted document metadata or Application/Core records.
+- Static source reconciliation only. No tests, CI, import smoke, GUI interaction, or save/reopen acceptance were executed. PR remains draft pending final review of callback lifecycle, renderer behavior, and any remaining #1203 requirements.
+
+- The canonical SelectTool dispatches canvas mouse events before Qt's graphics-item handlers; terminal-block dragging is therefore integrated into SelectTool using the hit's stable annotation identity. It moves only the terminal-block label and commits through the renderer item's explicit commit method; terminal-point labels remain non-movable and follow the refreshed block offset.
+
+- Input-path reconciliation: GraphicsView dispatches pointer events to InteractionManager/SelectTool before Qt's native scene-item handlers. SelectTool now resolves the terminal-block annotation by stable presentation identity, moves only that annotation during the drag, and invokes its explicit persistence commit on release; rejected commits restore the captured pre-drag position. Terminal-point selection remains click-only.
+
+
+======================================================================
+GridForge V2 — Terminal-block drag commit callback lifetime correction
+Date: 2026-11-28
+Repository: SubhenduMishra29/GridForge
+Branch: feat/issue-1203-terminal-block-layout-visibility
+PR: #1272
+
+Correction:
+- Terminal-block drag commit captures the accepted graphics position before
+  invoking the controller callback. The callback synchronously refreshes the
+  canvas and may replace the old graphics item; the success path no longer
+  dereferences that item after the callback returns.
+- Failed persistence restores the prior drag position when the graphics item
+  remains alive and tolerates a refresh that already replaced the item.
+
+Verification boundary:
+- Source-level reconciliation only. No Qt interaction, tests, imports or GUI
+  runtime were executed. PR #1272 remains subject to final merge reconciliation.
+======================================================================
