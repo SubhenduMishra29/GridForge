@@ -967,9 +967,9 @@ class InstrumentationWiringInventory:
             for carrier_id in circuit.s1_carrier_ids + circuit.s2_carrier_ids:
                 if carrier_id not in carrier_by_id:
                     raise ValueError(f"CT secondary circuit '{circuit.id}' references missing carrier '{carrier_id}'.")
-            for route_name, carrier_ids, source_terminal in (
-                ("S1", circuit.s1_carrier_ids, circuit.s1_terminal),
-                ("S2", circuit.s2_carrier_ids, circuit.s2_terminal),
+            for route_name, carrier_ids, source_terminal, target_point_id in (
+                ("S1", circuit.s1_carrier_ids, circuit.s1_terminal, circuit.shorting_s1_terminal_point_id),
+                ("S2", circuit.s2_carrier_ids, circuit.s2_terminal, circuit.shorting_s2_terminal_point_id),
             ):
                 route = [carrier_by_id[item] for item in carrier_ids]
                 if any(len(carrier.terminal_path) < 2 for carrier in route):
@@ -984,6 +984,14 @@ class InstrumentationWiringInventory:
                     right_ends = {right.terminal_path[0].canonical_identity, right.terminal_path[-1].canonical_identity}
                     if not left_ends.intersection(right_ends):
                         raise ValueError(f"CT secondary {route_name} carrier chain '{circuit.id}' is discontinuous.")
+                final_path = route[-1].terminal_path
+                if not any(
+                    reference.terminal_point_id == target_point_id
+                    for reference in (final_path[0], final_path[-1])
+                ):
+                    raise ValueError(
+                        f"CT secondary {route_name} route '{circuit.id}' does not terminate at its declared shorting-link terminal point."
+                    )
             accessory = accessory_by_id.get(circuit.shorting_accessory_id)
             if accessory is None or accessory.kind is not TerminalAccessoryKind.SHORTING_LINK:
                 raise ValueError(f"CT secondary circuit '{circuit.id}' requires a registered SHORTING_LINK accessory.")
